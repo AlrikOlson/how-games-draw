@@ -1,10 +1,10 @@
 // usage: node shared/peek.js pages/foo.html out.png [width] [css-selector]
 // Screenshots just the element matched by the selector (default: first section) at the given width.
 // With selector "overflow" it instead lists elements wider than the viewport.
-const { chromium } = require('playwright'); const fs = require('fs');
+const { chromium } = require(process.env.PLAYWRIGHT || 'playwright'); const fs = require('fs');
 (async () => {
   const [,, file, out, w, sel] = process.argv;
-  const b = await chromium.launch({ executablePath: require('os').homedir() + '/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe' });
+  const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
   const p = await b.newPage({ viewport: { width: +(w || 1600), height: 1000 } });
   const html = fs.readFileSync(file, 'utf8');
   const doc = /^\s*<!doctype/i.test(html) ? html : '<!doctype html><html><head><meta charset="utf-8"></head><body>' + html + '</body></html>';

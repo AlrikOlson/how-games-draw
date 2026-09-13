@@ -1,9 +1,9 @@
 // usage: node shot.js pages/foo.html shots/foo.png [width]
-const { chromium } = require('playwright');
+const { chromium } = require(process.env.PLAYWRIGHT || 'playwright');
 const fs = require('fs'); const path = require('path');
 (async () => {
   const [,, file, out, w] = process.argv;
-  const b = await chromium.launch({ executablePath: require('os').homedir() + '/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe' });
+  const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
   const p = await b.newPage({ viewport: { width: +(w||1100), height: 900 } });
   const errs = [];
   p.on('pageerror', e => errs.push('PAGEERROR: ' + e.message));
