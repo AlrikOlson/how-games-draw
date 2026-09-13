@@ -151,22 +151,22 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">10 m × 5.6 m side view · camera above · 320-texel depth strip · drag the white point</p>
+    <p class="eyebrow">a 10 m wide cellar in cross-section · the engine's camera looks straight down · its depth photo has 320 cells · drag the white point along any surface</p>
     <h1>Ambient Occlusion</h1>
     <p class="lead">Ambient occlusion darkens corners, creases and the ground under things, so objects look like they sit in the world instead of floating on it. It costs about a millisecond a frame and makes almost every scene read better, which is why nearly every game runs it. The thing people get wrong is what it should darken: only the soft light that comes from everywhere at once, never the direct light from the sun or a lamp. A sunlit corner already has real shadows and should not be darkened a second time.</p>
     <div class="key">
       <span style="--sw:#4aa3ff">ray that gets out, or a test point in open air</span>
       <span style="--sw:#f2a341">ray that hits something, or a test point that is buried</span>
       <span style="--sw:#ffffff">the point you drag, horizon lines</span>
-      <span style="--sw:#8a9098">the surface, shaded by AO: dark means buried</span>
+      <span style="--sw:#8a9098">the AO result, painted as a band along every surface: dark means buried</span>
     </div>
     <dl class="terms">
       <dt>ambient light</dt><dd>the soft light that arrives from every direction at once, with no single source</dd>
       <dt>occlusion</dt><dd>how much of the sky a point cannot see because something is in the way</dd>
       <dt>hemisphere</dt><dd>the half-dome of directions above a surface point; a half circle on this page</dd>
       <dt>normal</dt><dd>the direction a surface faces, straight out from it</dd>
-      <dt>depth buffer</dt><dd>an image where each pixel stores how far away the nearest surface is, not its colour</dd>
-      <dt>texel</dt><dd>one pixel of a texture such as the depth buffer</dd>
+      <dt>depth buffer</dt><dd>an image where each pixel stores how far away the nearest surface is, not its colour; the camera's depth photo</dd>
+      <dt>texel</dt><dd>one pixel of a texture such as the depth buffer; one cell of the photo</dd>
       <dt>sample</dt><dd>one test point or one ray; more samples means less noise and more cost</dd>
       <dt>horizon</dt><dd>in one direction, the steepest angle at which something blocks the view</dd>
     </dl>
@@ -175,24 +175,24 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 
   <section id="truth">
     <h2>The true answer: 64 rays per point</h2>
-    <p class="sub">Drag the white point along the surface and watch which of its 64 rays get out.</p>
+    <p class="sub">A player stands in a cellar with crates, a barrel and stone steps. Drag the white point along the floor, the crates or the steps and watch which of its 64 rays get out.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c1" width="640" height="360" class="r169 grab" aria-label="Side view of the scene with cosine-weighted rays cast from a surface point"></canvas>
+        <canvas id="c1" width="640" height="360" class="r169 grab" aria-label="Cross-section of a cellar with a player, a large crate, a barrel, a small crate and stone steps; 64 cosine-weighted rays fan out from a draggable surface point, blue where they escape and amber where they hit"></canvas>
         <div class="cap"><span id="c1-read"></span><span id="c1-cap"></span></div>
       </div>
       <div class="prose">
-        <p class="plain">Ambient occlusion asks one thing at every point on every surface: <b>how much sky can you see from here</b>. In an open field you see all of it; in a corner, half of it is wall. The way to find out is to <b>fire rays in every upward direction and count how many get away</b>. That count, as a fraction, is the AO value. This is slow, which is why the rest of the page is about faking it, but it is what every faster method is trying to match.</p>
+        <p class="plain">Ambient occlusion asks one thing at every point on every surface: <b>how much sky can you see from here</b>. On top of the crate you see most of it; on the floor between the barrel and the crate, almost none. The way to find out is to <b>fire rays in every upward direction and count how many get away</b>. That count, as a fraction, is the AO value. This is slow, which is why the rest of the page is about faking it, but it is what every faster method is trying to match.</p>
 
         <h3>What you're seeing</h3>
-        <p>A side view of a 10 m wide scene: flat ground, a box, a narrow crevice and a step up. The camera on this page looks straight down from above. From the white point, 64 rays fan out in a half circle. Blue rays escape past the dashed radius. Amber rays hit something first, with a dot where they stopped.</p>
-        <p>The surface itself is painted grey by the same test at every point. Bright means open sky, dark means buried.</p>
+        <p>A cross-section of a 10 m cellar: the player at the left, a big crate, a barrel, a small crate, and two stone steps up to the right. The engine's camera on this page looks straight down from above. From the white point, 64 rays fan out in a half circle. Blue rays escape past the dashed radius. Amber rays hit something first, with a dot where they stopped.</p>
+        <p>Every surface carries a grey band painted by the same test: bright means open sky, dark means buried. The darkest stretches are the floor between the player and the crate, and the gap between the barrel and the small crate.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Drag the point into the crevice between the box and the step. Nearly every ray turns amber and the readout drops toward 0.</li>
-          <li>Drag it onto the top of the box. The only thing a ray can hit is the ground far below, so most rays escape.</li>
-          <li>Push the radius to 3 m. The floor near the step gets darker, because more distant things now count as blockers.</li>
+          <li>Drag the point onto the floor between the barrel and the small crate. Nearly every ray turns amber and the readout drops toward 0.</li>
+          <li>Drag it onto the top of the big crate. The only things a ray can hit are the player and the floor far below, so most rays escape.</li>
+          <li>Push the radius to 3 m. The floor beside the steps gets darker, because more distant things now count as blockers.</li>
         </ul>
 
         <div class="controls" style="margin-top:14px">
@@ -202,7 +202,7 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
         <h3>The real version</h3>
         <p>The reference is a Monte Carlo estimate, which means it approximates an integral with random samples. From point <code>p</code>, shoot rays across the hemisphere, the half-dome of directions above the surface, and count the ones that travel the full distance <code>r</code> without hitting anything.</p>
         <p>The rays are not spread evenly. They are cosine-weighted: dense near the normal, the direction the surface faces, and sparse near the horizon. A ray that skims the surface would bring in little light anyway, so it gets fewer samples. With this spread the estimate is the plain average of hit or miss, with no extra weights.</p>
-        <p>The radius <code>r</code> is a design choice, not physics. A small <code>r</code> gives tight contact shadows in corners; a large one darkens whole rooms. Every method on this page uses the same <code>r</code>, and the 64-ray reference is what they all try to match for a fraction of the work.</p>
+        <p>The radius <code>r</code> is a design choice, not physics. A small <code>r</code> gives tight contact shadows where the crate meets the floor; a large one darkens the whole cellar. Every method on this page uses the same <code>r</code>, and the 64-ray reference is what they all try to match for a fraction of the work.</p>
         <p class="words">In words: average, over all upward directions with straight up counting most, whether a ray gets out.</p>
         <div class="math">AO(p) = (1/π) ∫_Ω V(p,ω) (n·ω) dω
         <span class="c">V = 1 if the ray escapes within r</span>
@@ -226,24 +226,24 @@ cosine pdf (n·ω)/π  ⇒  AO ≈ (1/N) Σ V(p, ω_i)
 
   <section id="ssao">
     <h2>SSAO: guessing from the depth buffer</h2>
-    <p class="sub">Move the point and watch each test sample get checked against the depth strip at the top.</p>
+    <p class="sub">The engine takes one depth photo of the cellar from above, the strip at the top. Move the point and watch each test sample get checked against that photo instead of the real crates.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" width="640" height="360" class="r169 grab" aria-label="SSAO kernel samples around a surface point, tested against the depth strip"></canvas>
+        <canvas id="c2" width="640" height="360" class="r169 grab" aria-label="The same cellar cross-section with the camera's depth photo as a strip along the top; SSAO test samples around a draggable point are blue in open air and amber where the depth photo says they are buried"></canvas>
         <div class="cap"><span id="c2-read"></span><span id="c2-cap"></span></div>
       </div>
       <div class="prose">
-        <p class="plain">Firing real rays is too slow for a game, so SSAO <b>cheats with the depth buffer</b>, the image the GPU already has that stores how far away each pixel's surface is. Around each pixel it <b>sprinkles a handful of test points</b> in a half-dome and asks, for each one, whether there is a surface in front of it. If the depth buffer says yes, that point <b>counts as blocked</b>. No rays, no scene, one lookup per point.</p>
+        <p class="plain">Firing real rays is too slow for a game, so SSAO <b>cheats with the depth buffer</b>, the image the GPU already has that stores how far away each pixel's surface is. Around each pixel it <b>sprinkles a handful of test points</b> in a half-dome and asks, for each one, whether there is a surface in front of it. If the depth buffer says yes, that point <b>counts as blocked</b>. No rays, no crates, one lookup per point.</p>
 
         <h3>What you're seeing</h3>
-        <p>The strip along the top is the depth buffer as the camera above sees it: 320 texels, each 3.1 cm wide, brighter where the surface is closer to the camera. Around the white point, each test sample is a dot. Blue dots sit in open air. Amber dots are under the stored surface, with a line up to the texel that said so. Hollow dots were under the surface but too far from the point in depth, so the range check threw them out.</p>
-        <p>The surface is shaded by the same test at every point, and the readout puts the result next to the 64-ray reference.</p>
+        <p>The strip along the top is the depth buffer, the camera's photo of the cellar from above: 320 cells, each 3.1 cm wide, brighter where the surface is closer to the camera. The player's head and the crate tops are bright, the floor is dark. Around the white point, each test sample is a dot. Blue dots sit in open air. Amber dots are under the stored surface, with a line up to the cell that said so. Hollow dots were under the surface but too far from the point in depth, so the range check threw them out.</p>
+        <p>The band along every surface is shaded by the same test, and the readout puts the result next to the 64-ray reference.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Switch the kernel to sphere with the point on flat ground. Half the samples land underground and the AO reads about 0.5 for a surface that should read 1.</li>
-          <li>Turn the range check off and drag the point onto the ground beside the box. Samples that land on the box top now count as blockers for the ground.</li>
-          <li>Pull the samples slider from 16 down to 4 and watch the shaded surface turn patchy.</li>
+          <li>Switch the kernel to sphere with the point on the open floor left of the steps. Half the samples land under the floor and the AO reads about 0.5 for a spot that should read 1.</li>
+          <li>Turn the range check off and drag the point onto the floor beside the big crate. Samples that land above the crate top now count as blockers for the floor.</li>
+          <li>Pull the samples slider from 16 down to 4 and watch the band turn patchy.</li>
         </ul>
 
         <div class="controls" style="margin-top:14px">
@@ -288,24 +288,24 @@ mat3 tbn = kernelBasis(n, noiseTex[ivec2(gl_FragCoord.xy) &amp; 3]);  <span clas
 
   <section id="horizon">
     <h2>Horizons: walk out, keep the steepest angle</h2>
-    <p class="sub">Move the point and watch the march in each direction find how high the blockers reach.</p>
+    <p class="sub">Same cellar, same depth photo. Move the point and watch the march to the left and to the right find how high the crates, the barrel and the player rise above it.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c3" width="640" height="360" class="r169 grab" aria-label="Horizon march along the depth buffer with the occluded wedge drawn"></canvas>
+        <canvas id="c3" width="640" height="360" class="r169 grab" aria-label="The cellar cross-section with a horizon march stepping left and right from a draggable point along the depth photo; amber wedges show the part of the half circle blocked by the crates and the player, blue the open part"></canvas>
         <div class="cap"><span id="c3-read"></span><span id="c3-cap"></span></div>
       </div>
       <div class="prose">
         <p class="plain">Instead of random test points, HBAO and GTAO <b>walk away from the pixel</b> in a few screen directions and, at each step, note how steeply the surface there rises above the point. The steepest angle found is the <b>horizon</b> in that direction, like the skyline you see from a street. <b>Everything below the horizon is blocked</b>, everything above is open. Two angles replace dozens of yes-or-no tests, and the result is <b>much less noisy for the same cost</b>.</p>
 
         <h3>What you're seeing</h3>
-        <p>The depth buffer is a single row here, so there are only two directions: left and right. The short white ticks are the steps of the march, out to the dashed radius. The white lines run to the sample that set each horizon, and the amber wedges under them are the blocked part of the half circle. The blue wedge between them is the open part.</p>
-        <p>The surface is shaded by whichever method is selected. The tiles compare both methods against the reference, and against SSAO given the same number of depth fetches, as an RMS error across the whole surface.</p>
+        <p>The depth photo is a single row here, so there are only two directions: left and right. The short white ticks are the steps of the march, out to the dashed radius. The white lines run to the sample that set each horizon, the top of the crate or the player's head, and the amber wedges under them are the blocked part of the half circle. The blue wedge between them is the open part.</p>
+        <p>The band along the surface is shaded by whichever method is selected. The tiles compare both methods against the reference, and against SSAO given the same number of depth fetches, as an RMS error across every surface in the cellar.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Drag the point next to the box. One amber wedge grows steep while the other stays flat, and the readout matches the reference closely.</li>
-          <li>Drop steps per direction to 2. The horizon still lands on something and the surface stays smooth; compare the two RMS error tiles.</li>
-          <li>Switch between HBAO and GTAO on the ground near the crevice. GTAO tracks the reference more closely at the same steps.</li>
+          <li>Drag the point onto the floor beside the big crate. The amber wedge on the crate's side grows steep while the other stays flat, and the readout matches the reference closely.</li>
+          <li>Drop steps per direction to 2. The horizon still lands on something and the band stays smooth; compare the two RMS error tiles.</li>
+          <li>Switch between HBAO and GTAO with the point on the floor between the barrel and the small crate. GTAO tracks the reference more closely at the same steps.</li>
         </ul>
 
         <div class="controls" style="margin-top:14px">
@@ -357,37 +357,37 @@ GTAO  h1, h2 = horizons from the view vector,
 
   <section id="denoise">
     <h2>Noise, blur, history</h2>
-    <p class="sub">Drag the tall box around a top-down yard and watch the four stages that turn a noisy AO image into a clean one.</p>
+    <p class="sub">The cellar floor seen from above, as the AO image the engine computes. Drag the crate around the floor and watch the four stages that turn a noisy AO image into a clean one; the inset shows the finished picture the player gets.</p>
     <div class="cols wide">
       <div class="vp">
-        <canvas id="c4" width="640" height="360" class="r169 grab" aria-label="Four panels: raw noisy AO, depth-blind blur, bilateral blur, temporal accumulation"></canvas>
+        <canvas id="c4" width="640" height="360" class="r169 grab" aria-label="Four panels of a cellar floor seen from above with a draggable crate, a barrel, a drain channel and a raised ledge: raw noisy AO, depth-blind blur, bilateral blur, and temporal accumulation with an inset of the coloured result the player sees"></canvas>
         <div class="cap"><span id="c4-read"></span><span id="c4-cap"></span></div>
       </div>
     </div>
     <div class="cols two below">
       <div class="prose">
-        <p class="plain">Twelve test points per pixel is nowhere near enough, so the raw AO image is <b>speckled with noise</b>. The trick is to make the noise a <b>repeating 4×4 pattern</b> and then <b>blur it away</b> in a way that stops at the edges of objects. Then the game <b>keeps a running average across frames</b>, so each pixel ends up drawing on hundreds of tests it never ran.</p>
+        <p class="plain">Twelve test points per pixel is nowhere near enough, so the raw AO image is <b>speckled with noise</b>. The trick is to make the noise a <b>repeating 4×4 pattern</b> and then <b>blur it away</b> in a way that stops at the edges of the crate. Then the game <b>keeps a running average across frames</b>, so each pixel ends up drawing on hundreds of tests it never ran.</p>
 
         <h3>What you're seeing</h3>
-        <p>A 160×90 depth render of a 16 m × 9 m yard seen from above, with a tall box you can drag. Panel 1 is the raw SSAO with 12 samples per pixel. Panel 2 is a plain 4×4 blur that ignores depth and smears a halo around the box. Panel 3 is a blur that checks depth and stops at the box edge. Panel 4 adds the previous frames on top.</p>
+        <p>A 160×90 depth render of a 16 m × 9 m cellar floor seen from above: a crate you can drag, a barrel, a drain channel across the floor and a raised ledge on the right. Panel 1 is the raw SSAO with 12 samples per pixel. Panel 2 is a plain 4×4 blur that ignores depth and smears a halo around the crate. Panel 3 is a blur that checks depth and stops at the crate's edge. Panel 4 adds the previous frames on top, and its inset multiplies that result over the coloured floor, which is what the player sees.</p>
         <p>The readout counts the depth fetches for the whole image and how long the JavaScript took.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Compare panels 2 and 3 at the box edge. Panel 2 has a bright halo on the floor and a dark bleed onto the box top; panel 3 has neither.</li>
-          <li>Untick "reject history on depth change" while the box moves. A ghost of the old occlusion trails behind it in panel 4.</li>
+          <li>Compare panels 2 and 3 at the crate's edge. Panel 2 has a bright halo on the floor and a dark bleed onto the crate top; panel 3 has neither.</li>
+          <li>Untick "reject history on depth change" while the crate moves. A ghost of the old occlusion trails behind it in panel 4 and in the inset.</li>
           <li>Push σ_z up to 1.5 m. The depth check stops mattering and panel 3 grows the same halo as panel 2.</li>
         </ul>
 
         <div class="controls" style="margin-top:14px">
           <div class="ctl"><label for="sigZ">σ_z <span class="val" id="sigZv">0.20 m</span></label><input type="range" id="sigZ" min="0.05" max="1.5" step="0.05" value="0.2"></div>
           <div class="ctl"><label for="alpha">History α <span class="val" id="alphav">0.10</span></label><input type="range" id="alpha" min="0.02" max="0.5" step="0.01" value="0.1"></div>
-          <div class="ctl chk"><input type="checkbox" id="anim" checked><label for="anim">move the box</label></div>
+          <div class="ctl chk"><input type="checkbox" id="anim" checked><label for="anim">move the crate</label></div>
           <div class="ctl chk"><input type="checkbox" id="reject" checked><label for="reject">reject history on depth change</label></div>
         </div>
 
         <h3>The real version</h3>
-        <p>Each pixel of a 4×4 tile rotates the sample kernel differently, so a 4×4 blur sees all 16 rotations, which is 192 effective samples. A blur that ignores depth smears the dark floor onto the box top and lightens the floor next to it: the halo in panel 2. The bilateral blur, a blur that weights each neighbour by how close its depth is, stops at the edge, panel 3.</p>
+        <p>Each pixel of a 4×4 tile rotates the sample kernel differently, so a 4×4 blur sees all 16 rotations, which is 192 effective samples. A blur that ignores depth smears the dark floor onto the crate top and lightens the floor next to it: the halo in panel 2. The bilateral blur, a blur that weights each neighbour by how close its depth is, stops at the edge, panel 3.</p>
         <p>Temporal accumulation blends in the previous frames, with a new noise phase every frame, panel 4. In a real engine the history has to be reprojected with motion vectors, the per-pixel record of where each point was last frame. Here the camera is fixed, so the only rejection needed is a depth mismatch.</p>
         <p class="words">In words: weight each neighbour by how similar its depth is, average, then blend a tenth of the new result into last frame's running total unless the depth changed.</p>
         <div class="math">w_ij    = exp(−Δz² / σ_z²),  Δz = z_j − z_i
@@ -423,23 +423,23 @@ aoOut = mix(h, blurred, alpha);</pre>
 
   <section id="beyond">
     <h2>What the depth buffer cannot see</h2>
-    <p class="sub">Drag the point under the table edge, then to the right end of the step, and compare the three methods.</p>
+    <p class="sub">The cellar again, now with a shelf over the ledge and the cellar wall just past the right edge of the screen. Drag the point onto the floor beside the shelf, then onto the top step beside the wall, and compare the three methods.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="640" height="360" class="r169 grab" aria-label="SSAO, distance-field AO and ray-traced AO compared where the depth buffer has no information"></canvas>
+        <canvas id="c5" width="640" height="360" class="r169 grab" aria-label="The cellar cross-section with a shelf over the ledge and a wall just outside the camera frame; SSAO, distance-field AO and ray-traced AO compared at a draggable point, with an amber fill showing everything the depth photo believes is solid"></canvas>
         <div class="cap"><span id="c5-read"></span><span id="c5-cap"></span></div>
       </div>
       <div class="prose">
-        <p class="plain">The depth buffer only knows about <b>the nearest surface in each pixel</b>, and nothing outside the frame. So SSAO thinks <b>everything under a table is solid</b> and <b>a wall just off screen does not exist</b>. Both mistakes shift as the camera turns, which is the crawling AO players notice. The only fix is to <b>ask the scene itself</b>, with a distance field or real rays, and that costs more.</p>
+        <p class="plain">The depth buffer only knows about <b>the nearest surface in each pixel</b>, and nothing outside the frame. So SSAO thinks <b>everything under the shelf is solid</b> and <b>the cellar wall just off screen does not exist</b>. Both mistakes shift as the camera turns, which is the crawling AO players notice. The only fix is to <b>ask the scene itself</b>, with a distance field or real rays, and that costs more.</p>
 
         <h3>What you're seeing</h3>
-        <p>The same scene plus a table and a wall just past the right edge. The dashed brackets mark the frame the camera can see. In SSAO mode the amber fill shows everything the depth buffer believes is solid: the whole column under each stored surface, and nothing outside the frame.</p>
+        <p>The same cellar plus a shelf on a post over the ledge, and the cellar wall just past the right edge. The dashed brackets mark the frame the camera can see. In SSAO mode the amber fill shows everything the depth photo believes is solid: the whole column under each stored surface, so all the air under the shelf, and nothing outside the frame.</p>
         <p>Switch methods and the marks change. SSAO shows its test dots. DFAO shows a fan of cones, each with circles for the distance-field steps and a number for how open that cone is. RTAO shows real rays. The tiles give each method's answer at the point with a rough cost, and the readout gives the 64-ray reference.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Drag the point to the ground beside the table edge. SSAO darkens it as if it stood against a wall, while the reference says it is mostly open.</li>
-          <li>Drag it to the right end of the step, under the wall. SSAO stays bright because the wall is off screen; DFAO and RTAO both find it.</li>
+          <li>Drag the point onto the floor just left of the shelf. SSAO darkens it as if it stood against a wall, while the reference says it is mostly open.</li>
+          <li>Drag it to the right end of the top step, beside the wall. SSAO stays bright because the wall is off screen; DFAO and RTAO both find it.</li>
           <li>Set RTAO to 1 ray per pixel. The answer becomes 0 or 1 with nothing in between, which is why RTAO always needs a denoiser.</li>
         </ul>
 
@@ -454,11 +454,11 @@ aoOut = mix(h, blurred, alpha);</pre>
         </div>
 
         <h3>The real version</h3>
-        <p>The depth buffer stores one surface per texel, the nearest. Everything behind it is assumed solid and everything outside the frame does not exist. Under the table, SSAO's samples land inside a volume the buffer thinks is filled, so the ground beside the table edge is darkened as if it stood against a wall. At the right end of the step the real wall is one texel outside the frame, so SSAO sees nothing and the ground stays bright. Both errors change as the camera pans, which is the view dependence that players notice as AO "crawling".</p>
+        <p>The depth buffer stores one surface per texel, the nearest. Everything behind it is assumed solid and everything outside the frame does not exist. Under the shelf, SSAO's samples land inside a volume the buffer thinks is filled, so the floor beside the shelf's edge is darkened as if it stood against a wall. At the right end of the top step the real wall is one texel outside the frame, so SSAO sees nothing and the step stays bright. Both errors change as the camera pans, which is the view dependence that players notice as AO "crawling".</p>
         <p>Distance-field AO (Unreal, 2014) cone-traces a signed distance field of the whole scene, on screen or not. A signed distance field is a 3D grid that stores, at every point, how far it is to the nearest surface. Along each cone the ratio of that distance to the cone's width says how much of the cone is still clear. Ray-traced AO is the reference itself with hardware rays, usually one ray per pixel and a denoiser. Both cost more per pixel; only they get these cases right.</p>
         <p class="words">In words: SSAO fails wherever the sample is in air but the buffer says solid, or off screen; DFAO takes the worst clearance along each cone; RTAO is the reference with fewer rays.</p>
         <div class="math">SSAO fails if z_buf(proj(s)) ≥ z(s) but s is in air
-     <span class="c">(under the table)</span>, or proj(s) is off screen
+     <span class="c">(under the shelf)</span>, or proj(s) is off screen
 DFAO vis_c = min_t sat(d(p + ω_c t) / (t tan θ))
      AO = Σ_c w_c vis_c / Σ_c w_c,  w_c = n·ω_c
 RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
@@ -525,15 +525,138 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
 </div>
 
 <script>
+// Rendering Library scene kit. Paste this whole block at the top of a page's <script> (no external
+// scripts are allowed). Small, flat, readable game-world props for 2D canvas demos. Every function
+// takes a ctx and draws in the current transform; sizes are in canvas pixels. Keep the mechanism
+// overlay (frustum lines, rays, samples, tests) in the library palette on top of these props.
+const KIT = {
+  // scene palette: props only; the mechanism overlay keeps amber / blue / white / green / red
+  grass: '#1f3a2a', grassLite: '#2a4d37', dirt: '#3b2f25', stone: '#4c5563', stoneLite: '#6b7585',
+  wood: '#7a4f2a', woodLite: '#a06a38', leaf: '#3f8f4a', leafLite: '#5ab562', roof: '#a5433a',
+  wallCol: '#c9c2b2', window: '#f5d67a', skin: '#e8b98a', shirt: '#4aa3ff', pants: '#2f3a55',
+  metal: '#8d95a3', flame: '#f2a341', sky: '#0b0e13', skyLite: '#141a26', water: '#1d4d73', cloud: '#c7cdd8',
+  shadow: 'rgba(0,0,0,0.35)'
+};
+// horizon band: dark sky above, ground below (side-view scenes)
+function kitGround(ctx, w, h, horizon) {
+  const g = ctx.createLinearGradient(0, 0, 0, horizon); g.addColorStop(0, KIT.sky); g.addColorStop(1, KIT.skyLite);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, horizon);
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, horizon, w, h - horizon);
+  ctx.fillStyle = KIT.grassLite; ctx.fillRect(0, horizon, w, 3);
+}
+// top-down ground with faint tile grid (top-down scenes)
+function kitTopGround(ctx, w, h, cell) {
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.beginPath();
+  for (let x = 0; x <= w; x += cell) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, h); }
+  for (let y = 0; y <= h; y += cell) { ctx.moveTo(0, y + 0.5); ctx.lineTo(w, y + 0.5); }
+  ctx.stroke();
+}
+// round tree, base at (x, y), s = trunk height
+function kitTree(ctx, x, y, s, tint) {
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, s * 0.55, s * 0.18, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.09, y - s, s * 0.18, s);
+  ctx.fillStyle = tint || KIT.leaf; ctx.beginPath(); ctx.arc(x, y - s * 1.25, s * 0.62, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.leafLite; ctx.beginPath(); ctx.arc(x - s * 0.2, y - s * 1.45, s * 0.3, 0, Math.PI * 2); ctx.fill();
+}
+// pine tree, base at (x, y)
+function kitPine(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.07, y - s * 0.4, s * 0.14, s * 0.4);
+  ctx.fillStyle = KIT.leaf;
+  for (let i = 0; i < 3; i++) { const yy = y - s * 0.35 - i * s * 0.42, ww = s * (0.7 - i * 0.16);
+    ctx.beginPath(); ctx.moveTo(x - ww, yy); ctx.lineTo(x + ww, yy); ctx.lineTo(x, yy - s * 0.55); ctx.closePath(); ctx.fill(); }
+}
+// house, bottom-left corner at (x, y), width w, wall height h
+function kitHouse(ctx, x, y, w, h, roofCol) {
+  ctx.fillStyle = KIT.wallCol; ctx.fillRect(x, y - h, w, h);
+  ctx.fillStyle = roofCol || KIT.roof; ctx.beginPath(); ctx.moveTo(x - w * 0.08, y - h); ctx.lineTo(x + w * 1.08, y - h); ctx.lineTo(x + w / 2, y - h - w * 0.45); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + w * 0.15, y - h * 0.75, w * 0.22, h * 0.3);
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x + w * 0.6, y - h * 0.6, w * 0.22, h * 0.6);
+}
+// wooden crate, centre (x, y), size s
+function kitCrate(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s / 2, y - s / 2, s, s);
+  ctx.strokeStyle = KIT.woodLite; ctx.lineWidth = Math.max(1, s * 0.08);
+  ctx.strokeRect(x - s / 2 + 1, y - s / 2 + 1, s - 2, s - 2);
+  ctx.beginPath(); ctx.moveTo(x - s / 2, y - s / 2); ctx.lineTo(x + s / 2, y + s / 2); ctx.moveTo(x + s / 2, y - s / 2); ctx.lineTo(x - s / 2, y + s / 2); ctx.stroke();
+}
+// stone wall segment from (x1, y1) to (x2, y2), thickness t (top-down or side)
+function kitWall(ctx, x1, y1, x2, y2, t) {
+  ctx.strokeStyle = KIT.stone; ctx.lineWidth = t; ctx.lineCap = 'butt'; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.strokeStyle = KIT.stoneLite; ctx.lineWidth = Math.max(1, t * 0.25); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+}
+// little player figure, feet at (x, y), height h, facing +1 right / -1 left
+function kitPlayer(ctx, x, y, h, facing) {
+  const f = facing || 1;
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, h * 0.28, h * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.pants; ctx.fillRect(x - h * 0.16, y - h * 0.42, h * 0.32, h * 0.42);
+  ctx.fillStyle = KIT.shirt; ctx.fillRect(x - h * 0.2, y - h * 0.78, h * 0.4, h * 0.38);
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y - h * 0.9, h * 0.14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#171a1f'; ctx.fillRect(x + f * h * 0.04, y - h * 0.93, h * 0.05, h * 0.04);
+}
+// top-down player: a circle with a facing wedge, centre (x, y), radius r, angle a (radians)
+function kitPlayerTop(ctx, x, y, r, a) {
+  ctx.fillStyle = KIT.shirt; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * r * 1.6, y + Math.sin(a) * r * 1.6); ctx.stroke();
+}
+// lamp post / torch, base at (x, y), height h; glow radius g (0 = none)
+function kitLamp(ctx, x, y, h, g) {
+  if (g > 0) { const gr = ctx.createRadialGradient(x, y - h, 0, x, y - h, g); gr.addColorStop(0, 'rgba(242,163,65,0.35)'); gr.addColorStop(1, 'rgba(242,163,65,0)'); ctx.fillStyle = gr; ctx.fillRect(x - g, y - h - g, g * 2, g * 2); }
+  ctx.fillStyle = KIT.metal; ctx.fillRect(x - h * 0.04, y - h, h * 0.08, h);
+  ctx.fillStyle = KIT.flame; ctx.beginPath(); ctx.arc(x, y - h, h * 0.12, 0, Math.PI * 2); ctx.fill();
+}
+// simple side-view car, bottom-left at (x, y), length L
+function kitCar(ctx, x, y, L, col) {
+  ctx.fillStyle = col || '#d8493f'; ctx.fillRect(x, y - L * 0.22, L, L * 0.2);
+  ctx.fillRect(x + L * 0.22, y - L * 0.4, L * 0.5, L * 0.2);
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + L * 0.26, y - L * 0.38, L * 0.42, L * 0.14);
+  ctx.fillStyle = '#171a1f'; ctx.beginPath(); ctx.arc(x + L * 0.22, y, L * 0.09, 0, Math.PI * 2); ctx.arc(x + L * 0.78, y, L * 0.09, 0, Math.PI * 2); ctx.fill();
+}
+// cloud, centre (x, y), width w
+function kitCloud(ctx, x, y, w, alpha) {
+  ctx.fillStyle = 'rgba(199,205,216,' + (alpha == null ? 0.35 : alpha) + ')';
+  ctx.beginPath(); ctx.arc(x - w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.arc(x, y - w * 0.08, w * 0.28, 0, Math.PI * 2); ctx.arc(x + w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.fill();
+}
+// plain-word label on the canvas with a dark pill behind it; anchor 'left' | 'center' | 'right'
+function kitLabel(ctx, text, x, y, anchor, col) {
+  ctx.font = '12px "IBM Plex Mono", Menlo, Consolas, monospace';
+  const w = ctx.measureText(text).width + 12, h = 18;
+  const x0 = anchor === 'center' ? x - w / 2 : anchor === 'right' ? x - w : x;
+  ctx.fillStyle = 'rgba(11,14,19,0.82)'; ctx.fillRect(x0, y - h / 2, w, h);
+  ctx.fillStyle = col || '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(text, x0 + 6, y + 1);
+}
+// arrow from (x1, y1) to (x2, y2) in a colour, for callouts
+function kitArrow(ctx, x1, y1, x2, y2, col, width) {
+  const a = Math.atan2(y2 - y1, x2 - x1), s = 7;
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = width || 1.5;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - s * Math.cos(a - 0.4), y2 - s * Math.sin(a - 0.4)); ctx.lineTo(x2 - s * Math.cos(a + 0.4), y2 - s * Math.sin(a + 0.4)); ctx.closePath(); ctx.fill();
+}
+// "what the player sees" inset frame: draws a titled box at (x, y, w, h); draw the picture inside afterwards
+function kitInset(ctx, x, y, w, h, title) {
+  ctx.fillStyle = 'rgba(11,14,19,0.92)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
+}
 (() => {
-  // ---------- world: side view, x 0..10 m, y up, canvas 640×360 at 64 px/m, y = 4.5 m at the top ----------
+  // ---------- world: a cellar in cross-section, x 0..10 m, y up, canvas 640×360 at 64 px/m, y = 4.5 m at the top ----------
   const W = 640, H = 360, PPM = 64, YTOP = 4.5, CAM = 4.5;
   const sx = x => x * PPM, sy = y => (YTOP - y) * PPM;
-  const RECTS_A = [[0, -2, 3.9, 0], [3.9, -2, 4.2, -0.8], [4.2, -2, 6.5, 0], [6.5, -2, 10, 0.8], [1.3, 0, 2.5, 1.3]];
-  const RECTS_B = RECTS_A.concat([[6.0, 1.9, 7.8, 2.05], [7.55, 0.8, 7.8, 1.9], [9.3, -2, 10, 3.2]]);
+  // [x0, y0, x1, y1, kind]; the engine's camera looks straight down, so the top edge of each rect is what it photographs
+  const RECTS_A = [
+    [0, -2, 10, 0, "floor"],
+    [6.5, -2, 10, 0.8, "step"],
+    [8.0, -2, 10, 1.6, "step"],
+    [0.55, 0, 1.25, 1.7, "player"],
+    [1.7, 0, 2.9, 1.2, "crate"],
+    [3.5, 0, 4.3, 1.1, "barrel"],
+    [4.6, 0, 5.4, 0.8, "crate"]
+  ];
+  const RECTS_B = RECTS_A.concat([[6.0, 1.9, 7.8, 2.05, "shelf"], [7.55, 0.8, 7.8, 1.9, "post"], [9.3, -2, 10, 3.2, "wall"]]);
   const FRAME = [0.5, 9.3];
   const NB = 320, TEX = 10 / NB;
-  const AMBER = "#f2a341", BLUE = "#4aa3ff", WHITE = "#ffffff", GRID = "rgba(255,255,255,0.12)", SOLID = "#1a1f27";
+  const AMBER = "#f2a341", BLUE = "#4aa3ff", WHITE = "#ffffff", GRID = "rgba(255,255,255,0.12)";
 
   function heightAt(rects, x) { let h = -2; for (const r of rects) if (x >= r[0] && x < r[2] && r[3] > h) h = r[3]; return h; }
   function depthBuffer(rects, xa, xb) {
@@ -587,19 +710,86 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
   function hash(i) { let x = (i * 2654435761) >>> 0; x ^= x >>> 15; x = Math.imul(x, 2246822519) >>> 0; x ^= x >>> 13; return (x >>> 0) / 4294967296; }
   function rng(seed) { let a = (seed * 1103515245 + 12345) >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
-  // ---------- drawing ----------
-  function drawWorld(ctx, rects, opts = {}) {
-    ctx.fillStyle = "#0b0e13"; ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = GRID; ctx.lineWidth = 1; ctx.beginPath();
-    for (let x = 1; x < 10; x++) { ctx.moveTo(sx(x) + 0.5, 0); ctx.lineTo(sx(x) + 0.5, H); }
-    for (let y = -1; y <= 4; y++) { ctx.moveTo(0, sy(y) + 0.5); ctx.lineTo(W, sy(y) + 0.5); }
+  // ---------- the cellar: props drawn once per rect set into an offscreen canvas ----------
+  function stoneBlock(ctx, x0, y0, x1, y1, col) {
+    ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, x1 - x0, y1 - y0); ctx.clip();
+    ctx.fillStyle = col; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    ctx.strokeStyle = "rgba(0,0,0,0.38)"; ctx.lineWidth = 2; ctx.beginPath();
+    let row = 0;
+    for (let y = y0; y < y1; y += 22, row++) {
+      ctx.moveTo(x0, y + 0.5); ctx.lineTo(x1, y + 0.5);
+      for (let x = x0 + ((row & 1) ? 26 : 0); x < x1; x += 52) { ctx.moveTo(x + 0.5, y); ctx.lineTo(x + 0.5, y + 22); }
+    }
+    ctx.stroke(); ctx.restore();
+    ctx.fillStyle = "rgba(255,255,255,0.10)"; ctx.fillRect(x0, y0, x1 - x0, 2);
+  }
+  function propBarrel(ctx, x0, y0, x1, y1) {
+    const w = x1 - x0, h = y1 - y0, rr = Math.min(9, w * 0.18);
+    ctx.fillStyle = KIT.wood; ctx.beginPath();
+    ctx.moveTo(x0 + rr, y0); ctx.lineTo(x1 - rr, y0); ctx.quadraticCurveTo(x1, y0, x1, y0 + rr); ctx.lineTo(x1, y1 - rr); ctx.quadraticCurveTo(x1, y1, x1 - rr, y1);
+    ctx.lineTo(x0 + rr, y1); ctx.quadraticCurveTo(x0, y1, x0, y1 - rr); ctx.lineTo(x0, y0 + rr); ctx.quadraticCurveTo(x0, y0, x0 + rr, y0); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.3)"; ctx.lineWidth = 1; ctx.beginPath();
+    for (let k = 1; k < 5; k++) { const x = x0 + w * k / 5; ctx.moveTo(x + 0.5, y0 + 2); ctx.lineTo(x + 0.5, y1 - 2); }
     ctx.stroke();
-    ctx.fillStyle = SOLID; for (const r of rects) ctx.fillRect(sx(r[0]), sy(r[3]), (r[2] - r[0]) * PPM, (r[3] - r[1]) * PPM);
-    ctx.strokeStyle = "rgba(255,255,255,0.25)"; for (const r of rects) ctx.strokeRect(sx(r[0]) + 0.5, sy(r[3]) + 0.5, (r[2] - r[0]) * PPM, (r[3] - r[1]) * PPM);
+    ctx.fillStyle = KIT.metal; ctx.fillRect(x0, y0 + h * 0.16, w, 4); ctx.fillRect(x0, y0 + h * 0.76, w, 4);
+  }
+  function propCrate(ctx, x0, y0, x1, y1) {
+    const w = x1 - x0, h = y1 - y0;
+    if (Math.abs(w - h) < 2) { kitCrate(ctx, (x0 + x1) / 2, (y0 + y1) / 2, w); return; }
+    ctx.fillStyle = KIT.wood; ctx.fillRect(x0, y0, w, h);
+    ctx.strokeStyle = KIT.woodLite; ctx.lineWidth = 4; ctx.strokeRect(x0 + 2, y0 + 2, w - 4, h - 4);
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.moveTo(x1, y0); ctx.lineTo(x0, y1); ctx.stroke();
+  }
+  function paintCellar(ctx, rects) {
+    // back wall: dark brick
+    ctx.fillStyle = "#0b0e13"; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#11151c"; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 1; ctx.beginPath();
+    for (let y = 0, row = 0; y < H; y += 14, row++) {
+      ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5);
+      for (let x = (row & 1) ? 16 : 0; x < W; x += 32) { ctx.moveTo(x + 0.5, y); ctx.lineTo(x + 0.5, y + 14); }
+    }
+    ctx.stroke();
+    // a small barred window high on the back wall: the only daylight the cellar gets
+    const wx = sx(5.5), wy = sy(3.9), ww = 0.8 * PPM, wh = 0.6 * PPM;
+    ctx.fillStyle = "#26344d"; ctx.fillRect(wx, wy, ww, wh);
+    ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fillRect(wx, wy, ww, wh * 0.4);
+    ctx.fillStyle = KIT.stone; for (let k = 1; k < 3; k++) ctx.fillRect(wx + ww * k / 3 - 2, wy, 4, wh);
+    ctx.strokeStyle = KIT.stoneLite; ctx.lineWidth = 3; ctx.strokeRect(wx, wy, ww, wh);
+    // props
+    for (const r of rects) {
+      const x0 = sx(r[0]), x1 = sx(r[2]), y0 = sy(r[3]), y1 = sy(r[1]);
+      switch (r[4]) {
+        case "floor": stoneBlock(ctx, x0, y0, x1, y1, "#3a414d"); break;
+        case "step": stoneBlock(ctx, x0, y0, x1, y1, "#454d5b"); break;
+        case "wall": stoneBlock(ctx, x0, y0, x1, y1, KIT.stone); break;
+        case "crate": propCrate(ctx, x0, y0, x1, y1); break;
+        case "barrel": propBarrel(ctx, x0, y0, x1, y1); break;
+        case "player": kitPlayer(ctx, (x0 + x1) / 2, y1, y1 - y0, 1); break;
+        case "shelf": ctx.fillStyle = KIT.woodLite; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(x0, y1 - 3, x1 - x0, 3); break;
+        case "post": ctx.fillStyle = KIT.wood; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); break;
+      }
+    }
+  }
+  const BG = new Map();
+  function bgFor(rects) {
+    if (!BG.has(rects)) { const c = document.createElement("canvas"); c.width = W; c.height = H; paintCellar(c.getContext("2d"), rects); BG.set(rects, c); }
+    return BG.get(rects);
+  }
+  function drawWorld(ctx, rects, opts = {}) {
+    ctx.drawImage(bgFor(rects), 0, 0);
     if (opts.strip) drawStrip(ctx, opts.strip);
   }
+  // plain-word labels on the props; they sit inside the solids, where no ray or sample can go
+  function propLabels(ctx, rects) {
+    kitLabel(ctx, "player", sx(0.9), sy(1.0), "center");
+    kitLabel(ctx, "crate", sx(2.3), sy(0.6), "center");
+    kitLabel(ctx, "barrel", sx(3.9), sy(0.4), "center");
+    kitLabel(ctx, "steps", sx(8.55), sy(0.7), "center");
+    if (rects === RECTS_B) { kitLabel(ctx, "shelf", sx(6.05), sy(2.05) - 13, "left"); kitLabel(ctx, "wall", sx(9.65), sy(2.6), "center"); }
+  }
   function aoColor(v) { v = Math.max(0, Math.min(1, v)); const a = 34 + (255 - 34) * v, b = 38 + (255 - 38) * v, c = 46 + (255 - 46) * v; return `rgb(${a | 0},${b | 0},${c | 0})`; }
-  function shadeSurface(ctx, pts, vals, width = 6) {
+  function shadeSurface(ctx, pts, vals, width = 8) {
     ctx.lineCap = "butt"; ctx.lineWidth = width;
     for (let i = 0; i + 1 < pts.length; i++) {
       const a = pts[i], b = pts[i + 1];
@@ -614,12 +804,18 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
       const d = (CAM - v) / (CAM + 1.2); const g = Math.round(235 - 200 * d);
       ctx.fillStyle = `rgb(${g},${g},${g})`; ctx.fillRect(i * 2, 0, 2, h);
     }
-    ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.font = "11px IBM Plex Mono, monospace"; ctx.textBaseline = "top";
-    ctx.fillText("depth buffer · 320 texels · near = bright", 6, h + 7);
+    label(ctx, "the camera's depth photo, taken from above · 320 cells · bright = near", 6, h + 7);
   }
   function handle(ctx, x, y, r = 6) { ctx.beginPath(); ctx.arc(sx(x), sy(y), r, 0, Math.PI * 2); ctx.fillStyle = WHITE; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b0e13"; ctx.stroke(); }
   function normalTick(ctx, p) { ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(sx(p.x), sy(p.y)); ctx.lineTo(sx(p.x + p.nx * 0.25), sy(p.y + p.ny * 0.25)); ctx.stroke(); }
-  function label(ctx, text, x, y, color = "rgba(255,255,255,0.75)") { ctx.fillStyle = color; ctx.font = "11px IBM Plex Mono, monospace"; ctx.textBaseline = "top"; ctx.fillText(text, x, y); }
+  function label(ctx, text, x, y, color = "rgba(255,255,255,0.75)") { ctx.fillStyle = color; ctx.font = "11px IBM Plex Mono, monospace"; ctx.textBaseline = "top"; ctx.textAlign = "left"; ctx.fillText(text, x, y); }
+  // label pinned to the dragged point, placed inside the solid it sits on and kept on the canvas
+  function pointLabel(ctx, p, text, col) {
+    ctx.font = '12px "IBM Plex Mono", Menlo, Consolas, monospace'; const w = ctx.measureText(text).width + 12;
+    if (Math.abs(p.ny) > 0.5) { const x = Math.max(w / 2 + 2, Math.min(W - w / 2 - 2, sx(p.x))); kitLabel(ctx, text, x, Math.min(H - 12, sy(p.y) + 20), "center", col); }
+    else if (p.nx < 0) kitLabel(ctx, text, Math.min(W - w - 2, sx(p.x) + 10), sy(p.y), "left", col);
+    else kitLabel(ctx, text, Math.max(w + 2, sx(p.x) - 10), sy(p.y), "right", col);
+  }
 
   // pointer → world; any press moves the point to the nearest surface sample, then drags
   function worldOf(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width * 10, YTOP - (ev.clientY - r.top) / r.height * H / PPM]; }
@@ -643,7 +839,7 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
 
   // ---------- 1. ground truth ----------
   const c1 = document.getElementById("c1"), x1 = c1.getContext("2d");
-  const s1 = { i: nearestSurface(SURF_A, 2.55, 0.02), r: 1.5 };
+  const s1 = { i: nearestSurface(SURF_A, 3.0, 0.02), r: 1.5 };
   function draw1() {
     const p = SURF_A[s1.i], r = s1.r, vals = refAll(RECTS_A, SURF_A, r);
     drawWorld(x1, RECTS_A); shadeSurface(x1, SURF_A, vals);
@@ -652,10 +848,15 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
     x1.arc(sx(p.x), sy(p.y), r * PPM, -Math.atan2(p.ny, p.nx) - Math.PI / 2, -Math.atan2(p.ny, p.nx) + Math.PI / 2); x1.stroke(); x1.setLineDash([]);
     for (const [dx, dy, t, hit] of res.rays) {
       x1.strokeStyle = hit ? AMBER : BLUE; x1.globalAlpha = hit ? 0.9 : 0.55; x1.lineWidth = 1;
-      x1.beginPath(); x1.moveTo(sx(p.x), sy(p.y)); x1.lineTo(sx(p.x + dx * t), sy(p.y - 0 + dy * t)); x1.stroke();
+      x1.beginPath(); x1.moveTo(sx(p.x), sy(p.y)); x1.lineTo(sx(p.x + dx * t), sy(p.y + dy * t)); x1.stroke();
       if (hit) { x1.fillStyle = AMBER; x1.beginPath(); x1.arc(sx(p.x + dx * t), sy(p.y + dy * t), 2, 0, Math.PI * 2); x1.fill(); }
     }
-    x1.globalAlpha = 1; handle(x1, p.x, p.y);
+    x1.globalAlpha = 1;
+    propLabels(x1, RECTS_A);
+    kitLabel(x1, "grey band = AO painted on each surface · dark = buried", 6, H - 14, "left", "#c7cdd8");
+    kitLabel(x1, "blue = gets out", 6, 14, "left", BLUE); kitLabel(x1, "amber = blocked", 118, 14, "left", AMBER);
+    handle(x1, p.x, p.y);
+    pointLabel(x1, p, `${res.vis} of 64 rays get out`, WHITE);
     document.getElementById("c1-read").innerHTML = `<strong>${res.vis} of 64 rays escape · AO = ${res.ao.toFixed(2)}</strong>`;
     document.getElementById("c1-cap").textContent = `p = (${p.x.toFixed(2)}, ${p.y.toFixed(2)}) m · r = ${fmtM(r)}`;
   }
@@ -665,7 +866,7 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
 
   // ---------- 2. SSAO ----------
   const c2 = document.getElementById("c2"), x2 = c2.getContext("2d");
-  const s2 = { i: nearestSurface(SURF_A, 2.9, 0.02), N: 16, r: 1.5, bias: 0.03, kernel: "hemi", range: true };
+  const s2 = { i: nearestSurface(SURF_A, 3.2, 0.02), N: 16, r: 1.5, bias: 0.03, kernel: "hemi", range: true };
   function ssao(buf, p, N, r, bias, kernel, range, seed) {
     const rnd = rng(seed + 1); const samples = []; let occ = 0;
     for (let i = 0; i < N; i++) {
@@ -699,8 +900,11 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
       x2.beginPath(); x2.arc(sx(x), sy(y), 3.5, 0, Math.PI * 2);
       if (state === 0) { x2.fillStyle = BLUE; x2.fill(); } else if (state === 1) { x2.fillStyle = AMBER; x2.fill(); } else { x2.strokeStyle = state === 2 ? AMBER : "rgba(255,255,255,0.5)"; x2.lineWidth = 1.5; x2.stroke(); }
     }
+    propLabels(x2, RECTS_A);
+    kitLabel(x2, "blue dot = open air · amber dot = the photo says buried", 6, H - 14, "left", "#c7cdd8");
     normalTick(x2, p); handle(x2, p.x, p.y);
     const ref = refAll(RECTS_A, SURF_A, s2.r)[s2.i];
+    pointLabel(x2, p, `SSAO ${res.ao.toFixed(2)} · true ${ref.toFixed(2)}`, WHITE);
     document.getElementById("c2-read").innerHTML = `<strong>occluded ${res.occ.toFixed(1)} of ${s2.N} · SSAO = ${res.ao.toFixed(2)}</strong> · reference ${ref.toFixed(2)}`;
     document.getElementById("c2-cap").textContent = `hollow = occluded but range-rejected · ${s2.kernel === "sphere" ? "sphere" : "hemisphere"} kernel`;
   }
@@ -714,7 +918,7 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
 
   // ---------- 3. horizon-based ----------
   const c3 = document.getElementById("c3"), x3 = c3.getContext("2d");
-  const s3 = { i: nearestSurface(SURF_A, 2.95, 0.02), K: 8, r: 1.5, method: "gtao" };
+  const s3 = { i: nearestSurface(SURF_A, 3.25, 0.02), K: 8, r: 1.5, method: "gtao" };
   function sector(ctx, p, a0, a1, r, fill) { ctx.fillStyle = fill; ctx.beginPath(); ctx.moveTo(sx(p.x), sy(p.y)); ctx.arc(sx(p.x), sy(p.y), r * PPM, -a0, -a1, true); ctx.closePath(); ctx.fill(); }
   function horizon(buf, p, K, r, jitter) {
     const nAng = Math.atan2(p.nx, p.ny); // angle from the view vector (up), positive to the right
@@ -750,12 +954,16 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
     if (h.elev[1] > 0) sector(x3, p, nA + Math.PI / 2 - h.elev[1], nA + Math.PI / 2, r, "rgba(242,163,65,0.28)");
     x3.setLineDash([3, 4]); x3.strokeStyle = "rgba(255,255,255,0.35)"; x3.lineWidth = 1; x3.beginPath(); x3.arc(sx(p.x), sy(p.y), r * PPM, -nA - Math.PI / 2, -nA + Math.PI / 2); x3.stroke(); x3.setLineDash([]);
     x3.strokeStyle = "rgba(255,255,255,0.85)"; x3.lineWidth = 1.5; x3.beginPath(); for (const [x, y] of h.samples) { x3.moveTo(sx(x), sy(y) - 4); x3.lineTo(sx(x), sy(y) - 12); } x3.stroke();
+    propLabels(x3, RECTS_A);
     for (let side = 0; side < 2; side++) if (h.hz[side]) {
       const [x, y] = h.hz[side]; x3.strokeStyle = WHITE; x3.lineWidth = 1.5; x3.beginPath(); x3.moveTo(sx(p.x), sy(p.y)); x3.lineTo(sx(x), sy(y)); x3.stroke();
       x3.fillStyle = AMBER; x3.beginPath(); x3.arc(sx(x), sy(y), 4, 0, Math.PI * 2); x3.fill();
-      label(x3, `h${side === 0 ? "R" : "L"} = ${(h.elev[side] * 180 / Math.PI).toFixed(0)}°`, sx(x) + (side === 0 ? 8 : -60), sy(y) - 16, AMBER);
+      const txt = `skyline ${side === 0 ? "right" : "left"} ${(h.elev[side] * 180 / Math.PI).toFixed(0)}°`;
+      kitLabel(x3, txt, side === 0 ? Math.min(W - 140, sx(x) + 8) : Math.max(140, sx(x) - 8), Math.max(40, sy(y) - 18), side === 0 ? "left" : "right", AMBER);
     }
+    kitLabel(x3, "amber wedge = below the skyline, blocked · blue = open", 6, H - 14, "left", "#c7cdd8");
     normalTick(x3, p); handle(x3, p.x, p.y);
+    pointLabel(x3, p, `${s3.method.toUpperCase()} ${(s3.method === "gtao" ? h.gtao : h.hbao).toFixed(2)} · true ${ref[s3.i].toFixed(2)}`, WHITE);
     const deg = a => (a * 180 / Math.PI).toFixed(0) + "°";
     document.getElementById("c3-read").innerHTML = `<strong>${s3.method.toUpperCase()} = ${(s3.method === "gtao" ? h.gtao : h.hbao).toFixed(2)}</strong> · reference ${ref[s3.i].toFixed(2)}`;
     document.getElementById("c3-cap").textContent = `2 × ${K} steps of ${(r / K * 100).toFixed(0)} cm · view-space h1 = ${deg(h.h1)}, h2 = ${deg(h.h2)}, n = ${deg(h.nAng)}`;
@@ -772,7 +980,7 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
 
   // ---------- 5. beyond screen space ----------
   const c5 = document.getElementById("c5"), x5 = c5.getContext("2d");
-  const s5 = { i: nearestSurface(SURF_B, 9.12, 0.82), method: "ssao", rays: 16, r: 1.5 };
+  const s5 = { i: nearestSurface(SURF_B, 9.12, 1.62), method: "ssao", rays: 16, r: 1.5 };
   const SS5 = { N: 16, r: 1.5, bias: 0.03, kernel: "hemi", range: true };
   function sdRect(x, y, r) { const dx = Math.max(r[0] - x, x - r[2]), dy = Math.max(r[1] - y, y - r[3]); return (dx < 0 && dy < 0) ? Math.max(dx, dy) : Math.hypot(Math.max(dx, 0), Math.max(dy, 0)); }
   function sdf(x, y) { let d = Infinity; for (const r of RECTS_B) d = Math.min(d, sdRect(x, y, r)); return d; }
@@ -806,16 +1014,14 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
   function draw5() {
     const p = SURF_B[s5.i], r = s5.r, m = s5.method;
     drawWorld(x5, RECTS_B, { strip: BUF_B });
-    // what the depth buffer believes: everything under the stored height, inside the frame only
+    // what the depth photo believes: everything under the stored height, inside the frame only
     if (m === "ssao") {
-      x5.fillStyle = "rgba(242,163,65,0.13)";
+      x5.fillStyle = "rgba(242,163,65,0.16)";
       for (let i = 0; i < NB; i++) { const h = BUF_B[i]; if (!Number.isNaN(h)) x5.fillRect(i * 2, sy(h), 2, H - sy(h)); }
       x5.fillStyle = "rgba(11,14,19,0.55)"; x5.fillRect(0, 16, sx(FRAME[0]), H); x5.fillRect(sx(FRAME[1]), 16, W - sx(FRAME[1]), H);
     }
     x5.strokeStyle = "rgba(255,255,255,0.6)"; x5.lineWidth = 1; x5.setLineDash([6, 4]); x5.beginPath();
     x5.moveTo(sx(FRAME[0]) + 0.5, 16); x5.lineTo(sx(FRAME[0]) + 0.5, H); x5.moveTo(sx(FRAME[1]) + 0.5, 16); x5.lineTo(sx(FRAME[1]) + 0.5, H); x5.stroke(); x5.setLineDash([]);
-    label(x5, "frame edge →", sx(FRAME[1]) - 88, 22); label(x5, "off screen", W - 72, 40, AMBER);
-    label(x5, "table", sx(6.05), sy(2.05) - 14); label(x5, "wall →", sx(9.3) - 48, sy(3.2) - 14);
     shadeSurface(x5, SURF_B, shade5(m));
     const ss = ssao(BUF_B, p, SS5.N, SS5.r, SS5.bias, SS5.kernel, SS5.range, s5.i);
     const df = coneAO(p, r);
@@ -835,8 +1041,14 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
       for (const [dx, dy, t, hit] of rt.rays) { x5.strokeStyle = hit ? AMBER : BLUE; x5.globalAlpha = hit ? 0.9 : 0.55; x5.beginPath(); x5.moveTo(sx(p.x), sy(p.y)); x5.lineTo(sx(p.x + dx * t), sy(p.y + dy * t)); x5.stroke(); }
       x5.globalAlpha = 1;
     }
+    propLabels(x5, RECTS_B);
+    kitLabel(x5, "screen edge", sx(FRAME[1]) - 6, 40, "right");
+    kitLabel(x5, "off screen", W - 4, 60, "right", AMBER);
+    if (m === "ssao") kitLabel(x5, "the photo says: solid", sx(6.75), sy(0.95), "center", AMBER);
     normalTick(x5, p); handle(x5, p.x, p.y);
     const ref = refAO(RECTS_B, p, r, 64).ao;
+    const mv = m === "ssao" ? ss.ao : m === "dfao" ? df.ao : rt.ao;
+    pointLabel(x5, p, `${m.toUpperCase()} ${mv.toFixed(2)} · true ${ref.toFixed(2)}`, WHITE);
     document.getElementById("c5-read").innerHTML = `<strong>reference (64 rays) = ${ref.toFixed(2)}</strong> · p = (${p.x.toFixed(2)}, ${p.y.toFixed(2)}) m`;
     document.getElementById("c5-cap").textContent = "cost ≈ order of magnitude at 1080p";
     const set = (id, v, l) => { document.getElementById(id).querySelector(".n").textContent = v.toFixed(2); document.getElementById(id + "-l").textContent = l; document.getElementById(id).classList.toggle("on", id === "t5-" + m); };
@@ -849,20 +1061,28 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
   onSeg("segRays", v => { s5.rays = +v; draw5(); });
   draw5();
 
-  // ---------- 4. noise and denoise: 160×90 top-down depth render of a 16 m × 9 m yard ----------
+  // ---------- 4. noise and denoise: 160×90 top-down depth render of a 16 m × 9 m cellar floor ----------
   const c4 = document.getElementById("c4"), x4 = c4.getContext("2d");
   const GX = 160, GZ = 90, CELL = 0.1, N4 = 12, R4 = 1.0, BIAS4 = 0.03;
+  const BARREL4 = [13.2, 2.6, 0.8], DRAIN4 = [7.6, 7.9, 1, 8], LEDGE4 = 11.5;
   const s4 = { bx: 5.5, bz: 4.5, sigma: 0.2, alpha: 0.1, anim: true, reject: true, frame: 0, dragging: false };
   const hmap = new Float32Array(GX * GZ), hprev = new Float32Array(GX * GZ).fill(NaN);
   const raw = new Float32Array(GX * GZ), naive = new Float32Array(GX * GZ), bil = new Float32Array(GX * GZ), hist = new Float32Array(GX * GZ).fill(1);
   const KER = []; for (let i = 0; i < N4; i++) { const u1 = hash(i + 11), u2 = hash(i + 31), rr = Math.sqrt(u1), ph = 2 * Math.PI * u2, l = Math.cbrt(hash(i + 51)); KER.push([rr * Math.cos(ph) * l, Math.sqrt(1 - u1) * l, rr * Math.sin(ph) * l]); }
   const NOISE = []; for (let i = 0; i < 16; i++) NOISE.push(hash(i + 100));
   function heightYard(x, z) {
-    let h = x > 11.5 ? 0.8 : 0;
-    if (x >= 7.6 && x < 7.9 && z >= 1 && z < 8) h = -0.8;
-    if (Math.abs(x - s4.bx) < 1.2 && Math.abs(z - s4.bz) < 1.2) h = Math.max(h, 1.3);
-    if (Math.abs(x - 13.2) < 0.8 && Math.abs(z - 6.2) < 0.8) h = Math.max(h, 1.4);
+    let h = x > LEDGE4 ? 0.8 : 0;                                                             // raised stone ledge on the right
+    if (x >= DRAIN4[0] && x < DRAIN4[1] && z >= DRAIN4[2] && z < DRAIN4[3]) h = -0.8;        // drain channel cut into the floor
+    if (Math.abs(x - s4.bx) < 1.2 && Math.abs(z - s4.bz) < 1.2) h = Math.max(h, 1.3);        // the crate you drag
+    if (Math.hypot(x - BARREL4[0], z - BARREL4[1]) < BARREL4[2]) h = Math.max(h, 1.4);       // a barrel
     return h;
+  }
+  // colour of the cellar floor from above, before AO: what the player sees is this times panel 4
+  function colorYard(x, z) {
+    if (Math.abs(x - s4.bx) < 1.2 && Math.abs(z - s4.bz) < 1.2) { const e = Math.max(Math.abs(x - s4.bx), Math.abs(z - s4.bz)) > 1.05 || Math.abs(Math.abs(x - s4.bx) - Math.abs(z - s4.bz)) < 0.08; return e ? [160, 106, 56] : [122, 79, 42]; }
+    if (Math.hypot(x - BARREL4[0], z - BARREL4[1]) < BARREL4[2]) return Math.hypot(x - BARREL4[0], z - BARREL4[1]) > 0.62 ? [141, 149, 163] : [122, 79, 42];
+    if (x >= DRAIN4[0] && x < DRAIN4[1] && z >= DRAIN4[2] && z < DRAIN4[3]) return [24, 22, 24];
+    return x > LEDGE4 ? [107, 117, 133] : [76, 85, 99];
   }
   const smooth = q => { q = Math.min(1, q); return q * q * (3 - 2 * q); };
   function computeRaw() {
@@ -909,12 +1129,36 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
   }
   const off4 = document.createElement("canvas"); off4.width = GX; off4.height = GZ; const ox4 = off4.getContext("2d");
   const img4 = new ImageData(GX, GZ);
+  const PX = (W / 2) / 16; // panel pixels per metre
   function panel(src, px, py, text) {
     const d = img4.data;
     for (let o = 0; o < GX * GZ; o++) { const v = Math.round(28 + 227 * Math.max(0, Math.min(1, src[o]))); d[o * 4] = v; d[o * 4 + 1] = v; d[o * 4 + 2] = v; d[o * 4 + 3] = 255; }
     ox4.putImageData(img4, 0, 0); x4.imageSmoothingEnabled = false; x4.drawImage(off4, px, py, W / 2, H / 2);
     x4.fillStyle = "rgba(11,14,19,0.75)"; x4.fillRect(px + 6, py + 6, text.length * 6.7 + 10, 17);
     label(x4, text, px + 11, py + 9);
+  }
+  // prop outlines and names over one panel so the shapes read as the cellar
+  function yardOutlines(px, py, withLabels) {
+    x4.lineWidth = 1;
+    x4.strokeStyle = "rgba(160,106,56,0.9)"; x4.strokeRect(px + (s4.bx - 1.2) * PX + 0.5, py + (s4.bz - 1.2) * PX + 0.5, 2.4 * PX, 2.4 * PX);
+    if (!withLabels) return;
+    x4.strokeStyle = "rgba(160,106,56,0.9)"; x4.beginPath(); x4.arc(px + BARREL4[0] * PX, py + BARREL4[1] * PX, BARREL4[2] * PX, 0, Math.PI * 2); x4.stroke();
+    x4.strokeStyle = "rgba(255,255,255,0.35)"; x4.strokeRect(px + DRAIN4[0] * PX + 0.5, py + DRAIN4[2] * PX + 0.5, (DRAIN4[1] - DRAIN4[0]) * PX, (DRAIN4[3] - DRAIN4[2]) * PX);
+    x4.beginPath(); x4.moveTo(px + LEDGE4 * PX + 0.5, py); x4.lineTo(px + LEDGE4 * PX + 0.5, py + H / 2); x4.stroke();
+    kitLabel(x4, "crate · drag", px + s4.bx * PX, py + (s4.bz + 1.2) * PX + 12, "center");
+    kitLabel(x4, "barrel", px + BARREL4[0] * PX, py + (BARREL4[1] + BARREL4[2]) * PX + 12, "center");
+    kitLabel(x4, "drain", px + DRAIN4[1] * PX + 4, py + 8.6 * PX, "left");
+    kitLabel(x4, "ledge", px + (LEDGE4 + 0.3) * PX, py + 8.6 * PX, "left");
+  }
+  const offC = document.createElement("canvas"); offC.width = GX; offC.height = GZ; const oxC = offC.getContext("2d");
+  const imgC = new ImageData(GX, GZ);
+  function playerView(px, py, w, h) {
+    const d = imgC.data;
+    for (let j = 0; j < GZ; j++) for (let i = 0; i < GX; i++) {
+      const o = j * GX + i, c = colorYard((i + 0.5) * CELL, (j + 0.5) * CELL), ao = 0.25 + 0.75 * Math.max(0, Math.min(1, hist[o]));
+      d[o * 4] = c[0] * ao; d[o * 4 + 1] = c[1] * ao; d[o * 4 + 2] = c[2] * ao; d[o * 4 + 3] = 255;
+    }
+    oxC.putImageData(imgC, 0, 0); x4.imageSmoothingEnabled = false; x4.drawImage(offC, px, py, w, h);
   }
   function step4() {
     const t0 = performance.now();
@@ -924,9 +1168,11 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
     panel(naive, W / 2, 0, `2 · 4×4 box blur, depth-blind`);
     panel(bil, 0, H / 2, `3 · 4×4 bilateral, σz = ${s4.sigma.toFixed(2)} m`);
     panel(hist, W / 2, H / 2, `4 · + history, α = ${s4.alpha.toFixed(2)}, frame ${s4.frame}`);
+    yardOutlines(0, 0, true); yardOutlines(W / 2, 0, false); yardOutlines(0, H / 2, false);
+    kitInset(x4, W - 178, H - 120, 174, 116, "what the player sees"); playerView(W - 171, H - 96, 160, 90);
     x4.strokeStyle = "rgba(255,255,255,0.35)"; x4.lineWidth = 1; x4.beginPath(); x4.moveTo(W / 2 + 0.5, 0); x4.lineTo(W / 2 + 0.5, H); x4.moveTo(0, H / 2 + 0.5); x4.lineTo(W, H / 2 + 0.5); x4.stroke();
     document.getElementById("c4-read").innerHTML = `<strong>${(GX * GZ).toLocaleString("en-US")} px × ${N4} samples = ${(GX * GZ * N4).toLocaleString("en-US")} depth fetches</strong> · ${ms.toFixed(1)} ms in JS`;
-    document.getElementById("c4-cap").textContent = `box at (${s4.bx.toFixed(1)}, ${s4.bz.toFixed(1)}) m · 1 texel = 10 cm · r = 1 m`;
+    document.getElementById("c4-cap").textContent = `crate at (${s4.bx.toFixed(1)}, ${s4.bz.toFixed(1)}) m · 1 texel = 10 cm · r = 1 m`;
     s4.frame++;
   }
   let visible4 = true, tick4 = 0;
@@ -934,7 +1180,7 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
   function loop4(ts) {
     requestAnimationFrame(loop4);
     if (!visible4 || (tick4++ & 1)) return;
-    if (s4.anim && !s4.dragging) { s4.bx = 5.5 + 2.2 * Math.sin(ts * 0.0006); s4.bz = 4.5 + 1.2 * Math.cos(ts * 0.0004); }
+    if (s4.anim && !s4.dragging) { s4.bx = 5.3 + 1.9 * Math.sin(ts * 0.0006); s4.bz = 4.5 + 1.2 * Math.cos(ts * 0.0004); }
     step4();
   }
   step4(); requestAnimationFrame(loop4);

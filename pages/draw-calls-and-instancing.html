@@ -151,17 +151,19 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">3,000 draws · 5 µs each on the CPU · 2 µs each on the GPU · one 16.7 ms frame</p>
+    <p class="eyebrow">a village market at the edge of a forest · 5,000 trees · 200 kinds of prop · 48 painted crates · one 16.7 ms frame</p>
     <h1>Draw Calls &amp; Instancing</h1>
     <p class="lead">A draw call is the CPU telling the GPU "draw this mesh with this material, now". The GPU reads one in a blink, but the CPU spends microseconds setting each one up, and a few thousand of them can eat the whole frame while the GPU sits waiting. <b>Batching</b>, <b>instancing</b> and <b>indirect draws</b> all shrink the same number: how many times per frame the CPU has to say "draw". The part people get wrong is that on Vulkan and DX12 the draw itself is nearly free, and the cost moved into the culling, sorting and texture bookkeeping around it.</p>
     <div class="key">
-      <span style="--sw:#f2a341">CPU work · object the camera can see</span>
+      <span style="--sw:#f2a341">CPU work · a prop that gets drawn this frame</span>
       <span style="--sw:#4aa3ff">GPU work · material and texture lookups</span>
-      <span style="--sw:#ffffff">drag handles · the moment a batch is handed over</span>
+      <span style="--sw:#ffffff">player and camera handles · the moment a batch is handed over</span>
       <span style="--sw:#ef5d5d">over budget · a state change · texture bleed</span>
+      <span style="--sw:#5ad48a">within budget</span>
     </div>
     <dl class="terms">
       <dt>draw call</dt><dd>one order from the CPU to the GPU: draw this mesh with this material</dd>
+      <dt>prop</dt><dd>one object in the world: a crate, a tree, a barrel, a lamp</dd>
       <dt>command buffer</dt><dd>the list of draws the CPU writes up and hands to the GPU in one go</dd>
       <dt>pipeline</dt><dd>the compiled shaders plus fixed settings a draw runs with; switching it is the priciest bind</dd>
       <dt>descriptor</dt><dd>a small record telling the GPU where a texture or a block of material values lives</dd>
@@ -175,22 +177,22 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 
   <section id="anatomy">
     <h2>What one draw call costs</h2>
-    <p class="sub">Move the sliders and watch which of the CPU or the GPU runs out of time first.</p>
+    <p class="sub">A market street full of crates, barrels and trees, and every prop is one order to the GPU. Move the sliders and watch which of the CPU or the GPU runs out of time first.</p>
     <div class="cols wide">
       <div class="vp">
-        <canvas id="c1" class="r169" width="640" height="360" aria-label="Timeline of CPU draw recording and GPU execution for one frame"></canvas>
+        <canvas id="c1" class="r169" width="640" height="360" aria-label="A market street of crates, barrels, trees and the player, with one crate's draw order zoomed into its four CPU jobs, above a timeline of the CPU writing draws and the GPU running them for one frame"></canvas>
         <div class="cap"><span id="c1-read"></span><span>budget 16.7 ms · 512 draws per submit</span></div>
       </div>
       <div class="prose">
         <p class="plain"><b>A draw call is one order from the CPU to the GPU</b>: draw this mesh, with this material, now. The GPU reads it in a blink. The CPU spends about 5 microseconds getting each one ready, and <b>3,000 of them fill 15 of your 16.7 ms</b>. A frame full of small draws can leave the GPU idle, and <b>a faster graphics card fixes nothing</b>.</p>
 
         <h3>What you're seeing</h3>
-        <p>The top strip is one draw zoomed in, split into the four jobs the CPU does for it. Amber is the pipeline bind, which picks the compiled shaders and settings the draw runs with. Blue is the descriptor update, which points the GPU at this draw's textures and material values. Grey is the vertex and index buffer binds, the mesh data. White is writing the draw command itself.</p>
-        <p>Below that is the whole frame on a timeline. The amber lane is the CPU writing draws, the blue lane is the GPU running them. White ticks mark each submit, the moment a batch of 512 draws is handed to the GPU. Any gap in the blue lane is the GPU waiting.</p>
+        <p>The top band is what the player sees: a market street where every crate, barrel, tree, house, lamp and the player is one draw call. More draws per frame puts more props in the street. The arrow picks one crate and zooms its order into the four jobs the CPU does for it. Amber is the pipeline bind, which picks the compiled shaders and settings the draw runs with. Blue is the descriptor update, which points the GPU at this crate's texture and material values. Grey is the vertex and index buffer binds, the mesh data. White is writing the draw command itself.</p>
+        <p>Below that is the whole frame on a timeline. The amber lane is the CPU writing orders, the blue lane is the GPU carrying them out. White ticks mark each submit, the moment a batch of 512 orders is handed to the GPU. Any gap in the blue lane is the GPU waiting.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Push Draws per frame to 10,000. The amber lane runs past 16.7 ms and fps falls to 20. The CPU is the one out of time, so the frame is CPU bound.</li>
+          <li>Push Draws per frame to 10,000. The street packs with props, the amber lane runs past 16.7 ms and fps falls to 20. The CPU is the one out of time, so the frame is CPU bound.</li>
           <li>Drag CPU µs per draw down to 1.0, about what Vulkan or DX12 costs. The CPU lane shrinks to a fifth and the blue lane becomes the limit.</li>
           <li>Push GPU µs per draw to 12. Now the GPU sets the frame time and the CPU slider stops mattering.</li>
         </ul>
@@ -236,24 +238,24 @@ queue.submit(cmd);                    <span class="c">// GPU starts here, not at
 
   <section id="sorting">
     <h2>Sort draws so binds become free</h2>
-    <p class="sub">Reorder 200 draws by one packed key and watch most of the state changes disappear.</p>
+    <p class="sub">The 200 props on the market square, in the order the CPU sends them. Sort that list by one packed key and watch most of the state changes disappear.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" class="sq" width="512" height="512" aria-label="Unsorted and sorted draw lists with state changes and the sort key bit layout"></canvas>
-        <div class="cap"><span id="c2-read"></span><span>each strip is one draw · gap = state change</span></div>
+        <canvas id="c2" class="sq" width="512" height="512" aria-label="A market square of 200 props above the unsorted and sorted draw lists, the first draws of each shown as prop icons and all 200 as state rows, with the sort key bit layout and CPU cost bars"></canvas>
+        <div class="cap"><span id="c2-read"></span><span>each strip is one prop's draw · gap = state change</span></div>
       </div>
       <div class="prose">
         <p class="plain"><b>A bind that doesn't change costs nothing.</b> If two draws in a row use the same pipeline, the second one skips that bind. So the renderer <b>sorts the draw list</b> so draws that share the priciest state sit next to each other. It's a delivery driver grouping stops by street: the trips between them vanish.</p>
 
         <h3>What you're seeing</h3>
-        <p>Each thin strip is one draw. The top block is the list in random order, the block below is the same list sorted. Each block has three rows: pipeline in amber, material in blue, mesh in grey. A run of one colour is a stretch of draws sharing that state, and every break in a run is a state change, counted in red at the right.</p>
-        <p>Under the lists is the 64-bit sort key with its fields laid out from the most expensive change on the left to the cheapest on the right. At the bottom, two bars stack the estimated CPU time for each list by what changed. Hover a strip to read its field values and its packed key.</p>
+        <p>The band at the top is the market square: 200 props, each one draw. Below it are two to-do lists for the CPU. The top list is the order the level file happens to list the props, the bottom is the same 200 sorted. The first 32 draws of each list are drawn as the props they stand for, so you can watch the sort put crates next to crates and trees next to trees.</p>
+        <p>Under the prop icons, three colour rows cover all 200 draws: pipeline in amber, which is the shader (wood, leaf, stone), material in blue, which is the paint or bark texture, and mesh in grey, the shape. A run of one colour is a stretch of draws sharing that state, and every break in a run is a state change, counted in red on the right. Under the lists is the 64-bit sort key with its fields laid out from the most expensive change on the left to the cheapest on the right. At the bottom, two bars stack the estimated CPU time for each list by what changed.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Hover the same strip in the top and bottom lists. The white outline shows where that draw landed after sorting.</li>
+          <li>Hover a strip or a prop icon. A white ring picks out that prop on the square, and the white outline in the other list shows where its draw landed after sorting.</li>
           <li>Push Materials to 64. Both lists gain changes, but the sorted count stays a fraction of the unsorted one.</li>
-          <li>Switch the key to depth first. Draws are now ordered by distance, pipeline runs break up, and the sorted saving shrinks.</li>
+          <li>Switch the key to depth first. Draws are now ordered by distance, the sorted icons mix kinds again, and the saving shrinks.</li>
         </ul>
 
         <div class="controls" style="margin-top:0">
@@ -298,18 +300,18 @@ std::sort(draws.begin(), draws.end(),
 
   <section id="instancing">
     <h2>Instancing: one mesh, thousands of copies</h2>
-    <p class="sub">Drag the camera around 5,000 trees and compare three ways of getting them on screen.</p>
+    <p class="sub">The player stands in a forest of 5,000 trees that all share one mesh. Drag the player and the aim point, and compare three ways of getting the trees in view onto the screen.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c3" class="sq grab" width="512" height="512" aria-label="Map of 5000 tree instances with a camera frustum and the instance buffer layout"></canvas>
+        <canvas id="c3" class="sq grab" width="512" height="512" aria-label="Top-down map of a forest of 5000 trees with the player, the view wedge, an inset of what the player sees, and the instance buffer layout underneath"></canvas>
         <div class="cap"><span id="c3-read"></span><span id="c3-mem"></span></div>
       </div>
       <div class="prose">
         <p class="plain">Five thousand trees share one mesh, so drawing them one at a time is 5,000 orders for the same thing. <b>Instancing sends one order with a count of 5,000</b> and a list of where each copy goes. <b>One draw, 320 KB of positions</b>, and every tree can still move. It is the photocopier set to 5,000 copies: one press, the machine handles the rest.</p>
 
         <h3>What you're seeing</h3>
-        <p>The map is 1 km by 0.73 km of forest seen from above. Amber dots are trees inside the frustum, the wedge of space the camera can see. Blue dots are outside it. The two white handles are the camera and the point it aims at.</p>
-        <p>The panel underneath changes with the mode. For instancing it shows the instance buffer, one 64-byte record per tree, and the 16 numbers inside the record of one tree. For static batch it shows the merged vertex buffer and how tiny one mesh is against it. For individual draws it shows the command buffer repeating the same bind-and-draw pair 5,000 times against the 16.7 ms budget.</p>
+        <p>The map is 1 km by 0.73 km of forest seen from above, and every green dot is a tree. The player is the camera: the blue figure is the player, the small white handle is the point they are looking at, and the wedge between them is the frustum, the wedge of space the camera can see. Trees inside it get an amber dot; those are the ones that reach the screen. The inset at the top right is what the player sees, the same wedge of trees from the ground.</p>
+        <p>The panel underneath changes with the mode. For instancing it shows the instance buffer, one 64-byte record per tree, and the 16 numbers inside the record of one tree, with an arrow from that tree to its slot. For static batch it shows the merged vertex buffer and how tiny one mesh is against it. For individual draws it shows the command buffer repeating the same bind-and-draw pair 5,000 times against the 16.7 ms budget.</p>
 
         <h3>Try this</h3>
         <ul class="try">
@@ -368,24 +370,24 @@ world_pos      = vec4(p, 1) · mat3x4     3 rows × 16 B = 48 B, + rgba 16 B = 6
 
   <section id="indirect">
     <h2>Let the GPU write its own draws</h2>
-    <p class="sub">Drag the camera; a GPU pass culls every instance and fills in the draw arguments while the CPU issues the same one command every frame.</p>
+    <p class="sub">The player walks through a village of 6,579 props in 200 kinds: trees, bushes, crates, barrels, rocks, fences. Drag the player; a GPU pass tests every prop against the view and fills in the draw arguments while the CPU issues the same one command every frame.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" class="sq grab" width="512" height="512" aria-label="GPU culling writing indirect draw arguments for 200 mesh types"></canvas>
-        <div class="cap"><span id="c4-read"></span><span>hover a bar or an instance for its args</span></div>
+        <canvas id="c4" class="sq grab" width="512" height="512" aria-label="Top-down village of thousands of props with the player's view wedge, and below it the indirect draw argument bars the GPU writes for 200 mesh types, grouped by kind of prop"></canvas>
+        <div class="cap"><span id="c4-read"></span><span>hover a bar or a prop for its args</span></div>
       </div>
       <div class="prose">
         <p class="plain">Instancing still leaves the CPU deciding what's in view and how many copies to ask for. <b>An indirect draw hands that job to the GPU</b>: the CPU points at a buffer and says "the numbers in here are the draw". A small GPU program fills the buffer by testing every object against the camera. <b>The CPU's work per frame becomes a constant</b>, whether the scene holds 500 objects or 50,000.</p>
 
         <h3>What you're seeing</h3>
-        <p>The map holds thousands of objects of 200 different mesh types. Amber circles passed the camera test, blue dots failed it. Below the map is the argument buffer: one bar per mesh type, and the bar's height is how many copies of that type survived. A flat red bar is a type with zero survivors.</p>
-        <p>The line under the bars prints the four numbers in one type's argument record, and the last line is the single command the CPU issued. Hover a bar or an object to inspect its type.</p>
+        <p>The map is the village from above. Every prop is one instance of one of 200 mesh types, drawn in its own colour: greens for trees, pines and bushes, browns for crates, barrels, fences and stumps, grey for rocks. A prop with an amber ring passed the camera test and gets drawn. The dim ones failed it and are skipped. Below the map is the argument buffer: one bar per mesh type, grouped by kind of prop, and the bar's height is how many copies of that type survived. A flat red bar is a type with zero survivors.</p>
+        <p>The line under the bars prints the four numbers in one type's argument record, and the last line is the single command the CPU issued. Hover a bar or a prop to inspect its type.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Drag the camera so it points at empty ground. The bars collapse, instances drawn falls, and the CPU draws tile stays at 1.</li>
+          <li>Drag the aim point so the player looks at the empty edge of the map. The bars collapse, instances drawn falls, and the CPU draws tile stays at 1.</li>
           <li>Switch to compacted + count buffer. The red zero-length bars vanish, GPU draws executed drops to the non-empty count, and the count buffer turns blue.</li>
-          <li>Hover any object. Every object of the same mesh type gets a white ring, and its bar is outlined.</li>
+          <li>Hover any prop. Every prop of the same mesh type gets a white ring, and its bar is outlined.</li>
         </ul>
 
         <div class="controls" style="margin-top:0">
@@ -432,24 +434,24 @@ CPU per frame: 1 dispatch + 1 multi-draw, independent of N</div>
 
   <section id="bindless">
     <h2>Bindless and the material problem</h2>
-    <p class="sub">See why different textures break a batch apart, and compare four ways of putting it back together.</p>
+    <p class="sub">48 crates on the market with 9 different paint jobs. See why different textures break a batch apart, and compare four ways of putting it back together.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" class="sq" width="512" height="512" aria-label="A 4096 texture atlas with mip bleed, a texture array, and draws grouped by material"></canvas>
+        <canvas id="c5" class="sq" width="512" height="512" aria-label="A 4096 texture atlas of crate paint jobs with red mip bleed bands, a texture array of the same paint jobs, an inset of a near and a far crate as the player sees them, and 48 crates on the market ground grouped into draws"></canvas>
         <div class="cap"><span id="c5-read"></span><span>hover an atlas tile for its UV remap</span></div>
       </div>
       <div class="prose">
-        <p class="plain">Instancing only works while every copy uses the same textures. <b>Give each tree its own bark and the batch splits back into one draw per material.</b> The old fixes glue the textures together into one big image. <b>Bindless skips the gluing</b>: every texture goes in one long list and the shader picks by number, so the batch never has to split.</p>
+        <p class="plain">Instancing only works while every copy uses the same textures. <b>Give each crate its own paint job and the batch splits back into one draw per material.</b> The old fixes glue the textures together into one big image. <b>Bindless skips the gluing</b>: every texture goes in one long list and the shader picks by number, so the batch never has to split.</p>
 
         <h3>What you're seeing</h3>
-        <p>Top left is a 4096² atlas, one big image with the materials packed in as tiles. The red bands on each tile are bleed: the strip near the edge where blurry lower-resolution copies of the image pull in colour from the neighbouring tile. Top right is a texture array, the same materials stacked as separate layers with no shared edges.</p>
-        <p>The bottom row is 48 objects as dots, coloured by material and grouped by pipeline. Each white bracket is one draw. Fewer brackets means fewer draws.</p>
+        <p>Top left is a 4096² atlas: one big sheet with every crate paint job packed in as a tile. The red bands on each tile are bleed, the strip near the edge where the blurry lower-resolution copies of the sheet pull in colour from the neighbouring tile. Top right is a texture array, the same paint jobs stacked as separate layers with no shared edges. Under it is what the player sees: a near crate and a far crate with the same paint job. The far one is sampled from the blurry mip level, so its neighbours' paint creeps in at the edges.</p>
+        <p>The bottom row is the 48 crates lined up on the market ground, coloured by paint job and grouped by pipeline, the shader they use. Each white bracket is one draw. Fewer brackets means fewer draws.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Push Mip level from 6 to 8 on a 1024² tile. The red bands widen to 256 texels a side and only 25 % of each tile is still clean. At level 9 nothing is left.</li>
+          <li>Push Mip level from 6 to 8 on a 1024² tile. The red bands widen to 256 texels a side, only 25 % of each tile is still clean, and the far crate is mostly its neighbours' colours. At level 9 nothing of its own paint is left.</li>
           <li>Step from per-draw bind to texture array. The brackets merge down to one per pipeline. Go on to bindless and texture binds drops to 1, but draws and unique pipelines stay where they were.</li>
-          <li>Pick bindless + uber-shader. One bracket, one draw, one pipeline for all 48 objects.</li>
+          <li>Pick bindless + uber-shader. One bracket, one draw, one pipeline for all 48 crates.</li>
         </ul>
 
         <div class="controls" style="margin-top:0">
@@ -460,13 +462,13 @@ CPU per frame: 1 dispatch + 1 multi-draw, independent of N</div>
           <div class="ctl"><label for="var5">Shader variants <span class="val" id="var5v">3</span></label><input type="range" id="var5" min="1" max="4" step="1" value="3"></div>
         </div>
         <div class="tiles">
-          <div class="tile on"><div class="n" id="t5-draws">—</div><div class="l">draws for 48 objects</div></div>
+          <div class="tile on"><div class="n" id="t5-draws">—</div><div class="l">draws for 48 crates</div></div>
           <div class="tile"><div class="n" id="t5-binds">—</div><div class="l">texture binds</div></div>
           <div class="tile"><div class="n" id="t5-pso">—</div><div class="l">unique pipelines</div></div>
         </div>
 
         <h3>The real version</h3>
-        <p>Instancing needs every instance in a draw to use the same bound textures. Give each tree its own bark texture and the batch splits back into one draw per material, because a descriptor bind sits between them. The two classic fixes remove the bind by removing the separate texture. A texture array puts every material in one resource, one layer each, picked by an integer from the instance data. An atlas packs them into one 4096² image and remaps UVs, the coordinates that say where on the texture a vertex lands, with a scale and an offset.</p>
+        <p>Instancing needs every instance in a draw to use the same bound textures. Give each crate its own paint texture and the batch splits back into one draw per material, because a descriptor bind sits between them. The two classic fixes remove the bind by removing the separate texture. A texture array puts every material in one resource, one layer each, picked by an integer from the instance data. An atlas packs them into one 4096² image and remaps UVs, the coordinates that say where on the texture a vertex lands, with a scale and an offset.</p>
         <p>The atlas has a cost. Mipmaps, the chain of half-size copies the GPU samples from at a distance, are built on the whole image. At level L each mip texel covers 2^L base texels and the filter reaches that far into the neighbouring tile. Wrapping UVs do not work at all. A texture array has neither problem, but every layer must share size, format and mip count.</p>
         <p>Bindless removes the bind instead of the texture. The shader indexes a descriptor array holding every texture with an integer from a material buffer, so draws only need to split on pipeline. With an uber-shader, one shader that handles every material's features through flags, that count is one, and the whole scene is a single indirect draw.</p>
         <p class="words">In words: an atlas tile is found by scaling and shifting the UVs; bleed doubles with every mip level; draws split wherever the pipeline or the bound descriptors differ.</p>
@@ -537,9 +539,123 @@ pipelines = unique shader variants    bindless does not lower this; an uber-shad
 </div>
 
 <script>
+// Rendering Library scene kit. Paste this whole block at the top of a page's <script> (no external
+// scripts are allowed). Small, flat, readable game-world props for 2D canvas demos. Every function
+// takes a ctx and draws in the current transform; sizes are in canvas pixels. Keep the mechanism
+// overlay (frustum lines, rays, samples, tests) in the library palette on top of these props.
+const KIT = {
+  // scene palette: props only; the mechanism overlay keeps amber / blue / white / green / red
+  grass: '#1f3a2a', grassLite: '#2a4d37', dirt: '#3b2f25', stone: '#4c5563', stoneLite: '#6b7585',
+  wood: '#7a4f2a', woodLite: '#a06a38', leaf: '#3f8f4a', leafLite: '#5ab562', roof: '#a5433a',
+  wallCol: '#c9c2b2', window: '#f5d67a', skin: '#e8b98a', shirt: '#4aa3ff', pants: '#2f3a55',
+  metal: '#8d95a3', flame: '#f2a341', sky: '#0b0e13', skyLite: '#141a26', water: '#1d4d73', cloud: '#c7cdd8',
+  shadow: 'rgba(0,0,0,0.35)'
+};
+// horizon band: dark sky above, ground below (side-view scenes)
+function kitGround(ctx, w, h, horizon) {
+  const g = ctx.createLinearGradient(0, 0, 0, horizon); g.addColorStop(0, KIT.sky); g.addColorStop(1, KIT.skyLite);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, horizon);
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, horizon, w, h - horizon);
+  ctx.fillStyle = KIT.grassLite; ctx.fillRect(0, horizon, w, 3);
+}
+// top-down ground with faint tile grid (top-down scenes)
+function kitTopGround(ctx, w, h, cell) {
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.beginPath();
+  for (let x = 0; x <= w; x += cell) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, h); }
+  for (let y = 0; y <= h; y += cell) { ctx.moveTo(0, y + 0.5); ctx.lineTo(w, y + 0.5); }
+  ctx.stroke();
+}
+// round tree, base at (x, y), s = trunk height
+function kitTree(ctx, x, y, s, tint) {
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, s * 0.55, s * 0.18, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.09, y - s, s * 0.18, s);
+  ctx.fillStyle = tint || KIT.leaf; ctx.beginPath(); ctx.arc(x, y - s * 1.25, s * 0.62, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.leafLite; ctx.beginPath(); ctx.arc(x - s * 0.2, y - s * 1.45, s * 0.3, 0, Math.PI * 2); ctx.fill();
+}
+// pine tree, base at (x, y)
+function kitPine(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.07, y - s * 0.4, s * 0.14, s * 0.4);
+  ctx.fillStyle = KIT.leaf;
+  for (let i = 0; i < 3; i++) { const yy = y - s * 0.35 - i * s * 0.42, ww = s * (0.7 - i * 0.16);
+    ctx.beginPath(); ctx.moveTo(x - ww, yy); ctx.lineTo(x + ww, yy); ctx.lineTo(x, yy - s * 0.55); ctx.closePath(); ctx.fill(); }
+}
+// house, bottom-left corner at (x, y), width w, wall height h
+function kitHouse(ctx, x, y, w, h, roofCol) {
+  ctx.fillStyle = KIT.wallCol; ctx.fillRect(x, y - h, w, h);
+  ctx.fillStyle = roofCol || KIT.roof; ctx.beginPath(); ctx.moveTo(x - w * 0.08, y - h); ctx.lineTo(x + w * 1.08, y - h); ctx.lineTo(x + w / 2, y - h - w * 0.45); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + w * 0.15, y - h * 0.75, w * 0.22, h * 0.3);
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x + w * 0.6, y - h * 0.6, w * 0.22, h * 0.6);
+}
+// wooden crate, centre (x, y), size s
+function kitCrate(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s / 2, y - s / 2, s, s);
+  ctx.strokeStyle = KIT.woodLite; ctx.lineWidth = Math.max(1, s * 0.08);
+  ctx.strokeRect(x - s / 2 + 1, y - s / 2 + 1, s - 2, s - 2);
+  ctx.beginPath(); ctx.moveTo(x - s / 2, y - s / 2); ctx.lineTo(x + s / 2, y + s / 2); ctx.moveTo(x + s / 2, y - s / 2); ctx.lineTo(x - s / 2, y + s / 2); ctx.stroke();
+}
+// stone wall segment from (x1, y1) to (x2, y2), thickness t (top-down or side)
+function kitWall(ctx, x1, y1, x2, y2, t) {
+  ctx.strokeStyle = KIT.stone; ctx.lineWidth = t; ctx.lineCap = 'butt'; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.strokeStyle = KIT.stoneLite; ctx.lineWidth = Math.max(1, t * 0.25); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+}
+// little player figure, feet at (x, y), height h, facing +1 right / -1 left
+function kitPlayer(ctx, x, y, h, facing) {
+  const f = facing || 1;
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, h * 0.28, h * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.pants; ctx.fillRect(x - h * 0.16, y - h * 0.42, h * 0.32, h * 0.42);
+  ctx.fillStyle = KIT.shirt; ctx.fillRect(x - h * 0.2, y - h * 0.78, h * 0.4, h * 0.38);
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y - h * 0.9, h * 0.14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#171a1f'; ctx.fillRect(x + f * h * 0.04, y - h * 0.93, h * 0.05, h * 0.04);
+}
+// top-down player: a circle with a facing wedge, centre (x, y), radius r, angle a (radians)
+function kitPlayerTop(ctx, x, y, r, a) {
+  ctx.fillStyle = KIT.shirt; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * r * 1.6, y + Math.sin(a) * r * 1.6); ctx.stroke();
+}
+// lamp post / torch, base at (x, y), height h; glow radius g (0 = none)
+function kitLamp(ctx, x, y, h, g) {
+  if (g > 0) { const gr = ctx.createRadialGradient(x, y - h, 0, x, y - h, g); gr.addColorStop(0, 'rgba(242,163,65,0.35)'); gr.addColorStop(1, 'rgba(242,163,65,0)'); ctx.fillStyle = gr; ctx.fillRect(x - g, y - h - g, g * 2, g * 2); }
+  ctx.fillStyle = KIT.metal; ctx.fillRect(x - h * 0.04, y - h, h * 0.08, h);
+  ctx.fillStyle = KIT.flame; ctx.beginPath(); ctx.arc(x, y - h, h * 0.12, 0, Math.PI * 2); ctx.fill();
+}
+// simple side-view car, bottom-left at (x, y), length L
+function kitCar(ctx, x, y, L, col) {
+  ctx.fillStyle = col || '#d8493f'; ctx.fillRect(x, y - L * 0.22, L, L * 0.2);
+  ctx.fillRect(x + L * 0.22, y - L * 0.4, L * 0.5, L * 0.2);
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + L * 0.26, y - L * 0.38, L * 0.42, L * 0.14);
+  ctx.fillStyle = '#171a1f'; ctx.beginPath(); ctx.arc(x + L * 0.22, y, L * 0.09, 0, Math.PI * 2); ctx.arc(x + L * 0.78, y, L * 0.09, 0, Math.PI * 2); ctx.fill();
+}
+// cloud, centre (x, y), width w
+function kitCloud(ctx, x, y, w, alpha) {
+  ctx.fillStyle = 'rgba(199,205,216,' + (alpha == null ? 0.35 : alpha) + ')';
+  ctx.beginPath(); ctx.arc(x - w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.arc(x, y - w * 0.08, w * 0.28, 0, Math.PI * 2); ctx.arc(x + w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.fill();
+}
+// plain-word label on the canvas with a dark pill behind it; anchor 'left' | 'center' | 'right'
+function kitLabel(ctx, text, x, y, anchor, col) {
+  ctx.font = '12px "IBM Plex Mono", Menlo, Consolas, monospace';
+  const w = ctx.measureText(text).width + 12, h = 18;
+  const x0 = anchor === 'center' ? x - w / 2 : anchor === 'right' ? x - w : x;
+  ctx.fillStyle = 'rgba(11,14,19,0.82)'; ctx.fillRect(x0, y - h / 2, w, h);
+  ctx.fillStyle = col || '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(text, x0 + 6, y + 1);
+}
+// arrow from (x1, y1) to (x2, y2) in a colour, for callouts
+function kitArrow(ctx, x1, y1, x2, y2, col, width) {
+  const a = Math.atan2(y2 - y1, x2 - x1), s = 7;
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = width || 1.5;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - s * Math.cos(a - 0.4), y2 - s * Math.sin(a - 0.4)); ctx.lineTo(x2 - s * Math.cos(a + 0.4), y2 - s * Math.sin(a + 0.4)); ctx.closePath(); ctx.fill();
+}
+// "what the player sees" inset frame: draws a titled box at (x, y, w, h); draw the picture inside afterwards
+function kitInset(ctx, x, y, w, h, title) {
+  ctx.fillStyle = 'rgba(11,14,19,0.92)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
+}
 (() => {
   const $ = id => document.getElementById(id);
-  const AMB = "#f2a341", BLU = "#4aa3ff", WHT = "#ffffff", RED = "#ef5d5d", GRD = "#0b0e13", DIM = "rgba(255,255,255,0.12)";
+  const AMB = "#f2a341", BLU = "#4aa3ff", WHT = "#ffffff", RED = "#ef5d5d", GRN = "#5ad48a", GRD = "#0b0e13", DIM = "rgba(255,255,255,0.12)";
   const MONO = '"IBM Plex Mono", Menlo, Consolas, monospace';
   const fmtN = n => Math.round(n).toLocaleString("en-US");
   const fmtB = b => b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : b >= 1024 ? (b / 1024).toFixed(1) + " KB" : Math.round(b) + " B";
@@ -563,7 +679,7 @@ pipelines = unique shader variants    bindless does not lower this; an uber-shad
     const { c, d, far, half } = f; const ang = Math.atan2(d[1], d[0]);
     g.beginPath(); g.moveTo(c[0], c[1]); g.lineTo(c[0] + Math.cos(ang - half) * far, c[1] + Math.sin(ang - half) * far);
     g.arc(c[0], c[1], far, ang - half, ang + half); g.closePath();
-    g.fillStyle = "rgba(242,163,65,0.08)"; g.fill(); g.strokeStyle = "rgba(255,255,255,0.6)"; g.lineWidth = 1; g.stroke();
+    g.fillStyle = "rgba(242,163,65,0.10)"; g.fill(); g.strokeStyle = "rgba(255,255,255,0.7)"; g.lineWidth = 1; g.stroke();
   }
   function camDrag(canvas, cam, onMove, onHover) {
     let active = -1;
@@ -574,11 +690,56 @@ pipelines = unique shader variants    bindless does not lower this; an uber-shad
     canvas.addEventListener("pointerleave", () => { if (onHover) onHover(-1, -1); });
   }
 
+  // ---- extra props in the kit style ----
+  function mixHex(hex, t) { // lighten (t > 0) or darken (t < 0) a #rrggbb colour
+    const n = parseInt(hex.slice(1), 16); const ch = s => { const v = (n >> s) & 255; return Math.round(t >= 0 ? v + (255 - v) * t : v * (1 + t)); };
+    return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+  }
+  function kitCrateT(ctx, x, y, s, col, line) { // crate, centre (x, y), painted
+    ctx.fillStyle = col || KIT.wood; ctx.fillRect(x - s / 2, y - s / 2, s, s);
+    ctx.strokeStyle = line || KIT.woodLite; ctx.lineWidth = Math.max(1, s * 0.08);
+    ctx.strokeRect(x - s / 2 + 1, y - s / 2 + 1, s - 2, s - 2);
+    ctx.beginPath(); ctx.moveTo(x - s / 2, y - s / 2); ctx.lineTo(x + s / 2, y + s / 2); ctx.moveTo(x + s / 2, y - s / 2); ctx.lineTo(x - s / 2, y + s / 2); ctx.stroke();
+  }
+  function kitBarrel(ctx, x, y, s, col) { // base centre (x, y), height s
+    ctx.fillStyle = col || KIT.woodLite; ctx.fillRect(x - s * 0.4, y - s, s * 0.8, s);
+    ctx.fillStyle = KIT.metal; ctx.fillRect(x - s * 0.4, y - s * 0.8, s * 0.8, s * 0.09); ctx.fillRect(x - s * 0.4, y - s * 0.3, s * 0.8, s * 0.09);
+  }
+  function kitBush(ctx, x, y, s, col) {
+    ctx.fillStyle = col || KIT.leafLite; ctx.beginPath(); ctx.arc(x - s * 0.3, y - s * 0.3, s * 0.35, 0, Math.PI * 2); ctx.arc(x + s * 0.28, y - s * 0.32, s * 0.36, 0, Math.PI * 2); ctx.arc(x, y - s * 0.52, s * 0.4, 0, Math.PI * 2); ctx.fill();
+  }
+  function kitRock(ctx, x, y, s, col) {
+    ctx.fillStyle = col || KIT.stone; ctx.beginPath(); ctx.moveTo(x - s * 0.5, y); ctx.lineTo(x - s * 0.38, y - s * 0.5); ctx.lineTo(x + s * 0.08, y - s * 0.66); ctx.lineTo(x + s * 0.5, y - s * 0.32); ctx.lineTo(x + s * 0.46, y); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = KIT.stoneLite; ctx.fillRect(x - s * 0.2, y - s * 0.46, s * 0.26, s * 0.12);
+  }
+  function kitFence(ctx, x, y, w, h) { // left end at (x, y), width w, post height h
+    ctx.fillStyle = KIT.woodLite; const n = Math.max(2, Math.round(w / (h * 0.6)));
+    for (let i = 0; i <= n; i++) ctx.fillRect(x + i * (w / n) - h * 0.08, y - h, h * 0.16, h);
+    ctx.fillRect(x, y - h * 0.75, w, h * 0.12); ctx.fillRect(x, y - h * 0.38, w, h * 0.12);
+  }
+  function kitStump(ctx, x, y, s, col) { ctx.fillStyle = col || KIT.wood; ctx.fillRect(x - s * 0.3, y - s * 0.45, s * 0.6, s * 0.45); ctx.fillStyle = KIT.woodLite; ctx.fillRect(x - s * 0.3, y - s * 0.5, s * 0.6, s * 0.12); }
+  // side-view prop by kind, feet at (x, y), size s, optional tint
+  function propSide(g, kind, x, y, s, tint) {
+    if (kind === "crate") kitCrateT(g, x, y - s / 2, s, tint || KIT.wood, tint ? mixHex(tint, 0.35) : KIT.woodLite);
+    else if (kind === "barrel") kitBarrel(g, x, y, s, tint);
+    else if (kind === "tree") kitTree(g, x, y, s * 0.75, tint);
+    else if (kind === "pine") kitPine(g, x, y, s * 1.05);
+    else if (kind === "bush") kitBush(g, x, y, s, tint);
+    else if (kind === "rock") kitRock(g, x, y, s, tint);
+    else if (kind === "fence") kitFence(g, x - s * 0.8, y, s * 1.6, s * 0.7);
+    else kitStump(g, x, y, s, tint);
+  }
+  const KIND_BASE = { crate: KIT.wood, barrel: KIT.woodLite, tree: KIT.leaf, pine: KIT.leaf, bush: KIT.leafLite, rock: KIT.stone, fence: KIT.woodLite, stump: KIT.wood };
+
   // ================= 1. anatomy of a draw call =================
   const c1 = $("c1"), g1 = c1.getContext("2d");
   const s1 = { draws: 3000, cpu: 5, gpu: 2 };
   const SPLIT = [["pipeline bind", 0.40, AMB], ["descriptor / constants", 0.30, BLU], ["vertex + index bind", 0.10, "rgba(255,255,255,0.45)"], ["draw submit", 0.20, WHT]];
   const K1 = 512, BUDGET = 16.7;
+  const HZ1 = 74, GND1 = 120;
+  // market street props: prop 0 is the crate whose order gets zoomed
+  const PROPS1 = [{ x: 118, y: 117, kind: "crate", s: 14 }];
+  { const r = rng(31); const KINDS1 = ["crate", "crate", "barrel", "tree", "pine", "bush", "rock", "stump"]; for (let i = 1; i < 200; i++) { PROPS1.push({ x: 6 + r() * 628, y: 100 + r() * 18, kind: KINDS1[Math.floor(r() * KINDS1.length)], s: 8 + r() * 6 }); } }
   function sim1() {
     const N = s1.draws, cpu = s1.cpu / 1000, gpu = s1.gpu / 1000;
     const cpuEnd = N * cpu; const chunks = []; let gEnd = 0, busy = 0;
@@ -586,47 +747,54 @@ pipelines = unique shader variants    bindless does not lower this; an uber-shad
     const frame = Math.max(cpuEnd, gEnd);
     return { cpuEnd, gEnd, frame, busy, chunks, idle: 1 - busy / frame, fps: 1000 / frame };
   }
+  function scene1(k) {
+    kitGround(g1, 640, GND1, HZ1);
+    kitCloud(g1, 110, 22, 60); kitCloud(g1, 470, 28, 50, 0.25);
+    kitHouse(g1, 30, 100, 70, 34); kitHouse(g1, 252, 100, 62, 30, "#6f5f8f"); kitHouse(g1, 500, 100, 78, 36);
+    kitFence(g1, 124, 100, 110, 14); kitFence(g1, 340, 100, 140, 14); kitLamp(g1, 330, 102, 36, 0);
+    const list = PROPS1.slice(0, k).sort((a, b) => a.y - b.y);
+    for (const p of list) propSide(g1, p.kind, p.x, p.y, p.s);
+    kitPlayer(g1, 190, 116, 30, -1);
+  }
   function draw1() {
     const r = sim1(); const W = 640, H = 360;
     g1.fillStyle = GRD; g1.fillRect(0, 0, W, H);
-    // --- inset: one draw zoomed ---
-    txt(g1, "ONE DRAW, ZOOMED · " + s1.cpu.toFixed(1) + " µs of CPU", 16, 22, "rgba(255,255,255,0.55)", "left", 11);
-    const ix = 16, iy = 34, iw = 608, ih = 26; const nd = 3, dw = iw / nd;
-    for (let d = 0; d < nd; d++) { let x = ix + d * dw; for (const [name, f, col] of SPLIT) { const w = f * dw; g1.fillStyle = col; g1.globalAlpha = d === 0 ? 1 : 0.45; g1.fillRect(x + 1, iy, w - 2, ih); g1.globalAlpha = 1; x += w; } txt(g1, "draw " + d, ix + d * dw + 4, iy + ih + 13, "rgba(255,255,255,0.4)", "left", 10); }
-    let lx = 16; for (const [name, f, col] of SPLIT) { g1.fillStyle = col; g1.fillRect(lx, 82, 9, 9); txt(g1, name + " " + (s1.cpu * f).toFixed(1) + " µs", lx + 13, 90, "rgba(255,255,255,0.7)", "left", 10); lx += 160; }
+    const k = Math.max(3, Math.min(200, Math.round(s1.draws / 60)));
+    scene1(k);
+    kitLabel(g1, `what the player sees · every prop is one order · ${fmtN(s1.draws)} orders this frame`, 8, 12, "left");
+    kitLabel(g1, "player", 190, 80, "center");
+    // --- one draw zoomed: the crate's order ---
+    const ix = 16, iy = 150, iw = 608, ih = 22; const nd = 3, dw = iw / nd;
+    kitArrow(g1, 118, 121, 118, iy - 3, WHT, 1.5);
+    kitLabel(g1, "this crate's order", 126, 134, "left");
+    txt(g1, "ONE ORDER, ZOOMED · " + s1.cpu.toFixed(1) + " µs of CPU", W - 16, 140, "rgba(255,255,255,0.55)", "right", 11);
+    for (let d = 0; d < nd; d++) { let x = ix + d * dw; for (const [name, f, col] of SPLIT) { const w = f * dw; g1.fillStyle = col; g1.globalAlpha = d === 0 ? 1 : 0.4; g1.fillRect(x + 1, iy, w - 2, ih); g1.globalAlpha = 1; x += w; } txt(g1, d === 0 ? "the crate" : d === 1 ? "next prop" : "next prop", ix + d * dw + 4, iy + ih + 12, "rgba(255,255,255,0.4)", "left", 10); }
+    let lx = 16; for (const [name, f, col] of SPLIT) { g1.fillStyle = col; g1.fillRect(lx, 190, 9, 9); const t = name + " " + (s1.cpu * f).toFixed(1) + " µs"; txt(g1, t, lx + 13, 198, "rgba(255,255,255,0.7)", "left", 10); lx += g1.measureText(t).width + 30; }
     // --- timeline ---
-    const x0 = 78, x1 = 624, y0 = 132; const tmax = Math.max(BUDGET, r.frame) * 1.06; const sx = t => x0 + t / tmax * (x1 - x0);
-    txt(g1, "FRAME TIMELINE", 16, y0 - 12, "rgba(255,255,255,0.55)", "left", 11);
-    // ruler
+    const x0 = 86, x1 = 624, y0 = 218; const tmax = Math.max(BUDGET, r.frame) * 1.06; const sx = t => x0 + t / tmax * (x1 - x0);
+    txt(g1, "THE WHOLE FRAME", 16, y0 - 10, "rgba(255,255,255,0.55)", "left", 11);
     g1.strokeStyle = DIM; g1.lineWidth = 1; g1.beginPath(); g1.moveTo(x0, y0 + 0.5); g1.lineTo(x1, y0 + 0.5); g1.stroke();
     const step = tmax > 60 ? 20 : tmax > 30 ? 10 : tmax > 12 ? 5 : 2;
-    for (let t = 0; t <= tmax; t += step) { const x = Math.round(sx(t)) + 0.5; g1.beginPath(); g1.moveTo(x, y0 - 4); g1.lineTo(x, y0 + 4); g1.strokeStyle = "rgba(255,255,255,0.35)"; g1.stroke(); txt(g1, t + " ms", x, y0 + 16, "rgba(255,255,255,0.45)", "center", 10); }
-    // lanes
-    const cy = y0 + 40, gy = y0 + 110, lh = 34;
-    txt(g1, "CPU", 16, cy + lh / 2 + 4, "rgba(255,255,255,0.8)", "left", 12); txt(g1, "record", 16, cy + lh / 2 + 17, "rgba(255,255,255,0.4)", "left", 10);
-    txt(g1, "GPU", 16, gy + lh / 2 + 4, "rgba(255,255,255,0.8)", "left", 12); txt(g1, "execute", 16, gy + lh / 2 + 17, "rgba(255,255,255,0.4)", "left", 10);
+    for (let t = 0; t <= tmax; t += step) { const x = Math.round(sx(t)) + 0.5; g1.beginPath(); g1.moveTo(x, y0 - 4); g1.lineTo(x, y0 + 4); g1.strokeStyle = "rgba(255,255,255,0.35)"; g1.stroke(); txt(g1, t + " ms", x, y0 + 15, "rgba(255,255,255,0.45)", "center", 10); }
+    const cy = y0 + 32, gy = y0 + 88, lh = 26;
+    txt(g1, "CPU", 16, cy + 12, "rgba(255,255,255,0.8)", "left", 12); txt(g1, "writes orders", 16, cy + 25, "rgba(255,255,255,0.4)", "left", 9);
+    txt(g1, "GPU", 16, gy + 12, "rgba(255,255,255,0.8)", "left", 12); txt(g1, "draws them", 16, gy + 25, "rgba(255,255,255,0.4)", "left", 9);
     g1.fillStyle = "rgba(255,255,255,0.04)"; g1.fillRect(x0, cy, x1 - x0, lh); g1.fillRect(x0, gy, x1 - x0, lh);
-    // cpu bar with per-draw stripes when visible
     const cw = sx(r.cpuEnd) - x0;
     g1.fillStyle = AMB; g1.fillRect(x0, cy, cw, lh);
     const pxPerDraw = cw / s1.draws;
     if (pxPerDraw >= 3) { g1.fillStyle = "rgba(11,14,19,0.6)"; for (let i = 1; i < s1.draws; i++) g1.fillRect(x0 + i * pxPerDraw, cy, 1, lh); }
-    // submits
     for (const [submit] of r.chunks) { const x = sx(submit); g1.strokeStyle = WHT; g1.lineWidth = 1; g1.beginPath(); g1.moveTo(x + 0.5, cy - 4); g1.lineTo(x + 0.5, cy + lh + 4); g1.stroke(); }
-    if (r.chunks.length) txt(g1, r.chunks.length + " submit" + (r.chunks.length > 1 ? "s" : ""), sx(r.chunks[0][0]) + 4, cy - 6, "rgba(255,255,255,0.6)", "left", 10);
-    // gpu blocks
+    if (r.chunks.length) txt(g1, r.chunks.length + " hand-over" + (r.chunks.length > 1 ? "s" : "") + " to the GPU", sx(r.chunks[0][0]) + 4, cy - 6, "rgba(255,255,255,0.6)", "left", 10);
     for (const [, s, e] of r.chunks) { g1.fillStyle = BLU; g1.fillRect(sx(s), gy, Math.max(1, sx(e) - sx(s)), lh); }
-    // idle gaps
-    let prev = 0; for (const [, s, e] of r.chunks) { if (s - prev > 0.02) { const a = sx(prev), b = sx(s); g1.fillStyle = "rgba(239,93,93,0.18)"; g1.fillRect(a, gy, b - a, lh); if (b - a > 34) txt(g1, "idle", (a + b) / 2, gy + lh / 2 + 4, RED, "center", 10); } prev = e; }
-    // over budget
-    if (r.frame > BUDGET) { const a = sx(BUDGET), b = sx(r.frame); g1.fillStyle = "rgba(239,93,93,0.10)"; g1.fillRect(a, y0 + 22, b - a, 140); }
-    const bx = Math.round(sx(BUDGET)) + 0.5; g1.setLineDash([4, 4]); g1.strokeStyle = RED; g1.beginPath(); g1.moveTo(bx, y0 + 22); g1.lineTo(bx, gy + lh + 30); g1.stroke(); g1.setLineDash([]);
-    txt(g1, "16.7 ms budget", bx, gy + lh + 44, RED, bx > x1 - 60 ? "right" : "center", 10);
-    // ends
+    let prev = 0; for (const [, s, e] of r.chunks) { if (s - prev > 0.02) { const a = sx(prev), b = sx(s); g1.fillStyle = "rgba(239,93,93,0.18)"; g1.fillRect(a, gy, b - a, lh); if (b - a > 40) txt(g1, "waiting", (a + b) / 2, gy + lh / 2 + 4, RED, "center", 10); } prev = e; }
+    if (r.frame > BUDGET) { const a = sx(BUDGET), b = sx(r.frame); g1.fillStyle = "rgba(239,93,93,0.10)"; g1.fillRect(a, y0 + 20, b - a, gy + lh - y0 - 16); }
+    const bx = Math.round(sx(BUDGET)) + 0.5; g1.setLineDash([4, 4]); g1.strokeStyle = RED; g1.beginPath(); g1.moveTo(bx, y0 + 20); g1.lineTo(bx, gy + lh + 6); g1.stroke(); g1.setLineDash([]);
+    txt(g1, "16.7 ms budget", bx, gy + lh + 17, RED, bx > x1 - 60 ? "right" : "center", 10);
     txt(g1, r.cpuEnd.toFixed(1) + " ms", Math.min(sx(r.cpuEnd) + 4, x1 - 40), cy + lh / 2 + 4, WHT, "left", 11);
     txt(g1, r.gEnd.toFixed(1) + " ms", Math.min(sx(r.gEnd) + 4, x1 - 40), gy + lh / 2 + 4, WHT, "left", 11);
     const bound = r.cpuEnd >= r.gEnd ? "CPU bound" : "GPU bound";
-    txt(g1, bound.toUpperCase(), x1, y0 - 12, r.frame > BUDGET ? RED : "#5ad48a", "right", 11);
+    txt(g1, bound.toUpperCase() + (r.frame > BUDGET ? " · OVER BUDGET" : " · ON BUDGET"), x1, y0 - 10, r.frame > BUDGET ? RED : GRN, "right", 11);
     $("c1-read").innerHTML = `<strong>${fmtN(s1.draws)} draws</strong> · CPU ${r.cpuEnd.toFixed(1)} ms · GPU busy ${r.busy.toFixed(1)} ms · <strong>${bound}</strong>`;
     $("t1-cpu").querySelector(".n").textContent = r.cpuEnd.toFixed(1);
     $("t1-gpu").querySelector(".n").textContent = r.busy.toFixed(1);
@@ -642,61 +810,87 @@ pipelines = unique shader variants    bindless does not lower this; an uber-shad
   const c2 = $("c2"), g2 = c2.getContext("2d");
   const s2 = { P: 6, M: 24, K: 40, N: 200, mode: "state", seed: 7, hover: -1 };
   const COST = { pso: 2.0, mat: 1.5, mesh: 0.5, submit: 1.0 };
-  let draws2 = [], sorted2 = [], pos2 = [];
+  let draws2 = [], sorted2 = [], pos2 = [], scene2 = [];
   const FIELDS = { layer: 4, pso: 12, mat: 16, mesh: 16, depth: 16 };
   const ORDER = { state: ["layer", "pso", "mat", "mesh", "depth"], depth: ["layer", "depth", "pso", "mat", "mesh"] };
+  const KIND2 = ["crate", "tree", "barrel", "rock", "pine", "bush", "fence", "stump"];
+  const kind2 = d => KIND2[d.pso % KIND2.length];
+  const tint2 = d => mixHex(KIND_BASE[kind2(d)], (s2.M <= 1 ? 0 : (d.mat / (s2.M - 1))) * 0.5 - 0.15);
+  const size2 = d => 9 + (d.mesh % 3) * 2;
   function pack(d, order) { let k = 0n, shift = 64; for (const f of order) { shift -= FIELDS[f]; k |= BigInt(d[f]) << BigInt(shift); } return k; }
   function gen2() {
     const r = rng(s2.seed); draws2 = [];
-    for (let i = 0; i < s2.N; i++) { const mat = Math.floor(r() * s2.M); draws2.push({ id: i, layer: r() < 0.12 ? 1 : 0, mat, pso: mat % s2.P, mesh: Math.floor(r() * s2.K), depth: Math.floor(r() * 65535) }); }
+    for (let i = 0; i < s2.N; i++) { const mat = Math.floor(r() * s2.M); draws2.push({ id: i, layer: r() < 0.12 ? 1 : 0, mat, pso: mat % s2.P, mesh: Math.floor(r() * s2.K), depth: Math.floor(r() * 65535), sx: 8 + r() * 496, sy: 66 + r() * 24 }); }
+    scene2 = draws2.slice().sort((a, b) => a.sy - b.sy);
     sort2();
   }
   function sort2() { const order = ORDER[s2.mode]; for (const d of draws2) d.key = pack(d, order); sorted2 = draws2.slice().sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0); pos2 = new Array(s2.N); sorted2.forEach((d, i) => pos2[d.id] = i); }
   function changes(list) { const c = { pso: 0, mat: 0, mesh: 0 }; let p = null; for (const d of list) { if (!p || d.pso !== p.pso) c.pso++; if (!p || d.mat !== p.mat || d.pso !== p.pso) c.mat++; if (!p || d.mesh !== p.mesh) c.mesh++; p = d; } c.total = c.pso + c.mat + c.mesh; c.us = c.pso * COST.pso + c.mat * COST.mat + c.mesh * COST.mesh + list.length * COST.submit; return c; }
   function shade(base, v, n) { const t = n <= 1 ? 1 : 0.25 + 0.75 * (v / (n - 1)); return `rgba(${base[0]},${base[1]},${base[2]},${t.toFixed(3)})`; }
   const ROWS = [["pipeline", "pso", [242, 163, 65]], ["material", "mat", [74, 163, 255]], ["mesh", "mesh", [230, 232, 236]]];
+  const X2 = 72, W2 = 404, NI2 = 32, IW2 = W2 / NI2;
   function drawList(list, y, label, hoverPos) {
-    const x0 = 72, w = 428, sw = w / list.length; const ch = changes(list);
+    const sw = W2 / list.length; const ch = changes(list);
     txt(g2, label.toUpperCase() + " · " + ch.total + " state changes · " + ch.us.toFixed(0) + " µs", 12, y, "rgba(255,255,255,0.6)", "left", 11);
+    txt(g2, "first 32", 66, y + 20, "rgba(255,255,255,0.45)", "right", 9);
+    g2.fillStyle = "rgba(255,255,255,0.04)"; g2.fillRect(X2, y + 6, W2, 22);
+    for (let i = 0; i < NI2 && i < list.length; i++) { const d = list[i]; propSide(g2, kind2(d), X2 + i * IW2 + IW2 / 2, y + 26, Math.min(10, size2(d)), tint2(d)); }
     ROWS.forEach(([name, f, base], ri) => {
-      const ry = y + 8 + ri * 26; const n = f === "pso" ? s2.P : f === "mat" ? s2.M : s2.K;
-      txt(g2, name, 66, ry + 15, "rgba(255,255,255,0.5)", "right", 10);
+      const ry = y + 32 + ri * 16; const n = f === "pso" ? s2.P : f === "mat" ? s2.M : s2.K;
+      txt(g2, name, 66, ry + 11, "rgba(255,255,255,0.5)", "right", 10);
       let runStart = 0;
-      for (let i = 1; i <= list.length; i++) { if (i === list.length || list[i][f] !== list[runStart][f] || (f === "mat" && list[i].pso !== list[runStart].pso)) { g2.fillStyle = shade(base, list[runStart][f], n); const a = x0 + runStart * sw, b = x0 + i * sw; g2.fillRect(a + 0.6, ry, Math.max(0.8, b - a - 1.2), 21); runStart = i; } }
-      txt(g2, ch[f] + "×", x0 + w + 6, ry + 15, RED, "left", 10);
+      for (let i = 1; i <= list.length; i++) { if (i === list.length || list[i][f] !== list[runStart][f] || (f === "mat" && list[i].pso !== list[runStart].pso)) { g2.fillStyle = shade(base, list[runStart][f], n); const a = X2 + runStart * sw, b = X2 + i * sw; g2.fillRect(a + 0.6, ry, Math.max(0.8, b - a - 1.2), 14); runStart = i; } }
+      txt(g2, ch[f] + "×", X2 + W2 + 6, ry + 11, RED, "left", 10);
     });
-    if (hoverPos >= 0) { const x = x0 + hoverPos * sw; g2.strokeStyle = WHT; g2.lineWidth = 1; g2.strokeRect(x - 0.5, y + 6, sw + 1, 78); }
+    if (hoverPos >= 0) { const x = X2 + hoverPos * sw; g2.strokeStyle = WHT; g2.lineWidth = 1; g2.strokeRect(x - 0.5, y + 30, sw + 1, 50); if (hoverPos < NI2) g2.strokeRect(X2 + hoverPos * IW2 + 0.5, y + 6.5, IW2 - 1, 21); }
     return ch;
   }
   function draw2() {
     g2.fillStyle = GRD; g2.fillRect(0, 0, 512, 512);
-    const hv = s2.hover; const chU = drawList(draws2, 22, "unsorted", hv);
-    const chS = drawList(sorted2, 126, "sorted by key", hv >= 0 ? pos2[hv] : -1);
+    // --- the market square ---
+    kitGround(g2, 512, 96, 54);
+    kitHouse(g2, 14, 66, 56, 24); kitHouse(g2, 440, 66, 60, 26, "#6f5f8f"); kitLamp(g2, 304, 68, 26, 0); kitFence(g2, 90, 66, 80, 10); kitFence(g2, 340, 66, 80, 10);
+    for (const d of scene2) propSide(g2, kind2(d), d.sx, d.sy, size2(d) * 0.8, tint2(d));
+    kitPlayer(g2, 256, 92, 22, 1);
+    kitLabel(g2, "the market square · 200 props · each one is one order", 8, 12, "left");
+    const hv = s2.hover;
+    if (hv >= 0) { const d = draws2[hv]; const s = size2(d) * 0.8; g2.strokeStyle = WHT; g2.lineWidth = 1.5; g2.beginPath(); g2.arc(d.sx, d.sy - s * 0.45, s * 0.9, 0, Math.PI * 2); g2.stroke(); kitLabel(g2, "this one", Math.min(d.sx + 10, 430), Math.max(14, d.sy - s - 8), "left"); }
+    const chU = drawList(draws2, 110, "unsorted · the order the level lists them", hv);
+    const chS = drawList(sorted2, 200, "sorted by key · grouped by kind", hv >= 0 ? pos2[hv] : -1);
     // key layout
-    const order = ORDER[s2.mode]; const kx = 12, ky = 236, kw = 488;
+    const order = ORDER[s2.mode]; const kx = 12, ky = 300, kw = 488;
     txt(g2, "64-BIT SORT KEY · most expensive change in the top bits", kx, ky - 6, "rgba(255,255,255,0.6)", "left", 11);
     let bit = 64, x = kx; const cols = { layer: "rgba(255,255,255,0.25)", pso: "rgba(242,163,65,0.8)", mat: "rgba(74,163,255,0.8)", mesh: "rgba(230,232,236,0.55)", depth: "rgba(90,212,138,0.55)" };
     const names = { layer: "layer", pso: "pipeline", mat: "material", mesh: "mesh", depth: "depth" };
     const d = hv >= 0 ? draws2[hv] : null;
-    for (const f of order) { const bits = FIELDS[f], w = bits / 64 * kw; g2.fillStyle = cols[f]; g2.fillRect(x + 1, ky, w - 2, 30); txt(g2, names[f], x + w / 2, ky + 13, GRD, "center", 10); txt(g2, bits + " b", x + w / 2, ky + 25, GRD, "center", 10); txt(g2, (bit - 1) + "", x + 2, ky + 42, "rgba(255,255,255,0.4)", "left", 9); if (d) txt(g2, d[f] + "", x + w / 2, ky + 58, WHT, "center", 11); bit -= bits; x += w; }
-    txt(g2, "0", kx + kw - 2, ky + 42, "rgba(255,255,255,0.4)", "right", 9);
-    if (d) txt(g2, `draw #${d.id} → key 0x${d.key.toString(16).padStart(16, "0")} → sorted position ${pos2[d.id]}`, kx, ky + 76, "rgba(255,255,255,0.85)", "left", 11);
-    else txt(g2, "hover a strip: field values and the packed key appear here", kx, ky + 76, "rgba(255,255,255,0.4)", "left", 11);
+    for (const f of order) { const bits = FIELDS[f], w = bits / 64 * kw; g2.fillStyle = cols[f]; g2.fillRect(x + 1, ky, w - 2, 26); txt(g2, names[f], x + w / 2, ky + 11, GRD, "center", 10); txt(g2, bits + " b", x + w / 2, ky + 22, GRD, "center", 10); txt(g2, (bit - 1) + "", x + 2, ky + 37, "rgba(255,255,255,0.4)", "left", 9); if (d) txt(g2, d[f] + "", x + w / 2, ky + 51, WHT, "center", 11); bit -= bits; x += w; }
+    txt(g2, "0", kx + kw - 2, ky + 37, "rgba(255,255,255,0.4)", "right", 9);
+    if (d) txt(g2, `${kind2(d)} #${d.id} → key 0x${d.key.toString(16).padStart(16, "0")} → sorted position ${pos2[d.id]}`, kx, ky + 66, "rgba(255,255,255,0.85)", "left", 11);
+    else txt(g2, "hover a prop or a strip: field values and the packed key appear here", kx, ky + 66, "rgba(255,255,255,0.4)", "left", 11);
     // cost bars
-    const by = 340; txt(g2, "ESTIMATED CPU TIME · stacked by what changed", kx, by - 6, "rgba(255,255,255,0.6)", "left", 11);
+    const by = 390; txt(g2, "ESTIMATED CPU TIME · stacked by what changed", kx, by - 6, "rgba(255,255,255,0.6)", "left", 11);
     const maxUs = Math.max(chU.us, chS.us); const bw = 400, bx = 88;
     [["unsorted", chU], ["sorted", chS]].forEach(([n, c], i) => {
-      const y = by + 10 + i * 46; txt(g2, n, bx - 6, y + 15, "rgba(255,255,255,0.7)", "right", 11);
+      const y = by + 6 + i * 30; txt(g2, n, bx - 6, y + 14, "rgba(255,255,255,0.7)", "right", 11);
       let x = bx; const parts = [[c.pso * COST.pso, AMB], [c.mat * COST.mat, BLU], [c.mesh * COST.mesh, "rgba(230,232,236,0.6)"], [s2.N * COST.submit, "rgba(255,255,255,0.25)"]];
-      for (const [us, col] of parts) { const w = us / maxUs * bw; g2.fillStyle = col; g2.fillRect(x, y, Math.max(0, w - 1), 22); x += w; }
-      txt(g2, c.us.toFixed(0) + " µs", Math.min(x + 6, 470), y + 15, WHT, "left", 11);
+      for (const [us, col] of parts) { const w = us / maxUs * bw; g2.fillStyle = col; g2.fillRect(x, y, Math.max(0, w - 1), 20); x += w; }
+      txt(g2, c.us.toFixed(0) + " µs", Math.min(x + 6, 470), y + 14, WHT, "left", 11);
     });
-    let lx = bx; for (const [n, col] of [["pipeline", AMB], ["material", BLU], ["mesh", "rgba(230,232,236,0.6)"], ["submit", "rgba(255,255,255,0.25)"]]) { g2.fillStyle = col; g2.fillRect(lx, by + 106, 9, 9); txt(g2, n, lx + 13, by + 114, "rgba(255,255,255,0.6)", "left", 10); lx += 92; }
-    txt(g2, `sorted list saves ${(chU.us - chS.us).toFixed(0)} µs of ${chU.us.toFixed(0)} · ${Math.round((1 - chS.us / chU.us) * 100)} %`, kx, 500, "rgba(255,255,255,0.75)", "left", 11);
+    let lx = bx; for (const [n, col] of [["pipeline", AMB], ["material", BLU], ["mesh", "rgba(230,232,236,0.6)"], ["submit", "rgba(255,255,255,0.25)"]]) { g2.fillStyle = col; g2.fillRect(lx, by + 72, 9, 9); txt(g2, n, lx + 13, by + 80, "rgba(255,255,255,0.6)", "left", 10); lx += 92; }
+    txt(g2, `sorted list saves ${(chU.us - chS.us).toFixed(0)} µs of ${chU.us.toFixed(0)} · ${Math.round((1 - chS.us / chU.us) * 100)} %`, kx, by + 108, "rgba(255,255,255,0.75)", "left", 11);
     $("t2-un").textContent = chU.total; $("t2-so").textContent = chS.total; $("t2-ms").textContent = chS.us.toFixed(0);
     $("c2-read").innerHTML = `<strong>${chU.total} → ${chS.total}</strong> state changes · ${chU.us.toFixed(0)} → ${chS.us.toFixed(0)} µs`;
   }
-  function hover2(x, y) { let h = -1; if (x >= 72 && x <= 500) { const i = Math.floor((x - 72) / (428 / s2.N)); if (y >= 28 && y <= 108) h = i; else if (y >= 132 && y <= 212) h = sorted2[i].id; } if (h !== s2.hover) { s2.hover = h; draw2(); } }
+  function hover2(x, y) {
+    let h = -1;
+    if (y >= 0 && y < 96 && x >= 0) { let bd = 9; for (const d of draws2) { const dd = Math.hypot(d.sx - x, d.sy - 5 - y); if (dd < bd) { bd = dd; h = d.id; } } }
+    else if (x >= X2 && x <= X2 + W2) {
+      const i = Math.floor((x - X2) / (W2 / s2.N)), ii = Math.floor((x - X2) / IW2);
+      if (y >= 116 && y < 138) h = draws2[ii].id; else if (y >= 140 && y <= 190) h = i;
+      else if (y >= 206 && y < 228) h = sorted2[ii].id; else if (y >= 230 && y <= 280) h = sorted2[i].id;
+    }
+    if (h !== s2.hover) { s2.hover = h; draw2(); }
+  }
   c2.addEventListener("pointermove", ev => { const [x, y] = ptr(c2, ev); hover2(x, y); });
   c2.addEventListener("pointerdown", ev => { const [x, y] = ptr(c2, ev); hover2(x, y); });
   c2.addEventListener("pointerleave", () => { s2.hover = -1; draw2(); });
@@ -713,51 +907,76 @@ pipelines = unique shader variants    bindless does not lower this; an uber-shad
   const s3 = { mode: "instanced", hover: -1 };
   const cam3 = { c: [256, 300], a: [256, 90], maxY: MAP_H - 4 };
   const trees = new Float32Array(N3 * 3); { const r = rng(11); for (let i = 0; i < N3; i++) { trees[i * 3] = 4 + r() * 504; trees[i * 3 + 1] = 4 + r() * (MAP_H - 8); trees[i * 3 + 2] = 0.6 + r() * 0.8; } }
+  // the forest drawn once: 5,000 trees from above
+  const forest3 = document.createElement("canvas"); forest3.width = 512; forest3.height = MAP_H;
+  { const g = forest3.getContext("2d"); kitTopGround(g, 512, MAP_H, 51.2);
+    for (let i = 0; i < N3; i++) { const x = trees[i * 3], y = trees[i * 3 + 1], s = trees[i * 3 + 2]; g.fillStyle = i % 3 ? KIT.leaf : KIT.leafLite; g.beginPath(); g.arc(x, y, 1.1 + s * 1.4, 0, Math.PI * 2); g.fill(); } }
+  function inset3(f, inViewIdx) {
+    const ix = 350, iy = 8, iw = 154, ih = 100; kitInset(g3, ix, iy, iw, ih, "what the player sees");
+    g3.save(); g3.beginPath(); g3.rect(ix + 1, iy + 22, iw - 2, ih - 23); g3.clip();
+    const hz = iy + 58; const gg = g3.createLinearGradient(0, iy + 22, 0, hz); gg.addColorStop(0, KIT.sky); gg.addColorStop(1, KIT.skyLite); g3.fillStyle = gg; g3.fillRect(ix, iy + 22, iw, hz - iy - 22);
+    g3.fillStyle = KIT.grass; g3.fillRect(ix, hz, iw, iy + ih - hz);
+    const list = []; const stride = Math.max(1, Math.ceil(inViewIdx.length / 260));
+    for (let k = 0; k < inViewIdx.length; k += stride) { const i = inViewIdx[k]; const vx = trees[i * 3] - f.c[0], vy = trees[i * 3 + 1] - f.c[1]; const along = vx * f.d[0] + vy * f.d[1]; if (along < 3) continue; const perp = vx * f.d[1] - vy * f.d[0]; list.push([along, perp, trees[i * 3 + 2]]); }
+    list.sort((a, b) => b[0] - a[0]);
+    for (const [along, perp, sc] of list) { const x = ix + iw / 2 - (perp / along) / f.t * (iw / 2 - 2); const y = hz + Math.min(41, 330 / (along + 4)); const s = Math.min(24, 150 * sc / (along + 3)); if (s < 2.2) { g3.fillStyle = KIT.leaf; g3.fillRect(x - 1, y - s * 1.6, 2, s * 1.6); } else kitTree(g3, x, y, s * 0.6); }
+    g3.restore();
+  }
   function draw3() {
     g3.fillStyle = GRD; g3.fillRect(0, 0, 512, 512);
-    g3.strokeStyle = DIM; g3.lineWidth = 1; g3.beginPath(); for (let i = 1; i < 10; i++) { const p = Math.round(i * 51.2) + 0.5; g3.moveTo(p, 0); g3.lineTo(p, MAP_H); if (p < MAP_H) { g3.moveTo(0, p); g3.lineTo(512, p); } } g3.stroke();
-    const f = frustum(cam3.c, cam3.a, Math.PI / 6, 3, 160); let inView = 0;
-    g3.fillStyle = "rgba(74,163,255,0.5)"; for (let i = 0; i < N3; i++) { const x = trees[i * 3], y = trees[i * 3 + 1]; if (!f.test(x, y)) g3.fillRect(x - 1, y - 1, 2, 2); }
-    g3.fillStyle = AMB; for (let i = 0; i < N3; i++) { const x = trees[i * 3], y = trees[i * 3 + 1]; if (f.test(x, y)) { inView++; g3.fillRect(x - 1.5, y - 1.5, 3, 3); } }
-    drawFrustum(g3, f); handle(g3, cam3.c[0], cam3.c[1], 8); handle(g3, cam3.a[0], cam3.a[1], 5);
-    txt(g3, "1 km × 0.73 km · 100 m grid · far plane 312 m", 8, MAP_H - 8, "rgba(255,255,255,0.45)", "left", 10);
+    g3.drawImage(forest3, 0, 0);
+    const f = frustum(cam3.c, cam3.a, Math.PI / 6, 3, 160); const inViewIdx = [];
+    g3.fillStyle = AMB; for (let i = 0; i < N3; i++) { const x = trees[i * 3], y = trees[i * 3 + 1]; if (f.test(x, y)) { inViewIdx.push(i); g3.fillRect(x - 1.5, y - 1.5, 3, 3); } }
+    const inView = inViewIdx.length;
+    drawFrustum(g3, f);
+    const ang = Math.atan2(f.d[1], f.d[0]);
+    kitPlayerTop(g3, cam3.c[0], cam3.c[1], 8, ang); handle(g3, cam3.a[0], cam3.a[1], 5);
+    kitLabel(g3, "player", Math.min(cam3.c[0] + 14, 440), cam3.c[1], "left");
+    kitLabel(g3, "looking here", Math.min(cam3.a[0] + 10, 400), Math.max(12, cam3.a[1] - 14), "left");
+    const mx = cam3.c[0] + f.d[0] * 100, my = cam3.c[1] + f.d[1] * 100;
+    kitLabel(g3, `${fmtN(inView)} trees in view · drawn`, Math.max(4, Math.min(mx, 340)), Math.max(12, Math.min(my, MAP_H - 30)), "left", AMB);
+    kitLabel(g3, "5,000 trees, one mesh · 1 km × 0.73 km · 100 m grid", 6, MAP_H - 12, "left", "#c7cdd8");
+    inset3(f, inViewIdx);
     const h = s3.hover; if (h >= 0) { const x = trees[h * 3], y = trees[h * 3 + 1]; g3.strokeStyle = WHT; g3.lineWidth = 1.5; g3.beginPath(); g3.arc(x, y, 7, 0, Math.PI * 2); g3.stroke(); }
     // ---- bottom panel ----
     g3.fillStyle = "rgba(255,255,255,0.03)"; g3.fillRect(0, MAP_H, 512, 512 - MAP_H); g3.strokeStyle = DIM; g3.beginPath(); g3.moveTo(0, MAP_H + 0.5); g3.lineTo(512, MAP_H + 0.5); g3.stroke();
     const py = MAP_H + 20; const bx = 12, bw = 488;
     const hid = h >= 0 ? h : 1234, hs = trees[hid * 3 + 2];
+    const tickX = bx + hid / N3 * bw;
     if (s3.mode === "instanced") {
-      txt(g3, `INSTANCE BUFFER · ${fmtN(N3)} × ${STRIDE} B = ${fmtB(N3 * STRIDE)} · one drawIndexed(instanceCount = ${fmtN(N3)})`, bx, py, "rgba(255,255,255,0.6)", "left", 11);
-      g3.fillStyle = "rgba(74,163,255,0.35)"; g3.fillRect(bx, py + 8, bw, 12); g3.fillStyle = WHT; g3.fillRect(bx + hid / N3 * bw, py + 6, 2, 16);
-      txt(g3, `instance[${hid}] at byte ${fmtN(hid * STRIDE)}`, bx + Math.min(hid / N3 * bw, 330) + 6, py + 33, WHT, "left", 10);
-      // layout cells
+      txt(g3, `INSTANCE BUFFER · one 64 B record per tree · ${fmtN(N3)} × ${STRIDE} B = ${fmtB(N3 * STRIDE)}`, bx, py, "rgba(255,255,255,0.6)", "left", 11);
+      g3.fillStyle = "rgba(74,163,255,0.35)"; g3.fillRect(bx, py + 8, bw, 12); g3.fillStyle = WHT; g3.fillRect(tickX, py + 6, 2, 16);
+      kitArrow(g3, trees[hid * 3], trees[hid * 3 + 1] + 4, tickX + 1, py + 4, WHT, 1);
+      txt(g3, `tree #${hid}'s record, at byte ${fmtN(hid * STRIDE)}`, tickX < 250 ? tickX + 6 : tickX - 4, py + 33, WHT, tickX < 250 ? "left" : "right", 10);
       const cy = py + 44, cw = bw / 16; const labels = ["m00", "m01", "m02", "tx", "m10", "m11", "m12", "ty", "m20", "m21", "m22", "tz", "r", "g", "b", "a"];
       const vals = [hs, 0, 0, (trees[hid * 3] * MPP).toFixed(0), 0, hs, 0, "0", 0, 0, hs, (trees[hid * 3 + 1] * MPP).toFixed(0), ".3", ".6", ".2", "1"];
-      for (let i = 0; i < 16; i++) { g3.fillStyle = i < 12 ? "rgba(242,163,65,0.55)" : "rgba(74,163,255,0.6)"; g3.fillRect(bx + i * cw + 1, cy, cw - 2, 34); txt(g3, labels[i], bx + i * cw + cw / 2, cy + 13, GRD, "center", 9); txt(g3, typeof vals[i] === "number" ? vals[i].toFixed(1) : vals[i], bx + i * cw + cw / 2, cy + 27, GRD, "center", 9); }
-      txt(g3, "mat3x4 world · 48 B (3 rows × float4)", bx, cy + 50, "rgba(255,255,255,0.55)", "left", 10); txt(g3, "color · 16 B", bx + bw, cy + 50, "rgba(255,255,255,0.55)", "right", 10);
-      txt(g3, `vertex shader: inst[gl_InstanceID] · ${fmtN(N3 * MESH_V)} vertex invocations, ${fmtN(inView * MESH_V)} of them in view`, bx, cy + 66, "rgba(255,255,255,0.75)", "left", 10);
+      for (let i = 0; i < 16; i++) { g3.fillStyle = i < 12 ? "rgba(242,163,65,0.55)" : "rgba(74,163,255,0.6)"; g3.fillRect(bx + i * cw + 1, cy, cw - 2, 30); txt(g3, labels[i], bx + i * cw + cw / 2, cy + 12, GRD, "center", 9); txt(g3, typeof vals[i] === "number" ? vals[i].toFixed(1) : vals[i], bx + i * cw + cw / 2, cy + 24, GRD, "center", 9); }
+      txt(g3, "where it stands and how big: mat3x4 world · 48 B", bx, cy + 44, "rgba(255,255,255,0.55)", "left", 10); txt(g3, "its colour · 16 B", bx + bw, cy + 44, "rgba(255,255,255,0.55)", "right", 10);
+      txt(g3, `one order: drawIndexed(instanceCount = ${fmtN(N3)}) · the vertex shader reads inst[gl_InstanceID]`, bx, cy + 58, "rgba(255,255,255,0.75)", "left", 10);
+      txt(g3, `${fmtN(N3 * MESH_V)} vertex invocations, ${fmtN(inView * MESH_V)} of them in view`, bx, cy + 71, "rgba(255,255,255,0.75)", "left", 10);
     } else if (s3.mode === "static") {
       const vb = N3 * MESH_VB, ib = N3 * 1800 * 3 * 4;
-      txt(g3, `MERGED VERTEX BUFFER · ${fmtN(N3 * MESH_V)} verts × 32 B = ${fmtB(vb)} · one drawIndexed(${fmtN(N3 * 5400)} indices)`, bx, py, "rgba(255,255,255,0.6)", "left", 11);
-      g3.fillStyle = "rgba(242,163,65,0.35)"; g3.fillRect(bx, py + 8, bw, 12); g3.fillStyle = WHT; g3.fillRect(bx + hid / N3 * bw, py + 6, 2, 16);
-      txt(g3, `tree ${hid}: vertices ${fmtN(hid * MESH_V)} to ${fmtN(hid * MESH_V + MESH_V - 1)}, pre-transformed to world space`, bx + Math.min(hid / N3 * bw, 220) + 6, py + 33, WHT, "left", 10);
+      txt(g3, `MERGED VERTEX BUFFER · every tree's vertices copied in · ${fmtN(N3 * MESH_V)} × 32 B = ${fmtB(vb)}`, bx, py, "rgba(255,255,255,0.6)", "left", 10);
+      g3.fillStyle = "rgba(242,163,65,0.35)"; g3.fillRect(bx, py + 8, bw, 12); g3.fillStyle = WHT; g3.fillRect(tickX, py + 6, 2, 16);
+      kitArrow(g3, trees[hid * 3], trees[hid * 3 + 1] + 4, tickX + 1, py + 4, WHT, 1);
+      txt(g3, `tree #${hid}: vertices ${fmtN(hid * MESH_V)} to ${fmtN(hid * MESH_V + MESH_V - 1)}, already in world space`, tickX < 250 ? tickX + 6 : tickX - 4, py + 33, WHT, tickX < 250 ? "left" : "right", 10);
       txt(g3, `INDEX BUFFER · ${fmtN(N3 * 5400)} × 4 B = ${fmtB(ib)} · 32-bit, because ${fmtN(N3 * MESH_V)} > 65,535`, bx, py + 58, "rgba(255,255,255,0.6)", "left", 11);
       g3.fillStyle = "rgba(230,232,236,0.3)"; g3.fillRect(bx, py + 66, bw * ib / vb, 12);
       const one = MESH_VB / vb * bw;
-      g3.fillStyle = AMB; g3.fillRect(bx, py + 96, Math.max(1, one), 12); txt(g3, `one mesh for comparison: ${fmtB(MESH_VB)} · ${(one).toFixed(2)} px wide at this scale`, bx + 8, py + 106, "rgba(255,255,255,0.7)", "left", 10);
+      g3.fillStyle = AMB; g3.fillRect(bx, py + 96, Math.max(1, one), 12); txt(g3, `one tree mesh for comparison: ${fmtB(MESH_VB)} · ${(one).toFixed(2)} px wide at this scale`, bx + 8, py + 106, "rgba(255,255,255,0.7)", "left", 10);
       txt(g3, `moving one tree means rewriting ${fmtB(MESH_VB)} of vertices; ${fmtN(N3 * MESH_V)} vertex invocations either way`, bx, py + 128, "rgba(255,255,255,0.75)", "left", 10);
     } else {
-      txt(g3, `COMMAND BUFFER · ${fmtN(N3)} × (bind constants 64 B + drawIndexed) · ${fmtN(N3 * CPU_US)} µs of CPU`, bx, py, "rgba(255,255,255,0.6)", "left", 11);
+      txt(g3, `COMMAND BUFFER · ${fmtN(N3)} × (bind constants 64 B + drawIndexed) · ${fmtN(N3 * CPU_US)} µs of CPU`, bx, py, "rgba(255,255,255,0.6)", "left", 10);
       const cw = bw / 40;
       for (let i = 0; i < 40; i++) { g3.fillStyle = "rgba(242,163,65,0.6)"; g3.fillRect(bx + i * cw + 1, py + 8, cw * 0.6 - 1, 14); g3.fillStyle = "rgba(255,255,255,0.6)"; g3.fillRect(bx + i * cw + cw * 0.6, py + 8, cw * 0.4 - 1, 14); }
       txt(g3, "…", bx + bw, py + 20, WHT, "right", 12);
-      txt(g3, "amber = bind 64 B of constants · white = draw · repeated 5,000 times", bx, py + 36, "rgba(255,255,255,0.55)", "left", 10);
+      txt(g3, "amber = bind 64 B of constants · white = draw · one pair per tree, 5,000 times", bx, py + 36, "rgba(255,255,255,0.55)", "left", 10);
       g3.fillStyle = "rgba(255,255,255,0.05)"; g3.fillRect(bx, py + 50, bw, 40);
       const frac = Math.min(1, N3 * CPU_US / 1000 / BUDGET);
       g3.fillStyle = AMB; g3.fillRect(bx, py + 50, bw * Math.min(1, frac), 40);
       g3.strokeStyle = RED; g3.setLineDash([4, 4]); g3.beginPath(); const bxx = bx + bw * Math.min(1, BUDGET / (N3 * CPU_US / 1000)); g3.moveTo(bxx, py + 46); g3.lineTo(bxx, py + 94); g3.stroke(); g3.setLineDash([]);
       txt(g3, `${(N3 * CPU_US / 1000).toFixed(1)} ms of CPU`, bx + 8, py + 75, GRD, "left", 11); txt(g3, "16.7 ms", bxx, py + 106, RED, "center", 10);
-      txt(g3, `draw ${hid}: constants at ${fmtN(hid * 64)} B in the per-frame upload · same mesh bound every time`, bx, py + 128, "rgba(255,255,255,0.75)", "left", 10);
+      txt(g3, `tree #${hid}'s draw: constants at ${fmtN(hid * 64)} B in the per-frame upload · same mesh bound every time`, bx, py + 128, "rgba(255,255,255,0.75)", "left", 10);
     }
     const drawsN = { individual: N3, static: 1, instanced: 1 }[s3.mode];
     const mem = { individual: MESH_VB + MESH_IB + N3 * 64, static: N3 * MESH_VB + N3 * 5400 * 4, instanced: MESH_VB + MESH_IB + N3 * STRIDE }[s3.mode];
@@ -779,42 +998,64 @@ pipelines = unique shader variants    bindless does not lower this; an uber-shad
   const T4 = 200, MAP4 = 330;
   const s4 = { mode: "fixed", hover: -1 };
   const cam4 = { c: [256, 280], a: [256, 60], maxY: MAP4 - 4 };
+  const FAM4 = ["tree", "pine", "bush", "crate", "barrel", "rock", "fence", "stump"]; const fam4 = t => Math.floor(t / (T4 / FAM4.length));
   const types = [], inst4 = []; { const r = rng(23); let fv = 0, fi = 0; for (let t = 0; t < T4; t++) { const n = 6 + Math.floor(r() * 54), vc = 200 + Math.floor(r() * 2800); types.push({ vertexCount: vc, firstVertex: fv, firstInstance: fi, capacity: n, count: 0 }); fv += vc; fi += n; for (let k = 0; k < n; k++) inst4.push({ x: 4 + r() * 504, y: 4 + r() * (MAP4 - 8), r: 1.5 + r() * 3, t, vis: false }); } }
   const N4 = inst4.length;
+  // top-down glyph per kind of prop
+  function glyphTop(g, fam, x, y, r) {
+    const k = FAM4[fam];
+    if (k === "tree") { g.fillStyle = KIT.leaf; g.beginPath(); g.arc(x, y, r * 1.2, 0, Math.PI * 2); g.fill(); g.fillStyle = KIT.leafLite; g.beginPath(); g.arc(x - r * 0.3, y - r * 0.3, r * 0.45, 0, Math.PI * 2); g.fill(); }
+    else if (k === "pine") { g.fillStyle = "#2f7a3c"; g.beginPath(); g.arc(x, y, r * 1.1, 0, Math.PI * 2); g.fill(); g.fillStyle = KIT.wood; g.fillRect(x - 0.7, y - 0.7, 1.4, 1.4); }
+    else if (k === "bush") { g.fillStyle = KIT.leafLite; g.beginPath(); g.arc(x, y, r * 0.8, 0, Math.PI * 2); g.fill(); }
+    else if (k === "crate") { g.fillStyle = KIT.wood; g.fillRect(x - r, y - r, 2 * r, 2 * r); g.strokeStyle = KIT.woodLite; g.lineWidth = 1; g.strokeRect(x - r + 0.5, y - r + 0.5, 2 * r - 1, 2 * r - 1); }
+    else if (k === "barrel") { g.fillStyle = KIT.woodLite; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); g.strokeStyle = KIT.metal; g.lineWidth = 1; g.stroke(); }
+    else if (k === "rock") { g.fillStyle = KIT.stone; g.beginPath(); g.arc(x, y, r * 1.1, 0, Math.PI * 2); g.fill(); g.fillStyle = KIT.stoneLite; g.fillRect(x - r * 0.4, y - r * 0.5, r * 0.6, r * 0.35); }
+    else if (k === "fence") { g.fillStyle = KIT.woodLite; g.fillRect(x - r * 1.6, y - r * 0.35, r * 3.2, r * 0.7); }
+    else { g.fillStyle = KIT.wood; g.beginPath(); g.arc(x, y, r * 0.8, 0, Math.PI * 2); g.fill(); g.strokeStyle = KIT.woodLite; g.lineWidth = 1; g.stroke(); }
+  }
+  // the village drawn once, dimmed: props that fail the test stay like this
+  const village4 = document.createElement("canvas"); village4.width = 512; village4.height = MAP4;
+  { const g = village4.getContext("2d"); kitTopGround(g, 512, MAP4, 51.2); g.globalAlpha = 0.42; for (const o of inst4) glyphTop(g, fam4(o.t), o.x, o.y, o.r); g.globalAlpha = 1; }
   function draw4() {
     g4.fillStyle = GRD; g4.fillRect(0, 0, 512, 512);
-    g4.strokeStyle = DIM; g4.lineWidth = 1; g4.beginPath(); for (let i = 1; i < 10; i++) { const p = Math.round(i * 51.2) + 0.5; g4.moveTo(p, 0); g4.lineTo(p, MAP4); if (p < MAP4) { g4.moveTo(0, p); g4.lineTo(512, p); } } g4.stroke();
+    g4.drawImage(village4, 0, 0);
     const f = frustum(cam4.c, cam4.a, Math.PI / 6, 3, 170);
     for (const t of types) t.count = 0; let vis = 0;
     for (const o of inst4) { o.vis = f.test(o.x, o.y, o.r); if (o.vis) { vis++; types[o.t].count++; } }
-    g4.fillStyle = "rgba(74,163,255,0.45)"; for (const o of inst4) if (!o.vis) g4.fillRect(o.x - 1, o.y - 1, 2, 2);
-    g4.fillStyle = AMB; for (const o of inst4) if (o.vis) { g4.beginPath(); g4.arc(o.x, o.y, o.r, 0, Math.PI * 2); g4.fill(); }
-    if (s4.hover >= 0) { g4.strokeStyle = WHT; g4.lineWidth = 1.5; for (const o of inst4) if (o.t === s4.hover) { g4.beginPath(); g4.arc(o.x, o.y, o.r + 3, 0, Math.PI * 2); g4.stroke(); } }
-    drawFrustum(g4, f); handle(g4, cam4.c[0], cam4.c[1], 8); handle(g4, cam4.a[0], cam4.a[1], 5);
-    txt(g4, `${fmtN(N4)} instances of ${T4} mesh types · compute cull: 1 thread per instance`, 8, MAP4 - 8, "rgba(255,255,255,0.45)", "left", 10);
+    for (const o of inst4) if (o.vis) glyphTop(g4, fam4(o.t), o.x, o.y, o.r);
+    g4.strokeStyle = AMB; g4.lineWidth = 1; g4.beginPath(); for (const o of inst4) if (o.vis) { g4.moveTo(o.x + o.r + 1.5, o.y); g4.arc(o.x, o.y, o.r + 1.5, 0, Math.PI * 2); } g4.stroke();
+    if (s4.hover >= 0) { g4.strokeStyle = WHT; g4.lineWidth = 1.5; g4.beginPath(); for (const o of inst4) if (o.t === s4.hover) { g4.moveTo(o.x + o.r + 3.5, o.y); g4.arc(o.x, o.y, o.r + 3.5, 0, Math.PI * 2); } g4.stroke(); }
+    drawFrustum(g4, f);
+    kitPlayerTop(g4, cam4.c[0], cam4.c[1], 8, Math.atan2(f.d[1], f.d[0])); handle(g4, cam4.a[0], cam4.a[1], 5);
+    kitLabel(g4, "player", Math.min(cam4.c[0] + 14, 450), cam4.c[1], "left");
+    kitLabel(g4, `the village · ${fmtN(N4)} props of ${T4} kinds`, 6, 12, "left");
+    kitLabel(g4, "amber ring = passed the view test, drawn", 506, 32, "right", AMB);
+    kitLabel(g4, "dim = failed, skipped", 506, 50, "right", "#c7cdd8");
+    kitLabel(g4, "GPU cull: one thread per prop", 6, MAP4 - 12, "left", "#c7cdd8");
     // ---- args buffer ----
     g4.fillStyle = "rgba(255,255,255,0.03)"; g4.fillRect(0, MAP4, 512, 512 - MAP4); g4.strokeStyle = DIM; g4.beginPath(); g4.moveTo(0, MAP4 + 0.5); g4.lineTo(512, MAP4 + 0.5); g4.stroke();
     const nonEmpty = types.filter(t => t.count > 0).length;
     const list = s4.mode === "count" ? types.filter(t => t.count > 0) : types;
-    const py = MAP4 + 18, bx = 12, bw = 488, bh = 56;
-    txt(g4, `ARGS BUFFER · ${list.length} × 16 B = ${fmtB(list.length * 16)} · bar = instanceCount written by atomicAdd`, bx, py, "rgba(255,255,255,0.6)", "left", 11);
+    const py = MAP4 + 18, bx = 12, bw = 488, bh = 50;
+    txt(g4, `ARGS BUFFER · ${list.length} × 16 B = ${fmtB(list.length * 16)} · bar = instanceCount, written by atomicAdd`, bx, py, "rgba(255,255,255,0.6)", "left", 10.5);
     const maxC = Math.max(1, ...types.map(t => t.capacity)); const cw = bw / T4;
     g4.fillStyle = "rgba(255,255,255,0.05)"; g4.fillRect(bx, py + 8, bw, bh);
     list.forEach((t, i) => { const x = bx + i * cw; const hh = t.count / maxC * bh; g4.fillStyle = t.count > 0 ? AMB : "rgba(239,93,93,0.45)"; if (t.count > 0) g4.fillRect(x, py + 8 + bh - hh, Math.max(1, cw - 0.6), hh); else g4.fillRect(x, py + 8 + bh - 1, Math.max(1, cw - 0.6), 1); if (types.indexOf(t) === s4.hover) { g4.strokeStyle = WHT; g4.strokeRect(x - 0.5, py + 8, cw + 1, bh); } });
-    txt(g4, s4.mode === "count" ? `compacted: ${nonEmpty} commands kept, ${T4 - nonEmpty} dropped` : `${nonEmpty} non-empty · ${T4 - nonEmpty} with instanceCount = 0 (red, skipped by the GPU)`, bx, py + bh + 22, "rgba(255,255,255,0.55)", "left", 10);
+    if (s4.mode === "fixed") { const fw = bw / FAM4.length; FAM4.forEach((k, i) => { txt(g4, k + "s", bx + (i + 0.5) * fw, py + bh + 19, "rgba(255,255,255,0.5)", "center", 9); if (i) { g4.strokeStyle = DIM; g4.beginPath(); g4.moveTo(Math.round(bx + i * fw) + 0.5, py + 8); g4.lineTo(Math.round(bx + i * fw) + 0.5, py + 8 + bh); g4.stroke(); } }); }
+    else txt(g4, "compacted: kinds no longer sit in fixed slots", bx + bw / 2, py + bh + 19, "rgba(255,255,255,0.5)", "center", 9);
+    txt(g4, s4.mode === "count" ? `compacted: ${nonEmpty} commands kept, ${T4 - nonEmpty} dropped` : `${nonEmpty} non-empty · ${T4 - nonEmpty} with instanceCount = 0 (red, skipped by the GPU)`, bx, py + bh + 34, "rgba(255,255,255,0.55)", "left", 10);
     const ht = s4.hover >= 0 ? types[s4.hover] : types[17]; const hi = types.indexOf(ht);
-    txt(g4, `args[${hi}] = { vertexCount: ${fmtN(ht.vertexCount)}, instanceCount: ${ht.count}, firstVertex: ${fmtN(ht.firstVertex)}, firstInstance: ${fmtN(ht.firstInstance)} }`, bx, py + bh + 40, WHT, "left", 10);
-    txt(g4, `visible[${fmtN(ht.firstInstance)} .. ${fmtN(ht.firstInstance + ht.count - 1)}] hold its instance ids · capacity ${ht.capacity}`, bx, py + bh + 54, "rgba(255,255,255,0.6)", "left", 10);
-    // count buffer + cpu call
-    const cy = py + bh + 68; g4.fillStyle = s4.mode === "count" ? "rgba(74,163,255,0.6)" : "rgba(255,255,255,0.12)"; g4.fillRect(bx, cy, 120, 22);
+    txt(g4, `args[${hi}] = { vertexCount: ${fmtN(ht.vertexCount)}, instanceCount: ${ht.count}, firstVertex: ${fmtN(ht.firstVertex)}, firstInstance: ${fmtN(ht.firstInstance)} }`, bx, py + bh + 50, WHT, "left", 9);
+    txt(g4, `mesh type ${hi} is a ${FAM4[fam4(hi)]} · visible[${fmtN(ht.firstInstance)} .. ${fmtN(ht.firstInstance + ht.count - 1)}] hold its ids · capacity ${ht.capacity}`, bx, py + bh + 64, "rgba(255,255,255,0.6)", "left", 9.5);
+    const cy = py + bh + 76; g4.fillStyle = s4.mode === "count" ? "rgba(74,163,255,0.6)" : "rgba(255,255,255,0.12)"; g4.fillRect(bx, cy, 120, 22);
     txt(g4, `drawCount = ${s4.mode === "count" ? nonEmpty : "—"}`, bx + 60, cy + 15, s4.mode === "count" ? GRD : "rgba(255,255,255,0.4)", "center", 10);
-    txt(g4, s4.mode === "count" ? `CPU: vkCmdDrawIndexedIndirectCount(args, countBuf, maxDrawCount = ${T4})` : `CPU: vkCmdDrawIndexedIndirect(args, offset 0, drawCount = ${T4}, stride 16)`, bx + 130, cy + 15, "rgba(255,255,255,0.8)", "left", 10);
+    txt(g4, s4.mode === "count" ? `CPU: vkCmdDrawIndexedIndirectCount(args, countBuf, max ${T4})` : `CPU: vkCmdDrawIndexedIndirect(args, 0, drawCount = ${T4}, stride 16)`, bx + 130, cy + 15, "rgba(255,255,255,0.8)", "left", 9);
     const executed = s4.mode === "count" ? nonEmpty : T4;
     $("t4-cmds").textContent = executed; $("t4-inst").textContent = fmtN(vis); $("t4-us").textContent = "3";
-    $("c4-read").innerHTML = `<strong>${fmtN(vis)} of ${fmtN(N4)}</strong> instances pass · <strong>${nonEmpty} of ${T4}</strong> mesh types non-empty`;
+    $("c4-read").innerHTML = `<strong>${fmtN(vis)} of ${fmtN(N4)}</strong> props pass · <strong>${nonEmpty} of ${T4}</strong> mesh types non-empty`;
   }
   const req4 = raf(draw4);
-  camDrag(c4, cam4, req4, (x, y) => { let h = -1; if (x >= 12 && x <= 500 && y >= MAP4 + 26 && y <= MAP4 + 82) { const list = s4.mode === "count" ? types.filter(t => t.count > 0) : types; const i = Math.floor((x - 12) / (488 / T4)); if (i < list.length) h = types.indexOf(list[i]); } else if (y < MAP4 && x >= 0) { let bd = 7; for (const o of inst4) { const d = Math.hypot(o.x - x, o.y - y); if (d < bd) { bd = d; h = o.t; } } } if (h !== s4.hover) { s4.hover = h; req4(); } });
+  camDrag(c4, cam4, req4, (x, y) => { let h = -1; if (x >= 12 && x <= 500 && y >= MAP4 + 26 && y <= MAP4 + 76) { const list = s4.mode === "count" ? types.filter(t => t.count > 0) : types; const i = Math.floor((x - 12) / (488 / T4)); if (i < list.length) h = types.indexOf(list[i]); } else if (y < MAP4 && x >= 0) { let bd = 7; for (const o of inst4) { const d = Math.hypot(o.x - x, o.y - y); if (d < bd) { bd = d; h = o.t; } } } if (h !== s4.hover) { s4.hover = h; req4(); } });
   onSeg("seg4", v => { s4.mode = v; draw4(); });
   draw4();
 
@@ -822,55 +1063,76 @@ pipelines = unique shader variants    bindless does not lower this; an uber-shad
   const c5 = $("c5"), g5 = c5.getContext("2d");
   const s5 = { mode: "classic", mip: 6, tile: 1024, K: 9, V: 3, hover: -1 };
   const N5 = 48; const objs5 = []; { const r = rng(5); for (let i = 0; i < N5; i++) objs5.push(r()); }
-  function matColor(m, K) { const t = K <= 1 ? 0 : m / (K - 1); const a = [242, 163, 65], b = [74, 163, 255]; return `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`; }
+  // crate paint jobs
+  const PAINT = ["#7a4f2a", "#a06a38", "#b8552f", "#4a6fa5", "#5a8a4a", "#8c7b4a", "#9c3d3d", "#6a5a8c", "#c2a15a", "#4f8a8a", "#a8785a", "#5f6b7a", "#8a4f6a", "#7a8a3a", "#b56a2a", "#3f5a7a"];
+  const paint = m => PAINT[m % PAINT.length];
+  function crateFace(g, x, y, w, h, col) { // a painted crate texture filling (x, y, w, h)
+    g.fillStyle = col; g.fillRect(x, y, w, h);
+    g.strokeStyle = "rgba(0,0,0,0.35)"; g.lineWidth = Math.max(1, Math.min(w, h) * 0.07);
+    g.strokeRect(x + g.lineWidth / 2, y + g.lineWidth / 2, w - g.lineWidth, h - g.lineWidth);
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + w, y + h); g.moveTo(x + w, y); g.lineTo(x, y + h); g.stroke();
+  }
   function draw5() {
     g5.fillStyle = GRD; g5.fillRect(0, 0, 512, 512);
     // ---- atlas ----
     const ax = 14, ay = 28, as = 256, tpp = 4096 / as; const n = 4096 / s5.tile, ts = as / n; const bleedTx = Math.pow(2, s5.mip), bleedPx = bleedTx / tpp;
-    txt(g5, `ATLAS 4096² · ${n * n} tiles of ${s5.tile}²`, ax, ay - 8, "rgba(255,255,255,0.6)", "left", 11);
+    txt(g5, `ATLAS 4096² · ${n * n} paint jobs, one sheet`, ax, ay - 8, "rgba(255,255,255,0.6)", "left", 11);
     g5.fillStyle = "rgba(255,255,255,0.05)"; g5.fillRect(ax, ay, as, as);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
       const x = ax + i * ts, y = ay + j * ts; const id = j * n + i;
-      g5.fillStyle = matColor(id % 7, 7); g5.globalAlpha = 0.35; g5.fillRect(x + 0.5, y + 0.5, ts - 1, ts - 1); g5.globalAlpha = 1;
+      crateFace(g5, x + 0.5, y + 0.5, ts - 1, ts - 1, paint(id));
       const b = Math.min(bleedPx, ts / 2);
-      g5.fillStyle = "rgba(239,93,93,0.45)"; g5.fillRect(x, y, ts, b); g5.fillRect(x, y + ts - b, ts, b); g5.fillRect(x, y + b, b, ts - 2 * b); g5.fillRect(x + ts - b, y + b, b, ts - 2 * b);
+      g5.fillStyle = "rgba(239,93,93,0.5)"; g5.fillRect(x, y, ts, b); g5.fillRect(x, y + ts - b, ts, b); g5.fillRect(x, y + b, b, ts - 2 * b); g5.fillRect(x + ts - b, y + b, b, ts - 2 * b);
     }
-    g5.strokeStyle = "rgba(255,255,255,0.35)"; g5.lineWidth = 1; for (let i = 0; i <= n; i++) { const p = Math.round(ax + i * ts) + 0.5; g5.beginPath(); g5.moveTo(p, ay); g5.lineTo(p, ay + as); g5.moveTo(ax, Math.round(ay + i * ts) + 0.5 - 0.5 + 0.5); g5.lineTo(ax + as, Math.round(ay + i * ts) + 0.5); g5.stroke(); }
+    g5.strokeStyle = "rgba(255,255,255,0.35)"; g5.lineWidth = 1; for (let i = 0; i <= n; i++) { const p = Math.round(ax + i * ts) + 0.5; g5.beginPath(); g5.moveTo(p, ay); g5.lineTo(p, ay + as); g5.moveTo(ax, Math.round(ay + i * ts) + 0.5); g5.lineTo(ax + as, Math.round(ay + i * ts) + 0.5); g5.stroke(); }
     const safe = Math.max(0, s5.tile - 2 * bleedTx), safeFrac = (safe / s5.tile) * (safe / s5.tile);
     const hv = s5.hover >= 0 && s5.hover < n * n ? s5.hover : Math.min(n * n - 1, n + 1);
     const hi = hv % n, hj = Math.floor(hv / n); g5.strokeStyle = WHT; g5.lineWidth = 2; g5.strokeRect(ax + hi * ts + 1, ay + hj * ts + 1, ts - 2, ts - 2);
-    txt(g5, `level ${s5.mip}: mip texel = ${fmtN(bleedTx)} base texels · atlas mip is ${fmtN(4096 >> s5.mip)}²`, ax, ay + as + 16, "rgba(255,255,255,0.75)", "left", 10);
-    txt(g5, `bleed ${fmtN(bleedTx)} texels per edge · ${Math.round(safeFrac * 100)} % of each tile still clean`, ax, ay + as + 30, bleedTx * 2 >= s5.tile ? RED : "rgba(255,255,255,0.75)", "left", 10);
+    kitLabel(g5, "red = neighbour's paint bleeds in", ax + as - 2, ay + 12, "right", RED);
+    txt(g5, `level ${s5.mip}: mip texel = ${fmtN(bleedTx)} texels · mip is ${fmtN(4096 >> s5.mip)}²`, ax, ay + as + 16, "rgba(255,255,255,0.75)", "left", 10);
+    txt(g5, `bleed ${fmtN(bleedTx)} texels per edge · ${Math.round(safeFrac * 100)} % still clean`, ax, ay + as + 30, bleedTx * 2 >= s5.tile ? RED : "rgba(255,255,255,0.75)", "left", 10);
     const sc = (s5.tile / 4096).toFixed(4); txt(g5, `tile ${hv}: uv' = uv · ${sc} + (${(hi * s5.tile / 4096).toFixed(4)}, ${(hj * s5.tile / 4096).toFixed(4)})`, ax, ay + as + 44, WHT, "left", 10);
     // ---- texture array ----
     const tx = 300, ty = 28; txt(g5, `TEXTURE ARRAY · ${n * n} layers of ${s5.tile}²`, tx, ty - 8, "rgba(255,255,255,0.6)", "left", 11);
-    const layers = Math.min(6, n * n), ls = 110;
-    for (let l = layers - 1; l >= 0; l--) { const x = tx + l * 16, y = ty + (layers - 1 - l) * 14; g5.fillStyle = GRD; g5.fillRect(x, y, ls, ls); g5.fillStyle = matColor(l % 7, 7); g5.globalAlpha = 0.35; g5.fillRect(x, y, ls, ls); g5.globalAlpha = 1; g5.strokeStyle = "rgba(255,255,255,0.45)"; g5.lineWidth = 1; g5.strokeRect(x + 0.5, y + 0.5, ls - 1, ls - 1); if (l === 0) txt(g5, "layer 0", x + 6, y + ls - 8, WHT, "left", 10); }
-    txt(g5, `mip ${s5.mip} is ${fmtN(Math.max(1, s5.tile >> s5.mip))}² per layer`, tx, ty + ls + 90, "rgba(255,255,255,0.75)", "left", 10);
-    txt(g5, "no bleed, wrap works,", tx, ty + ls + 104, "rgba(255,255,255,0.75)", "left", 10);
-    txt(g5, "all layers one size and format", tx, ty + ls + 118, "rgba(255,255,255,0.75)", "left", 10);
-    txt(g5, "uv' = vec3(uv, layer)", tx, ty + ls + 138, WHT, "left", 10);
-    // ---- the material problem ----
+    const layers = Math.min(5, n * n), ls = 84;
+    for (let l = layers - 1; l >= 0; l--) { const x = tx + l * 14, y = ty + (layers - 1 - l) * 11; g5.fillStyle = GRD; g5.fillRect(x, y, ls, ls); crateFace(g5, x, y, ls, ls, paint(l)); g5.strokeStyle = "rgba(255,255,255,0.45)"; g5.lineWidth = 1; g5.strokeRect(x + 0.5, y + 0.5, ls - 1, ls - 1); if (l === 0) kitLabel(g5, "layer 0", x + 4, y + ls - 10, "left"); }
+    txt(g5, `mip ${s5.mip} is ${fmtN(Math.max(1, s5.tile >> s5.mip))}² per layer`, tx, ty + ls + 58, "rgba(255,255,255,0.75)", "left", 10);
+    txt(g5, "no bleed, wrap works,", tx, ty + ls + 72, "rgba(255,255,255,0.75)", "left", 10);
+    txt(g5, "all layers one size and format", tx, ty + ls + 86, "rgba(255,255,255,0.75)", "left", 10);
+    txt(g5, "uv' = vec3(uv, layer)", tx, ty + ls + 102, WHT, "left", 10);
+    // ---- what the player sees: a near and a far crate ----
+    const ix = 298, iy = 222, iw = 206, ih = 108; kitInset(g5, ix, iy, iw, ih, "what the player sees");
+    g5.fillStyle = KIT.grass; g5.fillRect(ix + 1, iy + 74, iw - 2, ih - 75);
+    const nb = [hv - 1, hv + 1, hv - n, hv + n].map(k => paint(((k % (n * n)) + n * n) % (n * n)));
+    function crateBleed(cx, cy, s, mip) { // crate centred (cx, cy), size s, at mip level mip
+      crateFace(g5, cx - s / 2, cy - s / 2, s, s, paint(hv));
+      const bf = Math.min(0.5, Math.pow(2, mip) / s5.tile), b = bf * s; if (b < 0.5) return;
+      g5.fillStyle = nb[0]; g5.fillRect(cx - s / 2, cy - s / 2, b, s); g5.fillStyle = nb[1]; g5.fillRect(cx + s / 2 - b, cy - s / 2, b, s);
+      g5.fillStyle = nb[2]; g5.fillRect(cx - s / 2, cy - s / 2, s, b); g5.fillStyle = nb[3]; g5.fillRect(cx - s / 2, cy + s / 2 - b, s, b);
+    }
+    crateBleed(ix + 52, iy + 50, 46, 0); crateBleed(ix + 150, iy + 60, 26, s5.mip);
+    kitLabel(g5, "near · mip 0", ix + 52, iy + 92, "center");
+    kitLabel(g5, `far · mip ${s5.mip}`, ix + 150, iy + 92, "center", bleedTx * 2 >= s5.tile ? RED : WHT);
+    // ---- the material problem: 48 crates on the market ----
     const my = 352; g5.strokeStyle = DIM; g5.beginPath(); g5.moveTo(0, my - 14.5); g5.lineTo(512, my - 14.5); g5.stroke();
     const K = s5.K, V = s5.V; const mats = objs5.map(r => Math.floor(r * K)); const variant = m => m % V;
-    const labels = { classic: "PER-DRAW BIND · sorted by material, one draw per material", array: "TEXTURE ARRAY · one draw per shader variant, layer index in instance data", bindless: "BINDLESS · one draw per pipeline, texture index in the material buffer", uber: "BINDLESS + UBER-SHADER · one pipeline, one draw for everything" };
+    const labels = { classic: "PER-DRAW BIND · sorted by paint job, one draw per paint job", array: "TEXTURE ARRAY · one draw per shader variant, layer index in instance data", bindless: "BINDLESS · one draw per pipeline, texture index in the material buffer", uber: "BINDLESS + UBER-SHADER · one pipeline, one draw for everything" };
     txt(g5, labels[s5.mode], 14, my, "rgba(255,255,255,0.6)", "left", 11);
     let groups;
     const sorted = mats.map((m, i) => ({ m, v: variant(m), i })).sort((a, b) => a.v - b.v || a.m - b.m);
     if (s5.mode === "classic") groups = groupBy(sorted, o => o.v + ":" + o.m);
     else if (s5.mode === "uber") groups = [sorted];
     else groups = groupBy(sorted, o => o.v);
-    const ox = 14, ow = 484, dw = ow / N5; const ry = my + 12;
-    sorted.forEach((o, k) => { g5.fillStyle = matColor(o.m, K); g5.beginPath(); g5.arc(ox + k * dw + dw / 2, ry + 12, Math.min(4.2, dw / 2 - 1), 0, Math.PI * 2); g5.fill(); });
-    // variant row
-    let k0 = 0; for (const grp of groupBy(sorted, o => o.v)) { g5.fillStyle = "rgba(255,255,255,0.12)"; g5.fillRect(ox + k0 * dw + 1, ry + 28, grp.length * dw - 2, 12); txt(g5, "pipeline " + grp[0].v, ox + k0 * dw + grp.length * dw / 2, ry + 37, "rgba(255,255,255,0.7)", "center", 9); k0 += grp.length; }
-    // draw brackets
-    k0 = 0; const by = ry + 50; for (const grp of groups) { const x = ox + k0 * dw, w = grp.length * dw; g5.strokeStyle = WHT; g5.lineWidth = 1; g5.beginPath(); g5.moveTo(x + 1, by); g5.lineTo(x + 1, by + 6); g5.lineTo(x + w - 1, by + 6); g5.lineTo(x + w - 1, by); g5.stroke(); k0 += grp.length; }
+    const ox = 14, ow = 484, dw = ow / N5; const ry = my + 8;
+    g5.fillStyle = KIT.dirt; g5.fillRect(0, ry + 2, 512, 22); g5.fillStyle = KIT.grass; g5.fillRect(0, ry + 24, 512, 3);
+    sorted.forEach((o, k) => { crateFace(g5, ox + k * dw + 0.8, ry + 8, dw - 1.6, dw - 1.6, paint(o.m)); });
+    let k0 = 0; for (const grp of groupBy(sorted, o => o.v)) { g5.fillStyle = "rgba(255,255,255,0.12)"; g5.fillRect(ox + k0 * dw + 1, ry + 32, grp.length * dw - 2, 12); txt(g5, "pipeline " + grp[0].v, ox + k0 * dw + grp.length * dw / 2, ry + 41, "rgba(255,255,255,0.7)", "center", 9); k0 += grp.length; }
+    k0 = 0; const by = ry + 52; for (const grp of groups) { const x = ox + k0 * dw, w = grp.length * dw; g5.strokeStyle = WHT; g5.lineWidth = 1; g5.beginPath(); g5.moveTo(x + 1, by); g5.lineTo(x + 1, by + 6); g5.lineTo(x + w - 1, by + 6); g5.lineTo(x + w - 1, by); g5.stroke(); k0 += grp.length; }
     const draws = groups.length, binds = s5.mode === "classic" ? draws : s5.mode === "array" ? V : 1, pso = s5.mode === "uber" ? 1 : V;
-    txt(g5, `${draws} draw${draws > 1 ? "s" : ""} · ${binds} texture bind${binds > 1 ? "s" : ""} · ${pso} pipeline${pso > 1 ? "s" : ""}`, ox, by + 24, WHT, "left", 11);
-    const why = { classic: `each material needs its own descriptor set bound, so the instanced batch splits ${draws} ways`, array: `materials share one texture2DArray, so only the ${V} shader variant${V > 1 ? "s" : ""} split the batch`, bindless: `the descriptor array holds all ${K} textures; only pipeline changes remain`, uber: `material and shader features come from buffers; the CPU issues a single draw` }[s5.mode];
+    txt(g5, `each bracket = one draw · ${draws} draw${draws > 1 ? "s" : ""} · ${binds} texture bind${binds > 1 ? "s" : ""} · ${pso} pipeline${pso > 1 ? "s" : ""}`, ox, by + 24, WHT, "left", 11);
+    const why = { classic: `each paint job needs its own descriptor set bound, so the instanced batch splits ${draws} ways`, array: `paint jobs share one texture2DArray, so only the ${V} shader variant${V > 1 ? "s" : ""} split the batch`, bindless: `the descriptor array holds all ${K} textures; only pipeline changes remain`, uber: `material and shader features come from buffers; the CPU issues a single draw` }[s5.mode];
     txt(g5, why, ox, by + 40, "rgba(255,255,255,0.6)", "left", 10);
-    txt(g5, `${N5} objects · ${K} materials · ${V} shader variant${V > 1 ? "s" : ""} · dot color = material`, ox, by + 54, "rgba(255,255,255,0.45)", "left", 10);
+    txt(g5, `${N5} crates on the market · ${K} paint jobs · ${V} shader variant${V > 1 ? "s" : ""} · crate colour = paint job`, ox, by + 54, "rgba(255,255,255,0.45)", "left", 10);
     $("t5-draws").textContent = draws; $("t5-binds").textContent = binds; $("t5-pso").textContent = pso;
     $("c5-read").innerHTML = `bleed <strong>${fmtN(bleedTx)} texels</strong> at mip ${s5.mip} · <strong>${draws}</strong> draws · <strong>${pso}</strong> pipelines`;
   }

@@ -141,3 +141,24 @@ Worth a read-through: the µs-per-draw costs, the sort-key bit layout, and the
 - The GGX 2D demo keeps only the in-plane component of a 3D half-vector sample, an approximation of the true 2D lobe.
 - The "one-sided min depth derivative" thickness rule is the author's formulation, not a quoted engine implementation.
 
+
+# Visuals pass (2026-09-13): modelling choices the agents flagged
+
+Every demo was rebuilt as a game scene. These are the places where the new picture involved a
+choice worth knowing about; none changes a formula, table number or citation.
+
+- rasterization: the depth demo's wall is a rectangle union and the banner a pentagon, so the JS inside-test changed while the math and code blocks stayed as written.
+- anti-aliasing: the fence is one quad with a picket cut-out texture, so its pickets count as shading aliasing; the prose says so.
+- tone-mapping: scene brightness values (cave floor 1–2 nits, player 90, meadow 300, sky 1 000, flame 2 000, sun 10 000) are chosen for the synthetic scene, not measured.
+- pbr-brdf: the "player sees" spot and shield use a fixed lamp intensity and a one-line sky mapping; water F0 = 0.02 was added via the page's own formula (n = 1.33).
+- post-effects: the 400× firefly now starts switched off because its haze washed out the street; bloom at default settings reads hazy because seven lamps and the moon feed the chain.
+- global-illumination: the static player is tinted by the floor patch under his feet as a visual stand-in, not part of the solve (the prose says so); the old "ceiling is black on the left" claim was wrong for a hanging lantern and was replaced.
+- distance-fields: one sentence about sliding collision was added to match the new picture.
+- volumetrics: a 12 m floodlight mast stands in for a forest lamp so the fog is lit past the first tree.
+- temporal-upscaling: static props share one depth band (ground 1.0, props 0.97, player 0.3) so jitter alone never rejects fence edges; a modelling choice, not a graded depth buffer.
+- lod-and-clusters: the quad demo magnification changed from 32× to 26×.
+- screen-space-reflections: the "player sees" inset is one screen column stretched wide, so it reads as stripes; section 2's default pixel moved from 9.0 m to 8.8 m so a hit shows at rest.
+- texture-filtering: the per-row mip inset marks rows by the value at the road's centre column; the BC1 encoder is a farthest-pair pick, so its error is an upper bound.
+- normal-mapping: the height field and default hover positions changed to fit the brick wall, so live numbers in captions differ from the earlier version.
+- depth-precision: at far = 1000 m the 1000 m lamp sits on the far-plane line and is half-dimmed.
+- ambient-occlusion: one math-block comment changed from "(under the table)" to "(under the shelf)".

@@ -22,8 +22,14 @@ Because every page carries a pasted copy of the theme, change `shared/theme.css`
 `node shared/apply-theme.js`, which swaps the theme block in every page (keeping page CSS) and
 rebuilds the jump list. `node shared/peek.js pages/x.html out.png 1600 "section:nth-of-type(2)"`
 screenshots one element at full size; with selector `overflow` it lists elements wider than the
-viewport. `.bak/` holds the pages as they were before the theme re-injection; delete it once
-the new layout is accepted.
+viewport.
+
+Then every demo was rebuilt as a recognisable game scene (a village, a castle, a cave, a lake,
+a night road) with the mechanism drawn on top, on-canvas plain-word labels, and "what the
+player sees" insets. The rules are in `shared/VISUALS.md`; the shared props live in
+`shared/scene-kit.js`, which every page pastes into its script. `.bak-prose/` holds the pages
+as they were before that pass (plain prose and wide layout, abstract demos); delete it once the
+game visuals are accepted. Agents' modelling caveats are at the end of `UNCERTAIN.md`.
 The nine pages below were built on Windows at D:/Code/render-lib; shared/shot.js now points at the
 Playwright Chromium under %LOCALAPPDATA%/ms-playwright and BRIEF.md paths were updated to match.
 Their agents' uncertain claims are appended to UNCERTAIN.md. Only publishing remains (see the end

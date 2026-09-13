@@ -148,18 +148,19 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">12.5 m side view · 70° camera at 6.5 m · 160-pixel screen · hover or drag along the floor</p>
+    <p class="eyebrow">13.5 m lakeside · player's eye 5.5 m above the water · 70° view · one 160-pixel screen column · hover or drag along the lake</p>
     <h1>Screen-Space Reflections</h1>
-    <p class="lead">A screen-space reflection, SSR for short, builds a mirror image out of pixels you already drew this frame. That makes it close to free next to rendering the scene a second time, and anything that moves reflects for nothing because it is already in the picture. The catch is that SSR can only reflect what the camera can see, so undersides, things behind the camera, and anything hidden by a nearer object come out missing. <b>The thing people get wrong</b> is treating SSR as a cheap ray tracer. It traces the picture, not the scene.</p>
+    <p class="lead">A screen-space reflection, SSR for short, builds a mirror image out of pixels you already drew this frame. On this page the mirror is a still lake, and the things it reflects are a boat, a balloon and a house on the far shore. That makes SSR close to free next to rendering the scene a second time, and anything that moves reflects for nothing because it is already in the picture. The catch is that SSR can only reflect what the camera can see, so undersides, things behind the camera, and anything hidden by a nearer object come out missing. <b>The thing people get wrong</b> is treating SSR as a cheap ray tracer. It traces the picture, not the scene.</p>
     <div class="key">
-      <span style="--sw:#f2a341">bounced ray, and where SSR found a hit</span>
-      <span style="--sw:#ffffff">camera's line of sight, drag handles</span>
+      <span style="--sw:#f2a341">bounced ray, and where SSR found the reflection</span>
+      <span style="--sw:#ffffff">the player's line of sight, drag handles</span>
       <span style="--sw:#4aa3ff">backup color from the probe or the sky</span>
       <span style="--sw:#5ad48a">matches the true reflection</span>
       <span style="--sw:#ef5d5d">wrong hit, or ray passed behind something</span>
-      <span style="--sw:#1a1f27">miss, nothing stored there</span>
+      <span style="--sw:#1a1f27">miss: a dark hole in the lake</span>
     </div>
     <dl class="terms">
+      <dt>screen column</dt><dd>one vertical line of pixels, sky at the top and near water at the bottom; the side view on this page can only show that one column</dd>
       <dt>color buffer</dt><dd>the finished picture, one color per pixel</dd>
       <dt>depth buffer</dt><dd>for every pixel, how far away the thing drawn in it is</dd>
       <dt>reflected ray</dt><dd>the camera's line of sight bounced off the mirror surface</dd>
@@ -170,32 +171,32 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
       <dt>roughness</dt><dd>how blurry a surface's reflection is; 0 is a perfect mirror</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#idea"><span class="n">01</span>One pixel, one march</a></li><li><a href="#march"><span class="n">02</span>Fixed steps or smart jumps</a></li><li><a href="#failures"><span class="n">03</span>When the reflection isn't on screen</a></li><li><a href="#rough"><span class="n">04</span>Rough floors</a></li><li><a href="#thickness"><span class="n">05</span>How far behind still counts</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#idea"><span class="n">01</span>One pixel, one march</a></li><li><a href="#march"><span class="n">02</span>Fixed steps or smart jumps</a></li><li><a href="#failures"><span class="n">03</span>When the reflection isn't on screen</a></li><li><a href="#rough"><span class="n">04</span>Rippled water</a></li><li><a href="#thickness"><span class="n">05</span>How far behind still counts</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
   <section id="idea">
     <h2>One pixel, one march</h2>
-    <p class="sub">Hover or drag along the floor to pick a pixel and watch its reflection get found in the depth buffer.</p>
+    <p class="sub">A player stands on a bluff above a still lake. Hover or drag along the water to pick one lake pixel and watch its reflection get found in the depth buffer.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c1" width="512" height="512" class="grab" aria-label="A reflected ray marched across a 1D depth buffer"></canvas>
+        <canvas id="c1" width="512" height="512" class="grab" aria-label="Side view of a player on a bluff looking down at a lake with a boat, a balloon and a house with a villager on the far shore; a bounced ray from one lake pixel is marched across the depth buffer of one screen column, with the player's view shown in an inset"></canvas>
         <div class="cap"><span id="c1-read">hover the floor</span><span id="c1-cap"></span></div>
       </div>
       <div class="prose">
-        <p class="plain">Pick one pixel of the mirror floor. To find its reflection, SSR <b>bounces the camera's line of sight off the floor</b>, then <b>walks along that bounced line a few screen pixels at a time</b>. At each stop it checks the depth buffer, the per-pixel record of how far away things are, to see whether the line has gone behind whatever the camera drew there. <b>The first pixel where it dips behind a surface is the hit</b>, and the color already stored at that pixel is the reflection.</p>
+        <p class="plain">Pick one pixel of the lake. To find its reflection, SSR <b>bounces the player's line of sight off the water</b>, then <b>walks along that bounced line a few screen pixels at a time</b>. At each stop it checks the depth buffer, the per-pixel record of how far away things are, to see whether the line has gone behind whatever the camera drew there. <b>The first pixel where it dips behind a surface is the hit</b>, and the color already stored at that pixel is the reflection.</p>
 
         <h3>What you're seeing</h3>
-        <p>The big picture is the scene from the side: camera on the left, a mirror floor, an amber box, a blue sphere and a grey wall. The dashed white line is the camera looking at your chosen floor pixel. The amber line is the bounced ray, with a dot at every pixel it checked: white dots are still in front of everything, red dots went too far behind something, and the amber ring is the hit.</p>
-        <p>The strip at the top is the camera's 160-pixel screen laid flat: the color buffer, then the depth buffer as grey (bright is near), then a graph of depth per pixel. On the graph the white line is the stored depth, the amber curve is the ray's depth, and the faint amber band is the thickness allowance. Where the amber curve enters the band, the march stops.</p>
+        <p>The big picture is the scene from the side: the player on the bluff at the left (the eye is the camera), the lake that acts as the mirror, a rowing boat, a hot-air balloon, and a house with a villager on the far shore. The dashed white line is the player's line of sight to your chosen lake pixel. The amber line is the bounced ray, with a dot at every pixel it checked: white dots are still in front of everything, red dots went too far behind something, and the amber ring is the hit. The band just under the water line shows what every lake pixel ends up reflecting, and the "player sees" inset is the same screen column as it appears on screen, sky at the top, near water at the bottom.</p>
+        <p>The strip at the top is that 160-pixel screen column laid flat: the color buffer, then the depth buffer as grey (bright is near), then a graph of depth per pixel. On the graph the white line is the stored depth, the amber curve is the ray's depth, and the faint amber band is the thickness allowance. Where the amber curve enters the band, the march stops.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Hover the floor left of the amber box. The bounced ray climbs past everything and off the top of the screen: a miss, because nothing was stored up there.</li>
-          <li>Hover between the box and the sphere and watch the readout. Some pixels catch the sphere's edge, others pass behind it (red dots) and land on the wall.</li>
+          <li>Hover the water just in front of the boat. The bounced ray climbs past everything and off the top of the screen: a miss, because nothing was drawn up there, and that lake pixel becomes a dark hole.</li>
+          <li>Hover between the boat and the balloon and watch the readout. Some pixels catch the balloon's edge, others pass behind it (red dots) and land on the house.</li>
           <li>Watch the graph while you move. The hit is always where the amber curve first crosses into the white line's band.</li>
         </ul>
 
         <h3>The real version</h3>
-        <p>The camera sees the floor at pixel <code>u</code>. Its view ray <code>d</code> lands on floor point <code>p</code> with normal <code>n</code> (the direction the surface faces), and the mirror direction is <code>r = d − 2(n·d)n</code>. SSR does not trace <code>r</code> through the scene. It projects a segment of <code>r</code> back onto the screen, so the start and end become two pixel positions with a depth each, and visits the pixels between them in order.</p>
+        <p>The camera sees the lake at pixel <code>u</code>. Its view ray <code>d</code> lands on water point <code>p</code> with normal <code>n</code> (the direction the surface faces, straight up for still water), and the mirror direction is <code>r = d − 2(n·d)n</code>. SSR does not trace <code>r</code> through the scene. It projects a segment of <code>r</code> back onto the screen, so the start and end become two pixel positions with a depth each, and visits the pixels between them in order.</p>
         <p>At each visited pixel the ray has a depth <code>z_ray</code> and the buffer has <code>z_buf</code>, the depth of whatever the camera saw there. While <code>z_ray &lt; z_buf</code> the ray is still in front of everything. The first pixel where it goes behind is the hit, provided it went behind by less than a thickness <code>t</code>. Fetch the color at that pixel and that is the reflection.</p>
         <p>Depth is not linear along the screen, but <code>1/z</code> is, so the ray is interpolated in <code>1/z</code> between its projected endpoints. Interpolating <code>z</code> directly bends the ray off its true path, which shows up as reflections that slide when the camera moves.</p>
         <p class="words">In words: bounce the ray, turn its two ends into pixel positions, blend 1/depth between them, and call it a hit the first time the ray is behind the buffer by less than the thickness.</p>
@@ -203,7 +204,7 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 u = (0.5 − 0.5 · x_v / (z_v · tan(fov/2))) · N        <span class="c">// view space → pixel</span>
 1/z(u) = lerp(1/z_0, 1/z_1, (u − u_0) / (u_1 − u_0))  <span class="c">// linear on screen</span>
 hit  ⇔  z_ray &gt; z_buf(u)  &amp;&amp;  z_ray &lt; z_buf(u) + t</div>
-        <p><code>d</code> is the view ray, <code>n</code> the floor normal, <code>r</code> the bounced ray. <code>x_v</code> and <code>z_v</code> are a point's sideways and forward position as seen from the camera, <code>fov</code> is the camera's field of view, <code>N</code> the screen width in pixels. <code>z_0</code> and <code>z_1</code> are the depths at the two projected ends, <code>u_0</code> and <code>u_1</code> their pixel positions, <code>t</code> the thickness.</p>
+        <p><code>d</code> is the view ray, <code>n</code> the water's normal, <code>r</code> the bounced ray. <code>x_v</code> and <code>z_v</code> are a point's sideways and forward position as seen from the camera, <code>fov</code> is the camera's field of view, <code>N</code> the screen width in pixels. <code>z_0</code> and <code>z_1</code> are the depths at the two projected ends, <code>u_0</code> and <code>u_1</code> their pixel positions, <code>t</code> the thickness.</p>
         <p class="words">What this code does: projects both ends of the bounced ray to the screen, then steps between them a few pixels at a time until the ray is behind the depth buffer by less than the thickness.</p>
 <pre class="code"><span class="c">// per reflective pixel, view space in, color out</span>
 vec3 r  = reflect(viewDir, n);
@@ -230,24 +231,24 @@ vec2 s1 = (c1.xy / c1.w * 0.5 + 0.5) * uRes;
 
   <section id="march">
     <h2>Fixed steps or smart jumps</h2>
-    <p class="sub">Pick a floor pixel, then switch between walking every few pixels and jumping over empty stretches of screen.</p>
+    <p class="sub">Same lake, same player. Pick a lake pixel, then switch between walking the bounced ray every few pixels and jumping over empty stretches of sky and water.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" width="512" height="512" class="grab" aria-label="Linear and hierarchical depth marching over a min-depth pyramid"></canvas>
+        <canvas id="c2" width="512" height="512" class="grab" aria-label="The same lakeside scene with a min-depth pyramid of the screen column at the top; the bounced ray from one lake pixel is marched with fixed steps or with Hi-Z jumps"></canvas>
         <div class="cap"><span id="c2-read"></span><span id="c2-cap"></span></div>
       </div>
       <div class="prose">
         <p class="plain">Walking the ray one pixel at a time is exact but slow. <b>Bigger fixed steps are faster but can step right over a thin object.</b> Hi-Z is the other approach: keep a stack of shrunken copies of the depth buffer, each cell storing the nearest depth of the pixels it covers, and <b>jump over a whole block of screen whenever the ray stays in front of everything in it</b>. <b>Empty screen then costs one check per block instead of one per pixel.</b></p>
 
         <h3>What you're seeing</h3>
-        <p>The pyramid at the top is the depth buffer shrunk five times, each level keeping the nearer of two cells below it (bright is near). In linear mode, the ticks on the bottom row are the pixels the march sampled: white in front, red behind, amber the hit. In Hi-Z mode, a white box is a cell the ray jumped over, an amber box is a cell it had to zoom into, and the filled cell on the bottom row is the hit.</p>
-        <p>The tiles count how many depth reads each method spent on this pixel, and how far the linear hit is from the exact crossing point.</p>
+        <p>The pyramid at the top is the depth buffer of the screen column shrunk five times, each level keeping the nearer of two cells below it (bright is near). In linear mode, the ticks on the bottom row are the pixels the march sampled: white in front, red behind, amber the hit. In Hi-Z mode, a white box is a cell the ray jumped over, an amber box is a cell it had to zoom into, and the filled cell on the bottom row is the hit.</p>
+        <p>The band under the water line and the "player sees" inset show what the lake reflects with the method you picked. The tiles count how many depth reads each method spent on this pixel, and how far the linear hit is from the exact crossing point.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Set the linear step to 16 px. The fetch count drops, the hit error climbs, and on some pixels the ray steps clean past a surface.</li>
+          <li>Set the linear step to 16 px. The fetch count drops, the hit error climbs, and on some pixels the ray steps clean past the balloon or the house, which shows as holes in the lake band.</li>
           <li>Turn binary refine up to 6. The error shrinks to a fraction of a pixel for six extra reads.</li>
-          <li>Switch to Hi-Z. Where the ray crosses empty screen the count falls; where it runs behind the sphere, it does not.</li>
+          <li>Switch to Hi-Z. Where the ray crosses empty sky the count falls; where it runs behind the balloon, it does not.</li>
         </ul>
 
         <div class="controls" style="margin-top:14px">
@@ -265,7 +266,7 @@ vec2 s1 = (c1.xy / c1.w * 0.5 + 0.5) * uRes;
         <p>A fixed step of <code>s</code> pixels costs distance/<code>s</code> fetches and only locates the hit to within <code>s</code> pixels. Small steps are accurate and slow; big steps walk straight over thin objects.</p>
         <p>A binary search between the last pixel in front and the first pixel behind (halve the gap, check which side, repeat) recovers sub-pixel accuracy for <code>log2(s)</code> extra fetches. That is why most linear marchers step coarse and then refine.</p>
         <p>Hi-Z tracing replaces the fixed step with a test. In the coarsest level whose cell the ray is in, it checks whether the ray stays in front of the cell's minimum depth all the way to the cell's edge. If yes, jump to that edge and go one level coarser. If no, go one level finer without leaving the cell.</p>
-        <p>The march spends single steps on empty screen and only reaches level 0 next to a surface. The pyramid costs one min-reduction pass per frame and a third more depth memory. Its weak case is a ray running behind something, the sphere here: every pixel of that stretch fails the skip test and costs a fetch or two, which is why the Hi-Z count is not always the smaller one.</p>
+        <p>The march spends single steps on empty screen and only reaches level 0 next to a surface. The pyramid costs one min-reduction pass per frame and a third more depth memory. Its weak case is a ray running behind something, the balloon here: every pixel of that stretch fails the skip test and costs a fetch or two, which is why the Hi-Z count is not always the smaller one.</p>
         <p>The level-0 hit is the exact crossing of the ray with that pixel's depth, so Hi-Z gives sub-pixel hits without a refinement loop. The error readout compares each method against that exact crossing.</p>
         <p class="words">In words: build each level by keeping the nearer of two cells; at each step, skip the cell if the ray stays in front of its nearest depth, otherwise zoom in one level; a hit is a level-0 cell the ray is behind by less than the thickness.</p>
         <div class="math">hiz[L][i] = min(hiz[L−1][2i], hiz[L−1][2i+1])
@@ -292,23 +293,23 @@ vec2  edge     = (cell + step(0.0, dir)) * cellSize;     <span class="c">// exit
 
   <section id="failures">
     <h2>When the reflection isn't on screen</h2>
-    <p class="sub">Drag the sphere off the top of the frame, or move the slab, and watch what fills the hole SSR leaves.</p>
+    <p class="sub">Drag the balloon up out of the frame, or fly the gull across the player's view, and watch what fills the hole SSR leaves in the lake.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c3" width="512" height="512" class="grab" aria-label="SSR failure cases with a reflection probe and sky fallback"></canvas>
+        <canvas id="c3" width="512" height="512" class="grab" aria-label="The lakeside scene with a draggable hot-air balloon and a gull near the player, a reflection probe ring floating over the lake, and strips comparing the true reflection, the SSR result, the probe or sky fallback and the blend"></canvas>
         <div class="cap"><span id="c3-read">hover the floor</span><span id="c3-cap"></span></div>
       </div>
       <div class="prose">
         <p class="plain">SSR can only reflect what was drawn. <b>If the thing you'd see in the mirror is off screen, hidden behind something, or facing away from the camera, there is nothing to look up.</b> Every engine keeps a backup for that: <b>a reflection probe, a snapshot of the scene taken in every direction from one spot</b>, and past that, the sky. <b>Each pixel blends between SSR and the backup by how much it trusts the SSR hit.</b></p>
 
         <h3>What you're seeing</h3>
-        <p>Four strips at the top: the true reflection each floor pixel should show, what SSR found on its own, what the probe (the blue ring in the scene) or the sky would give instead, and the blend the pixel gets. The thin bar under them is green where SSR won and blue where the backup took over. Pixels that are not floor just show the color buffer.</p>
-        <p>In the scene, the green dashed line is the true reflection ray for your chosen pixel, the amber line is the SSR march, and the blue dashed line from the ring is the probe's guess for the same direction. The tiles count how many floor pixels ended up using each source.</p>
+        <p>Four strips at the top: the true reflection each lake pixel should show, what SSR found on its own, what the probe (the blue ring floating over the lake) or the sky would give instead, and the blend the pixel gets. The thin bar under them is green where SSR won and blue where the backup took over. Pixels that are not lake just show the color buffer.</p>
+        <p>In the scene, the green dashed line is the true reflection ray for your chosen pixel, the amber line is the SSR march, and the blue dashed line from the ring is the probe's guess for the same direction. The lake band and the "player sees" inset show the final blend. The tiles count how many lake pixels ended up using each source.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Drag the sphere up until the caption says off screen. Its reflection vanishes from the SSR strip and the probe fills in, at slightly the wrong place.</li>
-          <li>Drag the slab so it sits between the camera and the wall. Floor pixels whose ray passes behind it lose their hit and turn blue in the bar.</li>
+          <li>Drag the balloon up until the caption says off screen. Its reflection vanishes from the SSR strip and the probe fills in, at slightly the wrong place.</li>
+          <li>Drag the gull so it flies between the player's eye and the house. Lake pixels whose ray passes behind it lose their hit and turn blue in the bar.</li>
           <li>Widen the edge fade. Pixels whose hit lands near the top of the screen shift toward the backup before they would pop.</li>
         </ul>
 
@@ -316,14 +317,14 @@ vec2  edge     = (cell + step(0.0, dir)) * cellSize;     <span class="c">// exit
           <div class="ctl"><label for="fade3">Edge fade width <span class="val" id="fade3v">0.10 of screen</span></label><input type="range" id="fade3" min="0" max="0.3" step="0.01" value="0.10"></div>
         </div>
         <div class="tiles">
-          <div class="tile" id="t3-ssr"><div class="n">–</div><div class="l">floor px from SSR</div></div>
+          <div class="tile" id="t3-ssr"><div class="n">–</div><div class="l">lake px from SSR</div></div>
           <div class="tile" id="t3-probe"><div class="n">–</div><div class="l">from the probe</div></div>
           <div class="tile" id="t3-sky"><div class="n">–</div><div class="l">from the sky</div></div>
         </div>
 
         <h3>The real version</h3>
-        <p>SSR has one failure with three faces. The reflected object is off screen: nothing was stored, so nothing can be found. The object is on screen but its reflected side is not: the ray passes behind the sphere, keeps going, and lands on the wall, so the sphere's reflection is a patch of wall. Something in the foreground covers the target: the slab's depth is nearer than the ray at those pixels, so the ray counts as behind it and walks on into nothing.</p>
-        <p>A reflection probe is a cubemap, six square images covering every direction, captured from one point (the ring in the scene, 128 directions here). Sampling it with <code>r</code> gives a plausible color at the wrong parallax, meaning the reflection sits in slightly the wrong place because the probe was not captured from where the floor pixel is. Beyond the probe, the sky.</p>
+        <p>SSR has one failure with three faces. The reflected object is off screen: nothing was stored, so nothing can be found. The object is on screen but its reflected side is not: the ray passes behind the balloon, keeps going, and lands on the house, so the balloon's reflection is a patch of house wall. Something in the foreground covers the target: the gull's depth is nearer than the ray at those pixels, so the ray counts as behind it and walks on into nothing.</p>
+        <p>A reflection probe is a cubemap, six square images covering every direction, captured from one point (the ring over the lake, 128 directions here). Sampling it with <code>r</code> gives a plausible color at the wrong parallax, meaning the reflection sits in slightly the wrong place because the probe was not captured from where the lake pixel is. Beyond the probe, the sky.</p>
         <p>The blend weight is the SSR confidence: zero on a miss, and faded toward zero near the screen edge so the hole does not pop into view when the camera turns.</p>
         <p class="words">In words: measure how close the hit is to the nearest screen edge, turn that into a weight between 0 and 1, and mix the SSR color with the probe (or sky) by that weight.</p>
         <div class="math">e = min(uv_hit.x, 1 − uv_hit.x, uv_hit.y, 1 − uv_hit.y)
@@ -347,18 +348,18 @@ vec3  fb   = mix(sky(r), pr.rgb, pr.a);                  <span class="c">// alph
   </section>
 
   <section id="rough">
-    <h2>Rough floors: scatter the rays</h2>
-    <p class="sub">Turn up roughness and rays per pixel, and watch the noise get averaged away over frames.</p>
+    <h2>Rippled water: scatter the rays</h2>
+    <p class="sub">Wind ripples the lake. Turn up roughness and rays per pixel, and watch the speckled reflection get averaged away over frames.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" width="512" height="512" class="grab" aria-label="Stochastic GGX reflection rays with temporal accumulation and a roughness-weighted blur"></canvas>
+        <canvas id="c4" width="512" height="512" class="grab" aria-label="The lakeside scene with a cone of scattered bounce directions from one lake pixel, random rays fired inside it, and strips showing this frame's noisy reflection, the running average over frames and a blur"></canvas>
         <div class="cap"><span id="c4-read">hover the floor</span><span id="c4-cap"></span></div>
       </div>
       <div class="prose">
-        <p class="plain">A mirror bounces light in one direction. A rough surface, like a wet road or brushed metal, <b>scatters it into a cone</b>, so its reflection is blurry. To render that, SSR <b>fires rays in random directions inside the cone</b> and averages what they find. One ray per pixel gives <b>the right answer on average and speckled noise everywhere</b>, so engines <b>average across frames and blur across neighbours</b> to hide it.</p>
+        <p class="plain">Still water bounces light in one direction. A rough surface, like a rippled lake, a wet road or brushed metal, <b>scatters it into a cone</b>, so its reflection is blurry. To render that, SSR <b>fires rays in random directions inside the cone</b> and averages what they find. One ray per pixel gives <b>the right answer on average and speckled noise everywhere</b>, so engines <b>average across frames and blur across neighbours</b> to hide it.</p>
 
         <h3>What you're seeing</h3>
-        <p>Three strips: what this frame's rays returned, the running average over up to 48 frames, and a blur of this frame alone. The amber bars under them are the blur radius per pixel. The amber fan in the scene is the cone of likely ray directions for your chosen pixel, and the thin amber lines are the rays fired this frame.</p>
+        <p>Three strips: what this frame's rays returned, the running average over up to 48 frames, and a blur of this frame alone. The amber bars under them are the blur radius per pixel. The amber fan on the lake is the cone of likely ray directions for your chosen pixel, and the thin amber lines are the rays fired this frame. The lake band and the "player sees" inset show the running average, so you can watch the boat and the house settle out of the speckle.</p>
         <p>The tiles count rays and depth reads, and estimate the cost at 1080p if every pixel on screen did the same.</p>
 
         <h3>Try this</h3>
@@ -382,7 +383,7 @@ vec3  fb   = mix(sky(r), pr.rgb, pr.a);                  <span class="c">// alph
         <p>A mirror needs one ray. A rough surface reflects a cone of directions weighted by the GGX lobe, the standard curve for how much light a rough surface sends each way. The correct way to render that is to sample it: draw a half vector <code>h</code> (the direction halfway between the incoming and outgoing rays) from the distribution, reflect <code>d</code> about it, march. One ray per pixel gives the right answer on average and noise everywhere.</p>
         <p>Two things hide the noise. Temporal accumulation averages each frame into a history buffer, which is last frame's result shifted to line up with this frame's camera. After a few dozen frames the estimate converges; move the camera and it starts over.</p>
         <p>A spatial blur whose radius grows with roughness and with the distance to the hit does it in one frame, at the cost of smearing detail. Production SSR does both and reuses each ray's hit for several neighbouring pixels (Frostbite's stochastic SSR, 2015).</p>
-        <p>The blur radius growing with hit distance is the physical effect, not a trick: the lobe's footprint at the hit grows linearly with the length of the reflected ray, so a rough floor reflects the near box sharply and the far wall softly.</p>
+        <p>The blur radius growing with hit distance is the physical effect, not a trick: the lobe's footprint at the hit grows linearly with the length of the reflected ray, so a rippled lake reflects the near boat sharply and the far house softly.</p>
         <p class="words">In words: pick a random tilt for the bounce, with rougher surfaces allowing bigger tilts; blend each new frame into the running average; size the blur by roughness times distance to the hit.</p>
         <div class="math">α = roughness²
 cos θ_h = sqrt((1 − ξ₁) / (1 + (α² − 1) ξ₁)),  φ = 2π ξ₂     <span class="c">// GGX half vector</span>
@@ -411,23 +412,23 @@ hist = mix(hist, hit, 1.0 / min(frameCount, 48.0));      <span class="c">// afte
 
   <section id="thickness">
     <h2>How far behind still counts</h2>
-    <p class="sub">Change the thickness allowance and the step size, and see which floor pixels get the right reflection.</p>
+    <p class="sub">A gull glides low over the lake. Change the thickness allowance and the step size, and see which lake pixels get the right reflection of the boat, the gull, the balloon and the house.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="512" height="512" class="grab" aria-label="Thickness too small, too large, and derived per pixel from the depth derivative"></canvas>
+        <canvas id="c5" width="512" height="512" class="grab" aria-label="The lakeside scene with a gull gliding low over the water; strips compare the true reflection with SSR using a fixed thickness, a thickness from the ray's depth change, and a thickness from the depth buffer's slope, with pass and fail marks per lake pixel"></canvas>
         <div class="cap"><span id="c5-read">hover the floor</span><span id="c5-cap"></span></div>
       </div>
       <div class="prose">
-        <p class="plain">The march samples the ray every few pixels, so it never lands exactly on a surface. <b>Thickness is the allowance</b>: how far behind a stored surface the ray may be and still count as touching it. <b>Too thin, and rays step past real surfaces</b> and leave holes. <b>Too thick, and rays get stopped by things they should pass under</b>, like the floating plate here. The fix is to <b>set the allowance per pixel from how steeply the depth changes</b> there.</p>
+        <p class="plain">The march samples the ray every few pixels, so it never lands exactly on a surface. <b>Thickness is the allowance</b>: how far behind a stored surface the ray may be and still count as touching it. <b>Too thin, and rays step past real surfaces</b> and leave holes. <b>Too thick, and rays get stopped by things they should pass under</b>, like the gull gliding over the water here. The fix is to <b>set the allowance per pixel from how steeply the depth changes</b> there.</p>
 
         <h3>What you're seeing</h3>
-        <p>Four strips: the true reflection, then SSR with a fixed thickness, with a thickness taken from how much the ray's own depth changes per step, and with a thickness taken from the depth buffer's slope. Under each SSR strip a bar marks every floor pixel: green if the hit is within 0.25 m of the true one, red for a wrong hit, dim for a miss. The table counts them.</p>
-        <p>In the scene, the amber ray is the fixed-thickness march for your chosen pixel and the green ring is where the reflection should land. The tiles show the ray's depth change per pixel at that spot and the thickness the slope rule would pick.</p>
+        <p>Four strips: the true reflection, then SSR with a fixed thickness, with a thickness taken from how much the ray's own depth changes per step, and with a thickness taken from the depth buffer's slope. Under each SSR strip a bar marks every lake pixel: green if the hit is within 0.25 m of the true one, red for a wrong hit, dim for a miss. The table counts them.</p>
+        <p>In the scene, the amber ray is the fixed-thickness march for your chosen pixel and the green ring is where the reflection should land. The lake band and the "player sees" inset show the fixed-thickness result. The tiles show the ray's depth change per pixel at that spot and the thickness the slope rule would pick.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Set fixed thickness to 0.02 m. Holes open on the box front and the wall as rays step past them.</li>
-          <li>Push it to 2 m. The plate starts catching rays that should pass under it, and the red count climbs.</li>
+          <li>Set fixed thickness to 0.02 m. Holes open in the reflection of the boat and the house as rays step past them.</li>
+          <li>Push it to 2 m. The gull starts catching rays that should pass under it, and the red count climbs.</li>
           <li>Set the step to 12 px and compare the three rows of the table. Only the fixed rule ignores the bigger step.</li>
         </ul>
 
@@ -442,7 +443,7 @@ hist = mix(hist, hit, 1.0 / min(frameCount, 48.0));      <span class="c">// afte
         </div>
         <div class="tbl-wrap">
         <table class="stats" id="stats5">
-          <thead><tr><th id="s5-n">floor pixels</th><th>Correct</th><th>False hit</th><th>Miss</th><th>Mean hit error</th></tr></thead>
+          <thead><tr><th id="s5-n">lake pixels</th><th>Correct</th><th>False hit</th><th>Miss</th><th>Mean hit error</th></tr></thead>
           <tbody>
             <tr><td>Fixed t</td><td id="s5-f-ok" class="ok"></td><td id="s5-f-bad" class="bad"></td><td id="s5-f-miss"></td><td id="s5-f-err"></td></tr>
             <tr><td>Ray Δz per step</td><td id="s5-r-ok" class="ok"></td><td id="s5-r-bad" class="bad"></td><td id="s5-r-miss"></td><td id="s5-r-err"></td></tr>
@@ -452,10 +453,10 @@ hist = mix(hist, hit, 1.0 / min(frameCount, 48.0));      <span class="c">// afte
         </div>
 
         <h3>The real version</h3>
-        <p>The thickness <code>t</code> says how far behind a stored surface the ray may be and still count as a hit. Too small, and the first sample past a surface lands beyond it by more than <code>t</code>, so the march reports "passed behind" and walks on into nothing: holes on the box front and the wall. Too large, and a ray that really did pass under and behind the plate is stopped by it, painting the plate into reflections of the wall.</p>
+        <p>The thickness <code>t</code> says how far behind a stored surface the ray may be and still count as a hit. Too small, and the first sample past a surface lands beyond it by more than <code>t</code>, so the march reports "passed behind" and walks on into nothing: holes in the reflection of the boat and the house. Too large, and a ray that really did pass under and behind the gull is stopped by it, painting the gull into reflections of the house.</p>
         <p>The right <code>t</code> is not a constant. One screen pixel of a surface seen at a grazing angle (nearly edge-on) covers a long range of depth. That is where the smearing near the horizon comes from: the ray moves a fraction of a pixel per metre of depth and either misses the surface or hits a long streak of the same color.</p>
         <p>Deriving <code>t</code> per pixel from the depth buffer's own slope, or from the ray's depth change per step, gives a thickness that fits the surface it is testing.</p>
-        <p>Read the table with care. A hit on the sphere's rim counts as a false hit because the true reflection is its underside, which no thickness rule can find; the derivative rule catches that rim (a grazing surface) where the fixed rule walks past it. The green count is the number to compare.</p>
+        <p>Read the table with care. A hit on the balloon's rim counts as a false hit because the true reflection is its underside, which no thickness rule can find; the derivative rule catches that rim (a grazing surface) where the fixed rule walks past it. The green count is the number to compare.</p>
         <p class="words">In words: the fixed rule uses one number; the ray rule allows as much as the ray's depth changes in one step; the slope rule allows as much as the buffer's depth changes across one step, taking the gentler of the two sides so silhouettes stay thin.</p>
         <div class="math">fixed:       t = t_0
 ray step:    t = t_min + |z(u + Δu) − z(u)|                    <span class="c">// never step over a surface</span>
@@ -515,20 +516,139 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
 </div>
 
 <script>
+// Rendering Library scene kit. Paste this whole block at the top of a page's <script> (no external
+// scripts are allowed). Small, flat, readable game-world props for 2D canvas demos. Every function
+// takes a ctx and draws in the current transform; sizes are in canvas pixels. Keep the mechanism
+// overlay (frustum lines, rays, samples, tests) in the library palette on top of these props.
+const KIT = {
+  // scene palette: props only; the mechanism overlay keeps amber / blue / white / green / red
+  grass: '#1f3a2a', grassLite: '#2a4d37', dirt: '#3b2f25', stone: '#4c5563', stoneLite: '#6b7585',
+  wood: '#7a4f2a', woodLite: '#a06a38', leaf: '#3f8f4a', leafLite: '#5ab562', roof: '#a5433a',
+  wallCol: '#c9c2b2', window: '#f5d67a', skin: '#e8b98a', shirt: '#4aa3ff', pants: '#2f3a55',
+  metal: '#8d95a3', flame: '#f2a341', sky: '#0b0e13', skyLite: '#141a26', water: '#1d4d73', cloud: '#c7cdd8',
+  shadow: 'rgba(0,0,0,0.35)'
+};
+// horizon band: dark sky above, ground below (side-view scenes)
+function kitGround(ctx, w, h, horizon) {
+  const g = ctx.createLinearGradient(0, 0, 0, horizon); g.addColorStop(0, KIT.sky); g.addColorStop(1, KIT.skyLite);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, horizon);
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, horizon, w, h - horizon);
+  ctx.fillStyle = KIT.grassLite; ctx.fillRect(0, horizon, w, 3);
+}
+// top-down ground with faint tile grid (top-down scenes)
+function kitTopGround(ctx, w, h, cell) {
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.beginPath();
+  for (let x = 0; x <= w; x += cell) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, h); }
+  for (let y = 0; y <= h; y += cell) { ctx.moveTo(0, y + 0.5); ctx.lineTo(w, y + 0.5); }
+  ctx.stroke();
+}
+// round tree, base at (x, y), s = trunk height
+function kitTree(ctx, x, y, s, tint) {
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, s * 0.55, s * 0.18, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.09, y - s, s * 0.18, s);
+  ctx.fillStyle = tint || KIT.leaf; ctx.beginPath(); ctx.arc(x, y - s * 1.25, s * 0.62, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.leafLite; ctx.beginPath(); ctx.arc(x - s * 0.2, y - s * 1.45, s * 0.3, 0, Math.PI * 2); ctx.fill();
+}
+// pine tree, base at (x, y)
+function kitPine(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.07, y - s * 0.4, s * 0.14, s * 0.4);
+  ctx.fillStyle = KIT.leaf;
+  for (let i = 0; i < 3; i++) { const yy = y - s * 0.35 - i * s * 0.42, ww = s * (0.7 - i * 0.16);
+    ctx.beginPath(); ctx.moveTo(x - ww, yy); ctx.lineTo(x + ww, yy); ctx.lineTo(x, yy - s * 0.55); ctx.closePath(); ctx.fill(); }
+}
+// house, bottom-left corner at (x, y), width w, wall height h
+function kitHouse(ctx, x, y, w, h, roofCol) {
+  ctx.fillStyle = KIT.wallCol; ctx.fillRect(x, y - h, w, h);
+  ctx.fillStyle = roofCol || KIT.roof; ctx.beginPath(); ctx.moveTo(x - w * 0.08, y - h); ctx.lineTo(x + w * 1.08, y - h); ctx.lineTo(x + w / 2, y - h - w * 0.45); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + w * 0.15, y - h * 0.75, w * 0.22, h * 0.3);
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x + w * 0.6, y - h * 0.6, w * 0.22, h * 0.6);
+}
+// wooden crate, centre (x, y), size s
+function kitCrate(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s / 2, y - s / 2, s, s);
+  ctx.strokeStyle = KIT.woodLite; ctx.lineWidth = Math.max(1, s * 0.08);
+  ctx.strokeRect(x - s / 2 + 1, y - s / 2 + 1, s - 2, s - 2);
+  ctx.beginPath(); ctx.moveTo(x - s / 2, y - s / 2); ctx.lineTo(x + s / 2, y + s / 2); ctx.moveTo(x + s / 2, y - s / 2); ctx.lineTo(x - s / 2, y + s / 2); ctx.stroke();
+}
+// stone wall segment from (x1, y1) to (x2, y2), thickness t (top-down or side)
+function kitWall(ctx, x1, y1, x2, y2, t) {
+  ctx.strokeStyle = KIT.stone; ctx.lineWidth = t; ctx.lineCap = 'butt'; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.strokeStyle = KIT.stoneLite; ctx.lineWidth = Math.max(1, t * 0.25); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+}
+// little player figure, feet at (x, y), height h, facing +1 right / -1 left
+function kitPlayer(ctx, x, y, h, facing) {
+  const f = facing || 1;
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, h * 0.28, h * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.pants; ctx.fillRect(x - h * 0.16, y - h * 0.42, h * 0.32, h * 0.42);
+  ctx.fillStyle = KIT.shirt; ctx.fillRect(x - h * 0.2, y - h * 0.78, h * 0.4, h * 0.38);
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y - h * 0.9, h * 0.14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#171a1f'; ctx.fillRect(x + f * h * 0.04, y - h * 0.93, h * 0.05, h * 0.04);
+}
+// top-down player: a circle with a facing wedge, centre (x, y), radius r, angle a (radians)
+function kitPlayerTop(ctx, x, y, r, a) {
+  ctx.fillStyle = KIT.shirt; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * r * 1.6, y + Math.sin(a) * r * 1.6); ctx.stroke();
+}
+// lamp post / torch, base at (x, y), height h; glow radius g (0 = none)
+function kitLamp(ctx, x, y, h, g) {
+  if (g > 0) { const gr = ctx.createRadialGradient(x, y - h, 0, x, y - h, g); gr.addColorStop(0, 'rgba(242,163,65,0.35)'); gr.addColorStop(1, 'rgba(242,163,65,0)'); ctx.fillStyle = gr; ctx.fillRect(x - g, y - h - g, g * 2, g * 2); }
+  ctx.fillStyle = KIT.metal; ctx.fillRect(x - h * 0.04, y - h, h * 0.08, h);
+  ctx.fillStyle = KIT.flame; ctx.beginPath(); ctx.arc(x, y - h, h * 0.12, 0, Math.PI * 2); ctx.fill();
+}
+// simple side-view car, bottom-left at (x, y), length L
+function kitCar(ctx, x, y, L, col) {
+  ctx.fillStyle = col || '#d8493f'; ctx.fillRect(x, y - L * 0.22, L, L * 0.2);
+  ctx.fillRect(x + L * 0.22, y - L * 0.4, L * 0.5, L * 0.2);
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + L * 0.26, y - L * 0.38, L * 0.42, L * 0.14);
+  ctx.fillStyle = '#171a1f'; ctx.beginPath(); ctx.arc(x + L * 0.22, y, L * 0.09, 0, Math.PI * 2); ctx.arc(x + L * 0.78, y, L * 0.09, 0, Math.PI * 2); ctx.fill();
+}
+// cloud, centre (x, y), width w
+function kitCloud(ctx, x, y, w, alpha) {
+  ctx.fillStyle = 'rgba(199,205,216,' + (alpha == null ? 0.35 : alpha) + ')';
+  ctx.beginPath(); ctx.arc(x - w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.arc(x, y - w * 0.08, w * 0.28, 0, Math.PI * 2); ctx.arc(x + w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.fill();
+}
+// plain-word label on the canvas with a dark pill behind it; anchor 'left' | 'center' | 'right'
+function kitLabel(ctx, text, x, y, anchor, col) {
+  ctx.font = '12px "IBM Plex Mono", Menlo, Consolas, monospace';
+  const w = ctx.measureText(text).width + 12, h = 18;
+  const x0 = anchor === 'center' ? x - w / 2 : anchor === 'right' ? x - w : x;
+  ctx.fillStyle = 'rgba(11,14,19,0.82)'; ctx.fillRect(x0, y - h / 2, w, h);
+  ctx.fillStyle = col || '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(text, x0 + 6, y + 1);
+}
+// arrow from (x1, y1) to (x2, y2) in a colour, for callouts
+function kitArrow(ctx, x1, y1, x2, y2, col, width) {
+  const a = Math.atan2(y2 - y1, x2 - x1), s = 7;
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = width || 1.5;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - s * Math.cos(a - 0.4), y2 - s * Math.sin(a - 0.4)); ctx.lineTo(x2 - s * Math.cos(a + 0.4), y2 - s * Math.sin(a + 0.4)); ctx.closePath(); ctx.fill();
+}
+// "what the player sees" inset frame: draws a titled box at (x, y, w, h); draw the picture inside afterwards
+function kitInset(ctx, x, y, w, h, title) {
+  ctx.fillStyle = 'rgba(11,14,19,0.92)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
+}
 (() => {
-  // ---------- camera and screen: 2D side view, 1D screen of N pixels ----------
+  // ---------- camera and screen: 2D side view of a lakeside, one 160-pixel screen column ----------
   const N = 160, FOV = 70 * Math.PI / 180, TANH = Math.tan(FOV / 2), FAR = 60, ZNEAR = 0.2;
-  const W = 512, H = 512, TOP = 130, S = W / 12.5, PXW = W / N;
+  const WORLD_W = 13.5, W = 512, H = 512, TOP = 130, S = W / WORLD_W, PXW = W / N;
   const CAM = { x: 0.8, y: 6.5, pitch: -30 * Math.PI / 180 };
   const FWD = [Math.cos(CAM.pitch), Math.sin(CAM.pitch)], UP = [-FWD[1], FWD[0]];
-  const FLOOR_Y = 0.6, WALL_X = 12.0;
-  const AMBER = [242, 163, 65], BLUE = [74, 163, 255], WHITE = [236, 238, 242], GREY = [196, 202, 212];
-  const SKY = [26, 32, 44], FLOORC = [72, 78, 90], GREEN = "#5ad48a", RED = "#ef5d5d";
+  const F = 1.0, FLOOR_Y = F, LAKE_X1 = 11.0;              // the lake surface is the mirror; it ends at the far shore
+  const BLUFF = { top: 5.72, x0: 1.05, x1: 2.3 };          // the player stands here; the camera is the player's eye
+  const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const WATERC = hex(KIT.water), GRASSC = hex(KIT.grass), WOODC = hex(KIT.wood), WOODL = hex(KIT.woodLite), WALLC = hex(KIT.wallCol), ROOFC = hex(KIT.roof), WINC = hex(KIT.window), SKINC = hex(KIT.skin), CLOUDC = hex(KIT.cloud);
+  const BALLOONH = '#d8493f', BALLOONC = hex(BALLOONH), TUNICH = '#8a5fb0', TUNICC = hex(TUNICH);
+  const SKY = [26, 32, 44], HOLE = [24, 28, 36], GREEN = "#5ad48a", RED = "#ef5d5d";
   const MONO = '"IBM Plex Mono", Menlo, Consolas, monospace';
   const LIGHT = (() => { const l = Math.hypot(-0.35, 1); return [-0.35 / l, 1 / l]; })();
   const rgb = c => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
   const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
   const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  const lakeShow = c => c ? mixc(WATERC, c, 0.72) : HOLE;   // what a lake pixel looks like on screen: water tinted by its reflection, or a hole
 
   function project(x, y) {
     const dx = x - CAM.x, dy = y - CAM.y;
@@ -541,18 +661,29 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
   }
   function floorXAt(u) { const d = pixelDir(u); return d[1] < 0 ? CAM.x + (FLOOR_Y - CAM.y) * d[0] / d[1] : Infinity; }
 
-  // ---------- scene ----------
+  // ---------- scene: a lake with a boat, a balloon, and a house with a villager on the far shore ----------
   function makeScene(o = {}) {
     const s = [
-      { id: 1, name: "floor", type: "box", x0: 0, y0: FLOOR_Y - 0.3, x1: WALL_X, y1: FLOOR_Y, col: FLOORC, floor: true },
-      { id: 2, name: "box", type: "box", x0: 5.0, y0: FLOOR_Y, x1: 6.2, y1: 1.5, col: AMBER },
-      { id: 3, name: "sphere", type: "circle", cx: 10.2, cy: 2.6, r: 0.6, col: BLUE, drag: !!o.dragSphere },
-      { id: 4, name: "wall", type: "box", x0: WALL_X, y0: FLOOR_Y - 0.3, x1: WALL_X + 0.5, y1: 6.5, col: GREY }
+      { id: 1, name: "lake", type: "box", x0: 0, y0: F - 0.3, x1: LAKE_X1, y1: F, col: WATERC, floor: true },
+      { id: 2, name: "shore", type: "box", x0: LAKE_X1, y0: F - 0.3, x1: 13.6, y1: F + 0.2, col: GRASSC },
+      { id: 3, name: "boat", type: "box", x0: 5.0, y0: F, x1: 6.4, y1: F + 0.45, col: WOODC, prop: "boat" },
+      { id: 4, name: "boat", type: "box", x0: 5.5, y0: F + 0.45, x1: 6.1, y1: F + 0.9, col: WOODL },
+      { id: 5, name: "balloon", type: "circle", cx: 10.2, cy: F + 2.0, r: 0.6, col: BALLOONC, prop: "balloon", drag: !!o.dragBalloon },
+      { id: 6, name: "balloon", type: "box", x0: 10.08, y0: F + 1.12, x1: 10.32, y1: F + 1.35, col: WOODC },
+      { id: 7, name: "house", type: "box", x0: 11.6, y0: F + 0.2, x1: 13.6, y1: F + 3.0, col: WALLC, prop: "house" },
+      { id: 8, name: "house", type: "poly", pts: [[11.44, F + 3.0], [13.76, F + 3.0], [12.6, F + 3.9]], col: ROOFC },
+      { id: 9, name: "window", type: "box", x0: 11.55, y0: F + 1.46, x1: 11.6, y1: F + 2.3, col: WINC },
+      { id: 10, name: "door", type: "box", x0: 11.56, y0: F + 0.2, x1: 11.6, y1: F + 1.1, col: WOODC },
+      { id: 11, name: "villager", type: "box", x0: 11.02, y0: F + 0.2, x1: 11.38, y1: F + 0.9, col: TUNICC, prop: "villager" },
+      { id: 12, name: "villager", type: "circle", cx: 11.2, cy: F + 1.01, r: 0.13, col: SKINC }
     ];
-    if (o.slab) s.push({ id: 5, name: "slab", type: "box", x0: 3.6, y0: 5.5, x1: 3.8, y1: 5.58, col: GREY, drag: true });
-    if (o.plate) s.push({ id: 6, name: "plate", type: "box", x0: 8.8, y0: 1.7, x1: 9.6, y1: 1.85, col: WHITE });
+    if (o.gullNear) s.push({ id: 13, name: "gull", type: "box", x0: 3.55, y0: 5.5, x1: 3.85, y1: 5.6, col: CLOUDC, prop: "gull", drag: true });
+    if (o.gullLow) s.push({ id: 14, name: "gull", type: "box", x0: 8.8, y0: F + 1.1, x1: 9.6, y1: F + 1.25, col: CLOUDC, prop: "gull" });
     return s;
   }
+  const byId = (scene, id) => scene.find(o => o.id === id);
+  const nameOf = (scene, id) => { const o = byId(scene, id); return o ? o.name : "?"; };
+  const namesOf = (scene, ids) => [...new Set(ids.map(i => nameOf(scene, i)))];
   function shade(col, nx, ny) { const s = 0.42 + 0.58 * Math.max(0, nx * LIGHT[0] + ny * LIGHT[1]); return [col[0] * s, col[1] * s, col[2] * s]; }
   function hitBox(ox, oy, dx, dy, b) {
     let tmin = -Infinity, tmax = Infinity, nx = 0, ny = 0;
@@ -568,9 +699,21 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
     if (disc < 0) return null; const t = -b - Math.sqrt(disc); if (t < 1e-6) return null;
     return { t, nx: (ox + dx * t - c.cx) / c.r, ny: (oy + dy * t - c.cy) / c.r };
   }
+  function hitPoly(ox, oy, dx, dy, p) { // ray against each edge of a closed polygon (the roof)
+    let best = null; const pts = p.pts;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length], ex = b[0] - a[0], ey = b[1] - a[1];
+      const den = dx * ey - dy * ex; if (Math.abs(den) < 1e-9) continue;
+      const t = ((a[0] - ox) * ey - (a[1] - oy) * ex) / den, s = ((a[0] - ox) * dy - (a[1] - oy) * dx) / den;
+      if (t < 1e-6 || s < 0 || s > 1) continue;
+      if (!best || t < best.t) { let nx = ey, ny = -ex; const l = Math.hypot(nx, ny); nx /= l; ny /= l; if (nx * dx + ny * dy > 0) { nx = -nx; ny = -ny; } best = { t, nx, ny }; }
+    }
+    return best;
+  }
+  function hitObj(ox, oy, dx, dy, o) { return o.type === "box" ? hitBox(ox, oy, dx, dy, o) : o.type === "circle" ? hitCircle(ox, oy, dx, dy, o) : hitPoly(ox, oy, dx, dy, o); }
   function trace(scene, ox, oy, dx, dy) {
     let best = null;
-    for (const o of scene) { const h = o.type === "box" ? hitBox(ox, oy, dx, dy, o) : hitCircle(ox, oy, dx, dy, o); if (h && (!best || h.t < best.t)) best = { t: h.t, nx: h.nx, ny: h.ny, obj: o }; }
+    for (const o of scene) { const h = hitObj(ox, oy, dx, dy, o); if (h && (!best || h.t < best.t)) best = { t: h.t, nx: h.nx, ny: h.ny, obj: o }; }
     if (best) { best.x = ox + dx * best.t; best.y = oy + dy * best.t; best.col = shade(best.obj.col, best.nx, best.ny); }
     return best;
   }
@@ -663,37 +806,76 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
     return m.hit ? m : null;
   }
   function truthHit(scene, ray) { return trace(scene, ray.ox, ray.oy, ray.r[0], ray.r[1]); }
+  // SSR result for every lake pixel with one config: the colour it reflects, or null on a miss
+  function reflectAll(buf, cfg) { const out = new Array(N).fill(null); for (const u of buf.floorU) { const m = march(buf, screenRay([buf.px[u], buf.py[u]], reflectDir(u)), cfg); out[u] = m.hit ? m.col : null; } return out; }
 
-  // ---------- drawing ----------
+  // ---------- drawing: the lakeside scene is painted once per scene into an offscreen canvas ----------
   const wx = x => x * S, wy = y => H - y * S;
-  function drawWorld(ctx, scene) {
+  const PROPS = {
+    boat(ctx, o, scene) {
+      const x0 = wx(o.x0), x1 = wx(o.x1), yb = wy(o.y0), yt = wy(o.y1), c = byId(scene, 4);
+      ctx.fillStyle = KIT.wood; ctx.beginPath(); ctx.moveTo(x0, yt); ctx.lineTo(x1, yt); ctx.lineTo(x1 - 7, yb); ctx.lineTo(x0 + 7, yb); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = KIT.woodLite; ctx.fillRect(x0, yt, x1 - x0, 3);
+      ctx.fillStyle = KIT.woodLite; ctx.fillRect(wx(c.x0), wy(c.y1), (c.x1 - c.x0) * S, (c.y1 - c.y0) * S);
+      ctx.fillStyle = KIT.window; ctx.fillRect(wx(c.x0) + 4, wy(c.y1) + 4, (c.x1 - c.x0) * S - 8, (c.y1 - c.y0) * S * 0.42);
+    },
+    balloon(ctx, o, scene) {
+      const cx = wx(o.cx), cy = wy(o.cy), r = o.r * S, b = byId(scene, 6);
+      ctx.strokeStyle = KIT.woodLite; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx - r * 0.45, cy + r * 0.88); ctx.lineTo(wx(b.x0), wy(b.y1)); ctx.moveTo(cx + r * 0.45, cy + r * 0.88); ctx.lineTo(wx(b.x1), wy(b.y1)); ctx.stroke();
+      ctx.fillStyle = BALLOONH; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.22)"; ctx.beginPath(); ctx.ellipse(cx, cy, r * 0.26, r * 0.96, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = KIT.wood; ctx.fillRect(wx(b.x0), wy(b.y1), (b.x1 - b.x0) * S, (b.y1 - b.y0) * S);
+    },
+    house(ctx, o) { kitHouse(ctx, wx(o.x0), wy(o.y0), (o.x1 - o.x0) * S, (o.y1 - o.y0) * S); },
+    villager(ctx, o) { const keep = KIT.shirt; KIT.shirt = TUNICH; kitPlayer(ctx, wx((o.x0 + o.x1) / 2), wy(o.y0), 0.9 * S, -1); KIT.shirt = keep; },
+    gull(ctx, o) {
+      const cx = wx((o.x0 + o.x1) / 2), cy = wy((o.y0 + o.y1) / 2), w = Math.max(16, (o.x1 - o.x0) * S);
+      ctx.strokeStyle = KIT.cloud; ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.beginPath();
+      ctx.moveTo(cx - w / 2, cy + 3); ctx.quadraticCurveTo(cx - w / 4, cy - 6, cx, cy + 1); ctx.quadraticCurveTo(cx + w / 4, cy - 6, cx + w / 2, cy + 3); ctx.stroke(); ctx.lineCap = "butt";
+    }
+  };
+  function paintScene(ctx, scene) {
     ctx.fillStyle = "#0b0e13"; ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 1; ctx.beginPath();
-    for (let x = 1; x < 12.5; x++) { ctx.moveTo(wx(x) + 0.5, TOP); ctx.lineTo(wx(x) + 0.5, H); }
+    const hz = wy(F);
+    const g = ctx.createLinearGradient(0, TOP, 0, hz); g.addColorStop(0, KIT.sky); g.addColorStop(1, KIT.skyLite); ctx.fillStyle = g; ctx.fillRect(0, TOP, W, hz - TOP);
+    ctx.fillStyle = KIT.water; ctx.fillRect(0, hz, wx(LAKE_X1), H - hz);
+    ctx.fillStyle = KIT.grass; ctx.fillRect(wx(LAKE_X1), wy(F + 0.2), W - wx(LAKE_X1), H - wy(F + 0.2));
+    ctx.fillStyle = KIT.grassLite; ctx.fillRect(wx(LAKE_X1), wy(F + 0.2), W - wx(LAKE_X1), 3);
+    // the bluff the player stands on; the camera is the player's eye
+    ctx.fillStyle = KIT.dirt; ctx.beginPath(); ctx.moveTo(0, wy(BLUFF.top)); ctx.lineTo(wx(BLUFF.x0), wy(BLUFF.top)); ctx.lineTo(wx(BLUFF.x1), hz); ctx.lineTo(0, hz); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = KIT.grass; ctx.beginPath(); ctx.moveTo(0, wy(BLUFF.top)); ctx.lineTo(wx(BLUFF.x0), wy(BLUFF.top)); ctx.lineTo(wx(BLUFF.x0 + 0.08), wy(BLUFF.top - 0.3)); ctx.lineTo(0, wy(BLUFF.top - 0.3)); ctx.closePath(); ctx.fill();
+    kitPlayer(ctx, wx(0.55), wy(BLUFF.top), 0.9 * S, 1);
+    // metre grid, faint, so it still reads as an engine view
+    ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = 1; x < WORLD_W; x++) { ctx.moveTo(wx(x) + 0.5, TOP); ctx.lineTo(wx(x) + 0.5, H); }
     for (let y = 1; y * S < H - TOP; y++) { ctx.moveTo(0, wy(y) + 0.5); ctx.lineTo(W, wy(y) + 0.5); }
     ctx.stroke();
     ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.beginPath(); ctx.moveTo(0, TOP - 0.5); ctx.lineTo(W, TOP - 0.5); ctx.stroke();
-    // frustum wedge
+    // frustum wedge: what the camera can see
     const d0 = pixelDir(-0.5), d1 = pixelDir(N - 0.5), L = 16;
     ctx.fillStyle = "rgba(255,255,255,0.03)"; ctx.beginPath(); ctx.moveTo(wx(CAM.x), wy(CAM.y)); ctx.lineTo(wx(CAM.x + d0[0] * L), wy(CAM.y + d0[1] * L)); ctx.lineTo(wx(CAM.x + d1[0] * L), wy(CAM.y + d1[1] * L)); ctx.closePath(); ctx.fill();
     ctx.strokeStyle = "rgba(255,255,255,0.22)"; ctx.setLineDash([3, 4]); ctx.beginPath();
     for (const d of [d0, d1]) { ctx.moveTo(wx(CAM.x), wy(CAM.y)); ctx.lineTo(wx(CAM.x + d[0] * L), wy(CAM.y + d[1] * L)); }
     ctx.stroke(); ctx.setLineDash([]);
-    // objects
-    for (const o of scene) {
-      ctx.fillStyle = rgba(o.col, o.floor ? 0.5 : 0.28); ctx.strokeStyle = rgba(o.col, 0.9); ctx.lineWidth = 1.5;
-      if (o.type === "box") { ctx.beginPath(); ctx.rect(wx(o.x0), wy(o.y1), (o.x1 - o.x0) * S, (o.y1 - o.y0) * S); ctx.fill(); if (!o.floor) ctx.stroke(); }
-      else { ctx.beginPath(); ctx.arc(wx(o.cx), wy(o.cy), o.r * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
-    }
-    ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(0, wy(FLOOR_Y)); ctx.lineTo(wx(WALL_X), wy(FLOOR_Y)); ctx.stroke();
+    // props
+    for (const o of scene) if (o.prop) PROPS[o.prop](ctx, o, scene);
+    // the mirror surface
+    ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(0, hz); ctx.lineTo(wx(LAKE_X1), hz); ctx.stroke();
     // camera and image plane
     ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(wx(CAM.x), wy(CAM.y), 4, 0, Math.PI * 2); ctx.fill();
     const p0 = [CAM.x + d0[0] * 1.0, CAM.y + d0[1] * 1.0], p1 = [CAM.x + d1[0] * 1.0, CAM.y + d1[1] * 1.0];
     ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(wx(p0[0]), wy(p0[1])); ctx.lineTo(wx(p1[0]), wy(p1[1])); ctx.stroke();
     ctx.font = "10px " + MONO; ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.textBaseline = "alphabetic";
-    ctx.fillText("camera", wx(CAM.x) - 18, wy(CAM.y) - 9); ctx.fillText("screen, 160 px", wx(p1[0]) + 6, wy(p1[1]) + 4);
-    ctx.fillText("mirror floor", wx(0.2), wy(FLOOR_Y) + 14);
-    for (const o of scene) if (!o.floor) { const cx = o.type === "box" ? (o.x0 + o.x1) / 2 : o.cx, top = o.type === "box" ? o.y1 : o.cy + o.r, tw = ctx.measureText(o.name).width; ctx.fillText(o.name, Math.min(W - tw - 4, wx(cx) - tw / 2), wy(top) - 5); }
+    ctx.fillText("screen, 160 px", 4, wy(p1[1]) + 16);
+    kitLabel(ctx, "camera = the player's eye", wx(CAM.x) + 48, wy(CAM.y) + 3, "left");
+    kitLabel(ctx, "lake = mirror", 6, hz - 11, "left");
+  }
+  const bgCache = new Map();
+  function invalidateBg(scene) { bgCache.delete(scene); }
+  function drawWorld(ctx, scene) {
+    let c = bgCache.get(scene);
+    if (!c) { c = document.createElement("canvas"); c.width = W; c.height = H; paintScene(c.getContext("2d"), scene); bgCache.set(scene, c); }
+    ctx.drawImage(c, 0, 0);
   }
   function strip(ctx, y, h, colFn) { for (let u = 0; u < N; u++) { const c = colFn(u); if (!c) continue; ctx.fillStyle = rgb(c); ctx.fillRect(u * PXW, y, PXW + 0.3, h); } }
   function rowLabel(ctx, y, h, text) {
@@ -703,9 +885,17 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
   function depthGrey(z) { const v = z >= FAR ? 0 : 1 - Math.min(1, z / 16); const g = 34 + 210 * v; return [g, g, g]; }
   function handle(ctx, x, y, r = 6) { ctx.beginPath(); ctx.arc(wx(x), wy(y), r, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b0e13"; ctx.stroke(); }
   function pixelTick(ctx, u, y, h, color = "#fff") { ctx.fillStyle = color; ctx.fillRect(u * PXW, y, PXW, h); }
-  // what each floor pixel shows, drawn as a band under the floor line
-  function floorBand(ctx, buf, colFn, y0 = 0.08, y1 = 0.28) {
-    for (const u of buf.floorU) { const c = colFn(u); if (!c) continue; const xa = Math.min(floorXAt(u - 0.5), WALL_X), xb = Math.min(floorXAt(u + 0.5), WALL_X); ctx.fillStyle = rgb(c); ctx.fillRect(wx(Math.min(xa, xb)) - 0.3, wy(FLOOR_Y - y0), Math.abs(xa - xb) * S + 0.6, (y1 - y0) * S); }
+  // what each lake pixel shows, drawn as a band just under the water line
+  function floorBand(ctx, buf, colFn, y0 = 0.1, y1 = 0.3) {
+    for (const u of buf.floorU) { const c = colFn(u); if (!c) continue; const xa = Math.min(floorXAt(u - 0.5), LAKE_X1), xb = Math.min(floorXAt(u + 0.5), LAKE_X1); ctx.fillStyle = rgb(c); ctx.fillRect(wx(Math.min(xa, xb)) - 0.3, wy(FLOOR_Y - y0), Math.abs(xa - xb) * S + 0.6, (y1 - y0) * S); }
+  }
+  // "what the player sees": the one screen column this side view can show, sky at the top, lake at the bottom
+  const INS = { x: 6, y: TOP + 4, w: 124, h: 120 };
+  function playerInset(ctx, buf, show, u) {
+    kitInset(ctx, INS.x, INS.y, INS.w, INS.h, "player sees");
+    const ix = INS.x + 4, iy = INS.y + 22, iw = INS.w - 8, ih = INS.h - 26, rh = ih / N;
+    for (let v = 0; v < N; v++) { const c = buf.id[v] === 1 ? show(v) : buf.colAt(v); ctx.fillStyle = rgb(c); ctx.fillRect(ix, iy + v * rh, iw, rh + 0.6); }
+    if (u >= 0) { ctx.fillStyle = "#fff"; ctx.fillRect(ix - 4, iy + u * rh - 1, 4, 2); ctx.fillRect(ix + iw, iy + u * rh - 1, 4, 2); }
   }
   function drawRay(ctx, ray, m, opts = {}) {
     const end = m.hit ? m.P : (m.samples.length ? ray.pointAt(m.samples[m.samples.length - 1].u !== undefined ? m.samples[m.samples.length - 1].u : ray.u0) : [ray.ex, ray.ey]);
@@ -717,10 +907,18 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
       ctx.fillStyle = s.state === "behind" ? RED : (s.state === "hit" ? "#f2a341" : (s.state === "descend" ? "rgba(242,163,65,0.8)" : "#fff")); ctx.fill();
     }
     if (m.hit) { ctx.beginPath(); ctx.arc(wx(m.P[0]), wy(m.P[1]), 6, 0, Math.PI * 2); ctx.strokeStyle = "#f2a341"; ctx.lineWidth = 2; ctx.stroke(); }
+    return vis;
   }
   function viewRay(ctx, P) { ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(wx(CAM.x), wy(CAM.y)); ctx.lineTo(wx(P[0]), wy(P[1])); ctx.stroke(); ctx.setLineDash([]); handle(ctx, P[0], P[1], 5); }
+  // a plain-word callout next to a world point, kept inside the world area
+  function labelNear(ctx, text, p, col, dy = -18) {
+    const px = wx(p[0]), py = Math.max(TOP + 12, Math.min(H - 12, wy(p[1]) + dy)), anchor = px > W * 0.58 ? "right" : "left";
+    kitLabel(ctx, text, anchor === "left" ? Math.min(px + 12, W - 8) : Math.max(px - 12, 8), py, anchor, col);
+  }
+  function labelCenter(ctx, text, x, y, col) { ctx.font = '12px ' + MONO; const w = ctx.measureText(text).width + 12; kitLabel(ctx, text, Math.max(w / 2 + 4, Math.min(W - w / 2 - 4, x)), Math.max(TOP + 12, y), "center", col); }
+  function pixelLabel(ctx, P) { kitLabel(ctx, "this lake pixel", Math.max(70, Math.min(W - 70, wx(P[0]))), wy(FLOOR_Y) + 27, "center"); }
 
-  // pointer: handles first, then "pick a floor pixel" anywhere else
+  // pointer: handles first, then "pick a lake pixel" anywhere else
   function pointer(canvas, o) {
     let active = -1, pending = null;
     const toWorld = ev => { const r = canvas.getBoundingClientRect(); const px = (ev.clientX - r.left) / r.width * W, py = (ev.clientY - r.top) / r.height * H; return [px / S, (H - py) / S, px, py]; };
@@ -744,6 +942,7 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
   const scene1 = makeScene(), buf1 = renderView(scene1);
   const c1 = document.getElementById("c1"), x1 = c1.getContext("2d");
   const st1 = { u: nearestFloorPixel(buf1, 8.8), thick: 0.3, step: 2 };
+  const refl1 = reflectAll(buf1, { mode: "linear", step: st1.step, thick: st1.thick, refine: 0 });
   const G_Y = 30, G_H = 96, G_MAX = 14;
   const gy = z => G_Y + G_H - Math.min(z, G_MAX) / G_MAX * G_H;
   function draw1() {
@@ -768,16 +967,22 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
     x1.fillStyle = "#f2a341"; x1.fillText("amber: ray · band = thickness " + fmt(st1.thick, 1) + " m", 6, G_Y + G_H - 6);
     pixelTick(x1, u, 0, 27, "rgba(255,255,255,0.9)");
     if (m.hit) { pixelTick(x1, m.ui, 0, 27, "#f2a341"); x1.strokeStyle = "rgba(242,163,65,0.5)"; x1.setLineDash([2, 3]); x1.beginPath(); x1.moveTo(m.ui * PXW + PXW / 2, 27); x1.lineTo(m.u * PXW, gy(m.z)); x1.stroke(); x1.setLineDash([]); }
-    // world
-    viewRay(x1, P); drawRay(x1, ray, m);
-    x1.strokeStyle = "rgba(255,255,255,0.5)"; x1.beginPath(); x1.moveTo(wx(P[0]), wy(P[1])); x1.lineTo(wx(P[0]), wy(P[1] + 0.6)); x1.stroke();
+    // world: what every lake pixel reflects, the player's column, then the ray for this pixel
+    floorBand(x1, buf1, v => lakeShow(refl1[v]));
+    playerInset(x1, buf1, v => lakeShow(refl1[v]), u);
+    viewRay(x1, P); const end = drawRay(x1, ray, m);
+    x1.strokeStyle = "rgba(255,255,255,0.5)"; x1.lineWidth = 1; x1.beginPath(); x1.moveTo(wx(P[0]), wy(P[1])); x1.lineTo(wx(P[0]), wy(P[1] + 0.6)); x1.stroke();
     x1.font = "10px " + MONO; x1.fillStyle = "rgba(255,255,255,0.6)"; x1.fillText("n", wx(P[0]) + 4, wy(P[1] + 0.6) + 3);
     x1.fillStyle = "#f2a341"; const mid = m.hit ? [(ray.ox + m.P[0]) / 2, (ray.oy + m.P[1]) / 2] : [ray.ox + r[0], ray.oy + r[1]]; x1.fillText("r", wx(mid[0]) + 6, wy(mid[1]));
-    if (m.hit) { x1.fillStyle = rgb(m.col); x1.fillRect(wx(m.P[0]) + 10, wy(m.P[1]) - 22, 16, 16); x1.strokeStyle = "#fff"; x1.lineWidth = 1; x1.strokeRect(wx(m.P[0]) + 10.5, wy(m.P[1]) - 21.5, 15, 15); x1.fillStyle = "rgba(255,255,255,0.7)"; x1.fillText("fetched px " + m.ui, wx(m.P[0]) + 30, wy(m.P[1]) - 10); }
+    pixelLabel(x1, P);
+    if (m.hit) {
+      x1.fillStyle = rgb(m.col); x1.fillRect(wx(m.P[0]) + 10, wy(m.P[1]) - 22, 16, 16); x1.strokeStyle = "#fff"; x1.lineWidth = 1; x1.strokeRect(wx(m.P[0]) + 10.5, wy(m.P[1]) - 21.5, 15, 15);
+      labelNear(x1, "reflection found: the " + nameOf(scene1, buf1.id[m.ui]) + ", px " + m.ui, [m.P[0] + 0.7, m.P[1]], "#f2a341", -14);
+    } else labelNear(x1, m.reason === "left the screen" ? "miss: nothing drawn up there" : "miss: " + m.reason, end, RED);
     const last = m.samples[m.samples.length - 1];
     const test = last ? `z_ray ${fmt(last.z)} m vs z_buf ${fmt(last.zb)} m` : "";
-    document.getElementById("c1-read").innerHTML = m.hit ? `px ${u} · <strong>hit at px ${m.ui} after ${m.steps} steps</strong> · ${test} · Δ ${fmt(m.z - last.zb)} &lt; t ${fmt(st1.thick, 1)}` : `px ${u} · <strong>miss, ${m.reason}</strong> after ${m.steps} steps${m.behind.length ? " · passed behind " + m.behind.map(i => scene1.find(o => o.id === i).name).join(", ") : ""}`;
-    document.getElementById("c1-cap").textContent = `${st1.step} px step · floor at ${fmt(P[0], 1)} m`;
+    document.getElementById("c1-read").innerHTML = m.hit ? `px ${u} · <strong>hit at px ${m.ui} (${nameOf(scene1, buf1.id[m.ui])}) after ${m.steps} steps</strong> · ${test} · Δ ${fmt(m.z - last.zb)} &lt; t ${fmt(st1.thick, 1)}` : `px ${u} · <strong>miss, ${m.reason}</strong> after ${m.steps} steps${m.behind.length ? " · passed behind the " + namesOf(scene1, m.behind).join(", ") : ""}`;
+    document.getElementById("c1-cap").textContent = `${st1.step} px step · lake at ${fmt(P[0], 1)} m from the bluff`;
   }
   pointer(c1, { point: (x, y, px, py) => { const u = pickFloor(buf1, x, px, py); if (u >= 0) { st1.u = u; draw1(); } } });
   draw1();
@@ -785,14 +990,16 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
   // ================= 2. linear vs Hi-Z =================
   const scene2 = scene1, buf2 = buf1;
   const c2 = document.getElementById("c2"), x2 = c2.getContext("2d");
-  const st2 = { u: nearestFloorPixel(buf1, 9.0), mode: "linear", step: 4, refine: 0, thick: 0.6 };
+  const st2 = { u: nearestFloorPixel(buf1, 8.8), mode: "linear", step: 4, refine: 0, thick: 0.6 };
   const LV_Y = [0, 16, 30, 42, 54, 66], LV_H = [14, 12, 10, 10, 10, 10];
   function draw2() {
     const u = st2.u, P = [buf2.px[u], buf2.py[u]], r = reflectDir(u), ray = screenRay(P, r);
-    const lin = march(buf2, ray, { mode: "linear", step: st2.step, thick: st2.thick, refine: st2.refine });
-    const hiz = march(buf2, ray, { mode: "hiz", thick: st2.thick });
+    const linCfg = { mode: "linear", step: st2.step, thick: st2.thick, refine: st2.refine }, hizCfg = { mode: "hiz", thick: st2.thick };
+    const lin = march(buf2, ray, linCfg);
+    const hiz = march(buf2, ray, hizCfg);
     const ref = exactCrossing(buf2, ray);
     const m = st2.mode === "hiz" ? hiz : lin;
+    const all = reflectAll(buf2, st2.mode === "hiz" ? hizCfg : linCfg);
     drawWorld(x2, scene2);
     for (let L = 0; L <= 5; L++) { const cs = 1 << L, lv = buf2.pyr[L]; for (let i = 0; i < lv.length; i++) { x2.fillStyle = rgb(depthGrey(lv[i])); x2.fillRect(i * cs * PXW, LV_Y[L], Math.min(cs, N - i * cs) * PXW - 0.6, LV_H[L]); } }
     pixelTick(x2, u, 0, 14, "rgba(255,255,255,0.9)");
@@ -809,8 +1016,13 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
     }
     for (let L = 0; L <= 5; L++) rowLabel(x2, LV_Y[L], LV_H[L], L === 0 ? "depth L0" : "L" + L + " min");
     x2.font = "10px " + MONO; x2.fillStyle = "rgba(255,255,255,0.55)"; x2.fillText(st2.mode === "hiz" ? "white box: cell skipped · amber box: descend · fill: hit" : "ticks: samples · amber: hit · red: passed behind", 6, 90);
-    x2.fillText(`u = 0 is the top of the frame, ${N} the bottom`, 6, 104);
-    viewRay(x2, P); drawRay(x2, ray, m);
+    x2.fillText(`u = 0 is the top of the frame (sky), ${N} the bottom (near water)`, 6, 104);
+    floorBand(x2, buf2, v => lakeShow(all[v]));
+    playerInset(x2, buf2, v => lakeShow(all[v]), u);
+    viewRay(x2, P); const end = drawRay(x2, ray, m);
+    pixelLabel(x2, P);
+    if (m.hit) labelNear(x2, (st2.mode === "hiz" ? "Hi-Z" : "linear") + " hit: the " + nameOf(scene2, buf2.id[m.ui]) + " in " + m.steps + " reads", [m.P[0] + 0.3, m.P[1]], "#f2a341", -14);
+    else labelNear(x2, "miss after " + m.steps + " reads", end, RED);
     const errPx = (mm) => (mm.hit && ref) ? Math.abs(mm.u - ref.u) : null;
     const eLin = errPx(lin), eHiz = errPx(hiz);
     document.getElementById("t2-lin").querySelector(".n").innerHTML = lin.steps + (lin.refineSteps ? ` <small>+ ${lin.refineSteps} refine</small>` : "") + (lin.hit ? "" : " <small>miss</small>");
@@ -818,7 +1030,7 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
     document.getElementById("t2-err").querySelector(".n").innerHTML = eLin === null ? "–" : fmt(eLin, 2) + " <small>px</small>";
     document.getElementById("t2-lin").classList.toggle("on", st2.mode === "linear"); document.getElementById("t2-hiz").classList.toggle("on", st2.mode === "hiz");
     const skipped = hiz.samples.filter(s => s.state === "skip").reduce((a, s) => a + Math.abs(s.uB - s.u), 0);
-    document.getElementById("c2-read").innerHTML = m.hit ? `<strong>${st2.mode === "hiz" ? "Hi-Z" : "linear"}: hit px ${m.ui} in ${m.steps} fetches</strong> · error ${fmt((st2.mode === "hiz" ? eHiz : eLin) || 0, 2)} px vs exact crossing` : `<strong>${st2.mode === "hiz" ? "Hi-Z" : "linear"}: miss, ${m.reason}</strong> after ${m.steps} fetches`;
+    document.getElementById("c2-read").innerHTML = m.hit ? `<strong>${st2.mode === "hiz" ? "Hi-Z" : "linear"}: hit px ${m.ui} (${nameOf(scene2, buf2.id[m.ui])}) in ${m.steps} fetches</strong> · error ${fmt((st2.mode === "hiz" ? eHiz : eLin) || 0, 2)} px vs exact crossing` : `<strong>${st2.mode === "hiz" ? "Hi-Z" : "linear"}: miss, ${m.reason}</strong> after ${m.steps} fetches`;
     document.getElementById("c2-cap").textContent = `march spans ${fmt(Math.abs((m.hit ? m.u : ray.u1) - ray.u0), 0)} px · Hi-Z skipped ${fmt(skipped, 0)} px in ${hiz.samples.filter(s => s.state === "skip").length} jumps`;
   }
   pointer(c2, { point: (x, y, px, py) => { const u = pickFloor(buf2, x, px, py); if (u >= 0) { st2.u = u; draw2(); } } });
@@ -828,8 +1040,8 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
   draw2();
 
   // ================= 3. misses and the fallback chain =================
-  const scene3 = makeScene({ dragSphere: true, slab: true });
-  const sphere3 = scene3.find(o => o.name === "sphere"), slab3 = scene3.find(o => o.name === "slab");
+  const scene3 = makeScene({ dragBalloon: true, gullNear: true });
+  const balloon3 = byId(scene3, 5), basket3 = byId(scene3, 6), gull3 = byId(scene3, 13);
   const PROBE = { x: 7.4, y: 3.9, n: 128 };
   const c3 = document.getElementById("c3"), x3 = c3.getContext("2d");
   const st3 = { u: -1, fade: 0.10, buf: null, ring: null, rows: null };
@@ -837,6 +1049,7 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
   function probeLookup(ring, r) { let a = Math.atan2(r[1], r[0]); if (a < 0) a += Math.PI * 2; return ring[Math.round(a / (Math.PI * 2) * PROBE.n) % PROBE.n]; }
   function skyColor(r) { const t = Math.max(0, r[1]); return [SKY[0] + 20 * t, SKY[1] + 34 * t, SKY[2] + 60 * t]; }
   function build3() {
+    invalidateBg(scene3);
     st3.buf = renderView(scene3); st3.ring = probeRing(scene3);
     const buf = st3.buf, rows = [];
     for (const u of buf.floorU) {
@@ -857,48 +1070,55 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
     drawWorld(x3, scene3);
     const ys = [0, 16, 32, 48], hh = 14;
     strip(x3, ys[0], hh, v => rows[v] ? rows[v].truth : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[0], hh, "true reflection");
-    strip(x3, ys[1], hh, v => rows[v] ? (rows[v].m.hit ? rows[v].m.col : [24, 28, 36]) : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[1], hh, "SSR");
+    strip(x3, ys[1], hh, v => rows[v] ? (rows[v].m.hit ? rows[v].m.col : HOLE) : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[1], hh, "SSR");
     strip(x3, ys[2], hh, v => rows[v] ? rows[v].fb : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[2], hh, "probe → sky");
     strip(x3, ys[3], hh, v => rows[v] ? rows[v].final : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[3], hh, "blend, w = fade");
     for (const v of buf.floorU) { const rr = rows[v]; x3.fillStyle = rr.m.hit ? `rgba(90,212,138,${0.25 + 0.75 * rr.w})` : "rgba(74,163,255,0.8)"; x3.fillRect(v * PXW, 63, PXW + 0.3, 3); }
     x3.font = "10px " + MONO; x3.fillStyle = "rgba(255,255,255,0.55)"; x3.fillText("green: SSR weight w · blue: fallback", 6, 78);
-    x3.fillText("non-floor pixels show the color buffer", 6, 92);
+    x3.fillText("non-lake pixels show the color buffer", 6, 92);
     pixelTick(x3, u, 0, 62, "rgba(255,255,255,0.9)");
     // probe ring
     const pr = 15;
     for (let i = 0; i < PROBE.n; i++) { const s = st3.ring[i], a0 = i / PROBE.n * Math.PI * 2, a1 = (i + 1) / PROBE.n * Math.PI * 2; x3.beginPath(); x3.arc(wx(PROBE.x), wy(PROBE.y), pr, -a1, -a0); x3.strokeStyle = s.hit ? rgb(s.col) : rgb(skyColor([Math.cos(a0), Math.sin(a0)])); x3.lineWidth = 6; x3.stroke(); }
     x3.beginPath(); x3.arc(wx(PROBE.x), wy(PROBE.y), 3, 0, Math.PI * 2); x3.fillStyle = "#4aa3ff"; x3.fill();
-    x3.font = "10px " + MONO; x3.fillStyle = "rgba(255,255,255,0.6)"; x3.fillText("probe, 128 dirs", wx(PROBE.x) + 20, wy(PROBE.y) + 4);
+    labelCenter(x3, "probe: snapshot taken here", wx(PROBE.x), wy(PROBE.y) + 26, "#4aa3ff");
     // rays for the hovered pixel
     const P = [buf.px[u], buf.py[u]];
-    floorBand(x3, buf, v => rows[v].final);
+    floorBand(x3, buf, v => mixc(WATERC, rows[v].final, 0.72));
+    playerInset(x3, buf, v => mixc(WATERC, rows[v].final, 0.72), u);
     viewRay(x3, P); drawRay(x3, R.ray, R.m);
     if (!R.m.hit || R.w < 0.999) {
       const look = probeLookup(st3.ring, R.r), L = look.hit ? look.t : 3;
       x3.strokeStyle = "rgba(74,163,255,0.9)"; x3.lineWidth = 1.5; x3.setLineDash([3, 3]); x3.beginPath(); x3.moveTo(wx(PROBE.x), wy(PROBE.y)); x3.lineTo(wx(PROBE.x + R.r[0] * L), wy(PROBE.y + R.r[1] * L)); x3.stroke(); x3.setLineDash([]);
-      x3.fillStyle = "rgba(74,163,255,0.9)"; x3.fillText(look.hit ? "probe sees this" : "probe sees sky", wx(PROBE.x + R.r[0] * L) + 6, wy(PROBE.y + R.r[1] * L) - 4);
+      x3.font = "10px " + MONO; x3.fillStyle = "rgba(74,163,255,0.9)"; x3.fillText(look.hit ? "probe sees this" : "probe sees sky", wx(PROBE.x + R.r[0] * L) + 6, wy(PROBE.y + R.r[1] * L) - 4);
     }
     // true hit marker
     const t = truthHit(scene3, R.ray);
     if (t) { x3.strokeStyle = GREEN; x3.lineWidth = 1.5; x3.setLineDash([2, 3]); x3.beginPath(); x3.moveTo(wx(R.ray.ox), wy(R.ray.oy)); x3.lineTo(wx(t.x), wy(t.y)); x3.stroke(); x3.setLineDash([]); x3.beginPath(); x3.arc(wx(t.x), wy(t.y), 4, 0, Math.PI * 2); x3.strokeStyle = GREEN; x3.stroke(); }
-    handle(x3, sphere3.cx, sphere3.cy, 7); handle(x3, (slab3.x0 + slab3.x1) / 2, (slab3.y0 + slab3.y1) / 2, 7);
+    handle(x3, balloon3.cx, balloon3.cy, 7); handle(x3, (gull3.x0 + gull3.x1) / 2, (gull3.y0 + gull3.y1) / 2, 7);
+    pixelLabel(x3, P);
+    const off = balloon3.cy - balloon3.r > CAM.y + (balloon3.cx - CAM.x) * Math.tan(CAM.pitch + FOV / 2);
+    labelCenter(x3, off ? "balloon: off screen, drag it back" : "drag the balloon up", wx(balloon3.cx), wy(balloon3.cy + balloon3.r) - 14, "#ffffff");
+    labelNear(x3, "drag the gull", [(gull3.x0 + gull3.x1) / 2 + 0.25, (gull3.y0 + gull3.y1) / 2], "#ffffff", -4);
+    if (!R.m.hit) labelNear(x3, "SSR miss: " + (R.src === "sky" ? "the sky fills the hole" : "the probe fills the hole"), P, "#4aa3ff", -44);
     const cnt = { ssr: 0, probe: 0, sky: 0 }; for (const v of buf.floorU) cnt[rows[v].src === "ssr+" ? "ssr" : rows[v].src]++;
     const nF = buf.floorU.length;
     document.getElementById("t3-ssr").querySelector(".n").innerHTML = `${cnt.ssr} <small>of ${nF}</small>`;
     document.getElementById("t3-probe").querySelector(".n").innerHTML = `${cnt.probe} <small>of ${nF}</small>`;
     document.getElementById("t3-sky").querySelector(".n").innerHTML = `${cnt.sky} <small>of ${nF}</small>`;
-    const names = R.m.behind.map(i => scene3.find(o => o.id === i).name);
-    const why = R.m.hit ? `px ${R.m.ui} (${scene3.find(o => o.id === buf.id[R.m.ui]).name})` : `${R.m.reason}${names.length ? " after passing behind " + names.join(", ") : ""}`;
+    const names = namesOf(scene3, R.m.behind);
+    const why = R.m.hit ? `px ${R.m.ui} (${nameOf(scene3, buf.id[R.m.ui])})` : `${R.m.reason}${names.length ? " after passing behind the " + names.join(", ") : ""}`;
     document.getElementById("c3-read").innerHTML = `px ${u} · truth: ${R.truthObj} · <strong>SSR ${R.m.hit ? "hit" : "miss"}</strong>: ${why} · w = ${fmt(R.w)} · ${R.m.hit && R.w > 0.999 ? "no fallback" : "fallback: " + (R.src === "sky" ? "sky" : "probe")}`;
-    const off = sphere3.cy - sphere3.r > CAM.y + (sphere3.cx - CAM.x) * Math.tan(CAM.pitch + FOV / 2);
-    document.getElementById("c3-cap").textContent = `sphere ${off ? "off screen" : "on screen"} · slab at ${fmt((slab3.x0 + slab3.x1) / 2, 1)}, ${fmt((slab3.y0 + slab3.y1) / 2, 1)} m`;
+    document.getElementById("c3-cap").textContent = `balloon ${off ? "off screen" : "on screen"} · gull at ${fmt((gull3.x0 + gull3.x1) / 2, 1)}, ${fmt((gull3.y0 + gull3.y1) / 2, 1)} m`;
   }
   build3();
   pointer(c3, {
-    handles: () => [[sphere3.cx, sphere3.cy], [(slab3.x0 + slab3.x1) / 2, (slab3.y0 + slab3.y1) / 2]],
+    handles: () => [[balloon3.cx, balloon3.cy], [(gull3.x0 + gull3.x1) / 2, (gull3.y0 + gull3.y1) / 2]],
     drag: (i, x, y) => {
-      if (i === 0) { sphere3.cx = Math.max(5.6, Math.min(11.3, x)); sphere3.cy = Math.max(FLOOR_Y + sphere3.r, Math.min(9.0, y)); }
-      else { const hw = (slab3.x1 - slab3.x0) / 2, hh = (slab3.y1 - slab3.y0) / 2; const cx = Math.max(1.5 + hw, Math.min(6.5, x)), cy = Math.max(2.4, Math.min(7.2, y)); slab3.x0 = cx - hw; slab3.x1 = cx + hw; slab3.y0 = cy - hh; slab3.y1 = cy + hh; }
+      if (i === 0) {
+        const cx = Math.max(5.6, Math.min(11.3, x)), cy = Math.max(F + 1.05, Math.min(9.0, y)), dx = cx - balloon3.cx, dy = cy - balloon3.cy;
+        balloon3.cx = cx; balloon3.cy = cy; basket3.x0 += dx; basket3.x1 += dx; basket3.y0 += dy; basket3.y1 += dy;
+      } else { const hw = (gull3.x1 - gull3.x0) / 2, hh = (gull3.y1 - gull3.y0) / 2; const cx = Math.max(2.6 + hw, Math.min(6.5, x)), cy = Math.max(2.4, Math.min(7.2, y)); gull3.x0 = cx - hw; gull3.x1 = cx + hw; gull3.y0 = cy - hh; gull3.y1 = cy + hh; }
       build3(); draw3();
     },
     point: (x, y, px, py) => { const u = pickFloor(st3.buf, x, px, py); if (u >= 0) { st3.u = u; draw3(); } }
@@ -906,7 +1126,7 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
   const fade3 = document.getElementById("fade3"); fade3.addEventListener("input", () => { st3.fade = +fade3.value; document.getElementById("fade3v").textContent = fmt(st3.fade) + " of screen"; build3(); draw3(); });
   draw3();
 
-  // ================= 4. rough surfaces =================
+  // ================= 4. rough surfaces: a rippled lake =================
   const scene4 = scene1, buf4 = buf1;
   const c4 = document.getElementById("c4"), x4 = c4.getContext("2d");
   const st4 = { u: nearestFloorPixel(buf1, 8.6), rough: 0.30, spp: 1, frame: 0, hist: new Array(N).fill(null), cur: new Array(N).fill(null), blur: new Array(N).fill(null), rays: {}, steps: 0, raysN: 0, radius: new Float32Array(N), running: false };
@@ -950,7 +1170,8 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
     x4.font = "10px " + MONO; x4.fillStyle = "rgba(255,255,255,0.55)"; x4.fillText("blur radius per pixel, px (grows with hit distance)", 6, 82);
     x4.fillText(`roughness ${fmt(st4.rough)} → α = ${fmt(st4.rough * st4.rough, 3)}`, 6, 96);
     pixelTick(x4, u, 0, 46, "rgba(255,255,255,0.9)");
-    floorBand(x4, buf4, v => st4.hist[v]);
+    floorBand(x4, buf4, v => lakeShow(st4.hist[v]));
+    playerInset(x4, buf4, v => lakeShow(st4.hist[v]), u);
     // lobe fan: the GGX pdf over angle, drawn as a wedge of length by density
     const d = pixelDir(u), alpha = Math.max(1e-3, st4.rough * st4.rough), r0 = [d[0], -d[1]], a0 = Math.atan2(r0[1], r0[0]);
     x4.beginPath(); x4.moveTo(wx(P[0]), wy(P[1]));
@@ -959,6 +1180,8 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
     viewRay(x4, P);
     const log = st4.rays[u] || [];
     for (const { ray, m } of log) drawRay(x4, ray, m, { dots: false, width: 1 });
+    pixelLabel(x4, P);
+    labelNear(x4, st4.rough < 0.02 ? "still water: one bounce direction" : "ripples: bounces scatter into this cone", [P[0] + r0[0] * 1.9, P[1] + r0[1] * 1.9], "#f2a341", -10);
     const est = (1920 * 1080) * st4.spp * (st4.steps / Math.max(1, st4.raysN));
     document.getElementById("t4-rays").querySelector(".n").innerHTML = `${st4.raysN} <small>${buf4.floorU.length}×${st4.spp}</small>`;
     document.getElementById("t4-steps").querySelector(".n").textContent = fmt(st4.steps / Math.max(1, st4.raysN), 1);
@@ -975,7 +1198,8 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
   restart4();
 
   // ================= 5. thickness =================
-  const scene5 = makeScene({ plate: true }), buf5 = renderView(scene5);
+  const scene5 = makeScene({ gullLow: true }), buf5 = renderView(scene5);
+  const gull5 = byId(scene5, 14);
   const c5 = document.getElementById("c5"), x5 = c5.getContext("2d");
   const st5 = { u: nearestFloorPixel(buf5, 8.6), t0: 0.05, step: 6, rows: null };
   const T_MIN = 0.02;
@@ -1005,28 +1229,36 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
     strip(x5, 0, hh, v => rows[v] ? rows[v].truth : other(v)); rowLabel(x5, 0, hh, "true reflection");
     MODES5.forEach(([k, label], i) => {
       const y = 16 + i * 20;
-      strip(x5, y, hh, v => rows[v] ? (rows[v].res[k].m.hit ? rows[v].res[k].m.col : [24, 28, 36]) : other(v)); rowLabel(x5, y, hh, label);
+      strip(x5, y, hh, v => rows[v] ? (rows[v].res[k].m.hit ? rows[v].res[k].m.col : HOLE) : other(v)); rowLabel(x5, y, hh, label);
       for (const v of buf5.floorU) { const vd = rows[v].res[k].verdict; x5.fillStyle = vd === "ok" ? GREEN : (vd === "bad" ? RED : "rgba(255,255,255,0.18)"); x5.fillRect(v * PXW, y + hh + 1, PXW + 0.3, 3); }
     });
     x5.font = "10px " + MONO; x5.fillStyle = "rgba(255,255,255,0.55)"; x5.fillText("green: within 0.25 m of the true hit · red: false hit · dim: miss", 6, 90);
     x5.fillText(`fixed t = ${fmt(st5.t0)} m · step ${st5.step} px · no refinement`, 6, 104);
     pixelTick(x5, u, 0, 76, "rgba(255,255,255,0.9)");
-    floorBand(x5, buf5, v => rows[v].res.f.m.hit ? rows[v].res.f.m.col : [24, 28, 36]);
+    const fixedShow = v => lakeShow(rows[v].res.f.m.hit ? rows[v].res.f.m.col : null);
+    floorBand(x5, buf5, fixedShow);
+    playerInset(x5, buf5, fixedShow, u);
     viewRay(x5, P);
-    const F = R.res.f.m, D = R.res.d.m;
-    drawRay(x5, R.ray, F);
+    const F5 = R.res.f.m, D = R.res.d.m;
+    const end = drawRay(x5, R.ray, F5);
     if (R.truthP) { x5.beginPath(); x5.arc(wx(R.truthP[0]), wy(R.truthP[1]), 4, 0, Math.PI * 2); x5.strokeStyle = GREEN; x5.lineWidth = 1.5; x5.stroke(); }
+    pixelLabel(x5, P);
+    labelNear(x5, "gull: rays should pass under it", [(gull5.x0 + gull5.x1) / 2 + 0.3, (gull5.y0 + gull5.y1) / 2], "#ffffff", 18);
+    const vf = R.res.f.verdict;
+    if (F5.hit) labelNear(x5, vf === "ok" ? "fixed t: correct, the " + nameOf(scene5, buf5.id[F5.ui]) : "fixed t: wrong, stopped by the " + nameOf(scene5, buf5.id[F5.ui]), [F5.P[0] + 0.3, F5.P[1]], vf === "ok" ? GREEN : RED, -14);
+    else if (R.truthP) labelNear(x5, "fixed t: stepped past the " + (R.res.d.m.hit ? nameOf(scene5, buf5.id[D.ui]) : "surface"), R.truthP, RED, -16);
+    else labelNear(x5, "nothing to reflect up there", end, "#ffffff");
     // hover numbers: depth per pixel along the ray, derived t at the pixel the fixed march stopped on
     const dzdu = Math.abs(R.ray.zAt(R.ray.u0 + R.ray.dir) - R.ray.z0);
-    const uiRef = F.hit ? F.ui : (D.hit ? D.ui : Math.floor(R.ray.u0 + R.ray.dir * 2));
+    const uiRef = F5.hit ? F5.ui : (D.hit ? D.ui : Math.floor(R.ray.u0 + R.ray.dir * 2));
     const tDer = derivThick(buf5, st5.step)(Math.max(0, Math.min(N - 1, uiRef)));
     document.getElementById("t5-dz").querySelector(".n").innerHTML = `${fmt(dzdu, 3)} <small>m/px</small>`;
     document.getElementById("t5-th").querySelector(".n").innerHTML = `${fmt(tDer, 2)} <small>m, px ${uiRef}</small>`;
-    document.getElementById("t5-steps").querySelector(".n").innerHTML = `${F.steps} <small>${F.hit ? "hit" : "miss"}</small>`;
-    document.getElementById("s5-n").textContent = buf5.floorU.length + " floor pixels";
+    document.getElementById("t5-steps").querySelector(".n").innerHTML = `${F5.steps} <small>${F5.hit ? "hit" : "miss"}</small>`;
+    document.getElementById("s5-n").textContent = buf5.floorU.length + " lake pixels";
     for (const [k] of MODES5) { const s = st5.stats[k]; document.getElementById(`s5-${k}-ok`).textContent = s.ok; document.getElementById(`s5-${k}-bad`).textContent = s.bad; document.getElementById(`s5-${k}-miss`).textContent = s.miss; document.getElementById(`s5-${k}-err`).textContent = s.nerr ? fmt(s.err / s.nerr, 3) + " m" : "–"; }
     const vs = MODES5.map(([k, label]) => `${label}: ${R.res[k].verdict === "ok" ? "correct" : R.res[k].verdict === "bad" ? "false hit" : "miss"}`).join(" · ");
-    const first = F.samples.find(s => s.state === "behind" || s.state === "hit");
+    const first = F5.samples.find(s => s.state === "behind" || s.state === "hit");
     document.getElementById("c5-read").innerHTML = `px ${u} · <strong>${vs}</strong>`;
     document.getElementById("c5-cap").textContent = first ? `fixed t, first sample past a surface: z_ray ${fmt(first.z)} m, z_buf ${fmt(first.zb)} m, Δ ${fmt(first.z - first.zb)} m ${first.state === "hit" ? "<" : ">"} t ${fmt(st5.t0)}` : "fixed t: no sample went behind a surface";
   }

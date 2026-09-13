@@ -168,17 +168,18 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">1920×1080 target as a 64×36 grid · 12 point lights · 5 boxes · 50° fov · drag the amber lights</p>
+    <p class="eyebrow">a village square at night · 1920×1080 as a 64×36 grid · 12 lanterns · 5 buildings · 50° view · drag the amber lanterns</p>
     <h1>Forward, Deferred &amp; Clustered</h1>
     <p class="lead">A renderer lights a picture by doing one job over and over: for each spot on a surface, add up every light that reaches it. <b>Forward</b>, <b>deferred</b> and <b>clustered</b> are three places to put that job, and the choice decides how much memory traffic you pay and how many lights you can afford. Deferred does not make lighting cheaper on its own. It only pays off once many lights overlap the same pixels, and that is the part people get backwards.</p>
     <div class="key">
-      <span style="--sw:#f2a341">point light, and heat for cost</span>
-      <span style="--sw:#4aa3ff">box, and G-buffer data</span>
-      <span style="--sw:#ffffff">camera, view wedge, drag handles</span>
-      <span style="--sw:#5ad48a">light the cull kept</span>
+      <span style="--sw:#f2a341">lantern, and heat for cost</span>
+      <span style="--sw:#4aa3ff">G-buffer data and triangle ids</span>
+      <span style="--sw:#ffffff">player, view wedge, drag handles</span>
+      <span style="--sw:#5ad48a">lantern the cull kept</span>
       <span style="--sw:#ef5d5d">tile that spans a depth gap</span>
     </div>
     <dl class="terms">
+      <dt>lantern</dt><dd>a point light: it lights everything within its reach, the amber ring</dd>
       <dt>fragment</dt><dd>one candidate pixel that a draw produces; the depth test decides if it survives</dd>
       <dt>overdraw</dt><dd>how many fragments land on one pixel; 2× means each pixel was shaded twice</dd>
       <dt>light loop</dt><dd>the code that adds up every light for one point on a surface</dd>
@@ -193,31 +194,31 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 
   <section id="forward">
     <h2>Forward: light it while you draw</h2>
-    <p class="sub">Drag a light or a box on the left and watch the per-pixel cost change on the right.</p>
+    <p class="sub">A player stands at the edge of a village square at night, 12 lanterns burning. Drag a lantern or a building on the left and watch what each pixel of the player's screen costs on the right.</p>
     <div class="cols two">
       <div class="vp">
-        <canvas id="c1t" width="512" height="512" class="sq grab" aria-label="Top-down scene with camera frustum, boxes and point lights"></canvas>
-        <div class="cap"><span id="c1t-read">scene</span><span>26 m × 26 m · near 0.5 m · far 24 m</span></div>
+        <canvas id="c1t" width="512" height="512" class="sq grab" aria-label="Village square from above: the player at the bottom, the view wedge, houses, a market stall, a well and amber lanterns with rings for their reach"></canvas>
+        <div class="cap"><span id="c1t-read">scene</span><span>square 26 m × 26 m · near 0.5 m · far 24 m</span></div>
       </div>
       <div class="vp">
-        <canvas id="c1s" width="640" height="360" class="r169" aria-label="Fragment invocations per pixel on the 64 by 36 grid"></canvas>
-        <div class="cap"><span id="c1s-read">hover a pixel</span><span>heat = fragments × lights</span></div>
+        <canvas id="c1s" width="640" height="360" class="r169" aria-label="The player's screen as a 64 by 36 grid, each cell heated by how many fragments landed on it, with an inset of the lit village"></canvas>
+        <div class="cap"><span id="c1s-read">hover a pixel</span><span>heat = fragments × lanterns</span></div>
       </div>
     </div>
     <div class="cols below">
       <div class="prose">
         <p class="plain">A forward renderer draws objects one after another, and <b>every fragment runs the whole light loop</b> the moment it is drawn. A fragment is one candidate pixel that a draw produces. If a nearer object covers that pixel later, the earlier work is thrown away, but <b>you already paid for it</b>. So the bill is <b>overdraw times lights</b>.</p>
         <h3>What you're seeing</h3>
-        <p>Left is the scene from above, camera at the bottom, boxes in blue, lights in amber with a ring for each light's reach. Right is the 1920×1080 screen shrunk to a 64×36 grid. Brighter cells had more fragments land on them, and each of those fragments ran the full loop over every light.</p>
+        <p>Left is the square from above: the player at the bottom looking up the square, the dashed wedge of what they can see, houses with red roofs, a market stall, crates, a well, and lanterns in amber with a ring for each lantern's reach. Right is the player's 1920×1080 screen shrunk to a 64×36 grid, with the outlines of the buildings drawn over it. Brighter cells had more fragments land on them, and each of those fragments ran the full loop over every lantern. The inset in the corner is the picture the player gets.</p>
         <h3>Try this</h3>
         <ul class="try">
-          <li>Drag a box over another box. The cells where they overlap turn brighter, because two fragments now land there.</li>
-          <li>Push Lights to 64. The evaluations tile jumps, even though most lights are nowhere near most pixels.</li>
-          <li>Tick depth prepass. Overdraw drops to 1.00× and the picture flattens, but the light count still multiplies every cell.</li>
+          <li>Drag the market stall in front of the house. The cells where they overlap turn brighter, because two fragments now land there and the hidden one was still shaded.</li>
+          <li>Push Lanterns to 64. The evaluations tile jumps, even though most lanterns are nowhere near most pixels.</li>
+          <li>Tick depth prepass. Overdraw drops to 1.00× and the heat flattens, but the lantern count still multiplies every cell.</li>
         </ul>
         <div class="controls">
-          <div class="ctl"><label for="nl">Lights <span class="val" id="nlv">12</span></label><input type="range" id="nl" min="1" max="64" step="1" value="12"></div>
-          <div class="ctl"><label for="nobj">Boxes <span class="val" id="nobjv">5</span></label><input type="range" id="nobj" min="1" max="8" step="1" value="5"></div>
+          <div class="ctl"><label for="nl">Lanterns <span class="val" id="nlv">12</span></label><input type="range" id="nl" min="1" max="64" step="1" value="12"></div>
+          <div class="ctl"><label for="nobj">Buildings <span class="val" id="nobjv">5</span></label><input type="range" id="nobj" min="1" max="8" step="1" value="5"></div>
           <div class="ctl"><label class="chk"><input type="checkbox" id="prepass"> depth prepass</label></div>
         </div>
         <div class="tiles">
@@ -248,33 +249,33 @@ vec3 color = albedo * ambient;
   color += brdf(N, V, L, albedo, rough, metal) * lights[i].color * falloff(d2, lights[i].radius);
 }
 outColor = vec4(color, 1.0);   <span class="c">// depth test may throw this away after all that</span></pre>
-        <p class="tldr">Forward pays fragments times lights, and overdraw makes you pay for pixels you never see.</p>
+        <p class="tldr">Forward pays fragments times lanterns, and overdraw makes you pay for pixels you never see.</p>
       </div>
     </div>
   </section>
 
   <section id="deferred">
     <h2>Deferred: save the surface, light it once</h2>
-    <p class="sub">Hover the four layers to read what one pixel stores, and change the formats in the table to see the memory bill.</p>
+    <p class="sub">The same square, but the engine writes down what every pixel's surface looks like first and lights it afterwards. Hover the four notes to read one pixel, and change the formats in the table to see the memory bill.</p>
     <div class="cols two">
       <div class="vp">
-        <canvas id="c2s" width="640" height="360" class="r169" aria-label="The four G-buffer layers: albedo, octahedral normal, roughness and metalness, depth"></canvas>
-        <div class="cap"><span id="c2s-read">hover a pixel</span><span>albedo · normal · rough/metal · depth</span></div>
+        <canvas id="c2s" width="640" height="360" class="r169" aria-label="The four G-buffer layers of the village: surface colour with walls, windows and cobbles; which way each surface faces; rough or metal; and distance"></canvas>
+        <div class="cap"><span id="c2s-read">hover a pixel</span><span>colour · facing · rough/metal · distance</span></div>
       </div>
       <div class="vp">
-        <canvas id="c2t" width="512" height="512" class="sq grab" aria-label="Top-down scene with light volumes"></canvas>
-        <div class="cap"><span id="c2t-read">light volumes</span><span>ring = light radius</span></div>
+        <canvas id="c2t" width="512" height="512" class="sq grab" aria-label="Village square from above with each lantern's reach filled in amber"></canvas>
+        <div class="cap"><span id="c2t-read">light volumes</span><span>filled ring = the lantern's reach</span></div>
       </div>
     </div>
     <div class="cols below">
       <div class="prose">
         <p class="plain">Deferred splits the work in two. First pass: draw everything and <b>write down what the surface looks like at each pixel</b>, no lighting yet. Second pass: <b>light each pixel exactly once</b> from those notes. Overdraw and object count drop out of the light loop, but <b>writing and reading the notes costs memory traffic every frame</b>, with one light or a hundred.</p>
         <h3>What you're seeing</h3>
-        <p>Left is the G-buffer, the set of full-screen images the notes live in: colour, surface direction (the normal), roughness and metalness, and depth, which is distance from the camera. Right is the scene from above with each light's reach drawn as a ring. In the lighting pass, only the pixels inside a ring get that light.</p>
+        <p>Left is the G-buffer, the set of full-screen images the notes live in. Top left is the colour of each surface: cream walls, yellow windows, red roofs, grey cobbles. Top right is which way it faces (the normal). Bottom left is rough or shiny and metal or not, where the bronze bell stands out. Bottom right is depth, the distance from the player, bright for near. Right is the square from above with each lantern's reach filled in. In the lighting pass, only the pixels inside a ring get that lantern.</p>
         <h3>Try this</h3>
         <ul class="try">
-          <li>Hover a pixel on the left. The readout lists everything the lighting pass knows about it, plus how many lights reach it.</li>
-          <li>Push the Lights slider in the section above to 64. The forward tile grows with every light; the deferred tile grows only with lights that reach a surface.</li>
+          <li>Hover a window or a roof on the left. The readout lists everything the lighting pass knows about that pixel, plus how many lanterns reach it.</li>
+          <li>Push the Lanterns slider in the section above to 64. The forward tile grows with every lantern; the deferred tile grows only with lanterns that reach a wall or the ground.</li>
           <li>Switch Normal to RGBA16F in the table. Bytes per pixel and the GB/s line at 60 Hz both climb.</li>
         </ul>
         <div class="tiles">
@@ -329,14 +330,14 @@ outColor += brdf(N, normalize(-P), normalize(light.pos - P), ...) * falloff(...)
 
   <section id="tiled">
     <h2>Tiled culling: a short light list per tile</h2>
-    <p class="sub">Hover a tile on the left to see its wedge of space and which lights it keeps.</p>
+    <p class="sub">Cut the player's screen into tiles. Hover one on the left to see its wedge of the square and which lanterns it keeps.</p>
     <div class="cols two">
       <div class="vp">
-        <canvas id="c3s" width="640" height="360" class="r169" aria-label="Light count per tile heatmap"></canvas>
-        <div class="cap"><span id="c3s-read">hover a tile</span><span>heat = lights in the tile list</span></div>
+        <canvas id="c3s" width="640" height="360" class="r169" aria-label="The player's screen cut into tiles, each heated and numbered by how many lanterns are in its list, with building outlines and the widest depth gap tile in red"></canvas>
+        <div class="cap"><span id="c3s-read">hover a tile</span><span>heat = lanterns in the tile's list</span></div>
       </div>
       <div class="vp">
-        <canvas id="c3t" width="512" height="512" class="sq grab" aria-label="Top-down view of the hovered tile frustum and the lights it keeps"></canvas>
+        <canvas id="c3t" width="512" height="512" class="sq grab" aria-label="Village square from above with the hovered tile's wedge drawn from its nearest to its farthest surface; kept lanterns in green, culled ones dim"></canvas>
         <div class="cap"><span id="c3t-read">tile frustum</span><span>green = kept, dim = culled</span></div>
       </div>
     </div>
@@ -344,20 +345,20 @@ outColor += brdf(N, normalize(-P), normalize(light.pos - P), ...) * falloff(...)
       <div class="prose">
         <p class="plain">Most lights are nowhere near most pixels, so <b>cut the screen into small squares called tiles</b> and give each one a list of only the lights that can reach it. Neighbouring pixels want almost the same lights, so <b>one list serves a whole tile</b>. It is like sorting mail by postcode before delivering. The trick fails on <b>tiles where a near object meets a far one</b>, because their list has to cover everything in between.</p>
         <h3>What you're seeing</h3>
-        <p>Left is the screen cut into tiles, each coloured and numbered by how many lights its list holds. The red outline marks the tile with the widest depth gap. Right is the top view: the hovered tile becomes a wedge from the nearest thing in it to the farthest, green lights are kept and dim ones are culled.</p>
+        <p>Left is the player's screen cut into tiles, each coloured and numbered by how many lanterns its list holds, with the buildings outlined so you can see which tile sits on what. The red outline marks the tile with the widest depth gap, usually where the edge of the stall or the well meets the cobbles far behind it. Right is the square from above: the hovered tile becomes a wedge from the nearest thing in it to the farthest, green lanterns are kept and dim ones are culled.</p>
         <h3>Try this</h3>
         <ul class="try">
-          <li>Hover the red tile. On the right its wedge stretches across most of the scene and catches lights the whole way.</li>
-          <li>Hover a tile in the middle of the floor. The wedge is short and only a couple of lights stay green.</li>
+          <li>Hover the red tile. On the right its wedge stretches across most of the square and catches lanterns the whole way.</li>
+          <li>Hover a tile in the middle of the cobbles or on a house wall. The wedge is short and only a couple of lanterns stay green.</li>
           <li>Switch to 2×2 tiles. The average per tile drops and the tile count climbs: more lists to build, shorter lists to walk.</li>
         </ul>
         <div class="controls">
           <div class="ctl"><span class="lab">Tile size, grid cells</span><div class="seg" id="segTile" role="group" aria-label="Tile size"><button data-v="2">2×2</button><button data-v="4" aria-pressed="true">4×4</button><button data-v="8">8×8</button></div></div>
-          <div class="ctl"><label for="nl3">Lights <span class="val" id="nl3v">12</span></label><input type="range" id="nl3" min="1" max="64" step="1" value="12"></div>
+          <div class="ctl"><label for="nl3">Lanterns <span class="val" id="nl3v">12</span></label><input type="range" id="nl3" min="1" max="64" step="1" value="12"></div>
         </div>
         <div class="tiles four">
           <div class="tile"><div class="n" id="t3-tiles">·</div><div class="l">tiles · px each at 1080p</div></div>
-          <div class="tile on"><div class="n" id="t3-avg">·</div><div class="l">avg lights per tile</div></div>
+          <div class="tile on"><div class="n" id="t3-avg">·</div><div class="l">avg lanterns per tile</div></div>
           <div class="tile"><div class="n" id="t3-worst">·</div><div class="l">worst depth gap tile</div></div>
           <div class="tile"><div class="n" id="t3-eval">·</div><div class="l">evaluations, Forward+</div></div>
         </div>
@@ -365,7 +366,7 @@ outColor += brdf(N, normalize(-P), normalize(light.pos - P), ...) * falloff(...)
       <div class="prose">
         <h3>The real version</h3>
         <p>One compute shader thread group per tile reads the depth buffer, finds the nearest and farthest depth in the tile, and builds a small frustum: four side planes through the eye plus those two depth bounds. Each light is a sphere, and it is kept if it pokes inside all four planes and the depth range. The list is a few dozen indices, written once and read by every pixel in the tile. The same list works in front of a forward shader (Forward+) or a deferred lighting pass (tiled deferred).</p>
-        <p>The failure is the red tile. Where a near box meets the far floor, the depth range spans most of the scene and the little frustum becomes a long wedge that every light along the view direction touches. Every pixel in that tile, near or far, then walks the whole list. Silhouette edges are exactly where this happens, and a scene is mostly silhouette edges.</p>
+        <p>The failure is the red tile. Where the edge of the market stall meets the cobbles far behind it, the depth range spans most of the square and the little frustum becomes a long wedge that every lantern along the view direction touches. Every pixel in that tile, near or far, then walks the whole list. Silhouette edges are exactly where this happens, and a scene is mostly silhouette edges.</p>
         <p class="words">In words: build four tilted planes for the tile, then keep a light if its sphere is not fully outside any plane and its depth overlaps the tile's depth range.</p>
         <div class="math">tile planes through the eye:   n_left = norm(1, 0, −x_a·tanH)   n_right = norm(−1, 0, x_b·tanH)
                                n_bot  = norm(0, 1, −y_a·tanV)   n_top   = norm(0, −1, y_b·tanV)
@@ -386,41 +387,41 @@ GroupMemoryBarrierWithGroupSync();
 }
 GroupMemoryBarrierWithGroupSync();
 <span class="k">if</span> (threadIndex &lt; gCount) tileLightIndices[tileId * MAX_PER_TILE + threadIndex] = gList[threadIndex];</pre>
-        <p class="tldr">Tiles shrink the light loop to the lights near each screen square, except where a tile spans a big depth gap.</p>
+        <p class="tldr">Tiles shrink the light loop to the lanterns near each screen square, except where a tile spans a big depth gap.</p>
       </div>
     </div>
   </section>
 
   <section id="clustered">
     <h2>Clustered: slice the tiles by distance</h2>
-    <p class="sub">Hover a pixel on the left to pick which tile row appears on the right, and drag the slider to cut finer slices.</p>
+    <p class="sub">Slice each tile by distance, so the stall in front and the church behind stop sharing one lantern list. Hover a pixel on the left to pick which tile row appears on the right, and drag the slider to cut finer slices.</p>
     <div class="cols two">
       <div class="vp">
-        <canvas id="c4s" width="640" height="360" class="r169" aria-label="Lights per pixel from the clustered light lists"></canvas>
-        <div class="cap"><span id="c4s-read">hover a pixel</span><span>heat = lights in the pixel's cluster</span></div>
+        <canvas id="c4s" width="640" height="360" class="r169" aria-label="The player's screen heated by how many lanterns are in each pixel's cluster list, with building outlines and the chosen tile row outlined in white"></canvas>
+        <div class="cap"><span id="c4s-read">hover a pixel</span><span>heat = lanterns in the pixel's cluster</span></div>
       </div>
       <div class="vp">
-        <canvas id="c4t" width="512" height="512" class="sq grab" aria-label="Top-down view of the cluster grid for one tile row"></canvas>
+        <canvas id="c4t" width="512" height="512" class="sq grab" aria-label="Village square from above cut into wedges, tiles across and depth slices away from the player, each wedge heated by its lantern list length"></canvas>
         <div class="cap"><span id="c4t-read">cluster grid</span><span>one tile row, all slices</span></div>
       </div>
     </div>
     <div class="cols below">
       <div class="prose">
-        <p class="plain">Take each tile and <b>cut it into slices by distance</b> from the camera. Now a near box and the far floor sit in <b>different clusters with different light lists</b>, so the depth-gap problem goes away. The slices are <b>fixed in advance</b>, so the lists never touch the depth buffer and <b>work for glass and particles too</b>.</p>
+        <p class="plain">Take each tile and <b>cut it into slices by distance</b> from the player. Now the stall in front and the church behind it sit in <b>different clusters with different lantern lists</b>, so the depth-gap problem goes away. The slices are <b>fixed in advance</b>, so the lists never touch the depth buffer and <b>work for glass and particles too</b>.</p>
         <h3>What you're seeing</h3>
-        <p>Left is the screen coloured by how many lights are in each pixel's cluster list. The white outline is the tile row your hover picked. Right shows that row from above as a grid of wedges: tiles across, depth slices going away from the camera, each wedge coloured by its list length.</p>
+        <p>Left is the player's screen coloured by how many lanterns are in each pixel's cluster list, with the buildings outlined. The white outline is the tile row your hover picked. Right shows that row from above as a grid of wedges laid over the square: tiles across, depth slices going away from the player, each wedge coloured by its list length.</p>
         <h3>Try this</h3>
         <ul class="try">
-          <li>Hover the spot where a near box meets the floor. The cluster count for that pixel is well below its tile count.</li>
+          <li>Hover the spot where the market stall's edge meets the cobbles. The cluster count for that pixel is well below its tile count.</li>
           <li>Drag Depth slices to 32. Each wedge gets thinner, the per-pixel average drops a little, and the memory tile climbs.</li>
-          <li>Drag a light on the right. Only the wedges its ring touches change colour.</li>
+          <li>Drag a lantern on the right. Only the wedges its ring touches change colour.</li>
         </ul>
         <div class="controls">
           <div class="ctl"><label for="nsl">Depth slices <span class="val" id="nslv">16</span></label><input type="range" id="nsl" min="8" max="32" step="1" value="16"></div>
         </div>
         <div class="tiles four">
-          <div class="tile"><div class="n" id="t4-tile">·</div><div class="l">avg lights per pixel, tiled</div></div>
-          <div class="tile on"><div class="n" id="t4-clu">·</div><div class="l">avg lights per pixel, clustered</div></div>
+          <div class="tile"><div class="n" id="t4-tile">·</div><div class="l">avg lanterns per pixel, tiled</div></div>
+          <div class="tile on"><div class="n" id="t4-clu">·</div><div class="l">avg lanterns per pixel, clustered</div></div>
           <div class="tile"><div class="n" id="t4-n">·</div><div class="l">clusters · avg list length</div></div>
           <div class="tile"><div class="n" id="t4-mem">·</div><div class="l">light list memory</div></div>
         </div>
@@ -448,27 +449,27 @@ vec3 color = albedo * ambient;
   color += shade(L, vPos, N, V, albedo, rough, metal);
 }
 <span class="c">// transparent surfaces run the same loop: no depth buffer was read to build the lists</span></pre>
-        <p class="tldr">Clusters give each small piece of the view its own light list, fixed ahead of time, so near and far stop sharing a bill.</p>
+        <p class="tldr">Clusters give each small piece of the view its own lantern list, fixed ahead of time, so near and far stop sharing a bill.</p>
       </div>
     </div>
   </section>
 
   <section id="compare">
     <h2>What one pixel keeps between passes</h2>
-    <p class="sub">Hover any panel to read how many bytes that pixel holds in each of the three renderers.</p>
+    <p class="sub">The same village drawn by three renderers. Hover any panel to read how many bytes that pixel holds in each one between drawing and lighting.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5s" width="640" height="360" class="r169" aria-label="Per-pixel storage for Forward+, deferred and visibility buffer renderers"></canvas>
-        <div class="cap"><span id="c5s-read">hover a pixel</span><span>shaded · G-buffer · triangle id</span></div>
+        <canvas id="c5s" width="640" height="360" class="r169" aria-label="Six panels of the village: the lit picture, the G-buffer colour layer and the triangle ids on top; stored depth, stored facing and material, and derived barycentrics below"></canvas>
+        <div class="cap"><span id="c5s-read">hover a pixel</span><span>lit village · G-buffer · triangle id</span></div>
       </div>
       <div class="prose">
         <p class="plain">Three renderers, same frame, different memory. <b>Forward+ keeps only depth and the final colour</b>. <b>Deferred keeps the whole surface</b> and forgets the triangle. <b>A visibility buffer keeps only which triangle</b> landed on the pixel, one 32-bit number, and rebuilds everything else later.</p>
         <h3>What you're seeing</h3>
-        <p>Top row, left to right: the shaded Forward+ result, the colour layer of the deferred G-buffer, and the visibility buffer with each triangle in its own colour. Bottom row is what each one has at shading time: stored depth, stored normal and material, and barycentrics, the three weights that say where inside the triangle the pixel sits, worked out on the fly.</p>
+        <p>Top row, left to right: the lit village as the Forward+ player sees it, the colour layer of the deferred G-buffer, and the visibility buffer with every wall, roof and cobble triangle in its own colour. Bottom row is what each one has at shading time: stored depth, stored normal and material, and barycentrics, the three weights that say where inside the triangle the pixel sits, worked out on the fly.</p>
         <p>The bars are bytes per pixel and the total for a 3840×2160 target, HDR colour included.</p>
         <h3>Try this</h3>
         <ul class="try">
-          <li>Hover a box in the visibility panel. The readout gives the triangle id and its three barycentric weights.</li>
+          <li>Hover a house wall in the visibility panel. The readout gives the triangle id and its three barycentric weights.</li>
           <li>Tick 4× MSAA. Forward+ and V-buffer grow with the sample count; deferred greys out because it cannot do it at all.</li>
           <li>Change a G-buffer format in the deferred section. Only the deferred bar moves.</li>
         </ul>
@@ -528,7 +529,7 @@ outColor = shadeClustered(m, P, N);</pre>
 
   <section id="uses">
     <h2>Where it shows up in shipped games</h2>
-    <p class="sub">The loop is the same in every row. What differs is what is stored between drawing the geometry and lighting it.</p>
+    <p class="sub">The loop is the same in every row. What differs is what is stored between drawing the village and lighting it.</p>
     <p class="plain">Each row is one way to run the same light loop. The <b>middle two columns</b> say how the lights get to the pixels and what has to sit in memory to make that work, and that is the whole difference between the rows.</p>
     <div class="tbl-wrap">
     <table class="uses">
@@ -547,23 +548,140 @@ outColor = shadeClustered(m, P, N);</pre>
 </div>
 
 <script>
+// Rendering Library scene kit. Paste this whole block at the top of a page's <script> (no external
+// scripts are allowed). Small, flat, readable game-world props for 2D canvas demos. Every function
+// takes a ctx and draws in the current transform; sizes are in canvas pixels. Keep the mechanism
+// overlay (frustum lines, rays, samples, tests) in the library palette on top of these props.
+const KIT = {
+  // scene palette: props only; the mechanism overlay keeps amber / blue / white / green / red
+  grass: '#1f3a2a', grassLite: '#2a4d37', dirt: '#3b2f25', stone: '#4c5563', stoneLite: '#6b7585',
+  wood: '#7a4f2a', woodLite: '#a06a38', leaf: '#3f8f4a', leafLite: '#5ab562', roof: '#a5433a',
+  wallCol: '#c9c2b2', window: '#f5d67a', skin: '#e8b98a', shirt: '#4aa3ff', pants: '#2f3a55',
+  metal: '#8d95a3', flame: '#f2a341', sky: '#0b0e13', skyLite: '#141a26', water: '#1d4d73', cloud: '#c7cdd8',
+  shadow: 'rgba(0,0,0,0.35)'
+};
+// horizon band: dark sky above, ground below (side-view scenes)
+function kitGround(ctx, w, h, horizon) {
+  const g = ctx.createLinearGradient(0, 0, 0, horizon); g.addColorStop(0, KIT.sky); g.addColorStop(1, KIT.skyLite);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, horizon);
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, horizon, w, h - horizon);
+  ctx.fillStyle = KIT.grassLite; ctx.fillRect(0, horizon, w, 3);
+}
+// top-down ground with faint tile grid (top-down scenes)
+function kitTopGround(ctx, w, h, cell) {
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.beginPath();
+  for (let x = 0; x <= w; x += cell) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, h); }
+  for (let y = 0; y <= h; y += cell) { ctx.moveTo(0, y + 0.5); ctx.lineTo(w, y + 0.5); }
+  ctx.stroke();
+}
+// round tree, base at (x, y), s = trunk height
+function kitTree(ctx, x, y, s, tint) {
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, s * 0.55, s * 0.18, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.09, y - s, s * 0.18, s);
+  ctx.fillStyle = tint || KIT.leaf; ctx.beginPath(); ctx.arc(x, y - s * 1.25, s * 0.62, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.leafLite; ctx.beginPath(); ctx.arc(x - s * 0.2, y - s * 1.45, s * 0.3, 0, Math.PI * 2); ctx.fill();
+}
+// pine tree, base at (x, y)
+function kitPine(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.07, y - s * 0.4, s * 0.14, s * 0.4);
+  ctx.fillStyle = KIT.leaf;
+  for (let i = 0; i < 3; i++) { const yy = y - s * 0.35 - i * s * 0.42, ww = s * (0.7 - i * 0.16);
+    ctx.beginPath(); ctx.moveTo(x - ww, yy); ctx.lineTo(x + ww, yy); ctx.lineTo(x, yy - s * 0.55); ctx.closePath(); ctx.fill(); }
+}
+// house, bottom-left corner at (x, y), width w, wall height h
+function kitHouse(ctx, x, y, w, h, roofCol) {
+  ctx.fillStyle = KIT.wallCol; ctx.fillRect(x, y - h, w, h);
+  ctx.fillStyle = roofCol || KIT.roof; ctx.beginPath(); ctx.moveTo(x - w * 0.08, y - h); ctx.lineTo(x + w * 1.08, y - h); ctx.lineTo(x + w / 2, y - h - w * 0.45); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + w * 0.15, y - h * 0.75, w * 0.22, h * 0.3);
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x + w * 0.6, y - h * 0.6, w * 0.22, h * 0.6);
+}
+// wooden crate, centre (x, y), size s
+function kitCrate(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s / 2, y - s / 2, s, s);
+  ctx.strokeStyle = KIT.woodLite; ctx.lineWidth = Math.max(1, s * 0.08);
+  ctx.strokeRect(x - s / 2 + 1, y - s / 2 + 1, s - 2, s - 2);
+  ctx.beginPath(); ctx.moveTo(x - s / 2, y - s / 2); ctx.lineTo(x + s / 2, y + s / 2); ctx.moveTo(x + s / 2, y - s / 2); ctx.lineTo(x - s / 2, y + s / 2); ctx.stroke();
+}
+// stone wall segment from (x1, y1) to (x2, y2), thickness t (top-down or side)
+function kitWall(ctx, x1, y1, x2, y2, t) {
+  ctx.strokeStyle = KIT.stone; ctx.lineWidth = t; ctx.lineCap = 'butt'; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.strokeStyle = KIT.stoneLite; ctx.lineWidth = Math.max(1, t * 0.25); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+}
+// little player figure, feet at (x, y), height h, facing +1 right / -1 left
+function kitPlayer(ctx, x, y, h, facing) {
+  const f = facing || 1;
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, h * 0.28, h * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.pants; ctx.fillRect(x - h * 0.16, y - h * 0.42, h * 0.32, h * 0.42);
+  ctx.fillStyle = KIT.shirt; ctx.fillRect(x - h * 0.2, y - h * 0.78, h * 0.4, h * 0.38);
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y - h * 0.9, h * 0.14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#171a1f'; ctx.fillRect(x + f * h * 0.04, y - h * 0.93, h * 0.05, h * 0.04);
+}
+// top-down player: a circle with a facing wedge, centre (x, y), radius r, angle a (radians)
+function kitPlayerTop(ctx, x, y, r, a) {
+  ctx.fillStyle = KIT.shirt; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * r * 1.6, y + Math.sin(a) * r * 1.6); ctx.stroke();
+}
+// lamp post / torch, base at (x, y), height h; glow radius g (0 = none)
+function kitLamp(ctx, x, y, h, g) {
+  if (g > 0) { const gr = ctx.createRadialGradient(x, y - h, 0, x, y - h, g); gr.addColorStop(0, 'rgba(242,163,65,0.35)'); gr.addColorStop(1, 'rgba(242,163,65,0)'); ctx.fillStyle = gr; ctx.fillRect(x - g, y - h - g, g * 2, g * 2); }
+  ctx.fillStyle = KIT.metal; ctx.fillRect(x - h * 0.04, y - h, h * 0.08, h);
+  ctx.fillStyle = KIT.flame; ctx.beginPath(); ctx.arc(x, y - h, h * 0.12, 0, Math.PI * 2); ctx.fill();
+}
+// simple side-view car, bottom-left at (x, y), length L
+function kitCar(ctx, x, y, L, col) {
+  ctx.fillStyle = col || '#d8493f'; ctx.fillRect(x, y - L * 0.22, L, L * 0.2);
+  ctx.fillRect(x + L * 0.22, y - L * 0.4, L * 0.5, L * 0.2);
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + L * 0.26, y - L * 0.38, L * 0.42, L * 0.14);
+  ctx.fillStyle = '#171a1f'; ctx.beginPath(); ctx.arc(x + L * 0.22, y, L * 0.09, 0, Math.PI * 2); ctx.arc(x + L * 0.78, y, L * 0.09, 0, Math.PI * 2); ctx.fill();
+}
+// cloud, centre (x, y), width w
+function kitCloud(ctx, x, y, w, alpha) {
+  ctx.fillStyle = 'rgba(199,205,216,' + (alpha == null ? 0.35 : alpha) + ')';
+  ctx.beginPath(); ctx.arc(x - w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.arc(x, y - w * 0.08, w * 0.28, 0, Math.PI * 2); ctx.arc(x + w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.fill();
+}
+// plain-word label on the canvas with a dark pill behind it; anchor 'left' | 'center' | 'right'
+function kitLabel(ctx, text, x, y, anchor, col) {
+  ctx.font = '12px "IBM Plex Mono", Menlo, Consolas, monospace';
+  const w = ctx.measureText(text).width + 12, h = 18;
+  const x0 = anchor === 'center' ? x - w / 2 : anchor === 'right' ? x - w : x;
+  ctx.fillStyle = 'rgba(11,14,19,0.82)'; ctx.fillRect(x0, y - h / 2, w, h);
+  ctx.fillStyle = col || '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(text, x0 + 6, y + 1);
+}
+// arrow from (x1, y1) to (x2, y2) in a colour, for callouts
+function kitArrow(ctx, x1, y1, x2, y2, col, width) {
+  const a = Math.atan2(y2 - y1, x2 - x1), s = 7;
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = width || 1.5;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - s * Math.cos(a - 0.4), y2 - s * Math.sin(a - 0.4)); ctx.lineTo(x2 - s * Math.cos(a + 0.4), y2 - s * Math.sin(a + 0.4)); ctx.closePath(); ctx.fill();
+}
+// "what the player sees" inset frame: draws a titled box at (x, y, w, h); draw the picture inside afterwards
+function kitInset(ctx, x, y, w, h, title) {
+  ctx.fillStyle = 'rgba(11,14,19,0.92)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
+}
 (() => {
-  // ---------- scene: camera at origin, y up, +z forward; 64×36 grid stands in for 1920×1080 ----------
+  // ---------- scene: a village square at night. Player (camera) at origin, y up, +z forward; 64×36 grid stands in for 1920×1080 ----------
   const GW = 64, GH = 36, NPX = GW * GH, SCALE = (1920 * 1080) / NPX; // 900 real pixels per cell
   const NEAR = 0.5, FAR = 24, TANV = Math.tan(25 * Math.PI / 180), TANH = TANV * 16 / 9, CAMY = 1.5;
   const AMBER = [242, 163, 65], BLUE = [74, 163, 255], GROUND = [11, 14, 19], WHITE = [255, 255, 255], GREEN = [90, 212, 138], RED = [239, 93, 93];
+  const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const C_WALL = hex(KIT.wallCol), C_ROOF = hex(KIT.roof), C_WOOD = hex(KIT.wood), C_WOODL = hex(KIT.woodLite), C_STONE = hex(KIT.stone), C_STONEL = hex(KIT.stoneLite), C_WIN = hex(KIT.window), C_GRASS = hex(KIT.grass), C_BRONZE = [196, 148, 84];
+  // every building is a box for the rasteriser; `kind` only changes how it is painted
   const OBJ_ALL = [
-    { x: -1.6, z: 3.8, w: 2.0, d: 1.4, h: 2.2, alb: [214, 210, 200], rough: 0.7, metal: 0 },
-    { x: 2.2, z: 6.6, w: 2.4, d: 1.4, h: 1.5, alb: [242, 163, 65], rough: 0.35, metal: 0 },
-    { x: -4.6, z: 10, w: 3.0, d: 2.0, h: 3.0, alb: [74, 163, 255], rough: 0.5, metal: 0 },
-    { x: 3.6, z: 3.0, w: 1.5, d: 1.0, h: 1.0, alb: [180, 184, 192], rough: 0.15, metal: 1 },
-    { x: 0.4, z: 15, w: 3.6, d: 2.0, h: 4.0, alb: [150, 150, 150], rough: 0.9, metal: 0 },
-    { x: 7.0, z: 12.5, w: 4.0, d: 1.0, h: 2.5, alb: [230, 200, 150], rough: 0.6, metal: 0 },
-    { x: -7.2, z: 16.5, w: 1.5, d: 3.0, h: 3.5, alb: [120, 160, 220], rough: 0.4, metal: 0.5 },
-    { x: 1.0, z: 2.1, w: 1.0, d: 0.6, h: 0.8, alb: [240, 240, 240], rough: 0.2, metal: 0 },
+    { name: "market stall", kind: "stall", x: -1.8, z: 4.0, w: 2.0, d: 1.2, h: 2.2, alb: C_WOOD, rough: 0.7, metal: 0 },
+    { name: "crates", kind: "crate", x: 2.4, z: 6.5, w: 2.2, d: 1.4, h: 1.5, alb: C_WOODL, rough: 0.6, metal: 0 },
+    { name: "house", kind: "house", x: -5.0, z: 10, w: 3.4, d: 2.4, h: 3.0, alb: C_WALL, rough: 0.5, metal: 0 },
+    { name: "the well", kind: "well", x: 3.6, z: 3.0, w: 1.5, d: 1.0, h: 1.0, alb: C_STONE, rough: 0.9, metal: 0 },
+    { name: "the church", kind: "house", x: 0.4, z: 15, w: 3.6, d: 2.0, h: 4.0, alb: C_WALL, rough: 0.6, metal: 0 },
+    { name: "long house", kind: "house", x: 7.0, z: 12.5, w: 4.0, d: 1.0, h: 2.5, alb: C_WALL, rough: 0.6, metal: 0 },
+    { name: "watchtower", kind: "tower", x: -7.2, z: 16.5, w: 1.5, d: 3.0, h: 3.5, alb: C_STONE, rough: 0.8, metal: 0 },
+    { name: "bronze bell", kind: "bell", x: 1.0, z: 2.1, w: 1.0, d: 0.6, h: 0.8, alb: C_BRONZE, rough: 0.2, metal: 1 },
   ];
-  const FLOOR = { alb: [96, 100, 108], rough: 0.8, metal: 0 };
-  // deterministic lights inside the frustum
+  const FLOOR = { name: "cobbles", alb: [96, 100, 108], rough: 0.8, metal: 0 };
+  // deterministic lanterns inside the view wedge
   let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
   const LIGHTS = [];
   for (let i = 0; i < 64; i++) {
@@ -609,9 +727,20 @@ outColor = shadeClustered(m, P, N);</pre>
     }
   }
   const matOf = k => objId[k] === 99 ? FLOOR : OBJ_ALL[objId[k]];
+  // what the surface looks like at this pixel: roof on top faces, windows and doors on house walls, cobbles inside the square, grass beyond it
+  const isWindow = k => { const b = OBJ_ALL[objId[k]]; if (!b || b.kind !== "house" || ny[k] !== 0) return false; const wid = nx[k] !== 0 ? b.d : b.w; const u = fu[k] * wid / 1.2 % 1, v = fv[k] * b.h; return u > 0.3 && u < 0.7 && v > 1.1 && v < 1.8; };
+  function albedoOf(k) {
+    const id = objId[k];
+    if (id === 99) { const x = px[k], z = pz[k]; if (Math.abs(x) > 9.5 || z > 19) return C_GRASS; return ((Math.floor(x) + Math.floor(z)) & 1) ? FLOOR.alb : [84, 88, 96]; }
+    const b = OBJ_ALL[id];
+    if (ny[k] === 1) return b.kind === "house" ? C_ROOF : b.kind === "tower" || b.kind === "well" ? C_STONEL : b.alb;
+    if (b.kind === "house") { if (isWindow(k)) return C_WIN; if (nz[k] === -1 && fu[k] > 0.42 && fu[k] < 0.58 && fv[k] * b.h < 2.0) return C_WOOD; return b.alb; }
+    if (b.kind === "crate" && ((fu[k] * 2) % 1 < 0.08 || (fv[k] * b.h / 0.75) % 1 < 0.1)) return C_WOOD;
+    return b.alb;
+  }
 
   // ---------- light queries ----------
-  const lightsAt = new Uint8Array(NPX); // lights whose sphere contains the pixel's surface point
+  const lightsAt = new Uint8Array(NPX); // lanterns whose sphere contains the pixel's surface point
   function lightCounts() {
     const N = st.nl;
     for (let k = 0; k < NPX; k++) {
@@ -621,15 +750,20 @@ outColor = shadeClustered(m, P, N);</pre>
       lightsAt[k] = c;
     }
   }
-  function shade(k) { // simple Lambert + falloff for the shaded panel
-    const m = matOf(k); let r = 0.10, g = 0.10, b = 0.12;
+  // night sky for "what the player sees": a moon and a few stars, never written to any buffer
+  const STARS = new Set([3 * GW + 9, 5 * GW + 27, 2 * GW + 41, 7 * GW + 16, 1 * GW + 58, 6 * GW + 36]);
+  function skyAt(k) { const i = k % GW, j = Math.floor(k / GW); const d = Math.hypot(i - 53.5, (j - 5.5) * 16 / 9); if (d < 2.6) return [214, 218, 228]; if (STARS.has(k)) return [150, 156, 170]; return GROUND; }
+  function shade(k) { // simple Lambert + falloff for the player's view
+    if (depth[k] === Infinity) return skyAt(k);
+    const alb = albedoOf(k); if (isWindow(k)) return alb; // lit from inside
+    let r = 0.10, g = 0.10, b = 0.12;
     for (let l = 0; l < st.nl; l++) {
       const L = LIGHTS[l]; let ddx = L.x - px[k], ddy = L.y - py[k], ddz = L.z - pz[k]; const d2 = ddx * ddx + ddy * ddy + ddz * ddz; if (d2 > L.r * L.r) continue;
       const d = Math.sqrt(d2); ddx /= d; ddy /= d; ddz /= d;
       const nd = Math.max(0, ddx * nx[k] + ddy * ny[k] + ddz * nz[k]); const f = nd * (1 - d / L.r) * (1 - d / L.r) * 1.6;
       r += f; g += f * 0.9; b += f * 0.7;
     }
-    return [Math.min(255, m.alb[0] * r), Math.min(255, m.alb[1] * g), Math.min(255, m.alb[2] * b)];
+    return [Math.min(255, alb[0] * r), Math.min(255, alb[1] * g), Math.min(255, alb[2] * b)];
   }
   // screen-rect light volumes: pixels with geometry inside the projected bounding rect of each sphere
   function rectVolumePixels() {
@@ -694,43 +828,85 @@ outColor = shadeClustered(m, P, N);</pre>
   const fmtB = b => b >= 1 << 30 ? (b / (1 << 30)).toFixed(2) + " GB" : b >= 1 << 20 ? (b / (1 << 20)).toFixed(1) + " MB" : b >= 1024 ? (b / 1024).toFixed(1) + " KB" : b + " B";
   const heat = v => { v = Math.max(0, Math.min(1, v)); if (v < 0.65) { const t = v / 0.65; return [GROUND[0] + (AMBER[0] - GROUND[0]) * t, GROUND[1] + (AMBER[1] - GROUND[1]) * t, GROUND[2] + (AMBER[2] - GROUND[2]) * t]; } const t = (v - 0.65) / 0.35; return [AMBER[0] + (255 - AMBER[0]) * t, AMBER[1] + (255 - AMBER[1]) * t, AMBER[2] + (255 - AMBER[2]) * t]; };
   const rgb = c => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+  const nameOf = k => objId[k] === 99 ? (Math.abs(px[k]) > 9.5 || pz[k] > 19 ? "grass" : "cobbles") : OBJ_ALL[objId[k]].name;
 
-  // ---------- top-down view: 24 m × 24 m, camera at bottom centre ----------
-  const TW = 512, PPM = TW / 26; // px per metre, 26 m × 26 m in view
+  // ---------- top-down view of the square: 26 m × 26 m, player at bottom centre ----------
+  const TW = 512, PPM = TW / 26; // px per metre
   const wx = x => 256 + x * PPM, wz = z => TW - (z + 1) * PPM;
-  function tdDraw(ctx, opt = {}) {
-    ctx.fillStyle = "#0b0e13"; ctx.fillRect(0, 0, TW, TW);
-    ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath();
-    for (let m = -12; m <= 12; m += 2) { ctx.moveTo(wx(m) + 0.5, 0); ctx.lineTo(wx(m) + 0.5, TW); }
-    for (let m = 0; m <= 24; m += 2) { ctx.moveTo(0, wz(m) + 0.5); ctx.lineTo(TW, wz(m) + 0.5); }
-    ctx.stroke();
-    // frustum wedge, near and far
-    ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.setLineDash([4, 4]); ctx.beginPath();
+  // top-down tree: a canopy disc with a highlight
+  function kitTreeTop(ctx, x, y, r) {
+    ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x + r * 0.2, y + r * 0.25, r * 1.05, r * 0.9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = KIT.leaf; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = KIT.leafLite; ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.45, 0, Math.PI * 2); ctx.fill();
+  }
+  // static backdrop drawn once: grass, the cobbled square, trees outside the view wedge, the view wedge itself
+  const back = document.createElement("canvas"); back.width = TW; back.height = TW;
+  (() => {
+    const ctx = back.getContext("2d");
+    kitTopGround(ctx, TW, TW, PPM);
+    ctx.fillStyle = "#2b313c"; ctx.fillRect(wx(-9.5), wz(19), 19 * PPM, 18.5 * PPM);
+    ctx.fillStyle = "rgba(255,255,255,0.035)";
+    for (let x = -9.5; x < 9.5; x += 1) for (let z = 0.5; z < 19; z += 1) if ((Math.floor(x) + Math.floor(z)) & 1) ctx.fillRect(wx(x), wz(z + 1), PPM, PPM);
+    ctx.strokeStyle = KIT.stoneLite; ctx.lineWidth = 1.5; ctx.strokeRect(wx(-9.5), wz(19), 19 * PPM, 18.5 * PPM);
+    // trees stand outside the wedge, so the rasteriser never sees them
+    const trees = [[-11.5, 1.2, 1.1], [-12, 4, 0.9], [11.6, 1.5, 1.0], [12.2, 4.4, 0.8], [-11.8, 21.5, 1.0], [11.5, 22, 1.1], [-3, 22.8, 0.9], [4.5, 23.2, 1.0], [-11, 8.5, 0.7], [11.3, 8, 0.8]];
+    for (const [x, z, r] of trees) kitTreeTop(ctx, wx(x), wz(z), r * PPM);
+    // view wedge, near and far
+    ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.setLineDash([4, 4]); ctx.lineWidth = 1; ctx.beginPath();
     ctx.moveTo(wx(0), wz(0)); ctx.lineTo(wx(-FAR * TANH), wz(FAR)); ctx.moveTo(wx(0), wz(0)); ctx.lineTo(wx(FAR * TANH), wz(FAR));
     ctx.moveTo(wx(-NEAR * TANH), wz(NEAR)); ctx.lineTo(wx(NEAR * TANH), wz(NEAR)); ctx.moveTo(wx(-FAR * TANH), wz(FAR)); ctx.lineTo(wx(FAR * TANH), wz(FAR));
     ctx.stroke(); ctx.setLineDash([]);
-    if (opt.before) opt.before(ctx);
-    // boxes
-    for (let o = 0; o < st.nobj; o++) {
-      const b = OBJ_ALL[o];
-      ctx.fillStyle = "rgba(74,163,255,0.30)"; ctx.strokeStyle = "#4aa3ff"; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.rect(wx(b.x - b.w / 2), wz(b.z + b.d / 2), b.w * PPM, b.d * PPM); ctx.fill(); ctx.stroke();
-      if (opt.objHandles) { ctx.beginPath(); ctx.arc(wx(b.x), wz(b.z), 4, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); }
+  })();
+  function buildingTop(ctx, b) {
+    const x0 = wx(b.x - b.w / 2), y0 = wz(b.z + b.d / 2), w = b.w * PPM, d = b.d * PPM;
+    ctx.fillStyle = KIT.shadow; ctx.fillRect(x0 + 3, y0 + 3, w, d);
+    if (b.kind === "house") {
+      ctx.fillStyle = KIT.roof; ctx.fillRect(x0, y0, w, d);
+      ctx.strokeStyle = "#7d3029"; ctx.lineWidth = 1; ctx.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, d - 1);
+      ctx.strokeStyle = "#c9645a"; ctx.lineWidth = 2; ctx.beginPath();
+      if (w >= d) { ctx.moveTo(x0 + d / 2, y0 + d / 2); ctx.lineTo(x0 + w - d / 2, y0 + d / 2); } else { ctx.moveTo(x0 + w / 2, y0 + w / 2); ctx.lineTo(x0 + w / 2, y0 + d - w / 2); }
+      ctx.stroke();
+    } else if (b.kind === "stall") {
+      ctx.fillStyle = KIT.wood; ctx.fillRect(x0, y0, w, d);
+      ctx.fillStyle = KIT.woodLite; for (let s = 0; s < w; s += 8) ctx.fillRect(x0 + s, y0, 4, d);
+    } else if (b.kind === "crate") {
+      ctx.fillStyle = KIT.wood; ctx.fillRect(x0, y0, w, d);
+      kitCrate(ctx, x0 + w * 0.28, y0 + d / 2, Math.min(w, d) * 0.8); kitCrate(ctx, x0 + w * 0.72, y0 + d / 2, Math.min(w, d) * 0.8);
+    } else if (b.kind === "well") {
+      ctx.fillStyle = KIT.stone; ctx.fillRect(x0, y0, w, d);
+      ctx.fillStyle = KIT.stoneLite; ctx.beginPath(); ctx.arc(x0 + w / 2, y0 + d / 2, Math.min(w, d) * 0.45, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = KIT.water; ctx.beginPath(); ctx.arc(x0 + w / 2, y0 + d / 2, Math.min(w, d) * 0.28, 0, Math.PI * 2); ctx.fill();
+    } else if (b.kind === "tower") {
+      ctx.fillStyle = KIT.stone; ctx.fillRect(x0, y0, w, d);
+      ctx.strokeStyle = KIT.stoneLite; ctx.lineWidth = 2; ctx.strokeRect(x0 + 2, y0 + 2, w - 4, d - 4);
+    } else {
+      ctx.fillStyle = "#8a6a3c"; ctx.fillRect(x0, y0, w, d);
+      ctx.fillStyle = "#c49454"; ctx.beginPath(); ctx.arc(x0 + w / 2, y0 + d / 2, Math.min(w, d) * 0.4, 0, Math.PI * 2); ctx.fill();
     }
-    // lights: ring = radius, disc = handle
+  }
+  function tdDraw(ctx, opt = {}) {
+    ctx.drawImage(back, 0, 0);
+    if (opt.before) opt.before(ctx);
+    // buildings
+    for (let o = 0; o < st.nobj; o++) {
+      const b = OBJ_ALL[o]; buildingTop(ctx, b);
+      if (opt.objHandles) { ctx.beginPath(); ctx.arc(wx(b.x), wz(b.z), 4, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); ctx.strokeStyle = "#0b0e13"; ctx.lineWidth = 1; ctx.stroke(); }
+    }
+    // lanterns: ring = reach, disc = handle
     for (let l = 0; l < st.nl; l++) {
       const L = LIGHTS[l]; const kept = opt.keep ? opt.keep.has(l) : null;
       const col = kept === null ? "242,163,65" : kept ? "90,212,138" : "242,163,65"; const a = kept === false ? 0.25 : 1;
-      ctx.strokeStyle = `rgba(${col},${0.35 * a})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(wx(L.x), wz(L.z), L.r * PPM, 0, Math.PI * 2); ctx.stroke();
-      if (opt.fillRings) { ctx.fillStyle = `rgba(${col},${0.07 * a})`; ctx.fill(); }
+      ctx.strokeStyle = `rgba(${col},${0.45 * a})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(wx(L.x), wz(L.z), L.r * PPM, 0, Math.PI * 2); ctx.stroke();
+      if (opt.fillRings) { ctx.fillStyle = `rgba(${col},${0.09 * a})`; ctx.fill(); }
       ctx.fillStyle = `rgba(${col},${a})`; ctx.beginPath(); ctx.arc(wx(L.x), wz(L.z), 5, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = "#0b0e13"; ctx.lineWidth = 1.5; ctx.stroke();
     }
     if (opt.after) opt.after(ctx);
-    // camera
-    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.moveTo(wx(0), wz(0) + 6); ctx.lineTo(wx(0) - 6, wz(0) + 14); ctx.lineTo(wx(0) + 6, wz(0) + 14); ctx.closePath(); ctx.fill();
-    ctx.font = "11px IBM Plex Mono, monospace"; ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.textAlign = "left";
-    ctx.fillText("far 24 m", wx(-12.6), wz(FAR) - 5); ctx.fillText("near 0.5 m", wx(1.2), wz(NEAR) + 4);
+    // the player, looking up the square
+    kitPlayerTop(ctx, wx(0), wz(0), 7, -Math.PI / 2);
+    kitLabel(ctx, "player", wx(0) - 12, wz(0) - 2, "right");
+    kitLabel(ctx, "far 24 m", wx(-12.6), wz(FAR) - 10, "left", "rgba(255,255,255,0.7)");
+    kitLabel(ctx, "near 0.5 m", wx(1.8), wz(NEAR) + 6, "left", "rgba(255,255,255,0.7)");
   }
   // wedge of a tile column in the top-down view (x extent only; y is out of the plane)
   function wedge(ctx, ti, z0, z1, fill, stroke) {
@@ -750,6 +926,22 @@ outColor = shadeClustered(m, P, N);</pre>
     ctx.stroke();
   }
   function cellRect(ctx, k, x, y, w, h, stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.strokeRect(x + (k % GW) * w / GW + 1, y + Math.floor(k / GW) * h / GH + 1, w / GW - 2, h / GH - 2); }
+  // outlines of the buildings and the ground edge, so a heat map still reads as the village
+  function outlines(ctx, x, y, w, h, alpha) {
+    const cw = w / GW, ch = h / GH; ctx.strokeStyle = `rgba(255,255,255,${alpha})`; ctx.lineWidth = 1; ctx.beginPath();
+    for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {
+      const k = j * GW + i;
+      if (i < GW - 1 && objId[k] !== objId[k + 1]) { const q = x + Math.round((i + 1) * cw) + 0.5; ctx.moveTo(q, y + j * ch); ctx.lineTo(q, y + (j + 1) * ch); }
+      if (j < GH - 1 && objId[k] !== objId[k + GW]) { const q = y + Math.round((j + 1) * ch) + 0.5; ctx.moveTo(x + i * cw, q); ctx.lineTo(x + (i + 1) * cw, q); }
+    }
+    ctx.stroke();
+  }
+  // "what the player sees" inset in the top-right sky corner of a 640×360 screen canvas
+  let shadeImg = null;
+  function playerInset(ctx) { kitInset(ctx, 470, 6, 164, 106, "what the player sees"); blitGrid(ctx, shadeImg, 472, 24, 160, 90); }
+  // the screen position of the middle of a building's front, for callouts
+  function screenOf(x, y, z) { return [((x / z / TANH) + 1) / 2 * 640, (1 - (y / z / TANV)) / 2 * 360]; }
+  function calloutFor(ctx, k, text, col) { const cx = (k % GW + 0.5) * 10, cy = (Math.floor(k / GW) + 0.5) * 10; const lx = cx < 320 ? cx + 40 : cx - 40, ly = Math.max(24, cy - 34); kitArrow(ctx, lx, ly + 9, cx, cy, col || "#ffffff"); kitLabel(ctx, text, lx, ly, cx < 320 ? "left" : "right", col); }
 
   // ---------- pointer plumbing ----------
   let pending = false, needRaster = true;
@@ -783,17 +975,24 @@ outColor = shadeClustered(m, P, N);</pre>
   const c1t = document.getElementById("c1t"), x1t = c1t.getContext("2d"), c1s = document.getElementById("c1s"), x1s = c1s.getContext("2d");
   const r1s = document.getElementById("c1s-read"), r1t = document.getElementById("c1t-read");
   function draw1() {
-    const N = st.nl; let fragTotal = 0, covered = 0, maxF = 1;
-    for (let k = 0; k < NPX; k++) { if (frags[k]) { covered++; fragTotal += st.prepass ? 1 : frags[k]; if (frags[k] > maxF) maxF = frags[k]; } }
+    const N = st.nl; let fragTotal = 0, covered = 0, maxF = 1, worstK = -1;
+    for (let k = 0; k < NPX; k++) { if (frags[k]) { covered++; fragTotal += st.prepass ? 1 : frags[k]; if (frags[k] > maxF) { maxF = frags[k]; worstK = k; } } }
     const img = gridImage(k => frags[k] ? heat((st.prepass ? 1 : frags[k]) / 4) : GROUND);
-    blitGrid(x1s, img, 0, 0, 640, 360); gridLines(x1s, 0, 0, 640, 360, 1, 0.08);
+    blitGrid(x1s, img, 0, 0, 640, 360); gridLines(x1s, 0, 0, 640, 360, 1, 0.08); outlines(x1s, 0, 0, 640, 360, 0.45);
     if (st.hoverPx >= 0) {
       const k = st.hoverPx; cellRect(x1s, k, 0, 0, 640, 360, "#fff");
       const f = st.prepass ? (frags[k] ? 1 : 0) : frags[k];
-      r1s.innerHTML = frags[k] ? `pixel ${k % GW},${Math.floor(k / GW)}: <strong>${f} fragment${f > 1 ? "s" : ""} × ${N} lights = ${f * N} evaluations</strong>${frags[k] > 1 && !st.prepass ? ` · ${frags[k] - 1} occluded, still paid` : ""} · ${lightsAt[k]} lights actually reach it` : `pixel ${k % GW},${Math.floor(k / GW)}: sky, nothing drawn`;
+      r1s.innerHTML = frags[k] ? `pixel ${k % GW},${Math.floor(k / GW)} on ${nameOf(k)}: <strong>${f} fragment${f > 1 ? "s" : ""} × ${N} lanterns = ${f * N} evaluations</strong>${frags[k] > 1 && !st.prepass ? ` · ${frags[k] - 1} hidden, still paid` : ""} · ${lightsAt[k]} lanterns actually reach it` : `pixel ${k % GW},${Math.floor(k / GW)}: sky, nothing drawn`;
     } else r1s.textContent = "hover a pixel";
-    tdDraw(x1t, { objHandles: true, fillRings: true });
-    r1t.innerHTML = `<strong>${N} lights · ${st.nobj} boxes</strong>`;
+    if (worstK >= 0 && !st.prepass) calloutFor(x1s, worstK, `${maxF} fragments: ${OBJ_ALL[objId[worstK]] ? OBJ_ALL[objId[worstK]].name : "cobbles"} in front of the square`);
+    else if (worstK >= 0) calloutFor(x1s, worstK, "prepass: 1 fragment everywhere");
+    kitLabel(x1s, "sky: nothing drawn", 8, 14, "left", "rgba(255,255,255,0.7)");
+    playerInset(x1s);
+    tdDraw(x1t, { objHandles: true, fillRings: true, after: ctx => {
+      const L = LIGHTS[0]; kitLabel(ctx, "lantern · ring = its reach", wx(L.x) + (L.x < 0 ? 10 : -10), wz(L.z) - 12, L.x < 0 ? "left" : "right", "#f2a341");
+      const b = OBJ_ALL[2]; if (st.nobj > 2) kitLabel(ctx, b.name + " · drag it", wx(b.x), wz(b.z + b.d / 2) - 12, "center");
+    } });
+    r1t.innerHTML = `<strong>${N} lanterns · ${st.nobj} buildings</strong>`;
     document.getElementById("t1-frag").innerHTML = `${fmtM(fragTotal * SCALE)}<small> (${fmtN(fragTotal)} cells)</small>`;
     document.getElementById("t1-eval").innerHTML = `${fmtM(fragTotal * N * SCALE)}<small> × ${N}</small>`;
     document.getElementById("t1-od").textContent = covered ? (fragTotal / covered).toFixed(2) + "×" : "0";
@@ -804,26 +1003,26 @@ outColor = shadeClustered(m, P, N);</pre>
   const c2s = document.getElementById("c2s"), x2s = c2s.getContext("2d"), c2t = document.getElementById("c2t"), x2t = c2t.getContext("2d");
   const r2s = document.getElementById("c2s-read"), r2t = document.getElementById("c2t-read");
   function octEncode(x, y, z) { const s = Math.abs(x) + Math.abs(y) + Math.abs(z); let u = x / s, v = y / s; if (z < 0) { const ou = u; u = (1 - Math.abs(v)) * (ou >= 0 ? 1 : -1); v = (1 - Math.abs(ou)) * (v >= 0 ? 1 : -1); } return [u * 0.5 + 0.5, v * 0.5 + 0.5]; }
-  const layerName = ["albedo RGBA8", "normal RG16 oct", "rough / metal", "depth D32"];
+  const layerName = ["colour of the surface (albedo RGBA8)", "which way it faces (normal RG16 oct)", "rough or shiny, metal or not", "how far away (depth D32)"];
   function draw2(fwdEval) {
     const N = st.nl; x2s.fillStyle = "#0b0e13"; x2s.fillRect(0, 0, 640, 360);
     const imgs = [
-      gridImage(k => depth[k] === Infinity ? GROUND : matOf(k).alb),
+      gridImage(k => depth[k] === Infinity ? GROUND : albedoOf(k)),
       gridImage(k => { if (depth[k] === Infinity) return GROUND; const [u, v] = octEncode(nx[k], ny[k], nz[k]); return [30 + AMBER[0] * u * 0.55 + BLUE[0] * v * 0.45, 30 + AMBER[1] * u * 0.55 + BLUE[1] * v * 0.45, 30 + AMBER[2] * u * 0.55 + BLUE[2] * v * 0.45]; }),
       gridImage(k => { if (depth[k] === Infinity) return GROUND; const m = matOf(k); return [30 + AMBER[0] * m.rough * 0.7 + BLUE[0] * m.metal * 0.3, 30 + AMBER[1] * m.rough * 0.7 + BLUE[1] * m.metal * 0.3, 30 + AMBER[2] * m.rough * 0.7 + BLUE[2] * m.metal * 0.3]; }),
       gridImage(k => { if (depth[k] === Infinity) return GROUND; const zb = (FAR / depth[k] - 1) / (FAR / NEAR - 1); const v = 40 + 215 * zb; return [v, v, v]; }), // nonlinear stored depth, bright = near
     ];
     const pos = [[2, 2], [322, 2], [2, 182], [322, 182]];
-    imgs.forEach((img, i) => { blitGrid(x2s, img, pos[i][0], pos[i][1], 316, 176); x2s.font = "11px IBM Plex Mono, monospace"; x2s.fillStyle = "rgba(255,255,255,0.75)"; x2s.textAlign = "left"; x2s.fillText(layerName[i], pos[i][0] + 6, pos[i][1] + 14); });
+    imgs.forEach((img, i) => { blitGrid(x2s, img, pos[i][0], pos[i][1], 316, 176); kitLabel(x2s, layerName[i], pos[i][0] + 4, pos[i][1] + 12, "left", "rgba(255,255,255,0.85)"); });
     if (st.hoverPx >= 0) {
       const k = st.hoverPx; pos.forEach(p => cellRect(x2s, k, p[0], p[1], 316, 176, "#fff"));
       if (depth[k] === Infinity) r2s.textContent = "sky: depth = far, nothing to light";
-      else { const m = matOf(k), [u, v] = octEncode(nx[k], ny[k], nz[k]); r2s.innerHTML = `albedo (${m.alb.join(",")}) · oct (${u.toFixed(2)}, ${v.toFixed(2)}) · rough ${m.rough} metal ${m.metal} · z <strong>${depth[k].toFixed(2)} m</strong> · <strong>${lightsAt[k]} lights</strong> reach it`; }
+      else { const m = matOf(k), a = albedoOf(k), [u, v] = octEncode(nx[k], ny[k], nz[k]); r2s.innerHTML = `${nameOf(k)}: albedo (${a.join(",")}) · oct (${u.toFixed(2)}, ${v.toFixed(2)}) · rough ${m.rough} metal ${m.metal} · z <strong>${depth[k].toFixed(2)} m</strong> · <strong>${lightsAt[k]} lanterns</strong> reach it`; }
     } else r2s.textContent = "hover a pixel";
-    tdDraw(x2t, { fillRings: true });
+    tdDraw(x2t, { fillRings: true, after: ctx => { const L = LIGHTS[0]; kitLabel(ctx, "only pixels inside a ring get this lantern", wx(L.x) + (L.x < 0 ? 10 : -10), wz(L.z) - 12, L.x < 0 ? "left" : "right", "#f2a341"); } });
     let defEval = 0, visible = 0; for (let k = 0; k < NPX; k++) if (depth[k] !== Infinity) { visible++; defEval += lightsAt[k]; }
     const rectEval = rectVolumePixels();
-    r2t.innerHTML = `<strong>${fmtN(visible)} lit cells</strong> · ${(defEval / Math.max(1, visible)).toFixed(2)} lights per cell`;
+    r2t.innerHTML = `<strong>${fmtN(visible)} lit cells</strong> · ${(defEval / Math.max(1, visible)).toFixed(2)} lanterns per cell`;
     document.getElementById("t2-fwd").innerHTML = `${fmtM(fwdEval)}<small> × ${N} every fragment</small>`;
     document.getElementById("t2-def").innerHTML = `${fmtM(defEval * SCALE)}<small> ${(100 * defEval * SCALE / Math.max(1, fwdEval)).toFixed(0)}% of forward</small>`;
     document.getElementById("t2-rect").innerHTML = `${fmtM(rectEval * SCALE)}<small> no depth bounds</small>`;
@@ -852,9 +1051,7 @@ outColor = shadeClustered(m, P, N);</pre>
     for (let k = 0; k < NPX; k++) if (frags[k]) fwdPlus += (st.prepass ? 1 : frags[k]) * tiles.count[tileOf(k)];
     x3s.fillStyle = "#0b0e13"; x3s.fillRect(0, 0, 640, 360);
     for (let t = 0; t < nt; t++) { const c = tiles.count[t]; x3s.fillStyle = rgb(c ? heat(c / Math.max(6, N * 0.6)) : GROUND); x3s.fillRect((t % tx) * tw, Math.floor(t / tx) * th, tw, th); }
-    // faint object outlines from the depth buffer so the tiles read against the scene
-    const img = gridImage(k => depth[k] === Infinity ? [0, 0, 0] : [255, 255, 255]);
-    x3s.globalAlpha = 0.10; blitGrid(x3s, img, 0, 0, 640, 360); x3s.globalAlpha = 1;
+    outlines(x3s, 0, 0, 640, 360, 0.4);
     gridLines(x3s, 0, 0, 640, 360, ts, 0.25);
     x3s.font = "11px IBM Plex Mono, monospace"; x3s.textAlign = "center"; x3s.textBaseline = "middle";
     if (ts >= 4) for (let t = 0; t < nt; t++) { x3s.fillStyle = tiles.count[t] > N * 0.4 ? "#0b0e13" : "rgba(255,255,255,0.7)"; x3s.fillText(tiles.count[t], (t % tx) * tw + tw / 2, Math.floor(t / tx) * th + th / 2); }
@@ -862,16 +1059,30 @@ outColor = shadeClustered(m, P, N);</pre>
     if (worst >= 0) { x3s.strokeStyle = "#ef5d5d"; x3s.lineWidth = 2; x3s.strokeRect((worst % tx) * tw + 1, Math.floor(worst / tx) * th + 1, tw - 2, th - 2); }
     const ht = st.hoverTile >= 0 ? st.hoverTile : worst;
     if (st.hoverTile >= 0) { x3s.strokeStyle = "#fff"; x3s.lineWidth = 2; x3s.strokeRect((ht % tx) * tw + 1, Math.floor(ht / tx) * th + 1, tw - 2, th - 2); }
+    if (worst >= 0) {
+      const wcx = (worst % tx) * tw + tw / 2, wcy = Math.floor(worst / tx) * th + th / 2, left = wcx < 320;
+      const lx = left ? wcx + tw / 2 + 36 : wcx - tw / 2 - 36, ly = Math.min(340, wcy + 30);
+      kitArrow(x3s, lx, ly - 9, left ? wcx + tw / 2 : wcx - tw / 2, wcy, "#ef5d5d"); kitLabel(x3s, "near edge meets far square: longest list", lx, ly, left ? "left" : "right", "#ef5d5d");
+    }
+    playerInset(x3s);
     if (ht >= 0) {
       const mn = tiles.minZ[ht], mx = tiles.maxZ[ht];
-      r3s.innerHTML = mn === Infinity ? `tile ${ht % tx},${Math.floor(ht / tx)}: sky only, 0 lights` : `tile ${ht % tx},${Math.floor(ht / tx)}: z ${mn.toFixed(1)} to ${mx.toFixed(1)} m · <strong>${tiles.count[ht]} of ${N} lights</strong>${ht === worst ? " · widest depth gap" : ""}`;
-      tdDraw(x3t, { keep: new Set(tiles.keep[ht]), before: ctx => { if (mn !== Infinity) wedge(ctx, ht % tx, mn, mx, ht === worst && st.hoverTile < 0 ? "rgba(239,93,93,0.18)" : "rgba(255,255,255,0.12)", ht === worst ? "#ef5d5d" : "#ffffff"); } });
+      r3s.innerHTML = mn === Infinity ? `tile ${ht % tx},${Math.floor(ht / tx)}: sky only, 0 lanterns` : `tile ${ht % tx},${Math.floor(ht / tx)}: z ${mn.toFixed(1)} to ${mx.toFixed(1)} m · <strong>${tiles.count[ht]} of ${N} lanterns</strong>${ht === worst ? " · widest depth gap" : ""}`;
+      const keepSet = new Set(tiles.keep[ht]);
+      tdDraw(x3t, { keep: keepSet, before: ctx => { if (mn !== Infinity) wedge(ctx, ht % tx, mn, mx, ht === worst && st.hoverTile < 0 ? "rgba(239,93,93,0.18)" : "rgba(255,255,255,0.12)", ht === worst ? "#ef5d5d" : "#ffffff"); }, after: ctx => {
+        if (mn === Infinity) return;
+        const ts2 = st.tile, xa = ((ht % tx) * ts2) / GW * 2 - 1, xb = Math.min(GW, ((ht % tx) + 1) * ts2) / GW * 2 - 1, zm = (mn + mx) / 2, xm = (xa + xb) / 2 * TANH * zm;
+        const lx = wx(xm); kitLabel(ctx, "this tile's wedge, near to far", lx < 256 ? lx + 14 : lx - 14, wz(zm), lx < 256 ? "left" : "right", ht === worst ? "#ef5d5d" : "#ffffff");
+        let kl = -1, cl = -1; for (let l = 0; l < N; l++) { if (kl < 0 && keepSet.has(l)) kl = l; if (cl < 0 && !keepSet.has(l)) cl = l; }
+        if (kl >= 0) { const L = LIGHTS[kl]; kitLabel(ctx, "kept", wx(L.x) + 9, wz(L.z) + 10, "left", "#5ad48a"); }
+        if (cl >= 0) { const L = LIGHTS[cl]; kitLabel(ctx, "culled", wx(L.x) + 9, wz(L.z) + 10, "left", "rgba(242,163,65,0.8)"); }
+      } });
       r3t.innerHTML = mn === Infinity ? "empty tile" : `tile column wedge, <strong>${(mx - mn).toFixed(1)} m deep</strong>`;
     } else { r3s.textContent = "hover a tile"; tdDraw(x3t, {}); }
     const pxTile = ts * 30;
     document.getElementById("t3-tiles").innerHTML = `${nt}<small> · ${pxTile}×${pxTile} px</small>`;
     document.getElementById("t3-avg").innerHTML = `${(sum / nt).toFixed(1)}<small> max ${maxC}</small>`;
-    document.getElementById("t3-worst").innerHTML = worst >= 0 ? `${tiles.count[worst]}<small> lights, ${worstGap.toFixed(1)} m gap</small>` : "·";
+    document.getElementById("t3-worst").innerHTML = worst >= 0 ? `${tiles.count[worst]}<small> lanterns, ${worstGap.toFixed(1)} m gap</small>` : "·";
     document.getElementById("t3-eval").innerHTML = `${fmtM(fwdPlus * SCALE)}<small> vs ${fmtM(NPX * 0 + (() => { let f = 0; for (let k = 0; k < NPX; k++) f += st.prepass ? (frags[k] ? 1 : 0) : frags[k]; return f; })() * N * SCALE)} plain</small>`;
     return { fwdPlus, sum, nt };
   }
@@ -883,24 +1094,31 @@ outColor = shadeClustered(m, P, N);</pre>
     const N = st.nl, S = st.slices, { tx, ty } = tiles, nt = tx * ty;
     let visible = 0, sumTile = 0, sumClu = 0;
     const img = gridImage(k => { if (depth[k] === Infinity) return GROUND; visible++; sumTile += tiles.count[tileOf(k)]; const c = clus.count[clusterOf(k)]; sumClu += c; return heat(c / Math.max(6, N * 0.6)); });
-    blitGrid(x4s, img, 0, 0, 640, 360); gridLines(x4s, 0, 0, 640, 360, st.tile, 0.25);
-    const row = st.hoverRow;
-    x4s.strokeStyle = "rgba(255,255,255,0.8)"; x4s.lineWidth = 1.5; x4s.strokeRect(0.5, row * 360 / GH * st.tile + 0.5, 639, 360 / GH * st.tile - 1);
+    blitGrid(x4s, img, 0, 0, 640, 360); outlines(x4s, 0, 0, 640, 360, 0.4); gridLines(x4s, 0, 0, 640, 360, st.tile, 0.25);
+    const row = st.hoverRow, rowY = row * 360 / GH * st.tile, rowH = 360 / GH * st.tile;
+    x4s.strokeStyle = "rgba(255,255,255,0.8)"; x4s.lineWidth = 1.5; x4s.strokeRect(0.5, rowY + 0.5, 639, rowH - 1);
+    kitLabel(x4s, "this row of tiles is drawn from above on the right", 8, rowY + rowH + 12 > 350 ? rowY - 12 : rowY + rowH + 12, "left");
+    playerInset(x4s);
     if (st.hoverPx >= 0) {
       const k = st.hoverPx; cellRect(x4s, k, 0, 0, 640, 360, "#fff");
-      r4s.innerHTML = depth[k] === Infinity ? "sky, no cluster lookup" : `z ${depth[k].toFixed(2)} m → slice <strong>${sliceOf(depth[k])} of ${S}</strong> · cluster list <strong>${clus.count[clusterOf(k)]} lights</strong> · tile list ${tiles.count[tileOf(k)]}`;
+      r4s.innerHTML = depth[k] === Infinity ? "sky, no cluster lookup" : `${nameOf(k)} at z ${depth[k].toFixed(2)} m → slice <strong>${sliceOf(depth[k])} of ${S}</strong> · cluster list <strong>${clus.count[clusterOf(k)]} lanterns</strong> · tile list ${tiles.count[tileOf(k)]}`;
     } else r4s.textContent = "hover a pixel";
     // top-down: cluster grid for one tile row, cell colour = list length
     tdDraw(x4t, {
       before: ctx => {
         for (let ti = 0; ti < tx; ti++) for (let s = 0; s < S; s++) {
           const c = clus.count[(row * tx + ti) * S + s]; const col = heat(c / Math.max(6, N * 0.6));
-          wedge(ctx, ti, clus.zs[s], clus.zs[s + 1], c ? `rgba(${col[0] | 0},${col[1] | 0},${col[2] | 0},0.55)` : "rgba(255,255,255,0.03)", null);
+          wedge(ctx, ti, clus.zs[s], clus.zs[s + 1], c ? `rgba(${col[0] | 0},${col[1] | 0},${col[2] | 0},0.6)` : "rgba(255,255,255,0.04)", null);
         }
         ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 1; ctx.beginPath();
         for (let s = 0; s <= S; s++) { const z = clus.zs[s]; ctx.moveTo(wx(-z * TANH), wz(z)); ctx.lineTo(wx(z * TANH), wz(z)); }
         for (let ti = 1; ti < tx; ti++) { const xa = (ti * st.tile) / GW * 2 - 1; ctx.moveTo(wx(xa * TANH * NEAR), wz(NEAR)); ctx.lineTo(wx(xa * TANH * FAR), wz(FAR)); }
         ctx.stroke();
+      },
+      after: ctx => {
+        const zNear = clus.zs[Math.floor(S * 0.35)], zFar = clus.zs[Math.floor(S * 0.85)];
+        kitLabel(ctx, "one cluster = one wedge, its own lantern list", wx(0), wz(zFar) - 12, "center");
+        kitLabel(ctx, "thin slices near the player", wx(zNear * TANH) + 8, wz(zNear), "left", "rgba(255,255,255,0.8)");
       }
     });
     r4t.innerHTML = `tile row ${row} · <strong>${tx} × ${S} clusters</strong> shown`;
@@ -920,19 +1138,19 @@ outColor = shadeClustered(m, P, N);</pre>
   function draw5(fwdPlus, defEval, cluEval, gb) {
     const pw = 210, ph = 118, pos = [[2, 0], [215, 0], [428, 0]];
     x5s.fillStyle = "#0b0e13"; x5s.fillRect(0, 0, 640, 360);
-    const imgs = [gridImage(k => depth[k] === Infinity ? GROUND : shade(k)), gridImage(k => depth[k] === Infinity ? GROUND : matOf(k).alb), gridImage(k => depth[k] === Infinity ? GROUND : triCol(triId[k]))];
-    const names = ["Forward+: depth, colour", "Deferred: G-buffer", "Visibility: triangle id"];
+    const imgs = [shadeImg, gridImage(k => depth[k] === Infinity ? GROUND : albedoOf(k)), gridImage(k => depth[k] === Infinity ? GROUND : triCol(triId[k]))];
+    const names = ["Forward+: the lit village", "Deferred: colour layer", "Visibility: which triangle"];
     // second row: the derived data each one has at shading time
     const imgs2 = [gridImage(k => { if (depth[k] === Infinity) return GROUND; const v = 40 + 215 * (FAR / depth[k] - 1) / (FAR / NEAR - 1); return [v, v, v]; }), gridImage(k => { if (depth[k] === Infinity) return GROUND; const [u, v] = octEncode(nx[k], ny[k], nz[k]); return [30 + AMBER[0] * u * 0.55 + BLUE[0] * v * 0.45, 30 + AMBER[1] * u * 0.55 + BLUE[1] * v * 0.45, 30 + AMBER[2] * u * 0.55 + BLUE[2] * v * 0.45]; }), gridImage(k => { if (depth[k] === Infinity) return GROUND; const [l0, l1, l2] = bary(k); return [AMBER[0] * l0 + BLUE[0] * l1 + 255 * l2, AMBER[1] * l0 + BLUE[1] * l1 + 255 * l2, AMBER[2] * l0 + BLUE[2] * l1 + 255 * l2]; })];
-    const names2 = ["prepass depth, stored", "normal, rough/metal, stored", "barycentrics, derived"];
-    x5s.font = "11px IBM Plex Mono, monospace"; x5s.textAlign = "left";
-    imgs.forEach((img, i) => { blitGrid(x5s, img, pos[i][0], 30, pw, ph); x5s.fillStyle = "rgba(255,255,255,0.8)"; x5s.fillText(names[i], pos[i][0] + 2, 22); });
-    imgs2.forEach((img, i) => { blitGrid(x5s, img, pos[i][0], 212, pw, ph); x5s.fillStyle = "rgba(255,255,255,0.6)"; x5s.fillText(names2[i], pos[i][0] + 2, 204); });
+    const names2 = ["stores: distance only", "stores: facing, rough, metal", "works out: place in triangle"];
+    imgs.forEach((img, i) => { blitGrid(x5s, img, pos[i][0], 30, pw, ph); kitLabel(x5s, names[i], pos[i][0] + 2, 16, "left", "rgba(255,255,255,0.9)"); });
+    imgs2.forEach((img, i) => { blitGrid(x5s, img, pos[i][0], 212, pw, ph); kitLabel(x5s, names2[i], pos[i][0] + 2, 198, "left", "rgba(255,255,255,0.75)"); });
+    kitLabel(x5s, "what the player sees", pos[0][0] + 4, 30 + ph - 12, "left", "#c7cdd8");
     const ms = st.msaa ? 4 : 1;
     const fB = (gb.depthBytes + 8) * ms, dB = gb.gbytes + 8, vB = (4 + gb.depthBytes) * ms + 8;
     if (st.hoverPx >= 0) {
       const k = st.hoverPx; pos.forEach(p => { cellRect(x5s, k, p[0], 30, pw, ph, "#fff"); cellRect(x5s, k, p[0], 212, pw, ph, "#fff"); });
-      const bb = bary(k); r5s.innerHTML = depth[k] === Infinity ? "sky: forward+ stores far depth, deferred a cleared G-buffer, v-buffer id 0" : `<strong>${fB} B</strong> forward+ · <strong>${dB} B</strong> deferred · <strong>${vB} B</strong> v-buffer, id ${triId[k]}, λ = (${bb.map(x => x.toFixed(2)).join(", ")})`;
+      const bb = bary(k); r5s.innerHTML = depth[k] === Infinity ? "sky: forward+ stores far depth, deferred a cleared G-buffer, v-buffer id 0" : `${nameOf(k)}: <strong>${fB} B</strong> forward+ · <strong>${dB} B</strong> deferred · <strong>${vB} B</strong> v-buffer, id ${triId[k]}, λ = (${bb.map(x => x.toFixed(2)).join(", ")})`;
     } else r5s.textContent = "hover a pixel";
     const P4 = 3840 * 2160, mx = Math.max(fB, dB, vB);
     const setBar = (id, bytes, off, label) => { const el = document.getElementById(id); el.classList.toggle("off", off); el.querySelector(".fill").style.width = (100 * bytes / mx) + "%"; el.querySelector(".v").textContent = label || `${bytes} B/px · ${Math.round(bytes * P4 / 1048576)} MB`; };
@@ -947,6 +1165,7 @@ outColor = shadeClustered(m, P, N);</pre>
   function drawAll() {
     if (needRaster) { raster(); needRaster = false; }
     lightCounts(); buildTiles(); buildClusters();
+    shadeImg = gridImage(shade);
     const fwdEval = draw1();
     const d2 = draw2(fwdEval);
     const d3 = draw3();

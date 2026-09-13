@@ -153,20 +153,20 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">10 m × 10 m slice · 300 segments in 6 objects · drag the white handles</p>
+    <p class="eyebrow">a village at night, 10 m × 10 m from above · 300 segments in 8 props · drag the player and the aim point</p>
     <h1>Ray Tracing &amp; the BVH</h1>
     <p class="lead">Ray tracing asks one question per pixel: <b>which surface does this line hit first</b>. Checking every triangle to answer it is far too slow, so the scene gets wrapped in a <b>tree of boxes</b> called a bounding volume hierarchy, and a ray only opens the boxes it touches. That turns millions of tests into a few dozen. <b>The part people get wrong</b>: the ray tracing hardware in a GPU only walks the tree, and building it, then keeping it current as things move, is still your frame time.</p>
     <div class="key">
-      <span style="--sw:#9aa3b2">the scene's line segments</span>
+      <span style="--sw:#9aa3b2">walls, canopies, crate sides and leaves: the segments a ray can hit</span>
       <span style="--sw:#4aa3ff">box the ray opened</span>
-      <span style="--sw:#f2a341">box whose segments were tested, and the hit point</span>
-      <span style="--sw:#ffffff">the ray and its drag handles</span>
+      <span style="--sw:#f2a341">box whose segments were tested, and the first thing the player sees</span>
+      <span style="--sw:#ffffff">the player's line of sight and its aim handle</span>
       <span style="--sw:#5ad48a">box test passed</span>
-      <span style="--sw:#ef5d5d">box test failed, or skipped as too far</span>
+      <span style="--sw:#ef5d5d">box test failed, or skipped as behind the hit</span>
     </div>
     <dl class="terms">
       <dt>ray</dt><dd>a line fired from a point in one direction; we want the first thing it hits</dd>
-      <dt>segment</dt><dd>one straight piece of geometry; this 2D demo's stand-in for a triangle</dd>
+      <dt>segment</dt><dd>one straight piece of a wall, a crate side or a leaf edge; this 2D demo's stand-in for a triangle</dd>
       <dt>bounding box</dt><dd>the smallest upright rectangle around some geometry; cheap to test</dd>
       <dt>BVH</dt><dd>bounding volume hierarchy: boxes inside boxes, with a few segments in each bottom box</dd>
       <dt>node, leaf</dt><dd>one box in the tree; a leaf is a bottom box that holds segments instead of children</dd>
@@ -179,10 +179,10 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 
   <section id="brute">
     <h2>One ray, with and without the tree</h2>
-    <p class="sub">Drag the ray's start or its aim point and watch both counters update for the same ray.</p>
+    <p class="sub">A player stands at the edge of a village at night and looks across it. Drag the player or the aim point and watch how much work it takes to find the first wall, tree or crate in their line of sight, with and without the tree of boxes.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c1" width="512" height="512" class="grab" aria-label="One ray traced against the scene with and without a BVH"></canvas>
+        <canvas id="c1" width="512" height="512" class="grab" aria-label="Top-down village at night: a player's line of sight traced to the first house wall, tree or crate it hits, with the BVH boxes it opened drawn on top and a small first-person view of the village in the corner"></canvas>
         <div class="cap"><span id="c1-left">brute force</span><span id="c1-right">BVH</span></div>
         <div class="cap"><span id="c1-build"></span><span>leaf size 4 · binned SAH</span></div>
       </div>
@@ -190,14 +190,14 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
         <p class="plain">The slow way to find what a ray hits is to <b>test every segment in the scene</b>. The BVH wraps the scene in <b>boxes inside boxes</b>, and a ray that misses a box never looks inside it. Same ray, same answer, but <b>a few dozen box tests instead of hundreds of segment tests</b>.</p>
 
         <h3>What you're seeing</h3>
-        <p>The white line is the ray, running from one handle toward the other. Grey lines are the scene's segments. Blue boxes are the ones the ray opened, amber boxes are the bottom boxes whose segments were tested, and red boxes were tested and thrown out. The hit point is the amber dot.</p>
-        <p>The three tiles count the work for this one ray: segment tests without the tree, boxes visited with it, and segment tests with it.</p>
+        <p>You are looking down on a village: a house, two oaks, a well, two crates, a fence, a hedge and a lamp. The small figure is the player and the white line is their line of sight, running toward the aim handle. The pale lines along each prop's edge are the segments a ray can hit. Blue boxes are the ones the ray opened, amber boxes are the bottom boxes whose segments were tested, and red boxes were tested and thrown out. The amber dot is the first thing the player sees.</p>
+        <p>The inset in the corner is the player's own view of the village from where they stand, drawn by firing one ray per column through the same tree. The three tiles count the work for the one white ray: segment tests without the tree, boxes visited with it, and segment tests with it.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Push the Segments slider to 5,000. The brute-force number follows it; the two BVH numbers barely move.</li>
-          <li>Drag the aim point so the ray passes through two objects. The hit stays on the nearer one, and boxes behind it are rejected without being opened.</li>
-          <li>Aim the ray at empty space. Brute force still tests every segment; the tree only opens the boxes along the line.</li>
+          <li>Push the Segments slider to 5,000. Every prop gets more detail, the brute-force number follows it, and the two BVH numbers barely move.</li>
+          <li>Drag the aim point so the line of sight crosses the well and then an oak. The hit stays on the well, and the oak's boxes are thrown out without being opened.</li>
+          <li>Aim between the fence and the hedge so the player sees only sky. Brute force still tests every segment; the tree only opens the boxes along the line.</li>
         </ul>
 
         <div class="controls">
@@ -237,22 +237,22 @@ expected nodes visited per ray ≈ O(log N)   (SAH-built tree, ~1.5–2 × log�
 
   <section id="build">
     <h2>How the tree gets built</h2>
-    <p class="sub">Step through the tree one level at a time and hover a box to see how good each possible cut of it would be.</p>
+    <p class="sub">The same village, boxed up. Step through the tree one level at a time and hover a box to see how good each possible cut of it would be.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" width="512" height="512" aria-label="BVH construction levels and the SAH cost curve for one node"></canvas>
+        <canvas id="c2" width="512" height="512" aria-label="The village from above with one level of the BVH boxes drawn over the house, oaks, crates and hedge, and below it the SAH cost curve for every possible cut of the hovered box"></canvas>
         <div class="cap"><span id="c2-left"></span><span id="c2-right"></span></div>
       </div>
       <div class="prose">
         <p class="plain">Building the tree means <b>cutting each box in two, over and over</b>, until each piece holds only a few segments. Where you cut matters. <b>Cutting at the middle</b> gives a tidy, balanced tree whose boxes overlap a lot. <b>Cutting where the geometry is</b> gives lopsided boxes that overlap less, so a ray opens fewer of them.</p>
 
         <h3>What you're seeing</h3>
-        <p>The boxes are one level of the tree: blue ones will be cut again, dashed amber ones are already leaves. The white box is the one under your pointer, with its cut drawn as a dashed line.</p>
+        <p>The boxes over the village are one level of the tree: blue ones will be cut again, dashed amber ones are already leaves. The white box is the one under your pointer, with its cut drawn as a dashed line and a label saying what the box holds, such as the house and the well.</p>
         <p>The strip at the bottom is the cost of every place that white box could be cut. The amber dot is the cheapest cut, the blue dot is where a plain middle cut would land.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Switch between median and SAH at level 3. Median boxes overlap each other; SAH boxes hug the objects.</li>
+          <li>Switch between median and SAH at level 3. Median boxes overlap each other and cut through the house; SAH boxes hug the props.</li>
           <li>Drop Leaf size to 1, then raise it to 8. Nodes and Tests / ray in the table pull in opposite directions.</li>
           <li>Compare the Build and Nodes / ray columns for the two rules. You pay build time once to save time on every ray.</li>
         </ul>
@@ -309,10 +309,10 @@ best.cost = INF;
 
   <section id="traverse">
     <h2>Walking the tree, one step at a time</h2>
-    <p class="sub">Scrub through one ray's walk down the tree and watch the list of boxes still waiting to be checked.</p>
+    <p class="sub">One look across the village, one box at a time. Scrub through the ray's walk down the tree and watch the list of boxes still waiting to be checked.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c3" width="512" height="512" class="grab" aria-label="Stack-based BVH traversal for one ray, step by step"></canvas>
+        <canvas id="c3" width="512" height="512" class="grab" aria-label="The village from above with the player's line of sight walking the BVH one box at a time: green boxes passed, red boxes failed or were skipped, and the closest hit so far is marked"></canvas>
         <div class="cap"><span id="c3-left"></span><span id="c3-right"></span></div>
         <div class="stackview" id="stack3"><span class="lbl">stack</span></div>
         <div class="controls" style="margin-top:12px">
@@ -325,14 +325,14 @@ best.cost = INF;
         <p class="plain">Walking the tree is a loop with a <b>to-do list of boxes</b>. Take the top box off the list, test it, and either <b>throw it away, test its segments, or add its two children</b> to the list. The child nearer the ray goes on top so it is checked first. <b>Once a hit is found, any box that starts beyond it is skipped</b> without being opened.</p>
 
         <h3>What you're seeing</h3>
-        <p>Each step takes one box off the list. Green boxes passed the box test. Red boxes failed it, or were skipped because they start beyond the hit found so far.</p>
+        <p>The player looks across the village toward the aim handle. Each step takes one box off the list. Green boxes passed the box test. Red boxes failed it, or were skipped because they start beyond the hit found so far. The label on the current box says what happened to it, and the amber dot is the closest thing found so far.</p>
         <p>The chips under the picture are the to-do list, which programmers call the stack. The amber chip is the next box to be checked.</p>
 
         <h3>Try this</h3>
         <ul class="try">
           <li>Step forward with ▶ and watch the chips. Each opened box adds two children; each leaf adds none.</li>
           <li>Switch Ray type to any hit. The walk ends at the first segment it touches, so it takes fewer steps.</li>
-          <li>Drag the ray so it hits something close to its start. Boxes farther along turn red as they get skipped.</li>
+          <li>Drag the aim point so the player looks straight at the well. Boxes farther along turn red as they get skipped.</li>
         </ul>
 
         <h3>The real version</h3>
@@ -376,10 +376,10 @@ Möller–Trumbore (3D triangle v0 v1 v2):
 
   <section id="twolevel">
     <h2>Two trees: objects and the scene</h2>
-    <p class="sub">Drag an object and only the small top tree is rebuilt; turn on deform and the tree mesh's own tree is refit every frame.</p>
+    <p class="sub">Boulders, oaks and crates dropped around the village. Drag one and only the small top tree is rebuilt; switch on the wind and the bending oak's own tree is refit every frame.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" width="512" height="512" class="grab" aria-label="Two-level acceleration structure with instances and a TLAS"></canvas>
+        <canvas id="c4" width="512" height="512" class="grab" aria-label="Top-down village of three boulders, two oaks and two crates, each a placed copy of one mesh, with the player's line of sight entering some of them and an inset showing the ray inside the hit prop's own tree"></canvas>
         <div class="cap"><span id="c4-left"></span><span id="c4-right"></span></div>
         <div class="cap"><span id="c4-op"></span></div>
       </div>
@@ -387,18 +387,18 @@ Möller–Trumbore (3D triangle v0 v1 v2):
         <p class="plain">A game scene has <b>one tree per mesh</b>, built once, and <b>one small tree over all the placed copies</b> of those meshes. Moving an object only touches the small tree, which is cheap. <b>Bending or skinning a mesh changes its own tree</b>, and that is where the real cost hides.</p>
 
         <h3>What you're seeing</h3>
-        <p>Three meshes, seven placed copies. Each copy is an instance: the same mesh at a different position, angle and size. Amber outlines are the instances the ray entered; the boxes inside them belong to that mesh's own tree.</p>
-        <p>The inset at the lower right shows the ray inside the entered mesh's own space, where the mesh tree lives. The caption under the picture says what the last change rebuilt or refit, and how long it took.</p>
+        <p>Three meshes, seven placed copies: three boulders, two oaks and two crates. Each copy is an instance: the same mesh at a different position, angle and size. The player's line of sight is the white line. Amber outlines are the props the ray entered; the boxes inside them belong to that mesh's own tree.</p>
+        <p>The inset at the lower right shows the ray inside the entered prop's own space, where the mesh tree lives. The caption under the picture says what the last change rebuilt or refit, and how long it took.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Drag an instance by its handle. The caption reports a top-level rebuild of a few nodes; the mesh trees are untouched.</li>
-          <li>Turn on Deform. The tree mesh's own tree is now refit every frame, and the caption adds the refit time.</li>
-          <li>Drag two instances so they overlap. A ray through that spot has to enter both, because the top tree cannot separate them.</li>
+          <li>Drag a boulder by its handle. The caption reports a top-level rebuild of a few nodes; the mesh trees are untouched.</li>
+          <li>Switch on Wind. Both oaks bend, because they share one mesh, and that mesh's own tree is refit every frame; the caption adds the refit time.</li>
+          <li>Drag a crate onto a boulder so they overlap. A ray through that spot has to enter both, because the top tree cannot separate them.</li>
         </ul>
 
         <div class="controls">
-          <div class="ctl"><span class="lab">Deform</span><label class="chk"><input type="checkbox" id="deform4"> animate the tree mesh (BLAS refit)</label></div>
+          <div class="ctl"><span class="lab">Wind</span><label class="chk"><input type="checkbox" id="deform4"> bend the oak mesh (BLAS refit)</label></div>
         </div>
 
         <h3>The real version</h3>
@@ -445,22 +445,22 @@ refit: for node in reverse build order
 
   <section id="budget">
     <h2>The ray budget</h2>
-    <p class="sub">Drag the camera or its aim point and see why rays that travel together cost less than rays that scatter.</p>
+    <p class="sub">Twenty-four neighbouring pixels of the player's view travel together across the village; the light bouncing off the wall they hit scatters everywhere. Drag the player or the aim point.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="512" height="512" class="grab" aria-label="Coherent primary ray bundle versus incoherent diffuse bounce rays"></canvas>
+        <canvas id="c5" width="512" height="512" class="grab" aria-label="The village from above: a tight blue fan of 24 camera rays from the player to the house wall, an amber spray of bounce rays leaving the hit point in every direction, and a strip showing those 24 pixels on screen"></canvas>
         <div class="cap"><span id="c5-left"></span><span id="c5-right"></span></div>
       </div>
       <div class="prose">
         <p class="plain">A 1080p frame is about <b>two million pixels</b>, so every ray you add per pixel is two million more rays. Rays that <b>travel together</b> through the same boxes are cheap. Rays that <b>scatter in all directions</b> each take a different path through the tree, and the quoted hardware rate assumes the cheap kind.</p>
 
         <h3>What you're seeing</h3>
-        <p>Blue rays are a bundle of 24 neighbouring camera rays, fanned out side by side. Amber rays start where the middle blue ray lands and bounce off in random directions, the way light leaves a matte surface.</p>
-        <p>Blue boxes are the leaves the camera bundle touched; amber boxes are the leaves the bounce bundle touched. The table counts them.</p>
+        <p>Blue rays are 24 neighbouring pixels of the player's view, fanned out side by side toward the house. Amber rays start where the middle blue ray lands and bounce off in random directions, the way light leaves a matte wall.</p>
+        <p>Blue boxes are the leaves the player's bundle touched; amber boxes are the leaves the bounce bundle touched. The strip in the corner is those 24 pixels as they appear on screen, coloured by what each ray hit. The table counts the boxes.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Aim the camera at one object. The blue bundle lands in a few leaves; the amber bounce still spreads across the scene.</li>
+          <li>Aim the player at one oak. The blue bundle lands in a few leaves; the amber bounce still spreads across the village.</li>
           <li>Push Shadow, Reflection and GI rays to their maximums. The ms tile climbs, and so does the share of a 16.7 ms frame.</li>
           <li>Switch Target to 3840×2160. Four times the pixels means four times the rays at the same rate.</li>
         </ul>
@@ -562,38 +562,208 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
 </div>
 
 <script>
+// Rendering Library scene kit. Paste this whole block at the top of a page's <script> (no external
+// scripts are allowed). Small, flat, readable game-world props for 2D canvas demos. Every function
+// takes a ctx and draws in the current transform; sizes are in canvas pixels. Keep the mechanism
+// overlay (frustum lines, rays, samples, tests) in the library palette on top of these props.
+const KIT = {
+  // scene palette: props only; the mechanism overlay keeps amber / blue / white / green / red
+  grass: '#1f3a2a', grassLite: '#2a4d37', dirt: '#3b2f25', stone: '#4c5563', stoneLite: '#6b7585',
+  wood: '#7a4f2a', woodLite: '#a06a38', leaf: '#3f8f4a', leafLite: '#5ab562', roof: '#a5433a',
+  wallCol: '#c9c2b2', window: '#f5d67a', skin: '#e8b98a', shirt: '#4aa3ff', pants: '#2f3a55',
+  metal: '#8d95a3', flame: '#f2a341', sky: '#0b0e13', skyLite: '#141a26', water: '#1d4d73', cloud: '#c7cdd8',
+  shadow: 'rgba(0,0,0,0.35)'
+};
+// horizon band: dark sky above, ground below (side-view scenes)
+function kitGround(ctx, w, h, horizon) {
+  const g = ctx.createLinearGradient(0, 0, 0, horizon); g.addColorStop(0, KIT.sky); g.addColorStop(1, KIT.skyLite);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, horizon);
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, horizon, w, h - horizon);
+  ctx.fillStyle = KIT.grassLite; ctx.fillRect(0, horizon, w, 3);
+}
+// top-down ground with faint tile grid (top-down scenes)
+function kitTopGround(ctx, w, h, cell) {
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.beginPath();
+  for (let x = 0; x <= w; x += cell) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, h); }
+  for (let y = 0; y <= h; y += cell) { ctx.moveTo(0, y + 0.5); ctx.lineTo(w, y + 0.5); }
+  ctx.stroke();
+}
+// round tree, base at (x, y), s = trunk height
+function kitTree(ctx, x, y, s, tint) {
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, s * 0.55, s * 0.18, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.09, y - s, s * 0.18, s);
+  ctx.fillStyle = tint || KIT.leaf; ctx.beginPath(); ctx.arc(x, y - s * 1.25, s * 0.62, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.leafLite; ctx.beginPath(); ctx.arc(x - s * 0.2, y - s * 1.45, s * 0.3, 0, Math.PI * 2); ctx.fill();
+}
+// pine tree, base at (x, y)
+function kitPine(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.07, y - s * 0.4, s * 0.14, s * 0.4);
+  ctx.fillStyle = KIT.leaf;
+  for (let i = 0; i < 3; i++) { const yy = y - s * 0.35 - i * s * 0.42, ww = s * (0.7 - i * 0.16);
+    ctx.beginPath(); ctx.moveTo(x - ww, yy); ctx.lineTo(x + ww, yy); ctx.lineTo(x, yy - s * 0.55); ctx.closePath(); ctx.fill(); }
+}
+// house, bottom-left corner at (x, y), width w, wall height h
+function kitHouse(ctx, x, y, w, h, roofCol) {
+  ctx.fillStyle = KIT.wallCol; ctx.fillRect(x, y - h, w, h);
+  ctx.fillStyle = roofCol || KIT.roof; ctx.beginPath(); ctx.moveTo(x - w * 0.08, y - h); ctx.lineTo(x + w * 1.08, y - h); ctx.lineTo(x + w / 2, y - h - w * 0.45); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + w * 0.15, y - h * 0.75, w * 0.22, h * 0.3);
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x + w * 0.6, y - h * 0.6, w * 0.22, h * 0.6);
+}
+// wooden crate, centre (x, y), size s
+function kitCrate(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s / 2, y - s / 2, s, s);
+  ctx.strokeStyle = KIT.woodLite; ctx.lineWidth = Math.max(1, s * 0.08);
+  ctx.strokeRect(x - s / 2 + 1, y - s / 2 + 1, s - 2, s - 2);
+  ctx.beginPath(); ctx.moveTo(x - s / 2, y - s / 2); ctx.lineTo(x + s / 2, y + s / 2); ctx.moveTo(x + s / 2, y - s / 2); ctx.lineTo(x - s / 2, y + s / 2); ctx.stroke();
+}
+// stone wall segment from (x1, y1) to (x2, y2), thickness t (top-down or side)
+function kitWall(ctx, x1, y1, x2, y2, t) {
+  ctx.strokeStyle = KIT.stone; ctx.lineWidth = t; ctx.lineCap = 'butt'; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.strokeStyle = KIT.stoneLite; ctx.lineWidth = Math.max(1, t * 0.25); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+}
+// little player figure, feet at (x, y), height h, facing +1 right / -1 left
+function kitPlayer(ctx, x, y, h, facing) {
+  const f = facing || 1;
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, h * 0.28, h * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.pants; ctx.fillRect(x - h * 0.16, y - h * 0.42, h * 0.32, h * 0.42);
+  ctx.fillStyle = KIT.shirt; ctx.fillRect(x - h * 0.2, y - h * 0.78, h * 0.4, h * 0.38);
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y - h * 0.9, h * 0.14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#171a1f'; ctx.fillRect(x + f * h * 0.04, y - h * 0.93, h * 0.05, h * 0.04);
+}
+// top-down player: a circle with a facing wedge, centre (x, y), radius r, angle a (radians)
+function kitPlayerTop(ctx, x, y, r, a) {
+  ctx.fillStyle = KIT.shirt; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * r * 1.6, y + Math.sin(a) * r * 1.6); ctx.stroke();
+}
+// lamp post / torch, base at (x, y), height h; glow radius g (0 = none)
+function kitLamp(ctx, x, y, h, g) {
+  if (g > 0) { const gr = ctx.createRadialGradient(x, y - h, 0, x, y - h, g); gr.addColorStop(0, 'rgba(242,163,65,0.35)'); gr.addColorStop(1, 'rgba(242,163,65,0)'); ctx.fillStyle = gr; ctx.fillRect(x - g, y - h - g, g * 2, g * 2); }
+  ctx.fillStyle = KIT.metal; ctx.fillRect(x - h * 0.04, y - h, h * 0.08, h);
+  ctx.fillStyle = KIT.flame; ctx.beginPath(); ctx.arc(x, y - h, h * 0.12, 0, Math.PI * 2); ctx.fill();
+}
+// simple side-view car, bottom-left at (x, y), length L
+function kitCar(ctx, x, y, L, col) {
+  ctx.fillStyle = col || '#d8493f'; ctx.fillRect(x, y - L * 0.22, L, L * 0.2);
+  ctx.fillRect(x + L * 0.22, y - L * 0.4, L * 0.5, L * 0.2);
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + L * 0.26, y - L * 0.38, L * 0.42, L * 0.14);
+  ctx.fillStyle = '#171a1f'; ctx.beginPath(); ctx.arc(x + L * 0.22, y, L * 0.09, 0, Math.PI * 2); ctx.arc(x + L * 0.78, y, L * 0.09, 0, Math.PI * 2); ctx.fill();
+}
+// cloud, centre (x, y), width w
+function kitCloud(ctx, x, y, w, alpha) {
+  ctx.fillStyle = 'rgba(199,205,216,' + (alpha == null ? 0.35 : alpha) + ')';
+  ctx.beginPath(); ctx.arc(x - w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.arc(x, y - w * 0.08, w * 0.28, 0, Math.PI * 2); ctx.arc(x + w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.fill();
+}
+// plain-word label on the canvas with a dark pill behind it; anchor 'left' | 'center' | 'right'
+function kitLabel(ctx, text, x, y, anchor, col) {
+  ctx.font = '12px "IBM Plex Mono", Menlo, Consolas, monospace';
+  const w = ctx.measureText(text).width + 12, h = 18;
+  const x0 = anchor === 'center' ? x - w / 2 : anchor === 'right' ? x - w : x;
+  ctx.fillStyle = 'rgba(11,14,19,0.82)'; ctx.fillRect(x0, y - h / 2, w, h);
+  ctx.fillStyle = col || '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(text, x0 + 6, y + 1);
+}
+// arrow from (x1, y1) to (x2, y2) in a colour, for callouts
+function kitArrow(ctx, x1, y1, x2, y2, col, width) {
+  const a = Math.atan2(y2 - y1, x2 - x1), s = 7;
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = width || 1.5;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - s * Math.cos(a - 0.4), y2 - s * Math.sin(a - 0.4)); ctx.lineTo(x2 - s * Math.cos(a + 0.4), y2 - s * Math.sin(a + 0.4)); ctx.closePath(); ctx.fill();
+}
+// "what the player sees" inset frame: draws a titled box at (x, y, w, h); draw the picture inside afterwards
+function kitInset(ctx, x, y, w, h, title) {
+  ctx.fillStyle = 'rgba(11,14,19,0.92)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
+}
+// page props in the same flat style, seen from above
+function kitTreeTop(ctx, x, y, r) {
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.arc(x + r * 0.18, y + r * 0.18, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.leaf; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.leafLite; ctx.beginPath(); ctx.arc(x - r * 0.28, y - r * 0.28, r * 0.42, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.wood; ctx.beginPath(); ctx.arc(x, y, r * 0.12, 0, Math.PI * 2); ctx.fill();
+}
+function kitHouseTop(ctx, x, y, w, h) {
+  ctx.fillStyle = KIT.shadow; ctx.fillRect(x + 4, y + 4, w, h);
+  ctx.fillStyle = KIT.roof; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = '#7d332c'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + w * 0.06, y + h / 2); ctx.lineTo(x + w * 0.94, y + h / 2); ctx.stroke();
+  ctx.fillStyle = KIT.stone; ctx.fillRect(x + w * 0.72, y + h * 0.18, w * 0.08, h * 0.16);
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x + w * 0.4, y + h - h * 0.12, w * 0.2, h * 0.12);
+}
+function kitWellTop(ctx, x, y, r) {
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.arc(x + r * 0.2, y + r * 0.2, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.stone; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.water; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = KIT.stoneLite; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r * 0.8, 0, Math.PI * 2); ctx.stroke();
+}
+function kitHedgeTop(ctx, x, y, r) {
+  ctx.fillStyle = '#2f6e3a'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.leaf;
+  for (let i = 0; i < 6; i++) { const a = i * 1.047 + 0.3, rr = r * 0.55; ctx.beginPath(); ctx.arc(x + Math.cos(a) * rr, y + Math.sin(a) * rr, r * 0.3, 0, Math.PI * 2); ctx.fill(); }
+}
+function kitFenceTop(ctx, x1, y1, x2, y2) {
+  ctx.strokeStyle = KIT.wood; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  const L = Math.hypot(x2 - x1, y2 - y1), n = Math.max(2, Math.round(L / 26));
+  ctx.fillStyle = KIT.woodLite;
+  for (let i = 0; i <= n; i++) { const u = i / n; ctx.fillRect(x1 + (x2 - x1) * u - 3, y1 + (y2 - y1) * u - 3, 6, 6); }
+}
+function kitLampTop(ctx, x, y, g) {
+  const gr = ctx.createRadialGradient(x, y, 0, x, y, g); gr.addColorStop(0, 'rgba(242,163,65,0.38)'); gr.addColorStop(1, 'rgba(242,163,65,0)');
+  ctx.fillStyle = gr; ctx.fillRect(x - g, y - g, g * 2, g * 2);
+  ctx.fillStyle = KIT.metal; ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.flame; ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+}
 (() => {
   const W = 512, M = 10;
-  const COL = { ground: '#0b0e13', amber: '#f2a341', blue: '#4aa3ff', white: '#ffffff', green: '#5ad48a', red: '#ef5d5d', grid: 'rgba(255,255,255,0.12)', geo: 'rgba(214,219,227,0.5)' };
+  const COL = { ground: '#0b0e13', amber: '#f2a341', blue: '#4aa3ff', white: '#ffffff', green: '#5ad48a', red: '#ef5d5d', grid: 'rgba(255,255,255,0.12)', geo: 'rgba(214,219,227,0.55)' };
   const FONT = '12px "IBM Plex Mono", Menlo, Consolas, monospace';
 
   function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
   const fmtN = n => n.toLocaleString('en-US');
   const fmtMs = ms => ms < 0.01 ? '<0.01 ms' : ms.toFixed(2) + ' ms';
 
-  // ---------- scene: 10 m × 10 m, world coords 0..1, six objects, N segments ----------
+  // ---------- scene: a village at night, 10 m × 10 m from above, world coords 0..1, N segments ----------
+  // every prop is a set of segments a ray can hit: house walls, tree canopies, crate sides, fence boards, hedge leaves
   const OBJS = [
-    { cx: 0.24, cy: 0.27, r: 0.13, k: 3, amp: 0.22, w: 1 },
-    { cx: 0.66, cy: 0.22, r: 0.10, k: 5, amp: 0.38, w: 1 },
-    { cx: 0.80, cy: 0.60, r: 0.12, k: 2, amp: 0.16, w: 1 },
-    { cx: 0.28, cy: 0.70, r: 0.11, k: 4, amp: 0.30, w: 1 },
-    { cx: 0.52, cy: 0.48, r: 0.06, k: 6, amp: 0.40, w: 0.6 },
-    { cx: 0.58, cy: 0.84, r: 0.13, scatter: true, w: 1.6 }
+    { name: 'house', kind: 'rect', cx: 0.27, cy: 0.27, hw: 0.15, hh: 0.11, w: 1.1, min: 10 },
+    { name: 'oak', kind: 'loop', cx: 0.70, cy: 0.20, r: 0.11, k: 5, amp: 0.10, w: 1 },
+    { name: 'oak', kind: 'loop', cx: 0.83, cy: 0.56, r: 0.12, k: 3, amp: 0.08, w: 1 },
+    { name: 'well', kind: 'loop', cx: 0.30, cy: 0.64, r: 0.055, k: 8, amp: 0.02, w: 0.45 },
+    { name: 'crates', kind: 'crates', cx: 0.54, cy: 0.47, s: 0.045, w: 0.6, min: 8 },
+    { name: 'hedge', kind: 'scatter', cx: 0.50, cy: 0.84, r: 0.12, w: 1.6 },
+    { name: 'fence', kind: 'fence', x1: 0.06, y1: 0.80, x2: 0.36, y2: 0.80, w: 0.5 },
+    { name: 'lamp', kind: 'loop', cx: 0.62, cy: 0.66, r: 0.012, k: 0, amp: 0, w: 0.12 }
   ];
+  const OBJCOL = { house: KIT.wallCol, oak: KIT.leaf, well: KIT.stoneLite, crates: KIT.woodLite, hedge: KIT.leafLite, fence: KIT.wood, lamp: KIT.metal };
+  // cut a closed polygon into n pieces of equal length; skip(mx, my) drops a piece (a doorway)
+  function loopPieces(poly, n, oi, skip, out) {
+    const L = []; let tot = 0;
+    for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; const l = Math.hypot(b[0] - a[0], b[1] - a[1]); L.push(l); tot += l; }
+    const at = u => { let d = u * tot; for (let i = 0; i < poly.length; i++) { if (d <= L[i] + 1e-12) { const a = poly[i], b = poly[(i + 1) % poly.length], f = d / L[i]; return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]; } d -= L[i]; } return poly[0]; };
+    for (let i = 0; i < n; i++) { const a = at(i / n), b = at((i + 1) / n); if (skip && skip((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)) continue; out.push([a[0], a[1], b[0], b[1], oi]); }
+  }
   function makeScene(N, seed = 7) {
     const R = rng(seed), segs = [], tw = OBJS.reduce((s, o) => s + o.w, 0);
     OBJS.forEach((o, oi) => {
-      const n = Math.max(3, Math.round(N * o.w / tw));
-      if (o.scatter) {
+      const n = Math.max(o.min || 3, Math.round(N * o.w / tw));
+      if (o.kind === 'scatter') {
         for (let i = 0; i < n; i++) {
           const a = R() * Math.PI * 2, rr = o.r * Math.sqrt(R()), cx = o.cx + rr * Math.cos(a), cy = o.cy + rr * Math.sin(a);
           const th = R() * Math.PI * 2, L = 0.006 + 0.012 * R();
-          segs.push([cx - Math.cos(th) * L, cy - Math.sin(th) * L, cx + Math.cos(th) * L, cy + Math.sin(th) * L]);
+          segs.push([cx - Math.cos(th) * L, cy - Math.sin(th) * L, cx + Math.cos(th) * L, cy + Math.sin(th) * L, oi]);
         }
+      } else if (o.kind === 'rect') {
+        const x0 = o.cx - o.hw, x1 = o.cx + o.hw, y0 = o.cy - o.hh, y1 = o.cy + o.hh;
+        loopPieces([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], n, oi, (mx, my) => my > y1 - 1e-6 && Math.abs(mx - o.cx) < 0.03, segs);
+      } else if (o.kind === 'crates') {
+        const s = o.s, m = Math.max(4, n >> 1);
+        for (const [dx, dy] of [[-s * 1.15, 0], [s * 0.35, -s * 0.35]]) { const x = o.cx + dx, y = o.cy + dy; loopPieces([[x - s, y - s], [x + s, y - s], [x + s, y + s], [x - s, y + s]], m, oi, null, segs); }
+      } else if (o.kind === 'fence') {
+        for (let i = 0; i < n; i++) { const u0 = (i + 0.15) / n, u1 = (i + 0.85) / n; segs.push([o.x1 + (o.x2 - o.x1) * u0, o.y1 + (o.y2 - o.y1) * u0, o.x1 + (o.x2 - o.x1) * u1, o.y1 + (o.y2 - o.y1) * u1, oi]); }
       } else {
         const p1 = R() * 6.283, p2 = R() * 6.283, v = [];
         for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; const rad = o.r * (1 + o.amp * (0.6 * Math.sin(o.k * a + p1) + 0.4 * Math.sin((2 * o.k + 1) * a + p2))); v.push([o.cx + rad * Math.cos(a), o.cy + rad * Math.sin(a)]); }
-        for (let i = 0; i < n; i++) { const a = v[i], b = v[(i + 1) % n]; segs.push([a[0], a[1], b[0], b[1]]); }
+        for (let i = 0; i < n; i++) { const a = v[i], b = v[(i + 1) % n]; segs.push([a[0], a[1], b[0], b[1], oi]); }
       }
     });
     return segs;
@@ -721,11 +891,22 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
 
   // ---------- drawing ----------
   const P = v => v * W;
-  function clear(ctx) {
-    ctx.fillStyle = COL.ground; ctx.fillRect(0, 0, W, W);
-    ctx.strokeStyle = COL.grid; ctx.lineWidth = 1; ctx.beginPath();
-    for (let i = 1; i < M; i++) { const p = Math.round(i * W / M) + 0.5; ctx.moveTo(p, 0); ctx.lineTo(p, W); ctx.moveTo(0, p); ctx.lineTo(W, p); }
-    ctx.stroke();
+  // the village props, drawn once into an offscreen canvas per scene and blitted every frame
+  function drawVillage(ctx) {
+    for (const o of OBJS) {
+      if (o.kind === 'rect') kitHouseTop(ctx, P(o.cx - o.hw), P(o.cy - o.hh), P(2 * o.hw), P(2 * o.hh));
+      else if (o.name === 'oak') kitTreeTop(ctx, P(o.cx), P(o.cy), P(o.r));
+      else if (o.name === 'well') kitWellTop(ctx, P(o.cx), P(o.cy), P(o.r));
+      else if (o.name === 'hedge') kitHedgeTop(ctx, P(o.cx), P(o.cy), P(o.r));
+      else if (o.kind === 'fence') kitFenceTop(ctx, P(o.x1), P(o.y1), P(o.x2), P(o.y2));
+      else if (o.kind === 'crates') { kitCrate(ctx, P(o.cx - o.s * 1.15), P(o.cy), P(2 * o.s)); kitCrate(ctx, P(o.cx + o.s * 0.35), P(o.cy - o.s * 0.35), P(2 * o.s)); }
+      else if (o.name === 'lamp') kitLampTop(ctx, P(o.cx), P(o.cy), P(0.16));
+    }
+  }
+  function backdrop(segs) {
+    const c = document.createElement('canvas'); c.width = c.height = W; const g = c.getContext('2d');
+    kitTopGround(g, W, W, W / M); drawVillage(g); drawSegs(g, segs, COL.geo);
+    return c;
   }
   function drawSegs(ctx, segs, style, lw = 1.2, list = null) {
     ctx.strokeStyle = style; ctx.lineWidth = lw; ctx.beginPath();
@@ -745,10 +926,31 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
   function dot(ctx, p, r, fill) { ctx.beginPath(); ctx.arc(P(p[0]), P(p[1]), r, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill(); }
   function handle(ctx, p, r = 7) { ctx.beginPath(); ctx.arc(P(p[0]), P(p[1]), r, 0, Math.PI * 2); ctx.fillStyle = COL.white; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = COL.ground; ctx.stroke(); }
   function label(ctx, x, y, text, color = 'rgba(255,255,255,0.85)', align = 'left') { ctx.font = FONT; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'top'; ctx.fillText(text, x, y); ctx.textAlign = 'left'; }
+  // plain-word callout in canvas pixels, kept inside the canvas; anchors away from the nearer edge
+  function pin(ctx, text, x, y, col) {
+    ctx.font = FONT; const w = ctx.measureText(text).width + 12;
+    const left = x + w <= W - 4; const x0 = left ? Math.max(4, x) : Math.min(W - 4, x);
+    kitLabel(ctx, text, x0, Math.max(11, Math.min(W - 11, y)), left ? 'left' : 'right', col);
+  }
+  function player(ctx, o, d) { kitPlayerTop(ctx, P(o[0]), P(o[1]), 9, Math.atan2(d[1], d[0])); }
   function drawRay(ctx, o, d, tHit, tEnd) {
     const t1 = tHit != null && isFinite(tHit) ? tHit : tEnd;
     line(ctx, o, [o[0] + d[0] * t1, o[1] + d[1] * t1], COL.white, 2);
     if (t1 < tEnd) line(ctx, [o[0] + d[0] * t1, o[1] + d[1] * t1], [o[0] + d[0] * tEnd, o[1] + d[1] * tEnd], 'rgba(255,255,255,0.28)', 1, [4, 5]);
+  }
+  // "what the player sees": a first-person strip rendered by firing one ray per column through the same BVH
+  function drawView(ctx, x, y, w, h, bvh, segs, o, d, cols, fov, title) {
+    kitInset(ctx, x, y, w, h, title);
+    const ix = x + 4, iy = y + 24, iw = w - 8, ih = h - 28;
+    ctx.fillStyle = KIT.skyLite; ctx.fillRect(ix, iy, iw, ih / 2); ctx.fillStyle = KIT.grass; ctx.fillRect(ix, iy + ih / 2, iw, ih / 2);
+    const base = Math.atan2(d[1], d[0]), cw = iw / cols;
+    for (let i = 0; i < cols; i++) {
+      const off = (i / (cols - 1) - 0.5) * fov, a = base + off, dd = [Math.cos(a), Math.sin(a)];
+      const st = traverse(bvh, o, dd, segLeaf(segs)); if (!st.hit) continue;
+      const tp = Math.max(0.02, st.hit.t * Math.cos(off)), hh = Math.min(ih, ih * 0.08 / tp);
+      ctx.fillStyle = OBJCOL[OBJS[segs[st.hit.seg][4]].name]; ctx.fillRect(ix + i * cw, iy + ih / 2 - hh / 2, Math.ceil(cw), hh);
+      ctx.fillStyle = 'rgba(0,0,0,' + Math.min(0.75, tp * 1.1).toFixed(2) + ')'; ctx.fillRect(ix + i * cw, iy + ih / 2 - hh / 2, Math.ceil(cw), hh);
+    }
   }
   function worldOf(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height]; }
   function drag(canvas, getHandles, onMove, onHover) {
@@ -770,29 +972,38 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
   function throttle(fn) { let pending = false; return () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; fn(); }); }; }
   function segOn(seg, v) { seg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === String(v)))); }
   const $ = id => document.getElementById(id);
+  const objName = (segs, si) => OBJS[segs[si][4]].name;
 
   // ================= 1. brute force vs BVH =================
   const c1 = $('c1'), x1 = c1.getContext('2d');
-  const s1 = { N: 300, o: [0.05, 0.56], a: [0.93, 0.30], segs: null, bvh: null, buildMs: 0 };
+  const s1 = { N: 300, o: [0.09, 0.60], a: [0.72, 0.24], segs: null, bvh: null, buildMs: 0, bg: null };
   function rebuild1() {
     s1.segs = makeScene(s1.N);
     const t0 = performance.now(); s1.bvh = buildBVH(s1.segs.map(segBounds), 'sah', 4); s1.buildMs = performance.now() - t0;
+    s1.bg = backdrop(s1.segs);
   }
   function draw1() {
-    clear(x1); drawSegs(x1, s1.segs, COL.geo);
+    x1.drawImage(s1.bg, 0, 0);
     const [o, d] = ray(s1.o, s1.a);
     const st = traverse(s1.bvh, o, d, segLeaf(s1.segs));
     let bruteT = Infinity; for (const s of s1.segs) { const t = raySeg(o, d, s); if (t > 0 && t < bruteT) bruteT = t; }
-    for (const id of st.failed) box(x1, s1.bvh.nodes[id].b, 'rgba(239,93,93,0.35)');
-    for (const id of st.passed) { const nd = s1.bvh.nodes[id]; if (nd.left >= 0) box(x1, nd.b, 'rgba(74,163,255,0.55)', 'rgba(74,163,255,0.05)'); }
+    for (const id of st.failed) box(x1, s1.bvh.nodes[id].b, 'rgba(239,93,93,0.45)');
+    for (const id of st.passed) { const nd = s1.bvh.nodes[id]; if (nd.left >= 0) box(x1, nd.b, 'rgba(74,163,255,0.6)', 'rgba(74,163,255,0.05)'); }
     const tested = []; for (const id of st.leaves) { const nd = s1.bvh.nodes[id]; box(x1, nd.b, COL.amber, 'rgba(242,163,65,0.10)', 1.2); for (let k = nd.start; k < nd.start + nd.count; k++) tested.push(s1.bvh.idx[k]); }
     drawSegs(x1, s1.segs, COL.amber, 2, tested);
     drawRay(x1, o, d, st.hit ? st.hit.t : null, exitT(o, d));
-    if (st.hit) dot(x1, [o[0] + d[0] * st.hit.t, o[1] + d[1] * st.hit.t], 5, COL.amber);
-    handle(x1, s1.o); handle(x1, s1.a, 5);
+    let hp = null;
+    if (st.hit) { hp = [o[0] + d[0] * st.hit.t, o[1] + d[1] * st.hit.t]; dot(x1, hp, 5, COL.amber); }
+    player(x1, o, d); handle(x1, s1.a, 5);
+    pin(x1, 'player', P(o[0]) + 12, P(o[1]) + 14);
+    pin(x1, 'aim point', P(s1.a[0]) + 10, P(s1.a[1]) - 12);
+    if (hp) pin(x1, `sees this first: the ${objName(s1.segs, st.hit.seg)}`, P(hp[0]) + 10, P(hp[1]) + 12, COL.amber);
+    else pin(x1, 'sees nothing: the sky', P(o[0] + d[0] * 0.5) + 10, P(o[1] + d[1] * 0.5) + 12, COL.amber);
+    if (st.failed.length) { const b = s1.bvh.nodes[st.failed[0]].b; pin(x1, 'box the ray misses: never opened', P(b[0]) + 2, P(b[1]) - 10, COL.red); }
+    drawView(x1, W - 184, W - 118, 176, 110, s1.bvh, s1.segs, o, d, 44, Math.PI / 3, 'what the player sees');
     const n = s1.segs.length;
     $('c1-left').innerHTML = `brute force: <strong>${fmtN(n)} segment tests</strong>`;
-    $('c1-right').innerHTML = `BVH: <strong>${st.visited} nodes · ${st.leaves.length} leaves · ${st.tests} tests</strong>${st.hit ? ` · hit at ${(st.hit.t * M).toFixed(2)} m` : ' · miss'}`;
+    $('c1-right').innerHTML = `BVH: <strong>${st.visited} nodes · ${st.leaves.length} leaves · ${st.tests} tests</strong>${st.hit ? ` · ${objName(s1.segs, st.hit.seg)} at ${(st.hit.t * M).toFixed(2)} m` : ' · miss'}`;
     $('c1-build').textContent = `${fmtN(s1.bvh.nodes.length)} nodes, depth ${s1.bvh.maxDepth} · built in ${fmtMs(s1.buildMs)} (JS, this tab)`;
     $('t1-brute').textContent = fmtN(n); $('t1-nodes').textContent = st.visited; $('t1-tests').textContent = st.tests;
     if (isFinite(bruteT) !== !!st.hit || (st.hit && Math.abs(bruteT - st.hit.t) > 1e-9)) $('c1-right').innerHTML += ' · mismatch';
@@ -804,7 +1015,7 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
 
   // ================= 2. building it =================
   const c2 = $('c2'), x2 = c2.getContext('2d');
-  const scene2 = makeScene(300), prims2 = scene2.map(segBounds);
+  const scene2 = makeScene(300), prims2 = scene2.map(segBounds), bg2 = backdrop(scene2);
   const rays100 = (() => { const R = rng(23), out = []; for (let i = 0; i < 100; i++) { const side = (R() * 4) | 0, u = R(); const o = side === 0 ? [u, 0.001] : side === 1 ? [0.999, u] : side === 2 ? [u, 0.999] : [0.001, u]; out.push(ray(o, [0.2 + 0.6 * R(), 0.2 + 0.6 * R()])); } return out; })();
   const s2 = { method: 'sah', leaf: 4, level: 3, hover: null, trees: {}, stats: {} };
   function rebuild2() {
@@ -827,12 +1038,18 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
     for (const nd of nodesAtLevel(bvh, s2.level)) { const b = nd.b; if (x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3] && half(b) < bh) { bh = half(b); best = nd; } }
     return best;
   }
+  // what is inside a node, in plain words: "the house and the well" or "part of an oak"
+  function contents(bvh, nd) {
+    const seen = new Map(); for (let k = nd.start; k < nd.start + nd.count; k++) { const n = objName(scene2, bvh.idx[k]); seen.set(n, (seen.get(n) || 0) + 1); }
+    const names = [...seen.keys()]; if (nd.id === 0) return 'the whole village'; if (names.length > 3) return `${names.length} props`;
+    return names.map(n => n === 'oak' ? 'an oak' : `the ${n}`).join(' and ');
+  }
   function plotSAH(ctx, bvh, nd) {
     const py = 372, ph = W - py;
     ctx.fillStyle = 'rgba(11,14,19,0.9)'; ctx.fillRect(0, py, W, ph);
     ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, py + 0.5); ctx.lineTo(W, py + 0.5); ctx.stroke();
-    const axName = nd.axis ? 'y' : 'x';
-    label(ctx, 12, py + 8, `node #${nd.id} · depth ${nd.depth} · ${nd.count} segments · SAH cost vs split along ${axName}`, 'rgba(255,255,255,0.7)');
+    const axName = nd.axis ? 'up–down' : 'left–right';
+    label(ctx, 12, py + 8, `box #${nd.id} · ${nd.count} segments · cost of every ${axName} cut`, 'rgba(255,255,255,0.7)');
     const sw = sahSweep(bvh, nd, nd.axis);
     if (!sw) { label(ctx, 12, py + 30, 'leaf with one segment: nothing to split', 'rgba(255,255,255,0.5)'); return; }
     const x0 = 44, x1 = W - 20, y0 = py + 34, y1 = W - 30;
@@ -842,7 +1059,7 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
     const X = p => x0 + (p - lo) / (hi - lo || 1) * (x1 - x0), Y = c => y1 - (c - cmin) / (cmax - cmin) * (y1 - y0);
     // leaf cost line
     ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(x0, Y(sw.leaf) + 0.5); ctx.lineTo(x1, Y(sw.leaf) + 0.5); ctx.stroke(); ctx.setLineDash([]);
-    label(ctx, x1, Y(sw.leaf) - 14, `no split: ${sw.leaf} tests`, 'rgba(255,255,255,0.5)', 'right');
+    label(ctx, x1, Y(sw.leaf) - 14, `no cut: ${sw.leaf} tests`, 'rgba(255,255,255,0.5)', 'right');
     // curve
     ctx.strokeStyle = COL.white; ctx.lineWidth = 1.5; ctx.beginPath();
     for (let i = 0; i < sw.pos.length; i++) { const x = X(sw.pos[i]), y = Y(sw.cost[i]); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
@@ -854,24 +1071,25 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
     const bx = X(sw.pos[sw.best]), by = Y(sw.cost[sw.best]);
     ctx.beginPath(); ctx.arc(bx, by, 4, 0, Math.PI * 2); ctx.fillStyle = COL.amber; ctx.fill();
     const bestRight = bx > W / 2;
-    label(ctx, bx + (bestRight ? -8 : 8), by - 16, `SAH ${sw.cost[sw.best].toFixed(1)}`, COL.amber, bestRight ? 'right' : 'left');
+    label(ctx, bx + (bestRight ? -8 : 8), by - 16, `cheapest cut ${sw.cost[sw.best].toFixed(1)}`, COL.amber, bestRight ? 'right' : 'left');
     const medRight = mx > W / 2;
-    label(ctx, mx + (medRight ? -6 : 6), y0 - 4, `median ${sw.cost[sw.median].toFixed(1)}`, COL.blue, medRight ? 'right' : 'left');
+    label(ctx, mx + (medRight ? -6 : 6), y0 - 4, `middle cut ${sw.cost[sw.median].toFixed(1)}`, COL.blue, medRight ? 'right' : 'left');
     label(ctx, x0, y1 + 8, `${(lo * M).toFixed(1)} m`, 'rgba(255,255,255,0.5)');
     label(ctx, x1, y1 + 8, `${(hi * M).toFixed(1)} m`, 'rgba(255,255,255,0.5)', 'right');
     label(ctx, 8, y0 - 4, 'cost', 'rgba(255,255,255,0.5)');
   }
   const SC2 = 372 / W, OX2 = (W - 372) / 2;
+  const V2 = p => [OX2 + SC2 * P(p[0]), SC2 * P(p[1])];   // world → canvas pixels in the scaled village view
   function draw2() {
     const bvh = s2.trees[s2.method];
     x2.fillStyle = COL.ground; x2.fillRect(0, 0, W, W);
     x2.save(); x2.translate(OX2, 0); x2.scale(SC2, SC2);
-    clear(x2); drawSegs(x2, scene2, COL.geo);
+    x2.drawImage(bg2, 0, 0);
     const shown = nodesAtLevel(bvh, s2.level);
-    let leaves = 0;
+    let leaves = 0, firstLeaf = null, firstInt = null;
     for (const nd of shown) {
-      if (nd.left < 0) { leaves++; box(x2, nd.b, 'rgba(242,163,65,0.8)', 'rgba(242,163,65,0.06)', 1, [3, 3]); }
-      else box(x2, nd.b, 'rgba(74,163,255,0.8)', 'rgba(74,163,255,0.07)', 1);
+      if (nd.left < 0) { leaves++; if (!firstLeaf) firstLeaf = nd; box(x2, nd.b, 'rgba(242,163,65,0.85)', 'rgba(242,163,65,0.08)', 1, [3, 3]); }
+      else { if (!firstInt) firstInt = nd; box(x2, nd.b, 'rgba(74,163,255,0.85)', 'rgba(74,163,255,0.07)', 1); }
     }
     const hv = s2.hover || bvh.nodes[0];
     box(x2, hv.b, COL.white, null, 1.5);
@@ -880,6 +1098,11 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
       if (hv.axis === 0) line(x2, [hv.pos, b[1]], [hv.pos, b[3]], COL.white, 1, [4, 3]); else line(x2, [b[0], hv.pos], [b[2], hv.pos], COL.white, 1, [4, 3]);
     }
     x2.restore();
+    // plain-word callouts, drawn unscaled
+    if (hv.left >= 0) { const c = hv.axis === 0 ? V2([hv.pos, hv.b[1]]) : V2([hv.b[0], hv.pos]); pin(x2, `cut here: ${contents(bvh, hv)}`, c[0] + 4, c[1] + 10, COL.white); }
+    else { const c = V2([hv.b[0], hv.b[1]]); pin(x2, `finished box: ${contents(bvh, hv)}`, c[0] + 2, c[1] - 10, COL.amber); }
+    if (firstLeaf && firstLeaf !== hv) { const c = V2([firstLeaf.b[2], firstLeaf.b[3]]); pin(x2, 'finished: a leaf', c[0] - 2, c[1] + 10, COL.amber); }
+    if (firstInt && firstInt !== hv) { const c = V2([firstInt.b[0], firstInt.b[3]]); pin(x2, 'will be cut again', c[0] + 2, c[1] + 10, COL.blue); }
     plotSAH(x2, bvh, hv);
     $('c2-left').innerHTML = `level ${s2.level}: <strong>${shown.length} boxes</strong> (${leaves} already leaves)`;
     $('c2-right').innerHTML = `${s2.method === 'sah' ? 'SAH' : 'median'} tree · <strong>${bvh.nodes.length} nodes</strong> · depth ${bvh.maxDepth}`;
@@ -894,7 +1117,7 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
   // ================= 3. traversal step by step =================
   const c3 = $('c3'), x3 = c3.getContext('2d');
   const bvh3 = buildBVH(prims2, 'sah', 4);
-  const s3 = { o: [0.06, 0.62], a: [0.95, 0.28], anyHit: false, step: 1, st: null };
+  const s3 = { o: [0.08, 0.66], a: [0.95, 0.30], anyHit: false, step: 1, st: null };
   function retrace3(keepStep) {
     const [o, d] = ray(s3.o, s3.a);
     const st = traverse(bvh3, o, d, segLeaf(scene2), { trace: true, anyHit: s3.anyHit });
@@ -905,8 +1128,8 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
   }
   function draw3() {
     const st = s3.st, o = s3.o, d = s3.d, k = s3.step, ev = st.trace[k - 1];
-    clear(x3); drawSegs(x3, scene2, COL.geo);
-    for (let i = 0; i < k - 1; i++) { const e = st.trace[i]; const nd = bvh3.nodes[e.id]; if (e.pass) box(x3, nd.b, 'rgba(90,212,138,0.4)', e.leaf ? 'rgba(242,163,65,0.06)' : null); else box(x3, nd.b, 'rgba(239,93,93,0.4)', null, 1, e.culled ? [3, 3] : null); }
+    x3.drawImage(bg2, 0, 0);
+    for (let i = 0; i < k - 1; i++) { const e = st.trace[i]; const nd = bvh3.nodes[e.id]; if (e.pass) box(x3, nd.b, 'rgba(90,212,138,0.45)', e.leaf ? 'rgba(242,163,65,0.06)' : null); else box(x3, nd.b, 'rgba(239,93,93,0.45)', null, 1, e.culled ? [3, 3] : null); }
     const tested = []; for (let i = 0; i < k; i++) for (const s of st.trace[i].tested) tested.push(s);
     drawSegs(x3, scene2, COL.amber, 2, tested);
     // current node
@@ -915,18 +1138,21 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
     if (ev.pass && !ev.leaf) {
       const nb = bvh3.nodes[ev.near].b, fb = bvh3.nodes[ev.far].b;
       box(x3, nb, COL.blue, null, 1.5); box(x3, fb, 'rgba(74,163,255,0.5)', null, 1.5, [4, 3]);
-      label(x3, P(nb[0]) + 4, P(nb[1]) + 3, 'near', COL.blue); label(x3, P(fb[0]) + 4, P(fb[1]) + 3, 'far', 'rgba(74,163,255,0.8)');
+      pin(x3, 'near child: checked next', P(nb[0]) + 2, P(nb[1]) + 10, COL.blue); pin(x3, 'far child: waits on the list', P(fb[0]) + 2, P(fb[3]) - 10, 'rgba(74,163,255,0.9)');
     }
     // ray with t_max
     const tEnd = exitT(o, d), tMax = ev.tMaxAfter;
     drawRay(x3, o, d, isFinite(tMax) ? tMax : null, tEnd);
-    if (isFinite(tMax)) { const h = [o[0] + d[0] * tMax, o[1] + d[1] * tMax]; dot(x3, h, 5, COL.amber); label(x3, P(h[0]) + 8, P(h[1]) - 16, `t_max = ${(tMax * M).toFixed(2)} m`, COL.amber); }
+    if (isFinite(tMax)) { const h = [o[0] + d[0] * tMax, o[1] + d[1] * tMax]; dot(x3, h, 5, COL.amber); pin(x3, `closest hit so far: ${objName(scene2, ev.hit.seg)}, ${(tMax * M).toFixed(2)} m`, P(h[0]) + 8, P(h[1]) + 18, COL.amber); }
     if (ev.tn <= ev.tf) { const p = [o[0] + d[0] * ev.tn, o[1] + d[1] * ev.tn]; dot(x3, p, 3, ev.pass ? COL.green : COL.red); }
-    handle(x3, s3.o); handle(x3, s3.a, 5);
+    const what = ev.culled ? 'skipped: starts beyond the hit' : !ev.pass ? 'the ray misses this box' : ev.leaf ? `opened: testing ${contents(bvh3, nd)}` : 'opened: two children go on the list';
+    pin(x3, what, P(nd.b[0]) + 2, P(nd.b[1]) - 10, ev.pass ? COL.green : COL.red);
+    player(x3, o, d); handle(x3, s3.a, 5);
+    pin(x3, 'player', P(o[0]) + 12, P(o[1]) + 14);
     // readouts
-    const what = ev.leaf ? `leaf, ${ev.tested.length} segment tests${ev.hitSeg >= 0 ? ', new closest hit' : ''}` : (ev.pass ? 'interior: push far, then near' : 'interior');
+    const whatCap = ev.leaf ? `leaf, ${ev.tested.length} segment tests${ev.hitSeg >= 0 ? ', new closest hit' : ''}` : (ev.pass ? 'interior: push far, then near' : 'interior');
     const slabTxt = ev.culled ? `t_near ${(ev.tn * M).toFixed(2)} m > t_max ${(ev.tMaxBefore * M).toFixed(2)} m: culled` : ev.pass ? `t_near ${(ev.tn * M).toFixed(2)} m: pass` : 'slab miss';
-    $('c3-left').innerHTML = `pop ${k}/${st.trace.length}: <strong>node #${ev.id}</strong> · ${slabTxt} · ${what}`;
+    $('c3-left').innerHTML = `pop ${k}/${st.trace.length}: <strong>box #${ev.id}</strong> · ${slabTxt} · ${whatCap}`;
     $('c3-right').innerHTML = `<strong>${ev.visited} nodes · ${ev.tests} tests · stack ${ev.stack.length} (max ${st.maxStack})</strong>`;
     $('step3v').textContent = `${k} / ${st.trace.length}`;
     const sv = $('stack3'); sv.innerHTML = '<span class="lbl">stack</span>';
@@ -944,10 +1170,11 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
   // ================= 4. two-level: BLAS + TLAS =================
   const c4 = $('c4'), x4 = c4.getContext('2d');
   function loopMesh(n, fn) { const v = []; for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; const r = fn(a); v.push([r * Math.cos(a), r * Math.sin(a)]); } return v; }
+  // three meshes: a boulder, an oak canopy, a crate; each gets its own tree (BLAS) built once
   const MESH = {
-    rock:  { verts0: loopMesh(40, a => 1 + 0.18 * Math.sin(3 * a + 0.4) + 0.08 * Math.sin(7 * a)) },
-    tree:  { verts0: loopMesh(56, a => 0.6 + 0.4 * Math.pow((Math.sin(9 * a) + 1) / 2, 0.6)) },
-    crate: { verts0: loopMesh(24, a => 0.9 / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a)))) }
+    boulder: { verts0: loopMesh(40, a => 1 + 0.18 * Math.sin(3 * a + 0.4) + 0.08 * Math.sin(7 * a)), col: KIT.stone },
+    oak:     { verts0: loopMesh(56, a => 0.6 + 0.4 * Math.pow((Math.sin(9 * a) + 1) / 2, 0.6)), col: KIT.leaf },
+    crate:   { verts0: loopMesh(24, a => 0.9 / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a)))), col: KIT.wood }
   };
   for (const m of Object.values(MESH)) {
     m.verts = m.verts0.map(p => p.slice());
@@ -956,15 +1183,14 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
     m.bvh = buildBVH(m.prims, 'sah', 4);
   }
   const INST = [
-    { mesh: 'rock', x: 0.22, y: 0.30, rot: 0.4, s: 0.12 },
-    { mesh: 'tree', x: 0.62, y: 0.24, rot: 0.0, s: 0.10 },
+    { mesh: 'boulder', x: 0.22, y: 0.30, rot: 0.4, s: 0.12 },
+    { mesh: 'oak', x: 0.62, y: 0.24, rot: 0.0, s: 0.10 },
     { mesh: 'crate', x: 0.82, y: 0.50, rot: 0.5, s: 0.09 },
-    { mesh: 'rock', x: 0.30, y: 0.72, rot: 2.1, s: 0.10 },
-    { mesh: 'tree', x: 0.56, y: 0.60, rot: 1.2, s: 0.08 },
+    { mesh: 'boulder', x: 0.30, y: 0.72, rot: 2.1, s: 0.10 },
+    { mesh: 'oak', x: 0.56, y: 0.60, rot: 1.2, s: 0.08 },
     { mesh: 'crate', x: 0.14, y: 0.53, rot: 0.2, s: 0.06 },
-    { mesh: 'rock', x: 0.48, y: 0.86, rot: 3.5, s: 0.08 }
+    { mesh: 'boulder', x: 0.48, y: 0.86, rot: 3.5, s: 0.08 }
   ];
-  const NAMES = ['rock', 'tree', 'crate'];
   function xfPoint(inst, p) { const c = Math.cos(inst.rot), s = Math.sin(inst.rot); return [inst.x + inst.s * (c * p[0] - s * p[1]), inst.y + inst.s * (s * p[0] + c * p[1])]; }
   function invPoint(inst, p) { const c = Math.cos(inst.rot), s = Math.sin(inst.rot), dx = (p[0] - inst.x) / inst.s, dy = (p[1] - inst.y) / inst.s; return [c * dx + s * dy, -s * dx + c * dy]; }
   function invDir(inst, d) { const c = Math.cos(inst.rot), s = Math.sin(inst.rot), dx = d[0] / inst.s, dy = d[1] / inst.s; return [c * dx + s * dy, -s * dx + c * dy]; }
@@ -986,76 +1212,92 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
     ctx.strokeStyle = stroke; ctx.lineWidth = lw; if (dash) ctx.setLineDash(dash); ctx.beginPath();
     c.forEach((p, i) => i ? ctx.lineTo(P(p[0]), P(p[1])) : ctx.moveTo(P(p[0]), P(p[1]))); ctx.closePath(); ctx.stroke(); if (dash) ctx.setLineDash([]);
   }
+  // the placed prop itself: fill its outline in the prop colour, then the flat-style detail
+  function drawInstance(ctx, inst) {
+    const mesh = MESH[inst.mesh], v = mesh.verts.map(p => xfPoint(inst, p));
+    ctx.fillStyle = KIT.shadow; ctx.beginPath(); v.forEach((p, i) => i ? ctx.lineTo(P(p[0]) + 4, P(p[1]) + 4) : ctx.moveTo(P(p[0]) + 4, P(p[1]) + 4)); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = mesh.col; ctx.beginPath(); v.forEach((p, i) => i ? ctx.lineTo(P(p[0]), P(p[1])) : ctx.moveTo(P(p[0]), P(p[1]))); ctx.closePath(); ctx.fill();
+    const cx = P(inst.x), cy = P(inst.y), r = P(inst.s);
+    if (inst.mesh === 'oak') { ctx.fillStyle = KIT.leafLite; ctx.beginPath(); ctx.arc(cx - r * 0.25, cy - r * 0.25, r * 0.35, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = KIT.wood; ctx.beginPath(); ctx.arc(cx, cy, r * 0.1, 0, Math.PI * 2); ctx.fill(); }
+    else if (inst.mesh === 'boulder') { ctx.fillStyle = KIT.stoneLite; ctx.beginPath(); ctx.arc(cx - r * 0.3, cy - r * 0.3, r * 0.35, 0, Math.PI * 2); ctx.fill(); }
+    else { const c = Math.cos(inst.rot), s = Math.sin(inst.rot), k = r * 0.9; ctx.strokeStyle = KIT.woodLite; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx + k * (-c + s), cy + k * (-s - c)); ctx.lineTo(cx + k * (c - s), cy + k * (s + c)); ctx.moveTo(cx + k * (c + s), cy + k * (s - c)); ctx.lineTo(cx + k * (-c - s), cy + k * (-s + c)); ctx.stroke(); }
+  }
   function draw4() {
-    clear(x4);
+    kitTopGround(x4, W, W, W / M);
     const [o, d] = ray(s4.o, s4.a);
     const st = traverse(s4.tlas, o, d, tlasLeaf);
     const entered = st.entered || [];
     // instances
     INST.forEach((inst, i) => {
       const mesh = MESH[inst.mesh]; const ws = mesh.segs.map(s => { const a = xfPoint(inst, [s[0], s[1]]), b = xfPoint(inst, [s[2], s[3]]); return [a[0], a[1], b[0], b[1]]; });
-      inst._ws = ws; drawSegs(x4, ws, COL.geo);
-      box(x4, instBox(inst), 'rgba(255,255,255,0.18)', null, 1, [2, 3]);
-      label(x4, P(inst.x) + 10, P(inst.y) - 6, `${i} ${inst.mesh}`, 'rgba(255,255,255,0.4)');
+      inst._ws = ws; drawInstance(x4, inst); drawSegs(x4, ws, COL.geo);
+      box(x4, instBox(inst), 'rgba(255,255,255,0.22)', null, 1, [2, 3]);
     });
-    for (const id of st.failed) { const nd = s4.tlas.nodes[id]; box(x4, nd.b, 'rgba(239,93,93,0.35)'); }
-    for (const id of st.passed) { const nd = s4.tlas.nodes[id]; if (nd.left >= 0) box(x4, nd.b, 'rgba(74,163,255,0.55)', 'rgba(74,163,255,0.04)'); }
+    for (const id of st.failed) { const nd = s4.tlas.nodes[id]; box(x4, nd.b, 'rgba(239,93,93,0.45)'); }
+    for (const id of st.passed) { const nd = s4.tlas.nodes[id]; if (nd.left >= 0) box(x4, nd.b, 'rgba(74,163,255,0.6)', 'rgba(74,163,255,0.04)'); }
     for (const e of entered) {
       const inst = INST[e.i], mesh = MESH[inst.mesh];
       box(x4, instBox(inst), COL.amber, null, 1.2);
-      for (const id of e.sub.passed) { const nd = mesh.bvh.nodes[id]; quad(x4, inst, nd.b, nd.left < 0 ? 'rgba(242,163,65,0.7)' : 'rgba(74,163,255,0.5)'); }
+      for (const id of e.sub.passed) { const nd = mesh.bvh.nodes[id]; quad(x4, inst, nd.b, nd.left < 0 ? 'rgba(242,163,65,0.75)' : 'rgba(74,163,255,0.55)'); }
       const tested = []; for (const id of e.sub.leaves) { const nd = mesh.bvh.nodes[id]; for (let k = nd.start; k < nd.start + nd.count; k++) tested.push(mesh.bvh.idx[k]); }
       drawSegs(x4, inst._ws, COL.amber, 2, tested);
     }
     drawRay(x4, o, d, st.hit ? st.hit.t : null, exitT(o, d));
     if (st.hit) dot(x4, [o[0] + d[0] * st.hit.t, o[1] + d[1] * st.hit.t], 5, COL.amber);
-    INST.forEach(inst => handle(x4, [inst.x, inst.y], 5));
-    handle(x4, s4.o); handle(x4, s4.a, 5);
+    INST.forEach((inst, i) => { handle(x4, [inst.x, inst.y], 5); const on = entered.some(e => e.i === i); if (on || i < 3) pin(x4, `${inst.mesh} ${i}${on ? ': entered' : ''}`, P(inst.x) + 9, P(inst.y) - 12, on ? COL.amber : 'rgba(255,255,255,0.7)'); });
+    player(x4, o, d); handle(x4, s4.a, 5);
+    pin(x4, 'player', P(o[0]) + 12, P(o[1]) + 14);
+    if (s4.deform) { const t = INST[1]; pin(x4, 'wind: both oaks share one mesh, its tree is refit', P(t.x) - 20, P(t.y) + P(t.s) + 14, COL.blue); }
+    else pin(x4, 'drag any prop: only the small top tree is rebuilt', 8, 12, 'rgba(255,255,255,0.8)');
     // object-space inset for the hit (or first entered) instance
     const focus = st.hit ? entered.find(e => e.i === st.hit.inst) : entered[0];
     const S = 176, ix = W - S - 8, iy = W - S - 8;
-    x4.fillStyle = 'rgba(11,14,19,0.92)'; x4.fillRect(ix, iy, S, S); x4.strokeStyle = 'rgba(255,255,255,0.25)'; x4.lineWidth = 1; x4.strokeRect(ix + 0.5, iy + 0.5, S - 1, S - 1);
+    kitInset(x4, ix, iy, S, S, focus ? `inside ${INST[focus.i].mesh} ${focus.i}'s own tree` : 'no prop entered');
     if (focus) {
-      const inst = INST[focus.i], mesh = MESH[inst.mesh], sc = 56, cx = ix + S / 2, cy = iy + S / 2 + 8;
+      const inst = INST[focus.i], mesh = MESH[inst.mesh], sc = 52, cx = ix + S / 2, cy = iy + S / 2 + 12;
       const T = p => [cx + p[0] * sc, cy + p[1] * sc];
-      x4.save(); x4.beginPath(); x4.rect(ix, iy, S, S); x4.clip();
+      x4.save(); x4.beginPath(); x4.rect(ix, iy + 22, S, S - 22); x4.clip();
+      x4.fillStyle = mesh.col; x4.beginPath(); mesh.verts.forEach((p, i) => { const q = T(p); i ? x4.lineTo(q[0], q[1]) : x4.moveTo(q[0], q[1]); }); x4.closePath(); x4.fill();
       x4.strokeStyle = COL.geo; x4.lineWidth = 1; x4.beginPath(); for (const s of mesh.segs) { const a = T([s[0], s[1]]), b = T([s[2], s[3]]); x4.moveTo(a[0], a[1]); x4.lineTo(b[0], b[1]); } x4.stroke();
-      for (const id of focus.sub.passed) { const b = mesh.bvh.nodes[id].b, a = T([b[0], b[1]]), c = T([b[2], b[3]]); x4.strokeStyle = mesh.bvh.nodes[id].left < 0 ? 'rgba(242,163,65,0.8)' : 'rgba(74,163,255,0.6)'; x4.strokeRect(a[0], a[1], c[0] - a[0], c[1] - a[1]); }
+      for (const id of focus.sub.passed) { const b = mesh.bvh.nodes[id].b, a = T([b[0], b[1]]), c = T([b[2], b[3]]); x4.strokeStyle = mesh.bvh.nodes[id].left < 0 ? 'rgba(242,163,65,0.85)' : 'rgba(74,163,255,0.65)'; x4.strokeRect(a[0], a[1], c[0] - a[0], c[1] - a[1]); }
       const o2 = focus.o2, d2 = focus.d2, tEnd = focus.sub.hit ? focus.sub.hit.t : 20 * inst.s;
       const a = T(o2), b = T([o2[0] + d2[0] * tEnd, o2[1] + d2[1] * tEnd]);
       x4.strokeStyle = COL.white; x4.lineWidth = 1.5; x4.beginPath(); x4.moveTo(a[0], a[1]); x4.lineTo(b[0], b[1]); x4.stroke();
       if (focus.sub.hit) { x4.beginPath(); x4.arc(b[0], b[1], 4, 0, Math.PI * 2); x4.fillStyle = COL.amber; x4.fill(); }
       x4.restore();
-      label(x4, ix + 8, iy + 6, `object space · inst ${focus.i} ${inst.mesh}`, 'rgba(255,255,255,0.75)');
-      label(x4, ix + 8, iy + 20, `|d'| = ${Math.hypot(d2[0], d2[1]).toFixed(1)} = 1/scale · t unchanged`, 'rgba(255,255,255,0.45)');
-    } else label(x4, ix + 8, iy + 6, 'object space: no instance entered', 'rgba(255,255,255,0.5)');
-    $('c4-left').innerHTML = `TLAS: <strong>${st.visited} nodes</strong> · <strong>${entered.length} instance${entered.length === 1 ? '' : 's'} entered</strong>`;
-    $('c4-right').innerHTML = `BLAS: <strong>${st.blasVisited || 0} nodes · ${st.segTests || 0} tests</strong>${st.hit ? ` · hit instance ${st.hit.inst} at ${(st.hit.t * M).toFixed(2)} m` : ' · miss'}`;
-    $('c4-op').innerHTML = `last update: <strong>${s4.op}</strong> · TLAS ${s4.tlas.nodes.length} nodes rebuilt in ${fmtMs(s4.tlasMs)}${s4.deform ? ` · tree BLAS ${MESH.tree.bvh.nodes.length} nodes refit in ${fmtMs(s4.refitMs)}` : ''} (JS, this tab)`;
+      label(x4, ix + 8, iy + S - 18, `|d'| = ${Math.hypot(d2[0], d2[1]).toFixed(1)} = 1/scale`, 'rgba(255,255,255,0.55)');
+    }
+    $('c4-left').innerHTML = `TLAS: <strong>${st.visited} nodes</strong> · <strong>${entered.length} prop${entered.length === 1 ? '' : 's'} entered</strong>`;
+    $('c4-right').innerHTML = `BLAS: <strong>${st.blasVisited || 0} nodes · ${st.segTests || 0} tests</strong>${st.hit ? ` · hit ${INST[st.hit.inst].mesh} ${st.hit.inst} at ${(st.hit.t * M).toFixed(2)} m` : ' · miss'}`;
+    $('c4-op').innerHTML = `last update: <strong>${s4.op}</strong> · TLAS ${s4.tlas.nodes.length} nodes rebuilt in ${fmtMs(s4.tlasMs)}${s4.deform ? ` · oak BLAS ${MESH.oak.bvh.nodes.length} nodes refit in ${fmtMs(s4.refitMs)}` : ''} (JS, this tab)`;
   }
   rebuildTLAS(); draw4();
   const draw4T = throttle(draw4);
   drag(c4, () => [s4.o, s4.a, ...INST.map(i => [i.x, i.y])], (i, x, y) => {
     if (i === 0) { s4.o = [x, y]; } else if (i === 1) { s4.a = [x, y]; }
-    else { const inst = INST[i - 2]; inst.x = x; inst.y = y; rebuildTLAS(); s4.op = `moved instance ${i - 2}, TLAS rebuild only`; }
+    else { const inst = INST[i - 2]; inst.x = x; inst.y = y; rebuildTLAS(); s4.op = `moved ${inst.mesh} ${i - 2}, TLAS rebuild only`; }
     draw4T();
   });
+  function poseOak(k) {
+    const m = MESH.oak;
+    for (let i = 0; i < m.verts.length; i++) { const f = k(i); m.verts[i][0] = m.verts0[i][0] * f; m.verts[i][1] = m.verts0[i][1] * f; }
+    for (let i = 0; i < m.segs.length; i++) { const p = m.verts[i], q = m.verts[(i + 1) % m.verts.length]; const s = m.segs[i]; s[0] = p[0]; s[1] = p[1]; s[2] = q[0]; s[3] = q[1]; const b = segBounds(s), pb = m.prims[i]; pb[0] = b[0]; pb[1] = b[1]; pb[2] = b[2]; pb[3] = b[3]; }
+  }
   function deformFrame() {
     if (!s4.deform) return;
-    s4.t += 1 / 60; const m = MESH.tree;
-    for (let i = 0; i < m.verts.length; i++) { const k = 1 + 0.16 * Math.sin(3 * s4.t + i * 0.45); m.verts[i][0] = m.verts0[i][0] * k; m.verts[i][1] = m.verts0[i][1] * k; }
+    s4.t += 1 / 60;
     const t0 = performance.now();
-    for (let i = 0; i < m.segs.length; i++) { const p = m.verts[i], q = m.verts[(i + 1) % m.verts.length]; const s = m.segs[i]; s[0] = p[0]; s[1] = p[1]; s[2] = q[0]; s[3] = q[1]; const b = segBounds(s), pb = m.prims[i]; pb[0] = b[0]; pb[1] = b[1]; pb[2] = b[2]; pb[3] = b[3]; }
-    refit(m.bvh); s4.refitMs = performance.now() - t0;
-    rebuildTLAS(); s4.op = 'tree mesh deformed: BLAS refit, then TLAS rebuild';
+    poseOak(i => 1 + 0.16 * Math.sin(3 * s4.t + i * 0.45));
+    refit(MESH.oak.bvh); s4.refitMs = performance.now() - t0;
+    rebuildTLAS(); s4.op = 'wind bent the oak: BLAS refit, then TLAS rebuild';
     draw4(); requestAnimationFrame(deformFrame);
   }
-  $('deform4').addEventListener('change', () => { s4.deform = $('deform4').checked; if (s4.deform) requestAnimationFrame(deformFrame); else { const m = MESH.tree; for (let i = 0; i < m.verts.length; i++) { m.verts[i][0] = m.verts0[i][0]; m.verts[i][1] = m.verts0[i][1]; } for (let i = 0; i < m.segs.length; i++) { const p = m.verts[i], q = m.verts[(i + 1) % m.verts.length]; const s = m.segs[i]; s[0] = p[0]; s[1] = p[1]; s[2] = q[0]; s[3] = q[1]; const b = segBounds(s), pb = m.prims[i]; pb[0] = b[0]; pb[1] = b[1]; pb[2] = b[2]; pb[3] = b[3]; } refit(m.bvh); rebuildTLAS(); s4.op = 'deform off: BLAS refit back to rest pose'; draw4(); } });
+  $('deform4').addEventListener('change', () => { s4.deform = $('deform4').checked; if (s4.deform) requestAnimationFrame(deformFrame); else { poseOak(() => 1); refit(MESH.oak.bvh); rebuildTLAS(); s4.op = 'wind off: BLAS refit back to rest pose'; draw4(); } });
 
   // ================= 5. ray budget =================
   const c5 = $('c5'), x5 = c5.getContext('2d');
   const bvh5 = buildBVH(prims2, 'sah', 4);
-  const s5 = { cam: [0.06, 0.50], aim: [0.62, 0.44], res: 1080, sh: 1, rf: 1, gi: 2, rate: 10 };
+  const s5 = { cam: [0.07, 0.52], aim: [0.42, 0.33], res: 1080, sh: 1, rf: 1, gi: 2, rate: 10 };
   const RESO = { 1080: [1920, 1080], 1440: [2560, 1440], 2160: [3840, 2160] };
   const NB5 = 24, giRand = (() => { const R = rng(41); return Array.from({ length: NB5 }, () => R()); })();
   function bundle(origins, dirs) {
@@ -1064,7 +1306,7 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
     return { rays: out, leaves, nodes };
   }
   function draw5() {
-    clear(x5); drawSegs(x5, scene2, COL.geo);
+    x5.drawImage(bg2, 0, 0);
     const [o, d0] = ray(s5.cam, s5.aim); const base = Math.atan2(d0[1], d0[0]), spread = 8 * Math.PI / 180;
     const po = [], pd = [];
     for (let i = 0; i < NB5; i++) { const a = base + (i / (NB5 - 1) - 0.5) * spread; po.push(o); pd.push([Math.cos(a), Math.sin(a)]); }
@@ -1079,15 +1321,22 @@ visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a tempor
       for (let i = 0; i < NB5; i++) { const a = na + (giRand[i] - 0.5) * Math.PI * 0.94; go.push(hp); gd.push([Math.cos(a), Math.sin(a)]); }
       gi = bundle(go, gd);
     }
-    for (const l of prim.leaves) box(x5, bvh5.nodes[l].b, 'rgba(74,163,255,0.85)', 'rgba(74,163,255,0.10)');
-    if (gi) for (const l of gi.leaves) box(x5, bvh5.nodes[l].b, 'rgba(242,163,65,0.85)', 'rgba(242,163,65,0.10)');
-    for (const r of prim.rays) line(x5, r.o, [r.o[0] + r.d[0] * r.t, r.o[1] + r.d[1] * r.t], 'rgba(74,163,255,0.55)', 1);
-    if (gi) for (const r of gi.rays) line(x5, r.o, [r.o[0] + r.d[0] * r.t, r.o[1] + r.d[1] * r.t], 'rgba(242,163,65,0.55)', 1);
+    for (const l of prim.leaves) box(x5, bvh5.nodes[l].b, 'rgba(74,163,255,0.9)', 'rgba(74,163,255,0.12)');
+    if (gi) for (const l of gi.leaves) box(x5, bvh5.nodes[l].b, 'rgba(242,163,65,0.9)', 'rgba(242,163,65,0.12)');
+    for (const r of prim.rays) line(x5, r.o, [r.o[0] + r.d[0] * r.t, r.o[1] + r.d[1] * r.t], 'rgba(74,163,255,0.6)', 1);
+    if (gi) for (const r of gi.rays) line(x5, r.o, [r.o[0] + r.d[0] * r.t, r.o[1] + r.d[1] * r.t], 'rgba(242,163,65,0.6)', 1);
     if (hp) { dot(x5, hp, 4, COL.amber); line(x5, hp, [hp[0] + nrm[0] * 0.04, hp[1] + nrm[1] * 0.04], COL.white, 1); }
-    handle(x5, s5.cam); handle(x5, s5.aim, 5);
-    label(x5, P(s5.cam[0]) + 10, P(s5.cam[1]) + 8, 'camera', 'rgba(255,255,255,0.6)');
-    $('c5-left').innerHTML = `primary bundle: <strong>${prim.leaves.size} distinct leaves</strong>`;
-    $('c5-right').innerHTML = gi ? `bounce bundle: <strong>${gi.leaves.size} distinct leaves</strong>` : 'bounce bundle: middle ray missed, drag the aim onto geometry';
+    player(x5, o, d0); handle(x5, s5.aim, 5);
+    pin(x5, 'player', P(o[0]) + 12, P(o[1]) + 14);
+    const midPt = [o[0] + d0[0] * mid.t * 0.35, o[1] + d0[1] * mid.t * 0.35];
+    pin(x5, '24 neighbouring pixels of the player’s view', P(midPt[0]) + 6, P(midPt[1]) + 18, COL.blue);
+    if (hp) pin(x5, `light bouncing off the ${objName(scene2, mid.hit.seg)}: every direction`, P(hp[0]) + 8, P(hp[1]) - 18, COL.amber);
+    // the same 24 pixels on the player's screen, coloured by what each ray hit
+    const S = 180, ix = W - S - 8, iy = W - 78, ih = 40; kitInset(x5, ix, iy, S, 70, 'those 24 pixels on screen');
+    const cw = (S - 8) / NB5;
+    for (let i = 0; i < NB5; i++) { const r = prim.rays[i]; x5.fillStyle = r.hit ? OBJCOL[objName(scene2, r.hit.seg)] : KIT.skyLite; x5.fillRect(ix + 4 + i * cw, iy + 26, Math.ceil(cw), ih); if (r.hit) { x5.fillStyle = 'rgba(0,0,0,' + Math.min(0.7, r.t * 1.1).toFixed(2) + ')'; x5.fillRect(ix + 4 + i * cw, iy + 26, Math.ceil(cw), ih); } }
+    $('c5-left').innerHTML = `player's view bundle: <strong>${prim.leaves.size} distinct leaves</strong>`;
+    $('c5-right').innerHTML = gi ? `bounce bundle: <strong>${gi.leaves.size} distinct leaves</strong>` : 'bounce bundle: middle ray hit nothing, drag the aim onto a wall or tree';
     $('s5-p-l').textContent = prim.leaves.size; $('s5-p-n').textContent = prim.nodes; $('s5-p-r').textContent = (prim.nodes / NB5).toFixed(1);
     $('s5-g-l').textContent = gi ? gi.leaves.size : '—'; $('s5-g-n').textContent = gi ? gi.nodes : '—'; $('s5-g-r').textContent = gi ? (gi.nodes / NB5).toFixed(1) : '—';
   }
