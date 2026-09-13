@@ -1,0 +1,955 @@
+<title>Texture Filtering &amp; Mipmaps</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas.r169 { aspect-ratio: 16 / 9; }
+.vp canvas.sq { aspect-ratio: 1; }
+.tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 640px) { .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.math.live { border-left-color: var(--inside); }
+.math .a { color: var(--accent); }
+.math .b { color: var(--inside); }
+.stats td.tx { white-space: normal; text-align: left; font-family: var(--font-display); font-size: 14px; min-width: 18ch; }
+.stats th.tx { text-align: left; }
+.uses { min-width: 640px; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">16×16 brick source · 256² checker on a 4 m tile · 320×180 target · hover the pixels</p>
+    <h1>Texture Filtering &amp; Mipmaps</h1>
+    <p class="lead">A texture is a grid of coloured cells called texels, and every pixel on screen asks the GPU "what colour is this spot of the texture". That question goes wrong in two opposite ways: up close the spot lands between texels and the picture goes blocky or soft, and far away one pixel covers dozens of texels and the picture shimmers. Mipmaps fix the far case by keeping pre-shrunk copies of the texture. <b>The thing people get wrong:</b> anisotropic filtering does not replace mipmaps. It picks a sharper mip and reads it several times along the long side of the pixel's patch of texture.</p>
+    <div class="key">
+      <span style="--sw:#f2a341">the texture, the nearest texel, the lower mip level, one pixel step across</span>
+      <span style="--sw:#4aa3ff">the four texels bilinear reads, the upper mip level, one pixel step down</span>
+      <span style="--sw:#ffffff">sample point, pixel, handle you drag</span>
+    </div>
+    <dl class="terms">
+      <dt>texel</dt><dd>one cell of a texture; a texture pixel</dd>
+      <dt>u, v</dt><dd>where you are on the texture, from 0 to 1 across and down</dd>
+      <dt>sampler</dt><dd>the hardware that turns a (u, v) into a colour</dd>
+      <dt>bilinear</dt><dd>blend the four nearest texels by how close each one is</dd>
+      <dt>mipmap</dt><dd>a stack of half-size copies of the texture, down to 1 texel</dd>
+      <dt>λ (lambda)</dt><dd>which copy in the stack to read; 0 is full size, 1 is half, and so on</dd>
+      <dt>footprint</dt><dd>the patch of texture one screen pixel covers</dd>
+      <dt>anisotropic</dt><dd>several reads along the long side of a stretched footprint</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#texel"><span class="n">01</span>Reading one texel up close</a></li><li><a href="#minify"><span class="n">02</span>Far away, textures shimmer</a></li><li><a href="#chain"><span class="n">03</span>The mip chain</a></li><li><a href="#lod"><span class="n">04</span>How the GPU picks the level</a></li><li><a href="#memory"><span class="n">05</span>What textures cost in memory</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="texel">
+    <h2>Reading one texel up close</h2>
+    <p class="sub">Move the sample point over a 16×16 texture drawn 32 screen pixels per texel and watch which texels get read.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c1" width="512" height="512" class="sq grab" aria-label="Nearest and bilinear lookup on a 16 by 16 texture"></canvas>
+        <div class="cap"><span id="c1-read"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Up close, a texture is <b>stretched over many screen pixels</b>, so most pixels land <b>between texel centres</b>. The sampler has to invent a colour for that in-between spot. <b>Nearest</b> takes the one texel the point falls in. <b>Bilinear</b> mixes the four closest texels, weighting each by how near it is.</p>
+
+        <h3>What you're seeing</h3>
+        <p>A 16×16 brick texture blown up to 32 screen pixels per texel. The white dot is the sample point. The amber box is the texel nearest would return.</p>
+        <p>The four blue boxes are the texels bilinear reads. Each blue dot's size is that texel's share of the mix, and the four numbers are those shares; they always add up to 1.00. The two swatches in the corner show both answers side by side.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the dot to the middle of a texel. One weight goes to nearly 1.00 and the two swatches match.</li>
+          <li>Drag it to a corner where four texels meet. The weights go to about 0.25 each and the bilinear swatch turns into a blend.</li>
+          <li>Drag to the right edge and switch clamp to wrap. The blue boxes jump to the far left of the texture.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:6px">
+          <div class="ctl"><span class="lab">Address mode</span><div class="seg" id="segAddr" role="group" aria-label="Address mode"><button data-v="clamp" aria-pressed="true">clamp</button><button data-v="wrap">wrap</button></div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The sampler never sees pixels. It gets a continuous coordinate <code>(u, v)</code>, two numbers in [0, 1] that say how far across and down the texture you are, and it has to answer with a colour.</p>
+        <p>Texel centres sit at half-integers, so <code>u·16 − 0.5</code> is the position in texel units. Its floor names the top-left texel of the 2×2 footprint, the small square of texels being read, and the fractional part is the blend weight. Nearest filtering skips the subtraction and takes whichever texel the point falls in.</p>
+        <p>Bilinear is two lerps, where a lerp is a straight blend between two values by a fraction. Lerp the top pair by <code>fx</code>, lerp the bottom pair by <code>fx</code>, then lerp the two results by <code>fy</code>. The four weights always sum to one.</p>
+        <p>At the texture edge the address mode decides what the missing neighbour is. Clamp repeats the edge texel. Wrap pulls from the far side, which is why tiling textures need matching borders.</p>
+        <p class="words">In words: find the position in texel units, split it into a whole part and a fraction, and use the fraction to weight the four texels around it.</p>
+        <div class="math">x = u·N − 0.5      i = ⌊x⌋      fx = x − i
+y = v·N − 0.5      j = ⌊y⌋      fy = y − j
+w00 = (1−fx)(1−fy)   w10 = fx(1−fy)
+w01 = (1−fx)·fy      w11 = fx·fy         Σw = 1
+c = w00·T[i,j] + w10·T[i+1,j] + w01·T[i,j+1] + w11·T[i+1,j+1]</div>
+        <p>N is the texture size in texels, i and j pick the top-left texel, fx and fy are the fractions, w00 to w11 are the four weights, and T[i,j] is the colour stored at texel (i, j).</p>
+        <p class="words">What this code does: fetches the four texels around the point and blends them in two steps, first across, then down.</p>
+<pre class="code"><span class="c">// what the hardware does for one bilinear tap, written out</span>
+<span class="k">vec4</span> sampleBilinear(<span class="k">sampler2D</span> t, <span class="k">vec2</span> uv, <span class="k">vec2</span> texSize) {
+  <span class="k">vec2</span> x  = uv * texSize - 0.5;      <span class="c">// texel centers are at +0.5</span>
+  <span class="k">vec2</span> i0 = floor(x);
+  <span class="k">vec2</span> f  = x - i0;                    <span class="c">// the two weights</span>
+  <span class="k">vec4</span> c00 = texelFetch(t, wrap(i0 + <span class="k">vec2</span>(0,0)), 0);
+  <span class="k">vec4</span> c10 = texelFetch(t, wrap(i0 + <span class="k">vec2</span>(1,0)), 0);
+  <span class="k">vec4</span> c01 = texelFetch(t, wrap(i0 + <span class="k">vec2</span>(0,1)), 0);
+  <span class="k">vec4</span> c11 = texelFetch(t, wrap(i0 + <span class="k">vec2</span>(1,1)), 0);
+  <span class="k">return</span> mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
+}</pre>
+        <p class="tldr">Bilinear is four texels blended by how close the sample point is to each, and it can never average more than four.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="minify">
+    <h2>Far away, textures shimmer</h2>
+    <p class="sub">Switch the filter on a checkerboard floor and watch the wavy bands in the distance appear and go away.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c2" width="640" height="360" class="r169" aria-label="Perspective ground plane sampled with and without mipmaps"></canvas>
+        <div class="cap"><span id="c2-read"></span><span id="c2-lod"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Far from the camera, <b>one screen pixel covers dozens of texels</b>. A bilinear read looks at only four of them, so the colour depends on <b>which four it happened to hit</b>, and the next pixel hits a different four. That is <b>moiré</b>, the wavy bands you see on distant floors and fences. <b>Mipmaps</b> fix it by storing pre-shrunk copies of the texture, so four texels really do stand for the whole pixel.</p>
+
+        <h3>What you're seeing</h3>
+        <p>A checkerboard floor stretching away from the camera, drawn at 320×180 pixels. Near the bottom it is magnified. Near the horizon each pixel covers many checks.</p>
+        <p>The three tiles below the controls count how many texels each ground pixel read, the total texel fetches for the frame, and how long the JavaScript sampler took. The caption shows the range of λ, the mip level, across the floor.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Stay on "bilinear, no mips" and look at the horizon. The bands are moiré, and they crawl when you slide the tile size.</li>
+          <li>Switch to trilinear. The bands vanish, the far floor settles to one average colour, and texels read per pixel goes from 4 to 8.</li>
+          <li>Switch to aniso 16×. The distance sharpens again, and the fetch count climbs.</li>
+          <li>Push LOD bias to −2. The shimmer comes back because the sampler is now picking a level that is too fine.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:6px">
+          <div class="ctl"><span class="lab">Filter</span><div class="seg" id="segF" role="group" aria-label="Filter mode"><button data-v="0">nearest</button><button data-v="1" aria-pressed="true">bilinear, no mips</button><button data-v="2">trilinear</button><button data-v="3">aniso 4×</button><button data-v="4">aniso 16×</button></div></div>
+          <div class="ctl"><label for="tile">Tile size <span class="val" id="tilev">4.0 m</span></label><input type="range" id="tile" min="1" max="8" step="0.5" value="4"></div>
+          <div class="ctl"><label for="bias">LOD bias <span class="val" id="biasv">0.0</span></label><input type="range" id="bias" min="-2" max="2" step="0.25" value="0"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t2-taps">—</div><div class="l">texels read / ground pixel</div></div>
+          <div class="tile"><div class="n" id="t2-fetch">—</div><div class="l">texel fetches, this frame</div></div>
+          <div class="tile"><div class="n" id="t2-ms">—</div><div class="l">ms, JS sampler</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Without mipmaps, a bilinear tap (one read of the sampler) still fetches four texels and ignores the rest, so the pixel colour depends on exactly which four it landed on. Neighbouring pixels land on different ones. The checker's pattern beats against the pixel grid into moiré bands, and the bands crawl the moment the camera moves.</p>
+        <p>Mipmaps prefilter the answer. Level k is the texture averaged down by 2<sup>k</sup>: level 1 is half size, level 2 a quarter, and so on. The sampler picks the level where one texel is about one pixel wide, so the four texels it reads already hold the average of everything the pixel covers. λ (lambda) is the name for that picked level, and it can sit between two whole levels.</p>
+        <p>Trilinear blends the two nearest levels so the switch between them is invisible. Anisotropic filtering fixes the blur that is left. At grazing angles the footprint, the patch of texture one pixel covers, is long and thin. One level choice has to blur along the short side too. So the sampler picks the level that fits the short side and takes several taps along the long one.</p>
+        <p class="words">In words: trilinear blends the level below λ with the level above it. Anisotropic splits the long side into N taps, picks a level finer by log2(N), and averages them.</p>
+        <div class="math">trilinear:  c = lerp(bilinear(L⌊λ⌋, uv), bilinear(L⌈λ⌉, uv), λ − ⌊λ⌋)
+aniso:      N = min(⌈ρ_major / ρ_minor⌉, maxAniso)
+            λ' = log2(ρ_major / N)          ← finer level than log2(ρ_major)
+            c = (1/N) Σ_k trilinear(uv + axis · ((k + ½)/N − ½), λ')</div>
+        <p>L⌊λ⌋ and L⌈λ⌉ are the levels just below and above λ. ρ_major and ρ_minor are the long and short widths of the footprint in texels, N is the number of taps, and axis is the direction of the long side.</p>
+        <p class="words">What this code does: does the trilinear blend with two textureLod calls, then walks N points along the long side of the footprint and averages a trilinear read at each one.</p>
+<pre class="code"><span class="c">// trilinear and anisotropic, spelled out with textureLod</span>
+<span class="k">float</span> l0 = floor(lod), f = lod - l0;
+<span class="k">vec4</span> c = mix(textureLod(t, uv, l0), textureLod(t, uv, l0 + 1.0), f);
+
+<span class="c">// anisotropic: same idea, N taps along the long axis of the footprint</span>
+<span class="k">float</span> pMax = max(length(dx), length(dy));   <span class="c">// dx, dy in texels</span>
+<span class="k">float</span> pMin = min(length(dx), length(dy));
+<span class="k">float</span> N    = min(ceil(pMax / pMin), maxAniso);
+<span class="k">float</span> lodA = log2(pMax / N) + lodBias;
+<span class="k">vec2</span>  axis = (length(dx) &gt; length(dy)) ? dFdx(uv) : dFdy(uv);
+<span class="k">vec4</span>  sum  = <span class="k">vec4</span>(0.0);
+<span class="k">for</span> (<span class="k">int</span> k = 0; k &lt; <span class="k">int</span>(N); k++)
+  sum += textureLod(t, uv + axis * ((k + 0.5) / N - 0.5), lodA);
+c = sum / N;</pre>
+        <p class="tldr">Moiré is bilinear reading four texels out of dozens; mipmaps make those four the average of all of them.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="chain">
+    <h2>The mip chain</h2>
+    <p class="sub">Drag the footprint on the full-size level and slide λ to see which copies get picked and what each one costs.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c3" width="640" height="360" class="r169 grab" aria-label="Mip chain of the checker texture with the picked levels highlighted"></canvas>
+        <div class="cap"><span id="c3-read"></span><span id="c3-bytes"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">A <b>mip chain</b> is the texture plus a stack of <b>half-size copies</b>: 256, 128, 64, down to a single texel. Think of a photocopier set to 50%, run again and again on its own output. The whole stack costs <b>one third more memory</b> than the texture alone, and in return the sampler reads four texels no matter how far away the surface is.</p>
+
+        <h3>What you're seeing</h3>
+        <p>All nine levels of the 256² checker at true size, one screen pixel per texel, so the copies shrink to the right. The ellipse on level 0 is the footprint, the patch of texture one pixel covers, and the inset zooms in on it 4×.</p>
+        <p>The list on the right gives each level's size and bytes. The amber line is the lower picked level and the blue line the upper one, with the blend weight next to each. In anisotropic mode, white dots along the ellipse are the taps.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Slide λ from 0 to 8. The highlight walks down the list one level per whole number, and the ellipse grows by 2× per step.</li>
+          <li>Set footprint aspect to 16:1 and switch level pick to anisotropic. The picked level jumps four levels finer, because log2(16) is 4, and 16 taps appear.</li>
+          <li>Drag the ellipse around level 0. Only its position moves; the level pick depends on its size, not on where it is.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:6px">
+          <div class="ctl"><label for="lod3">LOD λ <span class="val" id="lod3v">4.50</span></label><input type="range" id="lod3" min="0" max="8" step="0.05" value="4.5"></div>
+          <div class="ctl"><label for="ratio3">Footprint aspect <span class="val" id="ratio3v">4.0 : 1</span></label><input type="range" id="ratio3" min="1" max="16" step="0.5" value="4"></div>
+          <div class="ctl"><span class="lab">Level pick</span><div class="seg" id="segM3" role="group" aria-label="Level selection mode"><button data-v="tri" aria-pressed="true">trilinear</button><button data-v="aniso">anisotropic</button></div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Each level is a quarter the size of the one before, so the whole chain costs one third more than the base level. For the 256² RGBA8 texture that is 262,144 bytes for the base and 349,524 bytes for the chain. Without the chain, a minified lookup either aliases (shows the shimmer from the last section) or has to read hundreds of texels per pixel.</p>
+        <p>The footprint ellipse is the pixel projected into texture space. On level 0 it covers 2<sup>λ</sup> texels across its long axis. On level ⌊λ⌋ the same ellipse is about one texel wide, which is what makes a 2×2 bilinear read a fair average.</p>
+        <p>The levels below 8×8 are single digits of bytes. They still matter, because the sampler needs a level for every distance, and a flat far level is exactly the colour a checker averages to.</p>
+        <p class="words">In words: add up the bytes of every level; the total is four thirds of the base level.</p>
+        <div class="math">bytes(chain) = N²·b + (N/2)²·b + (N/4)²·b + … + 1·b
+             = N²·b · (1 + ¼ + 1/16 + …) → N²·b · 4/3
+256², RGBA8:   262,144 B base → 349,524 B chain = 1.333 × base</div>
+        <p>N is the base width in texels, b is the bytes per texel (4 for RGBA8), and the arrow shows what the sum settles to as the levels get small.</p>
+        <p class="words">What this code does: builds the next level by averaging each 2×2 block of the level above into one texel.</p>
+<pre class="code"><span class="c">// generating level L+1 from level L: one thread per destination texel</span>
+<span class="k">ivec2</span> src = 2 * dstId;
+<span class="k">vec4</span> a = texelFetch(levelL, src + <span class="k">ivec2</span>(0,0), 0);
+<span class="k">vec4</span> b = texelFetch(levelL, src + <span class="k">ivec2</span>(1,0), 0);
+<span class="k">vec4</span> c = texelFetch(levelL, src + <span class="k">ivec2</span>(0,1), 0);
+<span class="k">vec4</span> d = texelFetch(levelL, src + <span class="k">ivec2</span>(1,1), 0);
+imageStore(levelL1, dstId, (a + b + c + d) * 0.25);   <span class="c">// box filter; average sRGB in linear</span></pre>
+        <p class="tldr">The whole mip chain costs a third more memory than the base texture, and that buys a four-texel read at any distance.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="lod">
+    <h2>How the GPU picks the level</h2>
+    <p class="sub">Hover a pixel on the floor and see its footprint in texture space, with the arithmetic that turns it into λ.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c4a" width="640" height="360" class="r169" aria-label="Ground plane, hover to pick a pixel"></canvas>
+        <div class="cap"><span id="c4a-read"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c4b" width="640" height="360" class="r169" aria-label="Texture space footprint of the hovered pixel"></canvas>
+        <div class="cap"><span id="c4b-read"></span></div>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><span class="lab">Level pick</span><div class="seg" id="segM4" role="group" aria-label="Level selection mode"><button data-v="tri" aria-pressed="true">trilinear</button><button data-v="aniso">anisotropic 16×</button></div></div>
+      <div class="ctl"><span class="lab">Texture shown</span><div class="seg" id="segL4" role="group" aria-label="Which level to draw"><button data-v="0" aria-pressed="true">level 0</button><button data-v="pick">picked level</button></div></div>
+    </div>
+    <div class="cols" style="margin-top:18px">
+      <div class="prose">
+        <p class="plain">The GPU picks the mip level by measuring <b>how far the texture coordinate moves for one pixel step</b> on screen. A big step means the pixel covers many texels, so <b>pick a coarser level</b>. A tiny step means the pixel sits inside one texel, so <b>use level 0</b>. Every filter mode on this page starts from that one measurement.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Left: the floor. Hover a pixel; the white square around it is the 2×2 group the GPU shades together. Right: texture space, zoomed in around that pixel's sample point. The amber arrow is one pixel step across the screen and the blue arrow one step down, both measured in texels. The ellipse they span is the footprint.</p>
+        <p>The live box below prints the arithmetic for the hovered pixel. The four tiles show the level used, which levels get blended, the footprint's long-to-short ratio, and how many bilinear taps the read costs.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Hover near the bottom of the left view. The arrows are short, λ is near 0, and the ratio is close to 1:1.</li>
+          <li>Hover near the horizon. The arrows stretch, λ climbs, and the ratio grows as the footprint turns into a sliver.</li>
+          <li>Switch level pick to anisotropic 16× while hovering the horizon. λ drops, white tap dots appear along the long arrow, and bilinear taps goes up to 32.</li>
+          <li>Switch texture shown to picked level. The right view swaps to the coarser copy, where the footprint is about one texel wide.</li>
+        </ul>
+
+        <div class="math live" id="d4-live"></div>
+        <div class="tiles four">
+          <div class="tile"><div class="n" id="t4-lam">—</div><div class="l">λ used</div></div>
+          <div class="tile"><div class="n" id="t4-lv">—</div><div class="l">levels blended</div></div>
+          <div class="tile"><div class="n" id="t4-ratio">—</div><div class="l">major : minor</div></div>
+          <div class="tile"><div class="n" id="t4-taps">—</div><div class="l">bilinear taps</div></div>
+        </div>
+      </div>
+      <div class="prose">
+        <h3>The real version</h3>
+        <p>The GPU shades pixels in 2×2 groups called quads, so it can subtract neighbouring pixels' UVs. Those differences are the screen-space derivatives: how far the texture coordinate moves for one pixel step in x and one in y. Multiplied by the texture size they are vectors in texels, and their lengths are the two footprint widths.</p>
+        <p>The isotropic rule (one size in every direction) takes the larger width, ρ, and sets λ = log2(ρ), so one texel at that level is about one pixel.</p>
+        <p>The anisotropic rule divides the long width by N taps first, then takes the log. The level gets finer by log2(N) and the cost goes up by N bilinear taps, or 2N with trilinear. Sixteen is the usual cap because past that the extra taps stop being visible, and the footprint is being averaged over more texels than the screen can show.</p>
+        <p class="words">In words: measure the pixel step in texels in both directions, take the longer one, and its log base 2 is the level.</p>
+        <div class="math">dx = ∂(u,v)/∂x · texSize      dy = ∂(u,v)/∂y · texSize      (texels)
+ρx = |dx| = √(du/dx² + dv/dx²)   ρy = |dy| = √(du/dy² + dv/dy²)
+ρ = max(ρx, ρy)                 λ = log2(ρ) + bias, clamped to [0, levels−1]
+aniso: N = min(⌈max(ρx,ρy) / min(ρx,ρy)⌉, 16)    λ' = log2(max(ρx,ρy) / N)</div>
+        <p>dx and dy are the pixel steps in texels, ρx and ρy are their lengths, ρ is the larger one, λ is the level, and bias is a per-sampler nudge. N and λ' are the anisotropic tap count and level.</p>
+        <p class="words">What this code does: computes the level the same way texture() does silently, then shows the two ways to hand the sampler your own gradients.</p>
+<pre class="code"><span class="c">// what texture(t, uv) computes implicitly inside a fragment shader</span>
+<span class="k">vec2</span> dx = dFdx(uv) * texSize;     <span class="c">// finite difference across the 2×2 quad</span>
+<span class="k">vec2</span> dy = dFdy(uv) * texSize;
+<span class="k">float</span> rho = max(length(dx), length(dy));
+<span class="k">float</span> lod = log2(rho) + lodBias;  <span class="c">// hardware then clamps to the mip range</span>
+
+<span class="c">// explicit gradients: mandatory inside divergent branches and in compute</span>
+<span class="k">vec4</span> c = textureGrad(t, uv, dFdx(uv), dFdy(uv));
+<span class="c">// cheaper scalar guess some shaders use; fwidth = |dFdx| + |dFdy|</span>
+<span class="k">float</span> lodApprox = log2(max(fwidth(uv.x), fwidth(uv.y)) * texSize.x);</pre>
+        <p class="tldr">λ is log2 of how many texels one pixel step covers; everything else on this page is built on that number.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="memory">
+    <h2>What textures cost in memory</h2>
+    <p class="sub">Change the texture size, the screen size and the cache hit rate, and watch the bytes and the bandwidth move.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5" width="640" height="360" class="r169" aria-label="Bars of texture memory per format and bandwidth per sampling mode"></canvas>
+        <div class="cap"><span id="c5-read"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Textures are the <b>biggest thing in video memory</b>, and mip chains make them a third bigger. <b>Block compression</b> shrinks them 4 to 8 times by storing small blocks of texels as a couple of colours plus a few bits each. Reading them costs <b>bandwidth</b>, and what saves bandwidth is not fewer texels but <b>fewer cache misses</b>.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Top bars: one texture at the picked size in four formats. Amber is the base level, blue is the extra the mip chain adds. Bottom bars: how many megabytes per frame, and gigabytes per second at 60 Hz, the sampler pulls from memory for one bilinear tap, trilinear, and the two anisotropic worst cases at the picked screen size and cache hit rate.</p>
+        <p>The table under the demo lists each format's bits per texel, block size, and bytes for the texture without and with a mip chain.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Switch the texture size from 2048² to 4096². Every memory bar quadruples.</li>
+          <li>Drag cache hit rate from 90% down to 50%. The bandwidth tiles jump 5×, because every miss costs a whole 64-byte line.</li>
+          <li>Pick 4K. Bandwidth quadruples with the pixel count; memory does not move.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:6px">
+          <div class="ctl"><span class="lab">Texture size</span><div class="seg" id="segSz" role="group" aria-label="Texture size"><button data-v="1024">1024²</button><button data-v="2048" aria-pressed="true">2048²</button><button data-v="4096">4096²</button></div></div>
+          <div class="ctl"><span class="lab">Target</span><div class="seg" id="segRes" role="group" aria-label="Render resolution"><button data-v="1920" aria-pressed="true">1080p</button><button data-v="2560">1440p</button><button data-v="3840">4K</button></div></div>
+          <div class="ctl"><label for="hit">Cache hit rate <span class="val" id="hitv">90 %</span></label><input type="range" id="hit" min="0" max="99" step="1" value="90"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t5-bil">—</div><div class="l">GB/s, 1 bilinear tap</div></div>
+          <div class="tile"><div class="n" id="t5-tri">—</div><div class="l">GB/s, trilinear</div></div>
+          <div class="tile"><div class="n" id="t5-an">—</div><div class="l">GB/s, aniso 16× worst case</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Block compression is what makes the chain affordable. BC1 packs a 4×4 block into 8 bytes: two RGB565 endpoint colours (16 bits each) and a 2-bit index per texel that picks one of four colours between them. That is 4 bits per texel instead of 32. BC7 spends 16 bytes per block on better endpoints and partitions. ASTC picks the block size per texture, and a 6×6 block at 16 bytes lands at 3.56 bits per texel. The texture unit decodes blocks on the way into its cache, so the shader never sees the difference.</p>
+        <p>Bandwidth is about cache lines, not texels. A cache line is the 64-byte chunk that memory hands over in one go. A bilinear tap reads four neighbouring texels that usually share one line, and the next pixel's tap usually hits the same line.</p>
+        <p>Mipmaps are what keep that hit rate high: at the right level, consecutive pixels read consecutive texels. Sample a 2048² texture without mips at heavy minification and every tap lands on a different line, the hit rate collapses, and the slider is what your frame time pays.</p>
+      </div>
+    </div>
+    <p class="words" style="margin-top:20px">How to read the table: the same texture in each format. Bits per texel is the compression, and the last two columns are the bytes it takes without and with a mip chain.</p>
+    <div class="tbl-wrap">
+    <table class="stats" id="fmt-table">
+      <thead><tr><th>Format</th><th>bits / texel</th><th>block</th><th>texels per 64 B line</th><th>no mips</th><th>with mips</th></tr></thead>
+      <tbody id="fmt-body"></tbody>
+    </table>
+    </div>
+    <p class="words">In words: bytes are blocks across times blocks down times bytes per block; bandwidth is pixels times taps times one cache line for every miss.</p>
+    <div class="math">bytes(level n) = ⌈n / bw⌉ · ⌈n / bh⌉ · blockBytes         BC1: 4×4 → 8 B,  BC7: 4×4 → 16 B,  ASTC 6×6 → 16 B
+bandwidth/frame = pixels · taps · 64 B · (1 − hitRate)     taps: bilinear 1, trilinear 2, aniso N× up to 2N
+bandwidth/s     = bandwidth/frame · 60 Hz</div>
+    <p class="words">n is the level width, bw and bh are the block width and height, blockBytes is the bytes per block, taps is the reads per pixel, and hitRate is the share of reads served from cache.</p>
+    <p class="words">What this code does: unpacks one BC1 block into its four-colour palette and picks a texel's colour with its 2-bit index.</p>
+<pre class="code"><span class="c">// BC1 block decode sketch: 8 bytes → 16 texels</span>
+<span class="k">uint</span>  c0 = block.lo &amp; 0xFFFFu, c1 = block.lo &gt;&gt; 16;       <span class="c">// two RGB565 endpoints</span>
+<span class="k">vec3</span>  p0 = unpack565(c0), p1 = unpack565(c1);
+<span class="k">vec3</span>  pal[4];
+pal[0] = p0; pal[1] = p1;
+<span class="k">if</span> (c0 &gt; c1) { pal[2] = mix(p0, p1, 1.0/3.0); pal[3] = mix(p0, p1, 2.0/3.0); }
+<span class="k">else</span>         { pal[2] = 0.5 * (p0 + p1);      pal[3] = <span class="k">vec3</span>(0.0); }  <span class="c">// 3-colour + transparent</span>
+<span class="k">uint</span>  idx = (block.hi &gt;&gt; (2u * (ty * 4u + tx))) &amp; 3u;         <span class="c">// 2 bits per texel</span>
+<span class="k">vec3</span>  texel = pal[idx];</pre>
+    <p class="tldr">Compress with BC or ASTC and keep the mip chain; the chain is what keeps texture reads landing in cache.</p>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">What each filter costs per sample and what it looks like when it is the wrong choice.</p>
+    <p class="plain">Read this table as <b>price, then failure</b>. The three number columns say how much each filter reads for one sample. The last two say <b>what goes wrong</b> when it is the wrong pick and <b>when it is the right one</b>. You are choosing between blur, shimmer and bandwidth. Cache lines assume a 64 B line and a tiled layout where one 2×2 footprint fits in a line.</p>
+    <div class="tbl-wrap">
+    <table class="stats">
+      <thead><tr><th>Filter</th><th>texels read</th><th>cache lines touched</th><th>cost vs bilinear</th><th class="tx">what goes wrong</th><th class="tx">pick it when</th></tr></thead>
+      <tbody>
+        <tr><td>Nearest, no mips</td><td>1</td><td>1</td><td>≈1×</td><td class="tx">Blocky up close; sparkling, crawling noise far away.</td><td class="tx">Pixel art at whole-number scale, ID and index textures, any lookup that must not blend.</td></tr>
+        <tr><td>Bilinear, no mips</td><td>4</td><td>1</td><td>1×</td><td class="tx">Soft up close; moiré and shimmer far away.</td><td class="tx">UI, textures that are never shrunk on screen, single-level lookups such as shadow maps.</td></tr>
+        <tr><td>Trilinear</td><td>8</td><td>2</td><td>2×</td><td class="tx">Too blurry along the short side at grazing angles: floors and walls go muddy in the distance.</td><td class="tx">Default for anything that can be far away; mobile budgets.</td></tr>
+        <tr><td>Aniso 2×</td><td>up to 16</td><td>up to 4</td><td>up to 4×</td><td class="tx">Still soft once the footprint is longer than 2:1.</td><td class="tx">Cheap upgrade for terrain and roads.</td></tr>
+        <tr><td>Aniso 4×</td><td>up to 32</td><td>up to 8</td><td>up to 8×</td><td class="tx">Soft past 4:1.</td><td class="tx">Console defaults, mobile high settings.</td></tr>
+        <tr><td>Aniso 8×</td><td>up to 64</td><td>up to 16</td><td>up to 16×</td><td class="tx">Rarely visible.</td><td class="tx">Console high settings.</td></tr>
+        <tr><td>Aniso 16×</td><td class="hi">up to 128</td><td class="hi">up to 32</td><td class="hi">up to 32×</td><td class="tx">None you can see; the worst case only happens at grazing angles.</td><td class="tx">PC default; the real cost is far below the worst case because most pixels need 1 to 4 taps and the taps hit L1 cache.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">The "up to" matters. The tap count is per pixel and depends on that pixel's footprint ratio, so a 16× setting costs almost nothing on surfaces facing the camera. What you pay in practice is the texture unit's filtering rate: bilinear runs at full rate for 32-bit formats on current GPUs, trilinear and each extra anisotropic tap take extra cycles, and wide formats (RGBA16F, BC6H) filter at a reduced rate.</p>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">The same sampler, driven differently.</p>
+    <p class="plain">Each row is <b>one way shipped games drive the same sampler</b>. The first column names the use, the second says what the shader asks for, the third says what has to be loaded for it to work, and the last says where you have seen it.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Use</th><th>What the shader asks for</th><th>What has to be loaded</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>Pixel art at integer scale</td><td>Nearest, no mips. Draw at a low internal resolution and scale up by a whole number so each texel maps to a whole number of screen pixels.</td><td>Sprite atlas, RGBA8, no mip chain, camera snapped to whole pixels</td><td>Celeste (2018), Stardew Valley (2016)</td></tr>
+        <tr><td>Virtual texturing</td><td>The shader works out λ from the derivatives itself, looks up a page table to find which piece of the texture is loaded, then samples a cache of loaded pieces with a border so bilinear stays correct across piece edges.</td><td>Page table texture, physical page cache atlas, feedback buffer of pages wanted</td><td>id Tech 5 MegaTexture (Rage, 2011), Unreal Engine 4.23+ and UE5 Virtual Texturing</td></tr>
+        <tr><td>BC7 on PC and console</td><td>Ordinary hardware sampling; the texture unit decodes 16-byte blocks into its cache.</td><td>8 bits per texel, full mip chain, offline encoder</td><td>Most PC and console titles since DirectX 11 (2009)</td></tr>
+        <tr><td>ASTC on mobile</td><td>Same, with the block size chosen per texture: 4×4 for normals and UI, 6×6 or 8×8 for colour.</td><td>16 bytes per block, 8 down to 0.89 bits per texel</td><td>Unity and Unreal mobile builds; required by OpenGL ES 3.2 and Vulkan on Android; iOS since the A8</td></tr>
+        <tr><td>LOD bias under TAA and upscalers</td><td>Sample with a negative bias so mips stay sharp at the lower internal resolution; blending frames over time removes the aliasing the bias adds back.</td><td>Sampler LOD bias of about log2(render width / display width)</td><td>DLSS and FSR 2/3 integration guides, most TAA-based engines</td></tr>
+        <tr><td>Streaming by mip</td><td>Load only the levels the current view needs; a missing fine level falls back to a coarser loaded one with the LOD clamped.</td><td>Per-texture resident mip range, screen-size feedback</td><td>Unreal Engine texture streaming, many engines</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">One naming trap, from the OpenGL enum names most APIs inherited. <code>LINEAR_MIPMAP_NEAREST</code> is bilinear on one mip, not trilinear; <code>LINEAR_MIPMAP_LINEAR</code> is trilinear. The first word is the filter within a level, the last word is the filter between levels, and "bilinear with mipmaps" already means the first one.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  // ---------- palette (viewports are always dark, like an engine debug view) ----------
+  const AMBER = [242, 163, 65], AMBER2 = [196, 126, 46], BLUE = [74, 163, 255], DARK = [24, 29, 38], MORTAR = [44, 50, 60], PALE = [214, 218, 226];
+  const CA = "#f2a341", CB = "#4aa3ff", CW = "#ffffff", GRID = "rgba(255,255,255,0.12)", GROUND = "#0b0e13";
+  const MONO = '12px "IBM Plex Mono", Menlo, Consolas, monospace';
+
+  function fmtBytes(b) {
+    if (b >= 1048576) return (b / 1048576).toFixed(2) + " MB";
+    if (b >= 1024) return (b / 1024).toFixed(1) + " KB";
+    return b + " B";
+  }
+  function fmtN(n) { return Math.round(n).toLocaleString("en-US"); }
+  const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
+  function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
+  function onSeg(id, fn) { const el = document.getElementById(id); el.addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; segOn(el, b.dataset.v); fn(b.dataset.v); }); }
+  function pos(canvas, ev) {
+    const r = canvas.getBoundingClientRect();
+    return [(ev.clientX - r.left) / r.width * canvas.width, (ev.clientY - r.top) / r.height * canvas.height];
+  }
+  function raf(fn) { let p = false; return () => { if (p) return; p = true; requestAnimationFrame(() => { p = false; fn(); }); }; }
+  function hover(canvas, fn) {
+    let down = false;
+    canvas.addEventListener("pointerdown", ev => { down = true; canvas.setPointerCapture(ev.pointerId); const [x, y] = pos(canvas, ev); fn(x, y); });
+    canvas.addEventListener("pointermove", ev => { const [x, y] = pos(canvas, ev); fn(x, y, down); });
+    const end = ev => { down = false; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} };
+    canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
+  }
+
+  // ---------- textures ----------
+  function mkLevel(n) { return { n, d: new Float32Array(n * n * 3) }; }
+  function fill(L, f) { const n = L.n; for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const c = f(i, j), o = (j * n + i) * 3; L.d[o] = c[0]; L.d[o + 1] = c[1]; L.d[o + 2] = c[2]; } return L; }
+  function levelCanvas(L) {
+    const n = L.n, img = new ImageData(n, n), p = img.data;
+    for (let k = 0; k < n * n; k++) { p[k * 4] = L.d[k * 3]; p[k * 4 + 1] = L.d[k * 3 + 1]; p[k * 4 + 2] = L.d[k * 3 + 2]; p[k * 4 + 3] = 255; }
+    const off = document.createElement("canvas"); off.width = n; off.height = n; off.getContext("2d").putImageData(img, 0, 0); return off;
+  }
+  function downsample(L) {
+    const n = L.n >> 1, M = mkLevel(n), s = L.d, N = L.n;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const a = ((2 * j) * N + 2 * i) * 3, b = a + 3, c = a + N * 3, d = c + 3, o = (j * n + i) * 3;
+      for (let k = 0; k < 3; k++) M.d[o + k] = (s[a + k] + s[b + k] + s[c + k] + s[d + k]) * 0.25;
+    }
+    return M;
+  }
+  // 16×16 hand-made brick with a pale diagonal
+  const T16 = fill(mkLevel(16), (x, y) => {
+    if (x + y === 15 || x + y === 16) return PALE;
+    const row = y >> 2, off = (row & 1) * 4;
+    if ((y & 3) === 0) return MORTAR;
+    const xs = x + off; if ((xs & 7) === 0) return MORTAR;
+    return (((xs >> 3) + row) & 1) ? AMBER : AMBER2;
+  });
+  const off16 = levelCanvas(T16);
+  // 256² checker, 16 checks of 16 texels, plus its mip chain
+  const levels = [fill(mkLevel(256), (i, j) => (((i >> 4) + (j >> 4)) & 1) ? AMBER : DARK)];
+  while (levels[levels.length - 1].n > 1) levels.push(downsample(levels[levels.length - 1]));
+  const offs = levels.map(levelCanvas);
+  const MAXL = levels.length - 1; // 8
+
+  // wrap-addressed bilinear on a power-of-two level
+  function bil(L, u, v, out) {
+    const n = L.n, m = n - 1, d = L.d;
+    const x = u * n - 0.5, y = v * n - 0.5;
+    const i0 = Math.floor(x), j0 = Math.floor(y), fx = x - i0, fy = y - j0;
+    const ia = i0 & m, ib = (i0 + 1) & m, ja = (j0 & m) * n, jb = ((j0 + 1) & m) * n;
+    const o00 = (ja + ia) * 3, o10 = (ja + ib) * 3, o01 = (jb + ia) * 3, o11 = (jb + ib) * 3;
+    const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+    out[0] = d[o00] * w00 + d[o10] * w10 + d[o01] * w01 + d[o11] * w11;
+    out[1] = d[o00 + 1] * w00 + d[o10 + 1] * w10 + d[o01 + 1] * w01 + d[o11 + 1] * w11;
+    out[2] = d[o00 + 2] * w00 + d[o10 + 2] * w10 + d[o01 + 2] * w01 + d[o11 + 2] * w11;
+  }
+  const tmpA = [0, 0, 0], tmpB = [0, 0, 0];
+  function tri(u, v, lam, out) {
+    const l0 = Math.floor(lam), l1 = Math.min(l0 + 1, MAXL), f = lam - l0;
+    bil(levels[l0], u, v, tmpA); bil(levels[l1], u, v, tmpB);
+    out[0] = tmpA[0] + (tmpB[0] - tmpA[0]) * f; out[1] = tmpA[1] + (tmpB[1] - tmpA[1]) * f; out[2] = tmpA[2] + (tmpB[2] - tmpA[2]) * f;
+  }
+
+  // ---------- 1. one texel lookup ----------
+  const c1 = document.getElementById("c1"), x1 = c1.getContext("2d"), S1 = 512, TP = 32;
+  const d1 = { u: 0.47, v: 0.36, wrap: false };
+  const read1 = document.getElementById("c1-read");
+  function addr(i, wrap) { return wrap ? (i & 15) : clamp(i, 0, 15); }
+  function draw1() {
+    const { u, v, wrap } = d1;
+    x1.imageSmoothingEnabled = false; x1.drawImage(off16, 0, 0, S1, S1);
+    x1.strokeStyle = GRID; x1.lineWidth = 1; x1.beginPath();
+    for (let k = 1; k < 16; k++) { x1.moveTo(k * TP + 0.5, 0); x1.lineTo(k * TP + 0.5, S1); x1.moveTo(0, k * TP + 0.5); x1.lineTo(S1, k * TP + 0.5); }
+    x1.stroke();
+    // nearest
+    const ni = addr(Math.floor(u * 16), wrap), nj = addr(Math.floor(v * 16), wrap);
+    // bilinear
+    const x = u * 16 - 0.5, y = v * 16 - 0.5, i0 = Math.floor(x), j0 = Math.floor(y), fx = x - i0, fy = y - j0;
+    const w = [(1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy];
+    const ids = [[i0, j0], [i0 + 1, j0], [i0, j0 + 1], [i0 + 1, j0 + 1]].map(([i, j]) => [addr(i, wrap), addr(j, wrap)]);
+    const nc = [0, 0, 0], bc = [0, 0, 0];
+    for (let k = 0; k < 4; k++) { const o = (ids[k][1] * 16 + ids[k][0]) * 3; for (let c = 0; c < 3; c++) bc[c] += T16.d[o + c] * w[k]; }
+    { const o = (nj * 16 + ni) * 3; for (let c = 0; c < 3; c++) nc[c] = T16.d[o + c]; }
+    // footprint square between the four texel centers (unclamped position)
+    x1.setLineDash([4, 4]); x1.strokeStyle = "rgba(74,163,255,0.7)"; x1.lineWidth = 1.5;
+    x1.strokeRect((i0 + 0.5) * TP, (j0 + 0.5) * TP, TP, TP); x1.setLineDash([]);
+    // the four texels actually read
+    x1.strokeStyle = CB; x1.lineWidth = 2;
+    for (const [i, j] of ids) x1.strokeRect(i * TP + 1, j * TP + 1, TP - 2, TP - 2);
+    x1.strokeStyle = CA; x1.lineWidth = 3; x1.strokeRect(ni * TP + 2.5, nj * TP + 2.5, TP - 5, TP - 5);
+    // lines to texel centers with weights
+    const px = u * S1, py = v * S1;
+    x1.font = MONO; x1.textAlign = "center"; x1.textBaseline = "middle";
+    for (let k = 0; k < 4; k++) {
+      const cx = (ids[k][0] + 0.5) * TP, cy = (ids[k][1] + 0.5) * TP;
+      x1.strokeStyle = "rgba(255,255,255,0.5)"; x1.lineWidth = 1; x1.beginPath(); x1.moveTo(px, py); x1.lineTo(cx, cy); x1.stroke();
+      x1.beginPath(); x1.arc(cx, cy, 2.5 + 6 * w[k], 0, Math.PI * 2); x1.fillStyle = CB; x1.fill();
+    }
+    for (let k = 0; k < 4; k++) {
+      const cx = (ids[k][0] + 0.5) * TP, cy = (ids[k][1] + 0.5) * TP;
+      const t = w[k].toFixed(2), lx = cx + ((k & 1) ? 7 : -7), ly = cy + (k < 2 ? -14 : 14);
+      x1.fillStyle = "rgba(11,14,19,0.8)"; x1.fillRect(lx - 17, ly - 8, 34, 16);
+      x1.fillStyle = CW; x1.fillText(t, lx, ly);
+    }
+    x1.beginPath(); x1.arc(px, py, 4, 0, Math.PI * 2); x1.fillStyle = CW; x1.fill(); x1.lineWidth = 1.5; x1.strokeStyle = GROUND; x1.stroke();
+    // swatches, away from the pointer
+    const sx = px > S1 * 0.5 ? 16 : S1 - 176, sy = py > S1 * 0.5 ? 16 : S1 - 92;
+    x1.fillStyle = "rgba(11,14,19,0.85)"; x1.fillRect(sx, sy, 160, 76);
+    x1.fillStyle = `rgb(${nc.map(Math.round)})`; x1.fillRect(sx + 10, sy + 10, 56, 40);
+    x1.fillStyle = `rgb(${bc.map(Math.round)})`; x1.fillRect(sx + 94, sy + 10, 56, 40);
+    x1.strokeStyle = CA; x1.lineWidth = 2; x1.strokeRect(sx + 10, sy + 10, 56, 40);
+    x1.strokeStyle = CB; x1.strokeRect(sx + 94, sy + 10, 56, 40);
+    x1.fillStyle = "rgba(255,255,255,0.8)"; x1.font = '11px "IBM Plex Mono", Menlo, Consolas, monospace';
+    x1.fillText("nearest", sx + 38, sy + 62); x1.fillText("bilinear", sx + 122, sy + 62);
+    read1.innerHTML = `u,v = <strong>${u.toFixed(3)}, ${v.toFixed(3)}</strong> · x,y = ${x.toFixed(2)}, ${y.toFixed(2)} · nearest texel (${ni}, ${nj}) · 2×2 from (${ids[0][0]}, ${ids[0][1]}) · w = ${w.map(t => t.toFixed(2)).join(" ")}`;
+  }
+  const req1 = raf(draw1);
+  hover(c1, (x, y) => { d1.u = clamp(x / S1, 0, 1); d1.v = clamp(y / S1, 0, 1); req1(); });
+  onSeg("segAddr", v => { d1.wrap = v === "wrap"; req1(); });
+  draw1();
+
+  // ---------- ground plane: camera, per-pixel uv and derivatives at tile = 1 m ----------
+  const RW = 320, RH = 180, NP = RW * RH;
+  const CAM = { h: 1.5, pitch: 12 * Math.PI / 180, fovy: 50 * Math.PI / 180 };
+  const U = new Float32Array(NP), V = new Float32Array(NP), DUDX = new Float32Array(NP), DVDX = new Float32Array(NP), DUDY = new Float32Array(NP), DVDY = new Float32Array(NP), SKY = new Uint8Array(NP);
+  let HZ = RH;
+  {
+    const ty = Math.tan(CAM.fovy / 2), tx = ty * RW / RH, cp = Math.cos(CAM.pitch), sp = Math.sin(CAM.pitch);
+    const uvAt = (i, j) => { // pixel center (i + 0.5, j + 0.5)
+      const dx = ((i + 0.5) / RW * 2 - 1) * tx, dy = (1 - (j + 0.5) / RH * 2) * ty;
+      const ry = dy * cp - sp, rz = dy * sp + cp;
+      if (ry >= -1e-4) return null;
+      const t = -CAM.h / ry; return [dx * t, rz * t];
+    };
+    const G = new Array(NP);
+    for (let j = 0; j < RH; j++) for (let i = 0; i < RW; i++) { const p = uvAt(i, j); G[j * RW + i] = p; if (!p) SKY[j * RW + i] = 1; else if (j < HZ) HZ = j; }
+    for (let j = 0; j < RH; j++) for (let i = 0; i < RW; i++) {
+      const k = j * RW + i, p = G[k]; if (!p) continue;
+      U[k] = p[0]; V[k] = p[1];
+      const r = (i + 1 < RW && G[k + 1]) ? G[k + 1] : null, l = (i > 0 && G[k - 1]) ? G[k - 1] : null;
+      const dn = (j + 1 < RH && G[k + RW]) ? G[k + RW] : null, up = (j > 0 && G[k - RW]) ? G[k - RW] : null;
+      if (r) { DUDX[k] = r[0] - p[0]; DVDX[k] = r[1] - p[1]; } else if (l) { DUDX[k] = p[0] - l[0]; DVDX[k] = p[1] - l[1]; } else { DUDX[k] = 1e3; DVDX[k] = 0; }
+      if (dn) { DUDY[k] = dn[0] - p[0]; DVDY[k] = dn[1] - p[1]; } else if (up) { DUDY[k] = p[0] - up[0]; DVDY[k] = p[1] - up[1]; } else { DUDY[k] = 0; DVDY[k] = 1e3; }
+    }
+  }
+  function renderPlane(img, mode, tile, bias, maxA) {
+    const p = img.data, inv = 1 / tile, tex = 256 * inv, out = [0, 0, 0], acc = [0, 0, 0];
+    let texels = 0, ground = 0, lmin = 99, lmax = -99;
+    const t0 = performance.now();
+    for (let k = 0; k < NP; k++) {
+      const o = k * 4;
+      if (SKY[k]) { const f = ((k / RW) | 0) / Math.max(HZ, 1); p[o] = 11 + 9 * f; p[o + 1] = 14 + 10 * f; p[o + 2] = 19 + 13 * f; p[o + 3] = 255; continue; }
+      ground++;
+      const u = U[k] * inv, v = V[k] * inv;
+      const ax = DUDX[k] * tex, ay = DVDX[k] * tex, bx = DUDY[k] * tex, by = DVDY[k] * tex;
+      const rx = Math.sqrt(ax * ax + ay * ay), ry = Math.sqrt(bx * bx + by * by);
+      const li = Math.log2(Math.max(rx, ry)); if (li < lmin) lmin = li; if (li > lmax) lmax = li;
+      if (mode === 0) {
+        const L = levels[0], i = Math.floor(u * 256) & 255, j = Math.floor(v * 256) & 255, q = (j * 256 + i) * 3;
+        out[0] = L.d[q]; out[1] = L.d[q + 1]; out[2] = L.d[q + 2]; texels += 1;
+      } else if (mode === 1) { bil(levels[0], u, v, out); texels += 4; }
+      else if (mode === 2) { tri(u, v, clamp(li + bias, 0, MAXL), out); texels += 8; }
+      else {
+        const maj = Math.max(rx, ry), mn = Math.max(Math.min(rx, ry), 1e-6);
+        const N = Math.min(maxA, Math.ceil(maj / mn)), lam = clamp(Math.log2(maj / N) + bias, 0, MAXL);
+        const du = (rx >= ry ? DUDX[k] : DUDY[k]) * inv, dv = (rx >= ry ? DVDX[k] : DVDY[k]) * inv;
+        acc[0] = acc[1] = acc[2] = 0;
+        for (let q = 0; q < N; q++) { const s = (q + 0.5) / N - 0.5; tri(u + du * s, v + dv * s, lam, out); acc[0] += out[0]; acc[1] += out[1]; acc[2] += out[2]; }
+        out[0] = acc[0] / N; out[1] = acc[1] / N; out[2] = acc[2] / N; texels += 8 * N;
+      }
+      p[o] = out[0]; p[o + 1] = out[1]; p[o + 2] = out[2]; p[o + 3] = 255;
+    }
+    return { texels, ground, lmin, lmax, ms: performance.now() - t0 };
+  }
+  const bufA = document.createElement("canvas"); bufA.width = RW; bufA.height = RH; const bxA = bufA.getContext("2d");
+
+  // ---------- 2. minification ----------
+  const c2 = document.getElementById("c2"), x2 = c2.getContext("2d");
+  const d2 = { mode: 1, tile: 4, bias: 0 };
+  const img2 = new ImageData(RW, RH);
+  const MODES = ["nearest, no mips", "bilinear, no mips", "trilinear", "anisotropic 4×", "anisotropic 16×"];
+  function draw2() {
+    const st = renderPlane(img2, d2.mode, d2.tile, d2.bias, d2.mode === 3 ? 4 : 16);
+    bxA.putImageData(img2, 0, 0); x2.imageSmoothingEnabled = false; x2.drawImage(bufA, 0, 0, 640, 360);
+    document.getElementById("t2-taps").textContent = (st.texels / st.ground).toFixed(1);
+    document.getElementById("t2-fetch").textContent = (st.texels / 1e6).toFixed(2) + " M";
+    document.getElementById("t2-ms").textContent = st.ms.toFixed(1);
+    document.getElementById("c2-read").innerHTML = `<strong>${MODES[d2.mode]}</strong> · texel = ${(d2.tile / 256 * 100).toFixed(2)} cm`;
+    document.getElementById("c2-lod").textContent = `λ on the ground: ${Math.max(0, st.lmin).toFixed(2)} … ${Math.min(MAXL, st.lmax).toFixed(2)} (clamped)`;
+  }
+  const req2 = raf(draw2);
+  onSeg("segF", v => { d2.mode = +v; req2(); });
+  const tileEl = document.getElementById("tile"), biasEl = document.getElementById("bias");
+  tileEl.addEventListener("input", () => { d2.tile = +tileEl.value; document.getElementById("tilev").textContent = d2.tile.toFixed(1) + " m"; req2(); });
+  biasEl.addEventListener("input", () => { d2.bias = +biasEl.value; document.getElementById("biasv").textContent = (d2.bias >= 0 ? "+" : "") + d2.bias.toFixed(2); req2(); });
+  draw2();
+
+  // ---------- 3. mip chain ----------
+  const c3 = document.getElementById("c3"), x3 = c3.getContext("2d");
+  const LX = [16, 288, 432, 512, 560, 592, 608, 620, 630], LY = 24;
+  const d3 = { lam: 4.5, ratio: 4, mode: "tri", cx: 96, cy: 120, ang: -0.5 };
+  const BYTES = levels.map(L => L.n * L.n * 4), TOTAL = BYTES.reduce((a, b) => a + b, 0);
+  function ellipse(ctx, cx, cy, ra, rb, ang, stroke, dash) {
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang); ctx.beginPath(); ctx.ellipse(0, 0, ra, rb, 0, 0, Math.PI * 2); ctx.restore();
+    if (dash) ctx.setLineDash(dash); ctx.strokeStyle = stroke; ctx.stroke(); ctx.setLineDash([]);
+  }
+  function pick3() {
+    const rho = Math.pow(2, d3.lam), rmin = rho / d3.ratio;
+    let N = 1, lam = d3.lam;
+    if (d3.mode === "aniso") { N = Math.min(16, Math.ceil(d3.ratio)); lam = clamp(Math.log2(rho / N), 0, MAXL); }
+    const l0 = Math.floor(lam), l1 = Math.min(l0 + 1, MAXL), f = lam - l0;
+    return { rho, rmin, N, lam, l0, l1, f };
+  }
+  function draw3() {
+    const { rho, rmin, N, lam, l0, l1, f } = pick3();
+    x3.fillStyle = GROUND; x3.fillRect(0, 0, 640, 360);
+    x3.imageSmoothingEnabled = false; x3.font = MONO; x3.textBaseline = "middle";
+    const ca = Math.cos(d3.ang), sa = Math.sin(d3.ang);
+    for (let L = 0; L <= MAXL; L++) {
+      const n = 256 >> L, x = LX[L];
+      x3.drawImage(offs[L], x, LY, n, n);
+      x3.lineWidth = 1; x3.strokeStyle = "rgba(255,255,255,0.18)"; x3.strokeRect(x - 0.5, LY - 0.5, n + 1, n + 1);
+      if (L === l0 || (L === l1 && f > 0)) {
+        const wgt = L === l0 ? 1 - f : f;
+        x3.lineWidth = 2; x3.strokeStyle = L === l0 ? CA : CB; x3.globalAlpha = 0.35 + 0.65 * wgt; x3.strokeRect(x - 2, LY - 2, n + 4, n + 4); x3.globalAlpha = 1;
+      }
+      // the footprint on this level
+      const s = Math.pow(2, -L), ra = rho * 0.5 * s, rb = rmin * 0.5 * s;
+      const ex = x + d3.cx * s, ey = LY + d3.cy * s;
+      if (ra >= 1.2) { x3.lineWidth = 1.5; ellipse(x3, ex, ey, ra, Math.max(rb, 0.6), d3.ang, CW); }
+      else { x3.fillStyle = CW; x3.fillRect(Math.round(ex) - 1, Math.round(ey) - 1, 2, 2); }
+    }
+    // taps on level 0 (aniso)
+    if (N > 1) {
+      x3.fillStyle = CW;
+      for (let k = 0; k < N; k++) { const t = ((k + 0.5) / N - 0.5) * rho; x3.beginPath(); x3.arc(LX[0] + d3.cx + t * ca, LY + d3.cy + t * sa, 2, 0, Math.PI * 2); x3.fill(); }
+    }
+    // handle: a small dot at the footprint center
+    x3.beginPath(); x3.arc(LX[0] + d3.cx, LY + d3.cy, 2.5, 0, Math.PI * 2); x3.fillStyle = CW; x3.fill();
+    // inset: 4× zoom of level 0 around the footprint
+    const IX = 288, IY = 184, IS = 112, Z = 4, half = IS / Z / 2;
+    const scx = clamp(d3.cx, half, 256 - half), scy = clamp(d3.cy, half, 256 - half);
+    x3.drawImage(offs[0], scx - half, scy - half, 2 * half, 2 * half, IX, IY, IS, IS);
+    x3.strokeStyle = "rgba(255,255,255,0.18)"; x3.lineWidth = 1; x3.beginPath();
+    for (let g = 1; g < 2 * half; g++) { x3.moveTo(IX + g * Z + 0.5, IY); x3.lineTo(IX + g * Z + 0.5, IY + IS); x3.moveTo(IX, IY + g * Z + 0.5); x3.lineTo(IX + IS, IY + g * Z + 0.5); }
+    x3.stroke();
+    x3.save(); x3.beginPath(); x3.rect(IX, IY, IS, IS); x3.clip();
+    const icx = IX + (d3.cx - scx + half) * Z, icy = IY + (d3.cy - scy + half) * Z;
+    x3.lineWidth = 2; ellipse(x3, icx, icy, rho * 0.5 * Z, Math.max(rmin * 0.5 * Z, 1), d3.ang, CW);
+    if (N > 1) { x3.fillStyle = CW; for (let k = 0; k < N; k++) { const t = ((k + 0.5) / N - 0.5) * rho * Z; x3.beginPath(); x3.arc(icx + t * ca, icy + t * sa, 3, 0, Math.PI * 2); x3.fill(); } }
+    x3.restore();
+    x3.strokeStyle = "rgba(255,255,255,0.35)"; x3.strokeRect(IX - 0.5, IY - 0.5, IS + 1, IS + 1);
+    x3.fillStyle = "rgba(255,255,255,0.6)"; x3.textAlign = "left";
+    x3.fillText("level 0, 4× zoom", IX, IY + IS + 12);
+    x3.fillText("level 0 · 256² · 1 px = 1 texel", LX[0], 294);
+    x3.fillText(`footprint ${rho.toFixed(1)} × ${rmin.toFixed(1)} texels`, LX[0], 308);
+    // byte list
+    const TX = 416, TY0 = 192, LH = 13;
+    for (let L = 0; L <= MAXL; L++) {
+      const y = TY0 + L * LH, on0 = L === l0, on1 = L === l1 && f > 0;
+      x3.fillStyle = on0 ? CA : on1 ? CB : "rgba(255,255,255,0.55)";
+      const n = 256 >> L;
+      x3.fillText(`L${L}`, TX, y); x3.fillText(`${n}²`, TX + 30, y); x3.textAlign = "right"; x3.fillText(`${fmtN(BYTES[L])} B`, TX + 152, y); x3.textAlign = "left";
+      if (on0 || on1) x3.fillText(`w=${(on0 ? 1 - f : f).toFixed(2)}`, TX + 162, y);
+    }
+    x3.fillStyle = CW; x3.fillText("chain", TX, TY0 + 9.6 * LH); x3.textAlign = "right"; x3.fillText(`${fmtN(TOTAL)} B`, TX + 152, TY0 + 9.6 * LH); x3.textAlign = "left";
+    x3.fillStyle = "rgba(255,255,255,0.55)"; x3.fillText(`= ${(TOTAL / BYTES[0]).toFixed(4)} × base`, TX, TY0 + 10.6 * LH);
+    // readouts
+    const lamTxt = d3.mode === "aniso" ? `λ' = log2(${rho.toFixed(1)} / ${N}) = <strong>${lam.toFixed(2)}</strong> · ${N} taps` : `λ = <strong>${lam.toFixed(2)}</strong>`;
+    document.getElementById("c3-read").innerHTML = `${lamTxt} · levels <strong>${l0}</strong>${f > 0 ? ` + <strong>${l1}</strong>, blend ${f.toFixed(2)}` : ""}`;
+    document.getElementById("c3-bytes").textContent = `${fmtBytes(BYTES[0])} base · ${fmtBytes(TOTAL)} chain`;
+  }
+  const req3 = raf(draw3);
+  hover(c3, (x, y, down) => {
+    if (down === false) return; // hover only moves when pressed
+    if (x < LX[0] - 8 || x > LX[0] + 264 || y < LY - 8 || y > LY + 264) return;
+    d3.cx = clamp(x - LX[0], 0, 256); d3.cy = clamp(y - LY, 0, 256); req3();
+  });
+  const lod3 = document.getElementById("lod3"), ratio3 = document.getElementById("ratio3");
+  lod3.addEventListener("input", () => { d3.lam = +lod3.value; document.getElementById("lod3v").textContent = d3.lam.toFixed(2); req3(); });
+  ratio3.addEventListener("input", () => { d3.ratio = +ratio3.value; document.getElementById("ratio3v").textContent = d3.ratio.toFixed(1) + " : 1"; req3(); });
+  onSeg("segM3", v => { d3.mode = v; req3(); });
+  draw3();
+
+  // ---------- 4. LOD selection from derivatives ----------
+  const c4a = document.getElementById("c4a"), x4a = c4a.getContext("2d"), c4b = document.getElementById("c4b"), x4b = c4b.getContext("2d");
+  const d4 = { px: 200, py: 96, mode: "tri", show: "0", tile: 4 };
+  const img4 = new ImageData(RW, RH);
+  renderPlane(img4, 2, d4.tile, 0, 16);
+  const buf4 = document.createElement("canvas"); buf4.width = RW; buf4.height = RH; buf4.getContext("2d").putImageData(img4, 0, 0);
+  function draw4() {
+    const k = d4.py * RW + d4.px, inv = 1 / d4.tile, tex = 256 * inv;
+    const u = U[k] * inv, v = V[k] * inv;
+    const ax = DUDX[k] * tex, ay = DVDX[k] * tex, bx = DUDY[k] * tex, by = DVDY[k] * tex;
+    const rx = Math.sqrt(ax * ax + ay * ay), ry = Math.sqrt(bx * bx + by * by);
+    const maj = Math.max(rx, ry), mn = Math.max(Math.min(rx, ry), 1e-6), ratio = maj / mn;
+    const lamIso = clamp(Math.log2(maj), 0, MAXL);
+    const N = Math.min(16, Math.ceil(ratio)), lamAn = clamp(Math.log2(maj / N), 0, MAXL);
+    const lam = d4.mode === "aniso" ? lamAn : lamIso, l0 = Math.floor(lam), l1 = Math.min(l0 + 1, MAXL), f = lam - l0;
+    const taps = d4.mode === "aniso" ? 2 * N : 2;
+
+    // left: the plane with the hovered pixel and its quad
+    x4a.imageSmoothingEnabled = false; x4a.drawImage(buf4, 0, 0, 640, 360);
+    const qx = (d4.px & ~1) * 2, qy = (d4.py & ~1) * 2;
+    x4a.lineWidth = 1; x4a.strokeStyle = CW; x4a.strokeRect(qx - 0.5, qy - 0.5, 5, 5);
+    x4a.fillStyle = CA; x4a.fillRect(d4.px * 2, d4.py * 2, 2, 2);
+    x4a.beginPath(); x4a.arc(d4.px * 2 + 1, d4.py * 2 + 1, 9, 0, Math.PI * 2); x4a.strokeStyle = CW; x4a.lineWidth = 1.5; x4a.stroke();
+    x4a.fillStyle = "rgba(255,255,255,0.6)"; x4a.font = MONO; x4a.textBaseline = "top"; x4a.textAlign = "left";
+    x4a.fillText(`pixel (${d4.px}, ${d4.py}) of 320×180 · quad at (${d4.px & ~1}, ${d4.py & ~1})`, 12, 10);
+    document.getElementById("c4a-read").innerHTML = `ground at <strong>${(V[k]).toFixed(2)} m</strong> ahead, ${(U[k]).toFixed(2)} m across · u,v = ${u.toFixed(3)}, ${v.toFixed(3)}`;
+
+    // right: texture space, centered on the sample, scaled so the footprint reads
+    const s = clamp(96 / maj, 0.5, 40), CX = 320, CY = 180;
+    const Lshow = d4.show === "pick" ? l0 : 0;
+    x4b.fillStyle = GROUND; x4b.fillRect(0, 0, 640, 360);
+    x4b.imageSmoothingEnabled = s < 1;
+    const cu = ((u % 1) + 1) % 1 * 256, cv = ((v % 1) + 1) % 1 * 256, T = 256 * s;
+    const k0 = Math.floor((cu - CX / s) / 256), k1 = Math.ceil((cu + CX / s) / 256), m0 = Math.floor((cv - CY / s) / 256), m1 = Math.ceil((cv + CY / s) / 256);
+    for (let kk = k0; kk <= k1; kk++) for (let mm = m0; mm <= m1; mm++) x4b.drawImage(offs[Lshow], CX + (kk * 256 - cu) * s, CY + (mm * 256 - cv) * s, T, T);
+    // grid at the picked level's texel size
+    const gs = Math.pow(2, l0) * s;
+    if (gs >= 6) {
+      x4b.strokeStyle = l0 === 0 ? GRID : "rgba(242,163,65,0.35)"; x4b.lineWidth = 1; x4b.beginPath();
+      const ox = CX - (cu % Math.pow(2, l0)) * s, oy = CY - (cv % Math.pow(2, l0)) * s;
+      for (let g = ox - Math.ceil(ox / gs) * gs; g < 640; g += gs) { x4b.moveTo(Math.round(g) + 0.5, 0); x4b.lineTo(Math.round(g) + 0.5, 360); }
+      for (let g = oy - Math.ceil(oy / gs) * gs; g < 360; g += gs) { x4b.moveTo(0, Math.round(g) + 0.5); x4b.lineTo(640, Math.round(g) + 0.5); }
+      x4b.stroke();
+    }
+    // footprint ellipse = image of the pixel disc under the Jacobian
+    x4b.beginPath();
+    for (let i = 0; i <= 64; i++) { const t = i / 64 * Math.PI * 2, c = Math.cos(t) * 0.5, sn = Math.sin(t) * 0.5; const ex = CX + (ax * c + bx * sn) * s, ey = CY + (ay * c + by * sn) * s; if (i === 0) x4b.moveTo(ex, ey); else x4b.lineTo(ex, ey); }
+    x4b.fillStyle = "rgba(255,255,255,0.10)"; x4b.fill(); x4b.strokeStyle = CW; x4b.lineWidth = 2; x4b.stroke();
+    // derivative vectors
+    const arrow = (vx, vy, col) => { x4b.strokeStyle = col; x4b.fillStyle = col; x4b.lineWidth = 2; x4b.beginPath(); x4b.moveTo(CX, CY); x4b.lineTo(CX + vx * s, CY + vy * s); x4b.stroke(); x4b.beginPath(); x4b.arc(CX + vx * s, CY + vy * s, 4, 0, Math.PI * 2); x4b.fill(); };
+    arrow(ax, ay, CA); arrow(bx, by, CB);
+    // taps
+    if (d4.mode === "aniso") {
+      const mx = rx >= ry ? ax : bx, my = rx >= ry ? ay : by; x4b.fillStyle = CW;
+      for (let q = 0; q < N; q++) { const t = (q + 0.5) / N - 0.5; x4b.beginPath(); x4b.arc(CX + mx * t * s, CY + my * t * s, 3, 0, Math.PI * 2); x4b.fill(); x4b.lineWidth = 1; x4b.strokeStyle = GROUND; x4b.stroke(); }
+    }
+    x4b.beginPath(); x4b.arc(CX, CY, 3, 0, Math.PI * 2); x4b.fillStyle = CW; x4b.fill();
+    x4b.fillStyle = "rgba(11,14,19,0.75)"; x4b.fillRect(8, 8, 300, 40);
+    x4b.fillStyle = "rgba(255,255,255,0.8)"; x4b.font = MONO; x4b.textBaseline = "top"; x4b.textAlign = "left";
+    x4b.fillText(`1 base texel = ${s.toFixed(2)} px · showing level ${Lshow}`, 14, 13);
+    x4b.fillText(gs >= 6 ? `grid: level ${l0} texels = ${Math.pow(2, l0)} base texels` : `level ${l0} grid too fine to draw`, 14, 29);
+    document.getElementById("c4b-read").innerHTML = `footprint <strong>${maj.toFixed(1)} × ${mn.toFixed(1)} texels</strong> on level 0`;
+
+    const sg = x => (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(4);
+    document.getElementById("d4-live").innerHTML =
+`<span class="a">∂u/∂x = ${sg(DUDX[k] * inv)}   ∂v/∂x = ${sg(DVDX[k] * inv)}</span>   × 256 → ρx = ${rx.toFixed(2)} texels
+<span class="b">∂u/∂y = ${sg(DUDY[k] * inv)}   ∂v/∂y = ${sg(DVDY[k] * inv)}</span>   × 256 → ρy = ${ry.toFixed(2)} texels
+ρ = max(ρx, ρy) = ${maj.toFixed(2)}     λ = log2(ρ) = ${Math.log2(maj).toFixed(2)} → ${lamIso.toFixed(2)} clamped
+isotropic:   levels ${Math.floor(lamIso)} + ${Math.min(Math.floor(lamIso) + 1, MAXL)}, blend ${(lamIso - Math.floor(lamIso)).toFixed(2)}, 2 taps
+anisotropic: ratio ${ratio.toFixed(2)} → N = ${N}, λ' = log2(${maj.toFixed(2)}/${N}) = ${lamAn.toFixed(2)}, ${2 * N} taps`;
+    document.getElementById("t4-lam").textContent = lam.toFixed(2);
+    document.getElementById("t4-lv").textContent = f > 0.005 ? `${l0} + ${l1}` : `${l0}`;
+    document.getElementById("t4-ratio").textContent = ratio.toFixed(1) + " : 1";
+    document.getElementById("t4-taps").textContent = String(taps);
+  }
+  const req4 = raf(draw4);
+  hover(c4a, (x, y) => {
+    const px = clamp(Math.floor(x / 2), 0, RW - 1), py = clamp(Math.floor(y / 2), 0, RH - 1);
+    if (SKY[py * RW + px]) return;
+    d4.px = px; d4.py = py; req4();
+  });
+  onSeg("segM4", v => { d4.mode = v; req4(); });
+  onSeg("segL4", v => { d4.show = v; req4(); });
+  draw4();
+
+  // ---------- 5. memory and bandwidth ----------
+  const c5 = document.getElementById("c5"), x5 = c5.getContext("2d");
+  const d5 = { size: 2048, resW: 1920, hit: 0.9 };
+  const FMTS = [
+    { name: "RGBA8", bpp: 32, bw: 1, bh: 1, bytes: 4, block: "1×1 · 4 B" },
+    { name: "BC1", bpp: 4, bw: 4, bh: 4, bytes: 8, block: "4×4 · 8 B" },
+    { name: "BC7", bpp: 8, bw: 4, bh: 4, bytes: 16, block: "4×4 · 16 B" },
+    { name: "ASTC 6×6", bpp: 128 / 36, bw: 6, bh: 6, bytes: 16, block: "6×6 · 16 B" }
+  ];
+  const SAMP = [{ name: "bilinear", taps: 1 }, { name: "trilinear", taps: 2 }, { name: "aniso 4×", taps: 8 }, { name: "aniso 16×", taps: 32 }];
+  function levelBytes(fm, n) { return Math.ceil(n / fm.bw) * Math.ceil(n / fm.bh) * fm.bytes; }
+  function chainBytes(fm, size) { let t = 0; for (let n = size; n >= 1; n = n >> 1) t += levelBytes(fm, n); return t; }
+  function draw5() {
+    const { size, resW, hit } = d5, resH = resW * 9 / 16, px = resW * resH;
+    const mem = FMTS.map(fm => ({ base: levelBytes(fm, size), chain: chainBytes(fm, size) }));
+    const maxMem = Math.max(...mem.map(m => m.chain));
+    const bw = SAMP.map(sm => px * sm.taps * 64 * (1 - hit));
+    const maxBw = Math.max(...bw);
+    x5.fillStyle = GROUND; x5.fillRect(0, 0, 640, 360);
+    x5.font = MONO; x5.textBaseline = "middle";
+    const X0 = 104, X1 = 380;
+    x5.fillStyle = "rgba(255,255,255,0.6)"; x5.textAlign = "left"; x5.fillText(`memory · ${size}² texture · base level + mip chain`, 16, 20);
+    FMTS.forEach((fm, i) => {
+      const y = 44 + i * 30, m = mem[i], wb = (m.base / maxMem) * (X1 - X0), wc = (m.chain / maxMem) * (X1 - X0);
+      x5.fillStyle = CW; x5.textAlign = "left"; x5.fillText(fm.name, 16, y);
+      x5.fillStyle = CB; x5.fillRect(X0, y - 8, Math.max(wc, 1), 16);
+      x5.fillStyle = CA; x5.fillRect(X0, y - 8, Math.max(wb, 1), 16);
+      x5.fillStyle = "rgba(255,255,255,0.8)"; x5.fillText(`${(m.chain / 1048576).toFixed(2)} MB  (${(m.base / 1048576).toFixed(2)} + ${((m.chain - m.base) / 1048576).toFixed(2)})`, X0 + wc + 8, y);
+    });
+    x5.fillStyle = CA; x5.fillRect(X0, 166, 10, 10); x5.fillStyle = CB; x5.fillRect(X0 + 90, 166, 10, 10);
+    x5.fillStyle = "rgba(255,255,255,0.6)"; x5.fillText("base level", X0 + 16, 171); x5.fillText("mip chain, +1/3", X0 + 106, 171);
+    x5.fillText(`bandwidth per frame · ${resW}×${resH} · 64 B lines · ${Math.round(hit * 100)} % hits`, 16, 208);
+    SAMP.forEach((sm, i) => {
+      const y = 232 + i * 30, w = (bw[i] / maxBw) * (X1 - X0);
+      x5.fillStyle = CW; x5.textAlign = "left"; x5.fillText(sm.name, 16, y);
+      x5.fillStyle = CA; x5.fillRect(X0, y - 8, Math.max(w, 1), 16);
+      x5.fillStyle = "rgba(255,255,255,0.8)"; x5.fillText(`${(bw[i] / 1048576).toFixed(1)} MB → ${(bw[i] * 60 / 1e9).toFixed(1)} GB/s`, X0 + w + 8, y);
+    });
+    x5.fillStyle = "rgba(255,255,255,0.45)"; x5.fillText(`${fmtN(px)} pixels × taps × 64 B × ${(1 - hit).toFixed(2)} miss`, 16, 348);
+    document.getElementById("c5-read").innerHTML = `RGBA8 chain = <strong>${(mem[0].chain / mem[0].base).toFixed(4)} ×</strong> base · ASTC 6×6 chain = ${(mem[3].chain / mem[3].base).toFixed(4)} × base (6×6 blocks round up at the small levels)`;
+    document.getElementById("t5-bil").textContent = (bw[0] * 60 / 1e9).toFixed(2);
+    document.getElementById("t5-tri").textContent = (bw[1] * 60 / 1e9).toFixed(2);
+    document.getElementById("t5-an").textContent = (bw[3] * 60 / 1e9).toFixed(1);
+    document.getElementById("fmt-body").innerHTML = FMTS.map((fm, i) =>
+      `<tr><td>${fm.name}</td><td>${fm.bpp % 1 ? fm.bpp.toFixed(2) : fm.bpp}</td><td>${fm.block}</td><td>${Math.round(64 * 8 / fm.bpp)}</td><td>${fmtBytes(mem[i].base)}</td><td class="hi">${fmtBytes(mem[i].chain)}</td></tr>`).join("");
+  }
+  onSeg("segSz", v => { d5.size = +v; draw5(); });
+  onSeg("segRes", v => { d5.resW = +v; draw5(); });
+  const hitEl = document.getElementById("hit");
+  hitEl.addEventListener("input", () => { d5.hit = +hitEl.value / 100; document.getElementById("hitv").textContent = hitEl.value + " %"; draw5(); });
+  draw5();
+})();
+</script>

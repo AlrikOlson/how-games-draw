@@ -1,0 +1,887 @@
+<title>Draw Calls &amp; Instancing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas.sq { aspect-ratio: 1; }
+.vp canvas.r169 { aspect-ratio: 16 / 9; }
+.tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 640px) { .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.btn { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 6px 12px; background: var(--chip); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stats tr.on td { color: var(--accent); }
+.stats tr.on td:first-child { color: var(--ink); font-weight: 650; }
+.uses td:first-child { white-space: normal; min-width: 11ch; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">3,000 draws · 5 µs each on the CPU · 2 µs each on the GPU · one 16.7 ms frame</p>
+    <h1>Draw Calls &amp; Instancing</h1>
+    <p class="lead">A draw call is the CPU telling the GPU "draw this mesh with this material, now". The GPU reads one in a blink, but the CPU spends microseconds setting each one up, and a few thousand of them can eat the whole frame while the GPU sits waiting. <b>Batching</b>, <b>instancing</b> and <b>indirect draws</b> all shrink the same number: how many times per frame the CPU has to say "draw". The part people get wrong is that on Vulkan and DX12 the draw itself is nearly free, and the cost moved into the culling, sorting and texture bookkeeping around it.</p>
+    <div class="key">
+      <span style="--sw:#f2a341">CPU work · object the camera can see</span>
+      <span style="--sw:#4aa3ff">GPU work · material and texture lookups</span>
+      <span style="--sw:#ffffff">drag handles · the moment a batch is handed over</span>
+      <span style="--sw:#ef5d5d">over budget · a state change · texture bleed</span>
+    </div>
+    <dl class="terms">
+      <dt>draw call</dt><dd>one order from the CPU to the GPU: draw this mesh with this material</dd>
+      <dt>command buffer</dt><dd>the list of draws the CPU writes up and hands to the GPU in one go</dd>
+      <dt>pipeline</dt><dd>the compiled shaders plus fixed settings a draw runs with; switching it is the priciest bind</dd>
+      <dt>descriptor</dt><dd>a small record telling the GPU where a texture or a block of material values lives</dd>
+      <dt>instance</dt><dd>one copy of a shared mesh with its own position and colour</dd>
+      <dt>frustum</dt><dd>the wedge of space the camera can see</dd>
+      <dt>indirect draw</dt><dd>a draw whose arguments the GPU reads from a buffer instead of the CPU supplying them</dd>
+      <dt>bindless</dt><dd>every texture in the scene sits in one big list and the shader picks one by number</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#anatomy"><span class="n">01</span>What one draw call costs</a></li><li><a href="#sorting"><span class="n">02</span>Sort draws so binds become free</a></li><li><a href="#instancing"><span class="n">03</span>Instancing</a></li><li><a href="#indirect"><span class="n">04</span>Let the GPU write its own draws</a></li><li><a href="#bindless"><span class="n">05</span>Bindless and the material problem</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="anatomy">
+    <h2>What one draw call costs</h2>
+    <p class="sub">Move the sliders and watch which of the CPU or the GPU runs out of time first.</p>
+    <div class="cols wide">
+      <div class="vp">
+        <canvas id="c1" class="r169" width="640" height="360" aria-label="Timeline of CPU draw recording and GPU execution for one frame"></canvas>
+        <div class="cap"><span id="c1-read"></span><span>budget 16.7 ms · 512 draws per submit</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain"><b>A draw call is one order from the CPU to the GPU</b>: draw this mesh, with this material, now. The GPU reads it in a blink. The CPU spends about 5 microseconds getting each one ready, and <b>3,000 of them fill 15 of your 16.7 ms</b>. A frame full of small draws can leave the GPU idle, and <b>a faster graphics card fixes nothing</b>.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The top strip is one draw zoomed in, split into the four jobs the CPU does for it. Amber is the pipeline bind, which picks the compiled shaders and settings the draw runs with. Blue is the descriptor update, which points the GPU at this draw's textures and material values. Grey is the vertex and index buffer binds, the mesh data. White is writing the draw command itself.</p>
+        <p>Below that is the whole frame on a timeline. The amber lane is the CPU writing draws, the blue lane is the GPU running them. White ticks mark each submit, the moment a batch of 512 draws is handed to the GPU. Any gap in the blue lane is the GPU waiting.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Push Draws per frame to 10,000. The amber lane runs past 16.7 ms and fps falls to 20. The CPU is the one out of time, so the frame is CPU bound.</li>
+          <li>Drag CPU µs per draw down to 1.0, about what Vulkan or DX12 costs. The CPU lane shrinks to a fifth and the blue lane becomes the limit.</li>
+          <li>Push GPU µs per draw to 12. Now the GPU sets the frame time and the CPU slider stops mattering.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:0">
+          <div class="ctl"><label for="draws1">Draws per frame <span class="val" id="draws1v">3,000</span></label><input type="range" id="draws1" min="100" max="20000" step="100" value="3000"></div>
+          <div class="ctl"><label for="cpu1">CPU µs per draw <span class="val" id="cpu1v">5.0</span></label><input type="range" id="cpu1" min="0.5" max="40" step="0.5" value="5"></div>
+          <div class="ctl"><label for="gpu1">GPU µs per draw <span class="val" id="gpu1v">2.0</span></label><input type="range" id="gpu1" min="0.5" max="12" step="0.5" value="2"></div>
+        </div>
+        <div class="tiles four">
+          <div class="tile" id="t1-cpu"><div class="n">—</div><div class="l">CPU ms</div></div>
+          <div class="tile" id="t1-gpu"><div class="n">—</div><div class="l">GPU ms</div></div>
+          <div class="tile" id="t1-idle"><div class="n">—</div><div class="l">GPU idle</div></div>
+          <div class="tile" id="t1-fps"><div class="n">—</div><div class="l">fps</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Before the GPU sees anything, every draw makes the CPU do four things. It binds a pipeline, checking the shader stages and fixed settings. It updates a descriptor set or constant buffer, the records that say where this draw's textures and material values live. It binds the vertex and index buffers. Then it writes the draw command.</p>
+        <p>On D3D11 and OpenGL each of those steps went through a driver that re-checked everything on every call, and 5 to 20 µs per draw was normal. On Vulkan and DX12 the same four steps run in your own code and cost 1 to 3 µs. They still run once per draw.</p>
+        <p>The GPU only starts on a command buffer, the recorded list of draws, once the CPU submits it. While the CPU is still recording the next batch, the GPU waits. When the CPU lane crosses the 16.7 ms line the frame is CPU bound: the GPU finishes early, idles, and a faster GPU changes nothing. Push the GPU slider up and it flips: the CPU finishes first and the GPU lane sets the frame time.</p>
+        <p class="words">In words: CPU time is draws times the cost of the four steps, GPU time is draws times its own cost, and the frame lasts as long as the slower of the two.</p>
+        <div class="math">t_cpu  = N · (Σ state_change_cost + submit_cost)
+       = 3000 · (2.0 + 1.5 + 0.5 + 1.0) µs = 15.0 ms
+t_gpu  = N · gpu_cost_per_draw    (fixed per-frame passes not modelled)
+frame  = max(t_cpu, t_gpu_end)      fps  = 1000 / frame
+idle   = 1 − gpu_busy / frame</div>
+        <p>N is draws per frame. The four costs in the bracket are the pipeline bind, the descriptor update, the buffer binds and the draw write, in microseconds. t_gpu_end is when the GPU finishes its last submitted batch. idle is the share of the frame the GPU spent waiting.</p>
+        <p class="words">What this code does: loops over every object, does the four binds, writes one draw, and only hands the whole list to the GPU at the end.</p>
+<pre class="code"><span class="c">// the naive render loop, one draw per object (C++)</span>
+<span class="k">for</span> (<span class="k">const</span> Draw&amp; d : draws) {
+  cmd.bindPipeline(d.pso);            <span class="c">// ~2.0 µs: validate stages, patch state</span>
+  cmd.bindDescriptorSet(d.material);  <span class="c">// ~1.5 µs: textures + material constants</span>
+  cmd.bindVertexBuffer(d.mesh.vb);    <span class="c">// ~0.5 µs</span>
+  cmd.bindIndexBuffer(d.mesh.ib);
+  cmd.drawIndexed(d.mesh.indexCount); <span class="c">// ~1.0 µs to write; the GPU reads 5 words</span>
+}
+queue.submit(cmd);                    <span class="c">// GPU starts here, not at the first draw</span></pre>
+
+        <p class="tldr">The GPU reads a draw in nanoseconds, the CPU spends microseconds writing it, and with thousands per frame the CPU is what runs out of time.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="sorting">
+    <h2>Sort draws so binds become free</h2>
+    <p class="sub">Reorder 200 draws by one packed key and watch most of the state changes disappear.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c2" class="sq" width="512" height="512" aria-label="Unsorted and sorted draw lists with state changes and the sort key bit layout"></canvas>
+        <div class="cap"><span id="c2-read"></span><span>each strip is one draw · gap = state change</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain"><b>A bind that doesn't change costs nothing.</b> If two draws in a row use the same pipeline, the second one skips that bind. So the renderer <b>sorts the draw list</b> so draws that share the priciest state sit next to each other. It's a delivery driver grouping stops by street: the trips between them vanish.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Each thin strip is one draw. The top block is the list in random order, the block below is the same list sorted. Each block has three rows: pipeline in amber, material in blue, mesh in grey. A run of one colour is a stretch of draws sharing that state, and every break in a run is a state change, counted in red at the right.</p>
+        <p>Under the lists is the 64-bit sort key with its fields laid out from the most expensive change on the left to the cheapest on the right. At the bottom, two bars stack the estimated CPU time for each list by what changed. Hover a strip to read its field values and its packed key.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Hover the same strip in the top and bottom lists. The white outline shows where that draw landed after sorting.</li>
+          <li>Push Materials to 64. Both lists gain changes, but the sorted count stays a fraction of the unsorted one.</li>
+          <li>Switch the key to depth first. Draws are now ordered by distance, pipeline runs break up, and the sorted saving shrinks.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:0">
+          <div class="ctl"><span class="lab">Sort key</span><div class="seg" id="seg2" role="group" aria-label="Sort key order"><button data-v="state" aria-pressed="true">pipeline→material→mesh</button><button data-v="depth">depth first</button></div></div>
+          <div class="ctl"><label for="pso2">Pipelines <span class="val" id="pso2v">6</span></label><input type="range" id="pso2" min="1" max="16" step="1" value="6"></div>
+          <div class="ctl"><label for="mat2">Materials <span class="val" id="mat2v">24</span></label><input type="range" id="mat2" min="1" max="64" step="1" value="24"></div>
+          <div class="ctl"><span class="lab">List</span><button class="btn" id="reshuffle2">reshuffle</button></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t2-un">—</div><div class="l">changes unsorted</div></div>
+          <div class="tile on"><div class="n" id="t2-so">—</div><div class="l">changes sorted</div></div>
+          <div class="tile"><div class="n" id="t2-ms">—</div><div class="l">CPU µs sorted</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The draw itself is the cheap part. The binds before it are the expensive part, and a bind that does not change costs nothing. So the renderer packs everything that determines state into one 64-bit integer, puts the most expensive change in the most significant bits, and sorts the list once. Draws next to each other then share a pipeline, then a material, then a mesh, and the loop only rebinds when a field differs from the previous draw.</p>
+        <p>Depth goes in the low bits so that within one mesh the draws still run front to back. That helps early-Z, the GPU's trick of skipping pixels already covered by something closer. Transparent draws need the opposite order, back to front, so for them depth moves into the high bits and state sorting is given up. The layer field sits at the very top for that reason: it keeps opaque and transparent draws apart before any other field applies.</p>
+        <p class="words">In words: stack the fields into one number, dearest change on top, then sort. CPU time is the submits plus one cost for each time a field changes down the list.</p>
+        <div class="math">key = layer&lt;&lt;60 | pipeline&lt;&lt;48 | material&lt;&lt;32 | mesh&lt;&lt;16 | depth16
+t_cpu ≈ N · submit + Σ_changes cost(field)
+        pipeline 2.0 µs · material 1.5 µs · mesh 0.5 µs · submit 1.0 µs</div>
+        <p>The numbers after the &lt;&lt; are how far up the 64-bit key each field is shifted. depth16 is the distance squeezed into 16 bits. Σ_changes cost(field) means: for each place in the sorted list where a field differs from the previous draw, add that field's bind cost.</p>
+        <p class="words">What this code does: shifts each field into its slot in one 64-bit number, then sorts the draws by that number.</p>
+<pre class="code"><span class="c">// pack a sort key (C++). Higher bits = more expensive to change.</span>
+<span class="k">uint64_t</span> packKey(<span class="k">uint8_t</span> layer, <span class="k">uint16_t</span> pso, <span class="k">uint16_t</span> mat,
+                 <span class="k">uint16_t</span> mesh, <span class="k">float</span> depth01) {
+  <span class="k">uint64_t</span> k = 0;
+  k |= (<span class="k">uint64_t</span>)(layer &amp; 0xF)   &lt;&lt; 60;
+  k |= (<span class="k">uint64_t</span>)(pso   &amp; 0xFFF) &lt;&lt; 48;
+  k |= (<span class="k">uint64_t</span>)mat             &lt;&lt; 32;
+  k |= (<span class="k">uint64_t</span>)mesh            &lt;&lt; 16;
+  k |= (<span class="k">uint64_t</span>)(depth01 * 65535.0f); <span class="c">// low bits: front to back inside a mesh run</span>
+  <span class="k">return</span> k;
+}
+std::sort(draws.begin(), draws.end(),
+          [](<span class="k">auto</span>&amp; a, <span class="k">auto</span>&amp; b) { <span class="k">return</span> a.key &lt; b.key; }); <span class="c">// radix sort in practice</span></pre>
+
+        <p class="tldr">Sort the draw list by one packed key, priciest state in the top bits, and most binds turn into no-ops.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="instancing">
+    <h2>Instancing: one mesh, thousands of copies</h2>
+    <p class="sub">Drag the camera around 5,000 trees and compare three ways of getting them on screen.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c3" class="sq grab" width="512" height="512" aria-label="Map of 5000 tree instances with a camera frustum and the instance buffer layout"></canvas>
+        <div class="cap"><span id="c3-read"></span><span id="c3-mem"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Five thousand trees share one mesh, so drawing them one at a time is 5,000 orders for the same thing. <b>Instancing sends one order with a count of 5,000</b> and a list of where each copy goes. <b>One draw, 320 KB of positions</b>, and every tree can still move. It is the photocopier set to 5,000 copies: one press, the machine handles the rest.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The map is 1 km by 0.73 km of forest seen from above. Amber dots are trees inside the frustum, the wedge of space the camera can see. Blue dots are outside it. The two white handles are the camera and the point it aims at.</p>
+        <p>The panel underneath changes with the mode. For instancing it shows the instance buffer, one 64-byte record per tree, and the 16 numbers inside the record of one tree. For static batch it shows the merged vertex buffer and how tiny one mesh is against it. For individual draws it shows the command buffer repeating the same bind-and-draw pair 5,000 times against the 16.7 ms budget.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Hover a tree. Its slot in the buffer lights up and the readout shows the byte it lives at.</li>
+          <li>Switch to static batch. Still one draw, but the memory tile jumps from hundreds of kilobytes to over 160 MB.</li>
+          <li>Switch to individual. Same trees, 5,000 draws, and the CPU bar runs past the red 16.7 ms line.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:0">
+          <div class="ctl"><span class="lab">Submission</span><div class="seg" id="seg3" role="group" aria-label="Submission mode"><button data-v="individual">individual</button><button data-v="static">static batch</button><button data-v="instanced" aria-pressed="true">instanced</button></div></div>
+        </div>
+        <div class="tiles">
+          <div class="tile on"><div class="n" id="t3-draws">—</div><div class="l">draws</div></div>
+          <div class="tile"><div class="n" id="t3-cpu">—</div><div class="l">CPU µs</div></div>
+          <div class="tile"><div class="n" id="t3-mem">—</div><div class="l">geometry + instance memory</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Instancing keeps one copy of the mesh and one draw call, and moves the per-object data into a buffer that the vertex shader indexes with <code>gl_InstanceID</code>, the number of the copy it is currently working on. Each instance here is a 3×4 world matrix, the numbers that place and scale the tree, plus a colour: 64 bytes. So 5,000 trees are 320 KB of instance data next to a 12.8 KB mesh. The CPU issues one draw with <code>instanceCount = 5000</code> and is done.</p>
+        <p>Static batching is the older answer: move every tree's vertices into world space ahead of time and merge them into one giant vertex buffer. That is also one draw, but the mesh is copied 5,000 times, the index buffer outgrows 16-bit indices, and nothing can move without a rebuild. Instancing wins on memory by more than two orders of magnitude and costs one buffer load per vertex.</p>
+        <p>Without culling the GPU still processes all 5,000 instances. The ones outside the frustum run the vertex shader and get thrown away afterwards. The next section moves that decision onto the GPU as well.</p>
+        <p class="words">In words: instance memory is count times record size; a static batch is count times the whole mesh; each vertex is placed by the 3×4 matrix in its instance's record.</p>
+        <div class="math">instance_bytes = N × stride = 5000 × 64 B = 320,000 B
+static_batch   = N × (vb + ib) = 5000 × (12,800 + 10,800 → 21,600 with 32-bit indices) B ≈ 172 MB
+world_pos      = vec4(p, 1) · mat3x4     3 rows × 16 B = 48 B, + rgba 16 B = 64 B</div>
+        <p>N is the tree count, stride the bytes per instance record. vb and ib are the vertex and index buffer sizes of one mesh. p is a vertex position in the mesh's own space, mat3x4 the matrix that moves it into the world.</p>
+        <p class="words">What this code does: reads the record for the copy it is on, moves the vertex into the world with that record's matrix, and passes the colour along.</p>
+<pre class="code"><span class="c">// instanced vertex shader (GLSL). HLSL: SV_InstanceID, StructuredBuffer.</span>
+<span class="k">struct</span> Instance { <span class="k">mat3x4</span> world; <span class="k">vec4</span> color; };       <span class="c">// 64 bytes, std430</span>
+<span class="k">layout</span>(std430, binding = 0) <span class="k">readonly buffer</span> Instances { Instance inst[]; };
+<span class="k">layout</span>(location = 0) <span class="k">in</span> <span class="k">vec3</span> aPos;
+<span class="k">uniform</span> <span class="k">mat4</span> uViewProj;
+<span class="k">out</span> <span class="k">vec4</span> vColor;
+<span class="k">void</span> main() {
+  Instance I = inst[gl_InstanceID];     <span class="c">// Vulkan: gl_InstanceIndex includes firstInstance</span>
+  <span class="k">vec3</span> wp = <span class="k">vec4</span>(aPos, 1.0) * I.world;  <span class="c">// row-major 3x4: one vec4 per row</span>
+  gl_Position = uViewProj * <span class="k">vec4</span>(wp, 1.0);
+  vColor = I.color;
+}</pre>
+        <p style="margin-top:14px">The table compares the three modes on the numbers the demo computes. The highlighted row is the mode you have selected.</p>
+        <div class="tbl-wrap">
+        <table class="stats" id="tbl3">
+          <thead><tr><th>Mode</th><th>Draws</th><th>CPU</th><th>Geometry</th><th>Per instance</th><th>Moves?</th></tr></thead>
+          <tbody>
+            <tr data-m="individual"><td>Individual draws</td><td id="r3a-d"></td><td id="r3a-c"></td><td id="r3a-g"></td><td>64 B constants per draw</td><td>yes</td></tr>
+            <tr data-m="static"><td>Static batch</td><td id="r3b-d"></td><td id="r3b-c"></td><td id="r3b-g"></td><td>baked into vertices</td><td>rebuild</td></tr>
+            <tr data-m="instanced"><td>GPU instancing</td><td id="r3c-d"></td><td id="r3c-c"></td><td id="r3c-g"></td><td id="r3c-i"></td><td>yes</td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        <p class="tldr">Instancing is one draw plus a list of per-copy records; it keeps the mesh once and lets every copy move.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="indirect">
+    <h2>Let the GPU write its own draws</h2>
+    <p class="sub">Drag the camera; a GPU pass culls every instance and fills in the draw arguments while the CPU issues the same one command every frame.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c4" class="sq grab" width="512" height="512" aria-label="GPU culling writing indirect draw arguments for 200 mesh types"></canvas>
+        <div class="cap"><span id="c4-read"></span><span>hover a bar or an instance for its args</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Instancing still leaves the CPU deciding what's in view and how many copies to ask for. <b>An indirect draw hands that job to the GPU</b>: the CPU points at a buffer and says "the numbers in here are the draw". A small GPU program fills the buffer by testing every object against the camera. <b>The CPU's work per frame becomes a constant</b>, whether the scene holds 500 objects or 50,000.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The map holds thousands of objects of 200 different mesh types. Amber circles passed the camera test, blue dots failed it. Below the map is the argument buffer: one bar per mesh type, and the bar's height is how many copies of that type survived. A flat red bar is a type with zero survivors.</p>
+        <p>The line under the bars prints the four numbers in one type's argument record, and the last line is the single command the CPU issued. Hover a bar or an object to inspect its type.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the camera so it points at empty ground. The bars collapse, instances drawn falls, and the CPU draws tile stays at 1.</li>
+          <li>Switch to compacted + count buffer. The red zero-length bars vanish, GPU draws executed drops to the non-empty count, and the count buffer turns blue.</li>
+          <li>Hover any object. Every object of the same mesh type gets a white ring, and its bar is outlined.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:0">
+          <div class="ctl"><span class="lab">Argument buffer</span><div class="seg" id="seg4" role="group" aria-label="Indirect mode"><button data-v="fixed" aria-pressed="true">200 fixed commands</button><button data-v="count">compacted + count buffer</button></div></div>
+        </div>
+        <div class="tiles four">
+          <div class="tile on"><div class="n" id="t4-cpu">1</div><div class="l">CPU draws issued</div></div>
+          <div class="tile"><div class="n" id="t4-cmds">—</div><div class="l">GPU draws executed</div></div>
+          <div class="tile"><div class="n" id="t4-inst">—</div><div class="l">instances drawn</div></div>
+          <div class="tile"><div class="n" id="t4-us">—</div><div class="l">CPU draw µs</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>With an indirect draw the CPU no longer supplies the arguments. It points at a buffer and says "the four uints at this offset are the draw". A compute shader, a GPU program that runs one thread per object rather than per pixel, fills that buffer. Each thread tests one instance against the frustum. On pass it does an <code>atomicAdd</code>, a counter increment that is safe when thousands of threads hit it at once, on its mesh type's <code>instanceCount</code>, and writes the instance index into a compacted list. The vertex shader then reads <code>inst[visible[gl_InstanceIndex]]</code>.</p>
+        <p>MultiDrawIndirect extends this to an array of argument records, one per mesh type, run by a single CPU call. The 200 commands here are one <code>vkCmdDrawIndexedIndirect</code>. A mesh type whose count ended at zero is an empty draw the GPU skips in a few cycles. Or the compute pass compacts the array and writes the survivor count to a count buffer for <code>DrawIndirectCount</code>. Either way the CPU's draw work per frame is a constant, no matter how many objects the scene holds.</p>
+        <p class="words">In words: each mesh type owns a 16-byte record and a fixed stretch of the visible list; every surviving instance grabs the next slot in its type's stretch and bumps that type's count.</p>
+        <div class="math">args[m] = { vertexCount, instanceCount, firstVertex, firstInstance }   4 × uint32 = 16 B
+firstInstance[m] = Σ_{k&lt;m} capacity[k]      prefix sum, computed once
+slot = atomicAdd(args[m].instanceCount, 1);  visible[firstInstance[m] + slot] = i
+CPU per frame: 1 dispatch + 1 multi-draw, independent of N</div>
+        <p>m is a mesh type, i an instance. capacity[k] is the most instances type k can ever have, so firstInstance[m] is where type m's stretch of the visible list begins. slot is the position this instance won inside that stretch.</p>
+        <p class="words">What this code does: one thread per instance tests it against the camera, and survivors append themselves to their mesh type's draw record.</p>
+<pre class="code"><span class="c">// GPU culling that appends to the indirect args (GLSL compute)</span>
+<span class="k">struct</span> DrawArgs { <span class="k">uint</span> vertexCount, instanceCount, firstVertex, firstInstance; };
+<span class="k">layout</span>(std430, binding = 1) <span class="k">buffer</span> Args    { DrawArgs args[]; };   <span class="c">// zeroed each frame</span>
+<span class="k">layout</span>(std430, binding = 2) <span class="k">buffer</span> Visible { <span class="k">uint</span> visible[]; };
+<span class="k">layout</span>(local_size_x = 64) <span class="k">in</span>;
+<span class="k">void</span> main() {
+  <span class="k">uint</span> i = gl_GlobalInvocationID.x;
+  <span class="k">if</span> (i &gt;= uInstanceCount) <span class="k">return</span>;
+  Instance I = inst[i];
+  <span class="k">if</span> (!sphereInFrustum(I.boundsCenter, I.boundsRadius, uPlanes)) <span class="k">return</span>;
+  <span class="k">uint</span> m    = I.meshType;
+  <span class="k">uint</span> slot = atomicAdd(args[m].instanceCount, 1u);   <span class="c">// GPU-side counter</span>
+  visible[args[m].firstInstance + slot] = i;          <span class="c">// firstInstance is a fixed prefix</span>
+}
+<span class="c">// CPU, once per frame:</span>
+<span class="c">// vkCmdDrawIndexedIndirect(cmd, argsBuf, 0, 200, sizeof(DrawArgs));</span></pre>
+
+        <p class="tldr">With indirect draws the GPU culls and writes its own draw arguments, and the CPU's per-frame draw work stops depending on scene size.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="bindless">
+    <h2>Bindless and the material problem</h2>
+    <p class="sub">See why different textures break a batch apart, and compare four ways of putting it back together.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5" class="sq" width="512" height="512" aria-label="A 4096 texture atlas with mip bleed, a texture array, and draws grouped by material"></canvas>
+        <div class="cap"><span id="c5-read"></span><span>hover an atlas tile for its UV remap</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Instancing only works while every copy uses the same textures. <b>Give each tree its own bark and the batch splits back into one draw per material.</b> The old fixes glue the textures together into one big image. <b>Bindless skips the gluing</b>: every texture goes in one long list and the shader picks by number, so the batch never has to split.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Top left is a 4096² atlas, one big image with the materials packed in as tiles. The red bands on each tile are bleed: the strip near the edge where blurry lower-resolution copies of the image pull in colour from the neighbouring tile. Top right is a texture array, the same materials stacked as separate layers with no shared edges.</p>
+        <p>The bottom row is 48 objects as dots, coloured by material and grouped by pipeline. Each white bracket is one draw. Fewer brackets means fewer draws.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Push Mip level from 6 to 8 on a 1024² tile. The red bands widen to 256 texels a side and only 25 % of each tile is still clean. At level 9 nothing is left.</li>
+          <li>Step from per-draw bind to texture array. The brackets merge down to one per pipeline. Go on to bindless and texture binds drops to 1, but draws and unique pipelines stay where they were.</li>
+          <li>Pick bindless + uber-shader. One bracket, one draw, one pipeline for all 48 objects.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:0">
+          <div class="ctl"><span class="lab">Binding model</span><div class="seg" id="seg5" role="group" aria-label="Binding model"><button data-v="classic" aria-pressed="true">per-draw bind</button><button data-v="array">texture array</button><button data-v="bindless">bindless</button><button data-v="uber">bindless + uber-shader</button></div></div>
+          <div class="ctl"><label for="mip5">Mip level <span class="val" id="mip5v">6</span></label><input type="range" id="mip5" min="0" max="11" step="1" value="6"></div>
+          <div class="ctl"><span class="lab">Atlas tile</span><div class="seg" id="segT5" role="group" aria-label="Atlas tile size"><button data-v="256">256²</button><button data-v="512">512²</button><button data-v="1024" aria-pressed="true">1024²</button></div></div>
+          <div class="ctl"><label for="mat5">Unique materials <span class="val" id="mat5v">9</span></label><input type="range" id="mat5" min="1" max="16" step="1" value="9"></div>
+          <div class="ctl"><label for="var5">Shader variants <span class="val" id="var5v">3</span></label><input type="range" id="var5" min="1" max="4" step="1" value="3"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile on"><div class="n" id="t5-draws">—</div><div class="l">draws for 48 objects</div></div>
+          <div class="tile"><div class="n" id="t5-binds">—</div><div class="l">texture binds</div></div>
+          <div class="tile"><div class="n" id="t5-pso">—</div><div class="l">unique pipelines</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Instancing needs every instance in a draw to use the same bound textures. Give each tree its own bark texture and the batch splits back into one draw per material, because a descriptor bind sits between them. The two classic fixes remove the bind by removing the separate texture. A texture array puts every material in one resource, one layer each, picked by an integer from the instance data. An atlas packs them into one 4096² image and remaps UVs, the coordinates that say where on the texture a vertex lands, with a scale and an offset.</p>
+        <p>The atlas has a cost. Mipmaps, the chain of half-size copies the GPU samples from at a distance, are built on the whole image. At level L each mip texel covers 2^L base texels and the filter reaches that far into the neighbouring tile. Wrapping UVs do not work at all. A texture array has neither problem, but every layer must share size, format and mip count.</p>
+        <p>Bindless removes the bind instead of the texture. The shader indexes a descriptor array holding every texture with an integer from a material buffer, so draws only need to split on pipeline. With an uber-shader, one shader that handles every material's features through flags, that count is one, and the whole scene is a single indirect draw.</p>
+        <p class="words">In words: an atlas tile is found by scaling and shifting the UVs; bleed doubles with every mip level; draws split wherever the pipeline or the bound descriptors differ.</p>
+        <div class="math">uv' = uv · scale + offset      scale = tile / 4096,  offset = tileOrigin / 4096
+bleed(L) = 2^L texels           L = 8 on a 1024² tile: 256 texels per edge, 25 % of the area left
+draws     = unique (pipeline, bound descriptor set) pairs
+pipelines = unique shader variants    bindless does not lower this; an uber-shader does</div>
+        <p>uv is the texture coordinate the mesh came with, uv' the one that lands in the right atlas tile. L is the mip level, and a texel is one pixel of a texture. The 25 % is what remains of a 1024² tile after 256 texels are lost on each of its four edges.</p>
+        <p class="words">What this code does: reads the pixel's material number, looks up that material's texture number, and samples from the big texture list at that number.</p>
+<pre class="code"><span class="c">// bindless fragment shader (GLSL, VK_EXT_descriptor_indexing)</span>
+<span class="k">#extension</span> GL_EXT_nonuniform_qualifier : require
+<span class="k">layout</span>(set = 0, binding = 0) <span class="k">uniform</span> <span class="k">sampler2D</span> textures[];   <span class="c">// every texture in the scene</span>
+<span class="k">struct</span> Material { <span class="k">uint</span> albedo; <span class="k">uint</span> normal; <span class="k">uint</span> orm; <span class="k">uint</span> flags; };
+<span class="k">layout</span>(std430, set = 0, binding = 1) <span class="k">readonly buffer</span> Materials { Material mats[]; };
+<span class="k">layout</span>(location = 0) <span class="k">flat in</span> <span class="k">uint</span> vMaterialId;  <span class="c">// came from the instance record</span>
+<span class="k">void</span> main() {
+  Material m = mats[vMaterialId];
+  <span class="k">vec3</span> albedo = texture(textures[nonuniformEXT(m.albedo)], vUV).rgb; <span class="c">// index may differ per pixel</span>
+  ...
+}
+<span class="c">// HLSL SM 6.6: Texture2D t = ResourceDescriptorHeap[m.albedo];</span></pre>
+
+        <p class="tldr">Textures are what split a batch; atlases and arrays merge the textures, bindless merges the lookup, and only an uber-shader merges the pipelines.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">Every technique buys a lower CPU cost per object with some mix of memory, rigidity and hardware requirements.</p>
+    <p class="plain" style="max-width:66ch">Read this table top to bottom as a ladder: each row cuts the CPU's per-object work further than the one above, and pays for it in memory, in what is allowed to differ between objects, or in the hardware it needs. <b>You are choosing how much of the per-draw work to move off the CPU</b> and what you give up to do it.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Technique</th><th>What the CPU pays</th><th>What it costs in memory</th><th>What can differ between objects</th><th>Where per-object data lives</th><th>Pick it when</th></tr></thead>
+      <tbody>
+        <tr><td>Individual draws</td><td>1 to 20 µs per object, every frame</td><td>Mesh stored once</td><td>Anything can differ per draw</td><td>Unlimited, via constants set per draw</td><td>Under about 1,000 objects, or every object has a unique material</td></tr>
+        <tr><td>Static batching</td><td>Near zero: one draw per batch</td><td>Mesh copied per object; 32-bit indices past 65,535 vertices</td><td>Nothing moves; one material per batch</td><td>Baked into the vertices</td><td>Level geometry that never moves, mobile GL ES</td></tr>
+        <tr><td>Dynamic batching</td><td>CPU copies and transforms vertices each frame</td><td>Small scratch buffer</td><td>Only tiny meshes pay off (Unity caps at 900 vertex attributes)</td><td>Baked again each frame</td><td>Sprites, particles, UI quads</td></tr>
+        <tr><td>GPU instancing</td><td>One draw per mesh + material pair</td><td>Mesh once + N × 64 to 256 B</td><td>Same mesh and same bound textures per draw</td><td>One record per instance, any layout</td><td>Foliage, props, crowds, debris</td></tr>
+        <tr><td>Indirect + bindless</td><td>Constant: one dispatch, one multi-draw</td><td>+16 B args per mesh type, +4 B per visible instance</td><td>Any mesh, any material, one pipeline</td><td>Unlimited, in a GPU buffer indexed by instance id</td><td>Tens of thousands of objects, GPU-driven culling</td></tr>
+        <tr><td>Mesh shaders</td><td>Constant; a task shader culls meshlets on the GPU</td><td>Meshlets of about 64 verts / 124 tris, around 10 % over an index buffer</td><td>Per-meshlet cull, LOD and generation on the GPU</td><td>Unlimited</td><td>Dense geometry on Turing / RDNA2 or newer hardware</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">The numbers in the CPU column assume a modern desktop CPU core. Consoles and mobile are slower per core, so their draw budgets shrink to match. A 1,000-draw frame that is fine on a desktop can be CPU bound on a handheld.</p>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">The same idea appears under different product names. What differs is which piece of the per-draw work each one removes.</p>
+    <p class="plain" style="max-width:66ch">Each row is one shipped feature or paper. The second column says <b>which piece of the per-draw work it removes</b>, the third says what data it needs on the GPU to do that, and the last says where it shipped. Most modern engines combine several rows.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Name</th><th>What it does</th><th>Data it needs</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>SRP Batcher</td><td>Sorts by shader variant and keeps each material's constants sitting on the GPU, so switching material is a buffer offset instead of a rebind.</td><td>Per-material constant buffers in a persistent GPU heap</td><td>Unity Universal and HD render pipelines (2019 on)</td></tr>
+        <tr><td>GPU Resident Drawer</td><td>Keeps instance transforms in GPU buffers; culling and instancing happen through BatchRendererGroup with no per-object CPU work.</td><td>Instance data buffers, bounds per instance</td><td>Unity 6 (2024)</td></tr>
+        <tr><td>Auto-instancing, GPU Scene</td><td>Merges draws that share mesh and material automatically, and keeps every object's transform in one GPU buffer for GPU culling.</td><td>Primitive data buffer, indirect args</td><td>Unreal Engine 4.22 auto-instancing, UE5 GPU Scene and Nanite</td></tr>
+        <tr><td>AZDO</td><td>Persistent mapped buffers, bindless textures and MultiDrawIndirect on OpenGL 4.4, to get the driver's per-call cost close to zero.</td><td>Sparse and bindless textures, indirect buffers</td><td>"Approaching Zero Driver Overhead", NVIDIA and AMD at GDC 2014</td></tr>
+        <tr><td>GPU-driven pipeline</td><td>Frustum and occlusion culling of small clusters of triangles in compute, then indirect draws for a whole city with a handful of CPU calls.</td><td>Cluster bounds, hierarchical Z, indirect args</td><td>Assassin's Creed Unity (Ubisoft, SIGGRAPH 2015 "GPU-Driven Rendering Pipelines")</td></tr>
+        <tr><td>Bindless descriptors</td><td>Picks a texture from one big descriptor list with an integer from a buffer, instead of binding per draw.</td><td>Descriptor indexing, non-uniform indexing support</td><td>VK_EXT_descriptor_indexing (core in Vulkan 1.2), DX12 Shader Model 6.6 ResourceDescriptorHeap</td></tr>
+        <tr><td>Mesh shaders</td><td>Replaces the fixed vertex fetch with task and mesh shaders that cull and emit meshlets, small chunks of triangles, on the GPU.</td><td>Meshlet lists, per-meshlet bounds and cones</td><td>NVIDIA Turing (2018), AMD RDNA2 (2020), DX12 Ultimate; Alan Wake 2 (Remedy, 2023) requires it</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">One trap: "draw calls are expensive" was a statement about D3D11 and OpenGL, where the driver re-checked state inside every call. On Vulkan and DX12 that overhead is gone and a raw draw is a few hundred nanoseconds. The cost moved to managing descriptors, and the real limit became how many objects the CPU can cull and sort per frame, which is why culling and sorting now move onto the GPU too.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const AMB = "#f2a341", BLU = "#4aa3ff", WHT = "#ffffff", RED = "#ef5d5d", GRD = "#0b0e13", DIM = "rgba(255,255,255,0.12)";
+  const MONO = '"IBM Plex Mono", Menlo, Consolas, monospace';
+  const fmtN = n => Math.round(n).toLocaleString("en-US");
+  const fmtB = b => b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : b >= 1024 ? (b / 1024).toFixed(1) + " KB" : Math.round(b) + " B";
+  function txt(g, s, x, y, c, align, size, base) {
+    g.font = (size || 11) + "px " + MONO; g.fillStyle = c || "rgba(255,255,255,0.75)"; g.textAlign = align || "left"; g.textBaseline = base || "alphabetic"; g.fillText(s, x, y);
+  }
+  function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
+  function onSeg(id, fn) { $(id).addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; segOn(ev.currentTarget, b.dataset.v); fn(b.dataset.v); }); }
+  function ptr(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) * canvas.width / r.width, (ev.clientY - r.top) * canvas.height / r.height]; }
+  function handle(g, x, y, r) { g.beginPath(); g.arc(x, y, r || 7, 0, Math.PI * 2); g.fillStyle = WHT; g.fill(); g.lineWidth = 2; g.strokeStyle = GRD; g.stroke(); }
+  function raf(fn) { let p = false; return () => { if (p) return; p = true; requestAnimationFrame(() => { p = false; fn(); }); }; }
+  // frustum in 2D: camera c, aim a, half-angle, near/far in px
+  function frustum(c, a, half, near, far) {
+    let dx = a[0] - c[0], dy = a[1] - c[1]; const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+    const t = Math.tan(half);
+    return { c, d: [dx, dy], t, near, far, half,
+      test(x, y, r) { r = r || 0; const vx = x - c[0], vy = y - c[1]; const along = vx * dx + vy * dy; if (along + r < near || along - r > far) return false; const perp = Math.abs(vx * dy - vy * dx); return perp - r <= along * t + r * 0.0; } };
+  }
+  function drawFrustum(g, f) {
+    const { c, d, far, half } = f; const ang = Math.atan2(d[1], d[0]);
+    g.beginPath(); g.moveTo(c[0], c[1]); g.lineTo(c[0] + Math.cos(ang - half) * far, c[1] + Math.sin(ang - half) * far);
+    g.arc(c[0], c[1], far, ang - half, ang + half); g.closePath();
+    g.fillStyle = "rgba(242,163,65,0.08)"; g.fill(); g.strokeStyle = "rgba(255,255,255,0.6)"; g.lineWidth = 1; g.stroke();
+  }
+  function camDrag(canvas, cam, onMove, onHover) {
+    let active = -1;
+    canvas.addEventListener("pointerdown", ev => { const [x, y] = ptr(canvas, ev); const hs = [cam.c, cam.a]; let best = -1, bd = 16; hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } }); if (best >= 0) { active = best; canvas.setPointerCapture(ev.pointerId); } else if (onHover) onHover(x, y); });
+    canvas.addEventListener("pointermove", ev => { const [x, y] = ptr(canvas, ev); if (active >= 0) { const h = active === 0 ? cam.c : cam.a; h[0] = Math.max(4, Math.min(508, x)); h[1] = Math.max(4, Math.min(cam.maxY, y)); onMove(); } else if (onHover) onHover(x, y); });
+    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
+    canvas.addEventListener("pointerleave", () => { if (onHover) onHover(-1, -1); });
+  }
+
+  // ================= 1. anatomy of a draw call =================
+  const c1 = $("c1"), g1 = c1.getContext("2d");
+  const s1 = { draws: 3000, cpu: 5, gpu: 2 };
+  const SPLIT = [["pipeline bind", 0.40, AMB], ["descriptor / constants", 0.30, BLU], ["vertex + index bind", 0.10, "rgba(255,255,255,0.45)"], ["draw submit", 0.20, WHT]];
+  const K1 = 512, BUDGET = 16.7;
+  function sim1() {
+    const N = s1.draws, cpu = s1.cpu / 1000, gpu = s1.gpu / 1000;
+    const cpuEnd = N * cpu; const chunks = []; let gEnd = 0, busy = 0;
+    for (let i = 0; i < N; i += K1) { const n = Math.min(K1, N - i); const submit = (i + n) * cpu; const start = Math.max(gEnd, submit); const end = start + n * gpu; chunks.push([submit, start, end]); gEnd = end; busy += end - start; }
+    const frame = Math.max(cpuEnd, gEnd);
+    return { cpuEnd, gEnd, frame, busy, chunks, idle: 1 - busy / frame, fps: 1000 / frame };
+  }
+  function draw1() {
+    const r = sim1(); const W = 640, H = 360;
+    g1.fillStyle = GRD; g1.fillRect(0, 0, W, H);
+    // --- inset: one draw zoomed ---
+    txt(g1, "ONE DRAW, ZOOMED · " + s1.cpu.toFixed(1) + " µs of CPU", 16, 22, "rgba(255,255,255,0.55)", "left", 11);
+    const ix = 16, iy = 34, iw = 608, ih = 26; const nd = 3, dw = iw / nd;
+    for (let d = 0; d < nd; d++) { let x = ix + d * dw; for (const [name, f, col] of SPLIT) { const w = f * dw; g1.fillStyle = col; g1.globalAlpha = d === 0 ? 1 : 0.45; g1.fillRect(x + 1, iy, w - 2, ih); g1.globalAlpha = 1; x += w; } txt(g1, "draw " + d, ix + d * dw + 4, iy + ih + 13, "rgba(255,255,255,0.4)", "left", 10); }
+    let lx = 16; for (const [name, f, col] of SPLIT) { g1.fillStyle = col; g1.fillRect(lx, 82, 9, 9); txt(g1, name + " " + (s1.cpu * f).toFixed(1) + " µs", lx + 13, 90, "rgba(255,255,255,0.7)", "left", 10); lx += 160; }
+    // --- timeline ---
+    const x0 = 78, x1 = 624, y0 = 132; const tmax = Math.max(BUDGET, r.frame) * 1.06; const sx = t => x0 + t / tmax * (x1 - x0);
+    txt(g1, "FRAME TIMELINE", 16, y0 - 12, "rgba(255,255,255,0.55)", "left", 11);
+    // ruler
+    g1.strokeStyle = DIM; g1.lineWidth = 1; g1.beginPath(); g1.moveTo(x0, y0 + 0.5); g1.lineTo(x1, y0 + 0.5); g1.stroke();
+    const step = tmax > 60 ? 20 : tmax > 30 ? 10 : tmax > 12 ? 5 : 2;
+    for (let t = 0; t <= tmax; t += step) { const x = Math.round(sx(t)) + 0.5; g1.beginPath(); g1.moveTo(x, y0 - 4); g1.lineTo(x, y0 + 4); g1.strokeStyle = "rgba(255,255,255,0.35)"; g1.stroke(); txt(g1, t + " ms", x, y0 + 16, "rgba(255,255,255,0.45)", "center", 10); }
+    // lanes
+    const cy = y0 + 40, gy = y0 + 110, lh = 34;
+    txt(g1, "CPU", 16, cy + lh / 2 + 4, "rgba(255,255,255,0.8)", "left", 12); txt(g1, "record", 16, cy + lh / 2 + 17, "rgba(255,255,255,0.4)", "left", 10);
+    txt(g1, "GPU", 16, gy + lh / 2 + 4, "rgba(255,255,255,0.8)", "left", 12); txt(g1, "execute", 16, gy + lh / 2 + 17, "rgba(255,255,255,0.4)", "left", 10);
+    g1.fillStyle = "rgba(255,255,255,0.04)"; g1.fillRect(x0, cy, x1 - x0, lh); g1.fillRect(x0, gy, x1 - x0, lh);
+    // cpu bar with per-draw stripes when visible
+    const cw = sx(r.cpuEnd) - x0;
+    g1.fillStyle = AMB; g1.fillRect(x0, cy, cw, lh);
+    const pxPerDraw = cw / s1.draws;
+    if (pxPerDraw >= 3) { g1.fillStyle = "rgba(11,14,19,0.6)"; for (let i = 1; i < s1.draws; i++) g1.fillRect(x0 + i * pxPerDraw, cy, 1, lh); }
+    // submits
+    for (const [submit] of r.chunks) { const x = sx(submit); g1.strokeStyle = WHT; g1.lineWidth = 1; g1.beginPath(); g1.moveTo(x + 0.5, cy - 4); g1.lineTo(x + 0.5, cy + lh + 4); g1.stroke(); }
+    if (r.chunks.length) txt(g1, r.chunks.length + " submit" + (r.chunks.length > 1 ? "s" : ""), sx(r.chunks[0][0]) + 4, cy - 6, "rgba(255,255,255,0.6)", "left", 10);
+    // gpu blocks
+    for (const [, s, e] of r.chunks) { g1.fillStyle = BLU; g1.fillRect(sx(s), gy, Math.max(1, sx(e) - sx(s)), lh); }
+    // idle gaps
+    let prev = 0; for (const [, s, e] of r.chunks) { if (s - prev > 0.02) { const a = sx(prev), b = sx(s); g1.fillStyle = "rgba(239,93,93,0.18)"; g1.fillRect(a, gy, b - a, lh); if (b - a > 34) txt(g1, "idle", (a + b) / 2, gy + lh / 2 + 4, RED, "center", 10); } prev = e; }
+    // over budget
+    if (r.frame > BUDGET) { const a = sx(BUDGET), b = sx(r.frame); g1.fillStyle = "rgba(239,93,93,0.10)"; g1.fillRect(a, y0 + 22, b - a, 140); }
+    const bx = Math.round(sx(BUDGET)) + 0.5; g1.setLineDash([4, 4]); g1.strokeStyle = RED; g1.beginPath(); g1.moveTo(bx, y0 + 22); g1.lineTo(bx, gy + lh + 30); g1.stroke(); g1.setLineDash([]);
+    txt(g1, "16.7 ms budget", bx, gy + lh + 44, RED, bx > x1 - 60 ? "right" : "center", 10);
+    // ends
+    txt(g1, r.cpuEnd.toFixed(1) + " ms", Math.min(sx(r.cpuEnd) + 4, x1 - 40), cy + lh / 2 + 4, WHT, "left", 11);
+    txt(g1, r.gEnd.toFixed(1) + " ms", Math.min(sx(r.gEnd) + 4, x1 - 40), gy + lh / 2 + 4, WHT, "left", 11);
+    const bound = r.cpuEnd >= r.gEnd ? "CPU bound" : "GPU bound";
+    txt(g1, bound.toUpperCase(), x1, y0 - 12, r.frame > BUDGET ? RED : "#5ad48a", "right", 11);
+    $("c1-read").innerHTML = `<strong>${fmtN(s1.draws)} draws</strong> · CPU ${r.cpuEnd.toFixed(1)} ms · GPU busy ${r.busy.toFixed(1)} ms · <strong>${bound}</strong>`;
+    $("t1-cpu").querySelector(".n").textContent = r.cpuEnd.toFixed(1);
+    $("t1-gpu").querySelector(".n").textContent = r.busy.toFixed(1);
+    $("t1-idle").querySelector(".n").textContent = Math.round(r.idle * 100) + " %";
+    $("t1-fps").querySelector(".n").textContent = r.fps.toFixed(0);
+    $("t1-cpu").classList.toggle("on", r.cpuEnd >= r.gEnd); $("t1-gpu").classList.toggle("on", r.gEnd > r.cpuEnd);
+  }
+  const bind1 = (id, key, fmt) => { const el = $(id); el.addEventListener("input", () => { s1[key] = +el.value; $(id + "v").textContent = fmt(+el.value); draw1(); }); };
+  bind1("draws1", "draws", v => fmtN(v)); bind1("cpu1", "cpu", v => v.toFixed(1)); bind1("gpu1", "gpu", v => v.toFixed(1));
+  draw1();
+
+  // ================= 2. state sorting =================
+  const c2 = $("c2"), g2 = c2.getContext("2d");
+  const s2 = { P: 6, M: 24, K: 40, N: 200, mode: "state", seed: 7, hover: -1 };
+  const COST = { pso: 2.0, mat: 1.5, mesh: 0.5, submit: 1.0 };
+  let draws2 = [], sorted2 = [], pos2 = [];
+  const FIELDS = { layer: 4, pso: 12, mat: 16, mesh: 16, depth: 16 };
+  const ORDER = { state: ["layer", "pso", "mat", "mesh", "depth"], depth: ["layer", "depth", "pso", "mat", "mesh"] };
+  function pack(d, order) { let k = 0n, shift = 64; for (const f of order) { shift -= FIELDS[f]; k |= BigInt(d[f]) << BigInt(shift); } return k; }
+  function gen2() {
+    const r = rng(s2.seed); draws2 = [];
+    for (let i = 0; i < s2.N; i++) { const mat = Math.floor(r() * s2.M); draws2.push({ id: i, layer: r() < 0.12 ? 1 : 0, mat, pso: mat % s2.P, mesh: Math.floor(r() * s2.K), depth: Math.floor(r() * 65535) }); }
+    sort2();
+  }
+  function sort2() { const order = ORDER[s2.mode]; for (const d of draws2) d.key = pack(d, order); sorted2 = draws2.slice().sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0); pos2 = new Array(s2.N); sorted2.forEach((d, i) => pos2[d.id] = i); }
+  function changes(list) { const c = { pso: 0, mat: 0, mesh: 0 }; let p = null; for (const d of list) { if (!p || d.pso !== p.pso) c.pso++; if (!p || d.mat !== p.mat || d.pso !== p.pso) c.mat++; if (!p || d.mesh !== p.mesh) c.mesh++; p = d; } c.total = c.pso + c.mat + c.mesh; c.us = c.pso * COST.pso + c.mat * COST.mat + c.mesh * COST.mesh + list.length * COST.submit; return c; }
+  function shade(base, v, n) { const t = n <= 1 ? 1 : 0.25 + 0.75 * (v / (n - 1)); return `rgba(${base[0]},${base[1]},${base[2]},${t.toFixed(3)})`; }
+  const ROWS = [["pipeline", "pso", [242, 163, 65]], ["material", "mat", [74, 163, 255]], ["mesh", "mesh", [230, 232, 236]]];
+  function drawList(list, y, label, hoverPos) {
+    const x0 = 72, w = 428, sw = w / list.length; const ch = changes(list);
+    txt(g2, label.toUpperCase() + " · " + ch.total + " state changes · " + ch.us.toFixed(0) + " µs", 12, y, "rgba(255,255,255,0.6)", "left", 11);
+    ROWS.forEach(([name, f, base], ri) => {
+      const ry = y + 8 + ri * 26; const n = f === "pso" ? s2.P : f === "mat" ? s2.M : s2.K;
+      txt(g2, name, 66, ry + 15, "rgba(255,255,255,0.5)", "right", 10);
+      let runStart = 0;
+      for (let i = 1; i <= list.length; i++) { if (i === list.length || list[i][f] !== list[runStart][f] || (f === "mat" && list[i].pso !== list[runStart].pso)) { g2.fillStyle = shade(base, list[runStart][f], n); const a = x0 + runStart * sw, b = x0 + i * sw; g2.fillRect(a + 0.6, ry, Math.max(0.8, b - a - 1.2), 21); runStart = i; } }
+      txt(g2, ch[f] + "×", x0 + w + 6, ry + 15, RED, "left", 10);
+    });
+    if (hoverPos >= 0) { const x = x0 + hoverPos * sw; g2.strokeStyle = WHT; g2.lineWidth = 1; g2.strokeRect(x - 0.5, y + 6, sw + 1, 78); }
+    return ch;
+  }
+  function draw2() {
+    g2.fillStyle = GRD; g2.fillRect(0, 0, 512, 512);
+    const hv = s2.hover; const chU = drawList(draws2, 22, "unsorted", hv);
+    const chS = drawList(sorted2, 126, "sorted by key", hv >= 0 ? pos2[hv] : -1);
+    // key layout
+    const order = ORDER[s2.mode]; const kx = 12, ky = 236, kw = 488;
+    txt(g2, "64-BIT SORT KEY · most expensive change in the top bits", kx, ky - 6, "rgba(255,255,255,0.6)", "left", 11);
+    let bit = 64, x = kx; const cols = { layer: "rgba(255,255,255,0.25)", pso: "rgba(242,163,65,0.8)", mat: "rgba(74,163,255,0.8)", mesh: "rgba(230,232,236,0.55)", depth: "rgba(90,212,138,0.55)" };
+    const names = { layer: "layer", pso: "pipeline", mat: "material", mesh: "mesh", depth: "depth" };
+    const d = hv >= 0 ? draws2[hv] : null;
+    for (const f of order) { const bits = FIELDS[f], w = bits / 64 * kw; g2.fillStyle = cols[f]; g2.fillRect(x + 1, ky, w - 2, 30); txt(g2, names[f], x + w / 2, ky + 13, GRD, "center", 10); txt(g2, bits + " b", x + w / 2, ky + 25, GRD, "center", 10); txt(g2, (bit - 1) + "", x + 2, ky + 42, "rgba(255,255,255,0.4)", "left", 9); if (d) txt(g2, d[f] + "", x + w / 2, ky + 58, WHT, "center", 11); bit -= bits; x += w; }
+    txt(g2, "0", kx + kw - 2, ky + 42, "rgba(255,255,255,0.4)", "right", 9);
+    if (d) txt(g2, `draw #${d.id} → key 0x${d.key.toString(16).padStart(16, "0")} → sorted position ${pos2[d.id]}`, kx, ky + 76, "rgba(255,255,255,0.85)", "left", 11);
+    else txt(g2, "hover a strip: field values and the packed key appear here", kx, ky + 76, "rgba(255,255,255,0.4)", "left", 11);
+    // cost bars
+    const by = 340; txt(g2, "ESTIMATED CPU TIME · stacked by what changed", kx, by - 6, "rgba(255,255,255,0.6)", "left", 11);
+    const maxUs = Math.max(chU.us, chS.us); const bw = 400, bx = 88;
+    [["unsorted", chU], ["sorted", chS]].forEach(([n, c], i) => {
+      const y = by + 10 + i * 46; txt(g2, n, bx - 6, y + 15, "rgba(255,255,255,0.7)", "right", 11);
+      let x = bx; const parts = [[c.pso * COST.pso, AMB], [c.mat * COST.mat, BLU], [c.mesh * COST.mesh, "rgba(230,232,236,0.6)"], [s2.N * COST.submit, "rgba(255,255,255,0.25)"]];
+      for (const [us, col] of parts) { const w = us / maxUs * bw; g2.fillStyle = col; g2.fillRect(x, y, Math.max(0, w - 1), 22); x += w; }
+      txt(g2, c.us.toFixed(0) + " µs", Math.min(x + 6, 470), y + 15, WHT, "left", 11);
+    });
+    let lx = bx; for (const [n, col] of [["pipeline", AMB], ["material", BLU], ["mesh", "rgba(230,232,236,0.6)"], ["submit", "rgba(255,255,255,0.25)"]]) { g2.fillStyle = col; g2.fillRect(lx, by + 106, 9, 9); txt(g2, n, lx + 13, by + 114, "rgba(255,255,255,0.6)", "left", 10); lx += 92; }
+    txt(g2, `sorted list saves ${(chU.us - chS.us).toFixed(0)} µs of ${chU.us.toFixed(0)} · ${Math.round((1 - chS.us / chU.us) * 100)} %`, kx, 500, "rgba(255,255,255,0.75)", "left", 11);
+    $("t2-un").textContent = chU.total; $("t2-so").textContent = chS.total; $("t2-ms").textContent = chS.us.toFixed(0);
+    $("c2-read").innerHTML = `<strong>${chU.total} → ${chS.total}</strong> state changes · ${chU.us.toFixed(0)} → ${chS.us.toFixed(0)} µs`;
+  }
+  function hover2(x, y) { let h = -1; if (x >= 72 && x <= 500) { const i = Math.floor((x - 72) / (428 / s2.N)); if (y >= 28 && y <= 108) h = i; else if (y >= 132 && y <= 212) h = sorted2[i].id; } if (h !== s2.hover) { s2.hover = h; draw2(); } }
+  c2.addEventListener("pointermove", ev => { const [x, y] = ptr(c2, ev); hover2(x, y); });
+  c2.addEventListener("pointerdown", ev => { const [x, y] = ptr(c2, ev); hover2(x, y); });
+  c2.addEventListener("pointerleave", () => { s2.hover = -1; draw2(); });
+  onSeg("seg2", v => { s2.mode = v; sort2(); draw2(); });
+  $("pso2").addEventListener("input", ev => { s2.P = +ev.target.value; $("pso2v").textContent = s2.P; gen2(); draw2(); });
+  $("mat2").addEventListener("input", ev => { s2.M = +ev.target.value; $("mat2v").textContent = s2.M; gen2(); draw2(); });
+  $("reshuffle2").addEventListener("click", () => { s2.seed = (s2.seed * 1664525 + 1013904223) >>> 0; gen2(); draw2(); });
+  gen2(); draw2();
+
+  // ================= 3. instancing =================
+  const c3 = $("c3"), g3 = c3.getContext("2d");
+  const N3 = 5000, MAP_H = 372, MPP = 1000 / 512; // metres per pixel
+  const MESH_V = 400, MESH_VB = MESH_V * 32, MESH_IB = 1800 * 3 * 2, STRIDE = 64, CPU_US = 5;
+  const s3 = { mode: "instanced", hover: -1 };
+  const cam3 = { c: [256, 300], a: [256, 90], maxY: MAP_H - 4 };
+  const trees = new Float32Array(N3 * 3); { const r = rng(11); for (let i = 0; i < N3; i++) { trees[i * 3] = 4 + r() * 504; trees[i * 3 + 1] = 4 + r() * (MAP_H - 8); trees[i * 3 + 2] = 0.6 + r() * 0.8; } }
+  function draw3() {
+    g3.fillStyle = GRD; g3.fillRect(0, 0, 512, 512);
+    g3.strokeStyle = DIM; g3.lineWidth = 1; g3.beginPath(); for (let i = 1; i < 10; i++) { const p = Math.round(i * 51.2) + 0.5; g3.moveTo(p, 0); g3.lineTo(p, MAP_H); if (p < MAP_H) { g3.moveTo(0, p); g3.lineTo(512, p); } } g3.stroke();
+    const f = frustum(cam3.c, cam3.a, Math.PI / 6, 3, 160); let inView = 0;
+    g3.fillStyle = "rgba(74,163,255,0.5)"; for (let i = 0; i < N3; i++) { const x = trees[i * 3], y = trees[i * 3 + 1]; if (!f.test(x, y)) g3.fillRect(x - 1, y - 1, 2, 2); }
+    g3.fillStyle = AMB; for (let i = 0; i < N3; i++) { const x = trees[i * 3], y = trees[i * 3 + 1]; if (f.test(x, y)) { inView++; g3.fillRect(x - 1.5, y - 1.5, 3, 3); } }
+    drawFrustum(g3, f); handle(g3, cam3.c[0], cam3.c[1], 8); handle(g3, cam3.a[0], cam3.a[1], 5);
+    txt(g3, "1 km × 0.73 km · 100 m grid · far plane 312 m", 8, MAP_H - 8, "rgba(255,255,255,0.45)", "left", 10);
+    const h = s3.hover; if (h >= 0) { const x = trees[h * 3], y = trees[h * 3 + 1]; g3.strokeStyle = WHT; g3.lineWidth = 1.5; g3.beginPath(); g3.arc(x, y, 7, 0, Math.PI * 2); g3.stroke(); }
+    // ---- bottom panel ----
+    g3.fillStyle = "rgba(255,255,255,0.03)"; g3.fillRect(0, MAP_H, 512, 512 - MAP_H); g3.strokeStyle = DIM; g3.beginPath(); g3.moveTo(0, MAP_H + 0.5); g3.lineTo(512, MAP_H + 0.5); g3.stroke();
+    const py = MAP_H + 20; const bx = 12, bw = 488;
+    const hid = h >= 0 ? h : 1234, hs = trees[hid * 3 + 2];
+    if (s3.mode === "instanced") {
+      txt(g3, `INSTANCE BUFFER · ${fmtN(N3)} × ${STRIDE} B = ${fmtB(N3 * STRIDE)} · one drawIndexed(instanceCount = ${fmtN(N3)})`, bx, py, "rgba(255,255,255,0.6)", "left", 11);
+      g3.fillStyle = "rgba(74,163,255,0.35)"; g3.fillRect(bx, py + 8, bw, 12); g3.fillStyle = WHT; g3.fillRect(bx + hid / N3 * bw, py + 6, 2, 16);
+      txt(g3, `instance[${hid}] at byte ${fmtN(hid * STRIDE)}`, bx + Math.min(hid / N3 * bw, 330) + 6, py + 33, WHT, "left", 10);
+      // layout cells
+      const cy = py + 44, cw = bw / 16; const labels = ["m00", "m01", "m02", "tx", "m10", "m11", "m12", "ty", "m20", "m21", "m22", "tz", "r", "g", "b", "a"];
+      const vals = [hs, 0, 0, (trees[hid * 3] * MPP).toFixed(0), 0, hs, 0, "0", 0, 0, hs, (trees[hid * 3 + 1] * MPP).toFixed(0), ".3", ".6", ".2", "1"];
+      for (let i = 0; i < 16; i++) { g3.fillStyle = i < 12 ? "rgba(242,163,65,0.55)" : "rgba(74,163,255,0.6)"; g3.fillRect(bx + i * cw + 1, cy, cw - 2, 34); txt(g3, labels[i], bx + i * cw + cw / 2, cy + 13, GRD, "center", 9); txt(g3, typeof vals[i] === "number" ? vals[i].toFixed(1) : vals[i], bx + i * cw + cw / 2, cy + 27, GRD, "center", 9); }
+      txt(g3, "mat3x4 world · 48 B (3 rows × float4)", bx, cy + 50, "rgba(255,255,255,0.55)", "left", 10); txt(g3, "color · 16 B", bx + bw, cy + 50, "rgba(255,255,255,0.55)", "right", 10);
+      txt(g3, `vertex shader: inst[gl_InstanceID] · ${fmtN(N3 * MESH_V)} vertex invocations, ${fmtN(inView * MESH_V)} of them in view`, bx, cy + 66, "rgba(255,255,255,0.75)", "left", 10);
+    } else if (s3.mode === "static") {
+      const vb = N3 * MESH_VB, ib = N3 * 1800 * 3 * 4;
+      txt(g3, `MERGED VERTEX BUFFER · ${fmtN(N3 * MESH_V)} verts × 32 B = ${fmtB(vb)} · one drawIndexed(${fmtN(N3 * 5400)} indices)`, bx, py, "rgba(255,255,255,0.6)", "left", 11);
+      g3.fillStyle = "rgba(242,163,65,0.35)"; g3.fillRect(bx, py + 8, bw, 12); g3.fillStyle = WHT; g3.fillRect(bx + hid / N3 * bw, py + 6, 2, 16);
+      txt(g3, `tree ${hid}: vertices ${fmtN(hid * MESH_V)} to ${fmtN(hid * MESH_V + MESH_V - 1)}, pre-transformed to world space`, bx + Math.min(hid / N3 * bw, 220) + 6, py + 33, WHT, "left", 10);
+      txt(g3, `INDEX BUFFER · ${fmtN(N3 * 5400)} × 4 B = ${fmtB(ib)} · 32-bit, because ${fmtN(N3 * MESH_V)} > 65,535`, bx, py + 58, "rgba(255,255,255,0.6)", "left", 11);
+      g3.fillStyle = "rgba(230,232,236,0.3)"; g3.fillRect(bx, py + 66, bw * ib / vb, 12);
+      const one = MESH_VB / vb * bw;
+      g3.fillStyle = AMB; g3.fillRect(bx, py + 96, Math.max(1, one), 12); txt(g3, `one mesh for comparison: ${fmtB(MESH_VB)} · ${(one).toFixed(2)} px wide at this scale`, bx + 8, py + 106, "rgba(255,255,255,0.7)", "left", 10);
+      txt(g3, `moving one tree means rewriting ${fmtB(MESH_VB)} of vertices; ${fmtN(N3 * MESH_V)} vertex invocations either way`, bx, py + 128, "rgba(255,255,255,0.75)", "left", 10);
+    } else {
+      txt(g3, `COMMAND BUFFER · ${fmtN(N3)} × (bind constants 64 B + drawIndexed) · ${fmtN(N3 * CPU_US)} µs of CPU`, bx, py, "rgba(255,255,255,0.6)", "left", 11);
+      const cw = bw / 40;
+      for (let i = 0; i < 40; i++) { g3.fillStyle = "rgba(242,163,65,0.6)"; g3.fillRect(bx + i * cw + 1, py + 8, cw * 0.6 - 1, 14); g3.fillStyle = "rgba(255,255,255,0.6)"; g3.fillRect(bx + i * cw + cw * 0.6, py + 8, cw * 0.4 - 1, 14); }
+      txt(g3, "…", bx + bw, py + 20, WHT, "right", 12);
+      txt(g3, "amber = bind 64 B of constants · white = draw · repeated 5,000 times", bx, py + 36, "rgba(255,255,255,0.55)", "left", 10);
+      g3.fillStyle = "rgba(255,255,255,0.05)"; g3.fillRect(bx, py + 50, bw, 40);
+      const frac = Math.min(1, N3 * CPU_US / 1000 / BUDGET);
+      g3.fillStyle = AMB; g3.fillRect(bx, py + 50, bw * Math.min(1, frac), 40);
+      g3.strokeStyle = RED; g3.setLineDash([4, 4]); g3.beginPath(); const bxx = bx + bw * Math.min(1, BUDGET / (N3 * CPU_US / 1000)); g3.moveTo(bxx, py + 46); g3.lineTo(bxx, py + 94); g3.stroke(); g3.setLineDash([]);
+      txt(g3, `${(N3 * CPU_US / 1000).toFixed(1)} ms of CPU`, bx + 8, py + 75, GRD, "left", 11); txt(g3, "16.7 ms", bxx, py + 106, RED, "center", 10);
+      txt(g3, `draw ${hid}: constants at ${fmtN(hid * 64)} B in the per-frame upload · same mesh bound every time`, bx, py + 128, "rgba(255,255,255,0.75)", "left", 10);
+    }
+    const drawsN = { individual: N3, static: 1, instanced: 1 }[s3.mode];
+    const mem = { individual: MESH_VB + MESH_IB + N3 * 64, static: N3 * MESH_VB + N3 * 5400 * 4, instanced: MESH_VB + MESH_IB + N3 * STRIDE }[s3.mode];
+    $("t3-draws").textContent = fmtN(drawsN); $("t3-cpu").textContent = fmtN(drawsN * CPU_US); $("t3-mem").textContent = fmtB(mem);
+    $("c3-read").innerHTML = `<strong>${fmtN(inView)} of ${fmtN(N3)}</strong> trees in view · draws <strong>${fmtN(drawsN)}</strong>`;
+    $("c3-mem").textContent = `${fmtN(N3 * MESH_V)} vertex invocations`;
+    $("r3a-d").textContent = fmtN(N3); $("r3a-c").textContent = fmtN(N3 * CPU_US) + " µs"; $("r3a-g").textContent = fmtB(MESH_VB + MESH_IB);
+    $("r3b-d").textContent = "1"; $("r3b-c").textContent = CPU_US + " µs"; $("r3b-g").textContent = fmtB(N3 * MESH_VB + N3 * 5400 * 4);
+    $("r3c-d").textContent = "1"; $("r3c-c").textContent = CPU_US + " µs"; $("r3c-g").textContent = fmtB(MESH_VB + MESH_IB); $("r3c-i").textContent = STRIDE + " B × " + fmtN(N3) + " = " + fmtB(N3 * STRIDE);
+    document.querySelectorAll("#tbl3 tbody tr").forEach(tr => tr.classList.toggle("on", tr.dataset.m === s3.mode));
+  }
+  const req3 = raf(draw3);
+  camDrag(c3, cam3, req3, (x, y) => { let h = -1; if (x >= 0 && y < MAP_H) { let bd = 8; for (let i = 0; i < N3; i++) { const d = Math.hypot(trees[i * 3] - x, trees[i * 3 + 1] - y); if (d < bd) { bd = d; h = i; } } } if (h !== s3.hover) { s3.hover = h; req3(); } });
+  onSeg("seg3", v => { s3.mode = v; draw3(); });
+  draw3();
+
+  // ================= 4. indirect + GPU-driven =================
+  const c4 = $("c4"), g4 = c4.getContext("2d");
+  const T4 = 200, MAP4 = 330;
+  const s4 = { mode: "fixed", hover: -1 };
+  const cam4 = { c: [256, 280], a: [256, 60], maxY: MAP4 - 4 };
+  const types = [], inst4 = []; { const r = rng(23); let fv = 0, fi = 0; for (let t = 0; t < T4; t++) { const n = 6 + Math.floor(r() * 54), vc = 200 + Math.floor(r() * 2800); types.push({ vertexCount: vc, firstVertex: fv, firstInstance: fi, capacity: n, count: 0 }); fv += vc; fi += n; for (let k = 0; k < n; k++) inst4.push({ x: 4 + r() * 504, y: 4 + r() * (MAP4 - 8), r: 1.5 + r() * 3, t, vis: false }); } }
+  const N4 = inst4.length;
+  function draw4() {
+    g4.fillStyle = GRD; g4.fillRect(0, 0, 512, 512);
+    g4.strokeStyle = DIM; g4.lineWidth = 1; g4.beginPath(); for (let i = 1; i < 10; i++) { const p = Math.round(i * 51.2) + 0.5; g4.moveTo(p, 0); g4.lineTo(p, MAP4); if (p < MAP4) { g4.moveTo(0, p); g4.lineTo(512, p); } } g4.stroke();
+    const f = frustum(cam4.c, cam4.a, Math.PI / 6, 3, 170);
+    for (const t of types) t.count = 0; let vis = 0;
+    for (const o of inst4) { o.vis = f.test(o.x, o.y, o.r); if (o.vis) { vis++; types[o.t].count++; } }
+    g4.fillStyle = "rgba(74,163,255,0.45)"; for (const o of inst4) if (!o.vis) g4.fillRect(o.x - 1, o.y - 1, 2, 2);
+    g4.fillStyle = AMB; for (const o of inst4) if (o.vis) { g4.beginPath(); g4.arc(o.x, o.y, o.r, 0, Math.PI * 2); g4.fill(); }
+    if (s4.hover >= 0) { g4.strokeStyle = WHT; g4.lineWidth = 1.5; for (const o of inst4) if (o.t === s4.hover) { g4.beginPath(); g4.arc(o.x, o.y, o.r + 3, 0, Math.PI * 2); g4.stroke(); } }
+    drawFrustum(g4, f); handle(g4, cam4.c[0], cam4.c[1], 8); handle(g4, cam4.a[0], cam4.a[1], 5);
+    txt(g4, `${fmtN(N4)} instances of ${T4} mesh types · compute cull: 1 thread per instance`, 8, MAP4 - 8, "rgba(255,255,255,0.45)", "left", 10);
+    // ---- args buffer ----
+    g4.fillStyle = "rgba(255,255,255,0.03)"; g4.fillRect(0, MAP4, 512, 512 - MAP4); g4.strokeStyle = DIM; g4.beginPath(); g4.moveTo(0, MAP4 + 0.5); g4.lineTo(512, MAP4 + 0.5); g4.stroke();
+    const nonEmpty = types.filter(t => t.count > 0).length;
+    const list = s4.mode === "count" ? types.filter(t => t.count > 0) : types;
+    const py = MAP4 + 18, bx = 12, bw = 488, bh = 56;
+    txt(g4, `ARGS BUFFER · ${list.length} × 16 B = ${fmtB(list.length * 16)} · bar = instanceCount written by atomicAdd`, bx, py, "rgba(255,255,255,0.6)", "left", 11);
+    const maxC = Math.max(1, ...types.map(t => t.capacity)); const cw = bw / T4;
+    g4.fillStyle = "rgba(255,255,255,0.05)"; g4.fillRect(bx, py + 8, bw, bh);
+    list.forEach((t, i) => { const x = bx + i * cw; const hh = t.count / maxC * bh; g4.fillStyle = t.count > 0 ? AMB : "rgba(239,93,93,0.45)"; if (t.count > 0) g4.fillRect(x, py + 8 + bh - hh, Math.max(1, cw - 0.6), hh); else g4.fillRect(x, py + 8 + bh - 1, Math.max(1, cw - 0.6), 1); if (types.indexOf(t) === s4.hover) { g4.strokeStyle = WHT; g4.strokeRect(x - 0.5, py + 8, cw + 1, bh); } });
+    txt(g4, s4.mode === "count" ? `compacted: ${nonEmpty} commands kept, ${T4 - nonEmpty} dropped` : `${nonEmpty} non-empty · ${T4 - nonEmpty} with instanceCount = 0 (red, skipped by the GPU)`, bx, py + bh + 22, "rgba(255,255,255,0.55)", "left", 10);
+    const ht = s4.hover >= 0 ? types[s4.hover] : types[17]; const hi = types.indexOf(ht);
+    txt(g4, `args[${hi}] = { vertexCount: ${fmtN(ht.vertexCount)}, instanceCount: ${ht.count}, firstVertex: ${fmtN(ht.firstVertex)}, firstInstance: ${fmtN(ht.firstInstance)} }`, bx, py + bh + 40, WHT, "left", 10);
+    txt(g4, `visible[${fmtN(ht.firstInstance)} .. ${fmtN(ht.firstInstance + ht.count - 1)}] hold its instance ids · capacity ${ht.capacity}`, bx, py + bh + 54, "rgba(255,255,255,0.6)", "left", 10);
+    // count buffer + cpu call
+    const cy = py + bh + 68; g4.fillStyle = s4.mode === "count" ? "rgba(74,163,255,0.6)" : "rgba(255,255,255,0.12)"; g4.fillRect(bx, cy, 120, 22);
+    txt(g4, `drawCount = ${s4.mode === "count" ? nonEmpty : "—"}`, bx + 60, cy + 15, s4.mode === "count" ? GRD : "rgba(255,255,255,0.4)", "center", 10);
+    txt(g4, s4.mode === "count" ? `CPU: vkCmdDrawIndexedIndirectCount(args, countBuf, maxDrawCount = ${T4})` : `CPU: vkCmdDrawIndexedIndirect(args, offset 0, drawCount = ${T4}, stride 16)`, bx + 130, cy + 15, "rgba(255,255,255,0.8)", "left", 10);
+    const executed = s4.mode === "count" ? nonEmpty : T4;
+    $("t4-cmds").textContent = executed; $("t4-inst").textContent = fmtN(vis); $("t4-us").textContent = "3";
+    $("c4-read").innerHTML = `<strong>${fmtN(vis)} of ${fmtN(N4)}</strong> instances pass · <strong>${nonEmpty} of ${T4}</strong> mesh types non-empty`;
+  }
+  const req4 = raf(draw4);
+  camDrag(c4, cam4, req4, (x, y) => { let h = -1; if (x >= 12 && x <= 500 && y >= MAP4 + 26 && y <= MAP4 + 82) { const list = s4.mode === "count" ? types.filter(t => t.count > 0) : types; const i = Math.floor((x - 12) / (488 / T4)); if (i < list.length) h = types.indexOf(list[i]); } else if (y < MAP4 && x >= 0) { let bd = 7; for (const o of inst4) { const d = Math.hypot(o.x - x, o.y - y); if (d < bd) { bd = d; h = o.t; } } } if (h !== s4.hover) { s4.hover = h; req4(); } });
+  onSeg("seg4", v => { s4.mode = v; draw4(); });
+  draw4();
+
+  // ================= 5. bindless + materials =================
+  const c5 = $("c5"), g5 = c5.getContext("2d");
+  const s5 = { mode: "classic", mip: 6, tile: 1024, K: 9, V: 3, hover: -1 };
+  const N5 = 48; const objs5 = []; { const r = rng(5); for (let i = 0; i < N5; i++) objs5.push(r()); }
+  function matColor(m, K) { const t = K <= 1 ? 0 : m / (K - 1); const a = [242, 163, 65], b = [74, 163, 255]; return `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`; }
+  function draw5() {
+    g5.fillStyle = GRD; g5.fillRect(0, 0, 512, 512);
+    // ---- atlas ----
+    const ax = 14, ay = 28, as = 256, tpp = 4096 / as; const n = 4096 / s5.tile, ts = as / n; const bleedTx = Math.pow(2, s5.mip), bleedPx = bleedTx / tpp;
+    txt(g5, `ATLAS 4096² · ${n * n} tiles of ${s5.tile}²`, ax, ay - 8, "rgba(255,255,255,0.6)", "left", 11);
+    g5.fillStyle = "rgba(255,255,255,0.05)"; g5.fillRect(ax, ay, as, as);
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const x = ax + i * ts, y = ay + j * ts; const id = j * n + i;
+      g5.fillStyle = matColor(id % 7, 7); g5.globalAlpha = 0.35; g5.fillRect(x + 0.5, y + 0.5, ts - 1, ts - 1); g5.globalAlpha = 1;
+      const b = Math.min(bleedPx, ts / 2);
+      g5.fillStyle = "rgba(239,93,93,0.45)"; g5.fillRect(x, y, ts, b); g5.fillRect(x, y + ts - b, ts, b); g5.fillRect(x, y + b, b, ts - 2 * b); g5.fillRect(x + ts - b, y + b, b, ts - 2 * b);
+    }
+    g5.strokeStyle = "rgba(255,255,255,0.35)"; g5.lineWidth = 1; for (let i = 0; i <= n; i++) { const p = Math.round(ax + i * ts) + 0.5; g5.beginPath(); g5.moveTo(p, ay); g5.lineTo(p, ay + as); g5.moveTo(ax, Math.round(ay + i * ts) + 0.5 - 0.5 + 0.5); g5.lineTo(ax + as, Math.round(ay + i * ts) + 0.5); g5.stroke(); }
+    const safe = Math.max(0, s5.tile - 2 * bleedTx), safeFrac = (safe / s5.tile) * (safe / s5.tile);
+    const hv = s5.hover >= 0 && s5.hover < n * n ? s5.hover : Math.min(n * n - 1, n + 1);
+    const hi = hv % n, hj = Math.floor(hv / n); g5.strokeStyle = WHT; g5.lineWidth = 2; g5.strokeRect(ax + hi * ts + 1, ay + hj * ts + 1, ts - 2, ts - 2);
+    txt(g5, `level ${s5.mip}: mip texel = ${fmtN(bleedTx)} base texels · atlas mip is ${fmtN(4096 >> s5.mip)}²`, ax, ay + as + 16, "rgba(255,255,255,0.75)", "left", 10);
+    txt(g5, `bleed ${fmtN(bleedTx)} texels per edge · ${Math.round(safeFrac * 100)} % of each tile still clean`, ax, ay + as + 30, bleedTx * 2 >= s5.tile ? RED : "rgba(255,255,255,0.75)", "left", 10);
+    const sc = (s5.tile / 4096).toFixed(4); txt(g5, `tile ${hv}: uv' = uv · ${sc} + (${(hi * s5.tile / 4096).toFixed(4)}, ${(hj * s5.tile / 4096).toFixed(4)})`, ax, ay + as + 44, WHT, "left", 10);
+    // ---- texture array ----
+    const tx = 300, ty = 28; txt(g5, `TEXTURE ARRAY · ${n * n} layers of ${s5.tile}²`, tx, ty - 8, "rgba(255,255,255,0.6)", "left", 11);
+    const layers = Math.min(6, n * n), ls = 110;
+    for (let l = layers - 1; l >= 0; l--) { const x = tx + l * 16, y = ty + (layers - 1 - l) * 14; g5.fillStyle = GRD; g5.fillRect(x, y, ls, ls); g5.fillStyle = matColor(l % 7, 7); g5.globalAlpha = 0.35; g5.fillRect(x, y, ls, ls); g5.globalAlpha = 1; g5.strokeStyle = "rgba(255,255,255,0.45)"; g5.lineWidth = 1; g5.strokeRect(x + 0.5, y + 0.5, ls - 1, ls - 1); if (l === 0) txt(g5, "layer 0", x + 6, y + ls - 8, WHT, "left", 10); }
+    txt(g5, `mip ${s5.mip} is ${fmtN(Math.max(1, s5.tile >> s5.mip))}² per layer`, tx, ty + ls + 90, "rgba(255,255,255,0.75)", "left", 10);
+    txt(g5, "no bleed, wrap works,", tx, ty + ls + 104, "rgba(255,255,255,0.75)", "left", 10);
+    txt(g5, "all layers one size and format", tx, ty + ls + 118, "rgba(255,255,255,0.75)", "left", 10);
+    txt(g5, "uv' = vec3(uv, layer)", tx, ty + ls + 138, WHT, "left", 10);
+    // ---- the material problem ----
+    const my = 352; g5.strokeStyle = DIM; g5.beginPath(); g5.moveTo(0, my - 14.5); g5.lineTo(512, my - 14.5); g5.stroke();
+    const K = s5.K, V = s5.V; const mats = objs5.map(r => Math.floor(r * K)); const variant = m => m % V;
+    const labels = { classic: "PER-DRAW BIND · sorted by material, one draw per material", array: "TEXTURE ARRAY · one draw per shader variant, layer index in instance data", bindless: "BINDLESS · one draw per pipeline, texture index in the material buffer", uber: "BINDLESS + UBER-SHADER · one pipeline, one draw for everything" };
+    txt(g5, labels[s5.mode], 14, my, "rgba(255,255,255,0.6)", "left", 11);
+    let groups;
+    const sorted = mats.map((m, i) => ({ m, v: variant(m), i })).sort((a, b) => a.v - b.v || a.m - b.m);
+    if (s5.mode === "classic") groups = groupBy(sorted, o => o.v + ":" + o.m);
+    else if (s5.mode === "uber") groups = [sorted];
+    else groups = groupBy(sorted, o => o.v);
+    const ox = 14, ow = 484, dw = ow / N5; const ry = my + 12;
+    sorted.forEach((o, k) => { g5.fillStyle = matColor(o.m, K); g5.beginPath(); g5.arc(ox + k * dw + dw / 2, ry + 12, Math.min(4.2, dw / 2 - 1), 0, Math.PI * 2); g5.fill(); });
+    // variant row
+    let k0 = 0; for (const grp of groupBy(sorted, o => o.v)) { g5.fillStyle = "rgba(255,255,255,0.12)"; g5.fillRect(ox + k0 * dw + 1, ry + 28, grp.length * dw - 2, 12); txt(g5, "pipeline " + grp[0].v, ox + k0 * dw + grp.length * dw / 2, ry + 37, "rgba(255,255,255,0.7)", "center", 9); k0 += grp.length; }
+    // draw brackets
+    k0 = 0; const by = ry + 50; for (const grp of groups) { const x = ox + k0 * dw, w = grp.length * dw; g5.strokeStyle = WHT; g5.lineWidth = 1; g5.beginPath(); g5.moveTo(x + 1, by); g5.lineTo(x + 1, by + 6); g5.lineTo(x + w - 1, by + 6); g5.lineTo(x + w - 1, by); g5.stroke(); k0 += grp.length; }
+    const draws = groups.length, binds = s5.mode === "classic" ? draws : s5.mode === "array" ? V : 1, pso = s5.mode === "uber" ? 1 : V;
+    txt(g5, `${draws} draw${draws > 1 ? "s" : ""} · ${binds} texture bind${binds > 1 ? "s" : ""} · ${pso} pipeline${pso > 1 ? "s" : ""}`, ox, by + 24, WHT, "left", 11);
+    const why = { classic: `each material needs its own descriptor set bound, so the instanced batch splits ${draws} ways`, array: `materials share one texture2DArray, so only the ${V} shader variant${V > 1 ? "s" : ""} split the batch`, bindless: `the descriptor array holds all ${K} textures; only pipeline changes remain`, uber: `material and shader features come from buffers; the CPU issues a single draw` }[s5.mode];
+    txt(g5, why, ox, by + 40, "rgba(255,255,255,0.6)", "left", 10);
+    txt(g5, `${N5} objects · ${K} materials · ${V} shader variant${V > 1 ? "s" : ""} · dot color = material`, ox, by + 54, "rgba(255,255,255,0.45)", "left", 10);
+    $("t5-draws").textContent = draws; $("t5-binds").textContent = binds; $("t5-pso").textContent = pso;
+    $("c5-read").innerHTML = `bleed <strong>${fmtN(bleedTx)} texels</strong> at mip ${s5.mip} · <strong>${draws}</strong> draws · <strong>${pso}</strong> pipelines`;
+  }
+  function groupBy(list, keyFn) { const out = []; let cur = null, ck = null; for (const o of list) { const k = keyFn(o); if (k !== ck) { cur = []; out.push(cur); ck = k; } cur.push(o); } return out; }
+  c5.addEventListener("pointermove", ev => { const [x, y] = ptr(c5, ev); let h = -1; if (x >= 14 && x < 270 && y >= 28 && y < 284) { const n = 4096 / s5.tile, ts = 256 / n; h = Math.floor((y - 28) / ts) * n + Math.floor((x - 14) / ts); } if (h !== s5.hover) { s5.hover = h; draw5(); } });
+  c5.addEventListener("pointerleave", () => { s5.hover = -1; draw5(); });
+  onSeg("seg5", v => { s5.mode = v; draw5(); });
+  onSeg("segT5", v => { s5.tile = +v; draw5(); });
+  $("mip5").addEventListener("input", ev => { s5.mip = +ev.target.value; $("mip5v").textContent = s5.mip; draw5(); });
+  $("mat5").addEventListener("input", ev => { s5.K = +ev.target.value; $("mat5v").textContent = s5.K; draw5(); });
+  $("var5").addEventListener("input", ev => { s5.V = +ev.target.value; $("var5v").textContent = s5.V; draw5(); });
+  draw5();
+})();
+</script>

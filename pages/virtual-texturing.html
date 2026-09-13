@@ -1,0 +1,992 @@
+<title>Virtual Texturing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas.sq { aspect-ratio: 1; }
+.vp canvas.r169 { aspect-ratio: 16 / 9; }
+.vp canvas.tl { aspect-ratio: 8 / 1; margin-top: 6px; }
+.ctl.chk { flex-direction: row; align-items: center; gap: 8px; }
+.ctl.chk label { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--ink); }
+.prose.full { margin-top: 22px; }
+.uses.trade td:first-child { white-space: normal; min-width: 11ch; }
+.uses.trade td { min-width: 14ch; }
+.pass { color: #3a9d5f; } .fail { color: #d24b4b; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">32k × 32k virtual texture · 128² pages · 2048² physical cache · drag the camera</p>
+    <h1>Virtual Texturing</h1>
+    <p class="lead">A virtual texture is one enormous image, 32,768 texels (texture pixels) on a side here, that the GPU never holds in full. It keeps only the small squares the camera is looking at right now, so texture memory stays at a <b>fixed size no matter how big the world gets</b>. People assume this shrinks the download, and it doesn't: the whole image still sits on disk. What shrinks is the amount in graphics memory at any one moment, and the cost of a texture stops depending on how big it is and starts depending on how many pixels it covers.</p>
+    <div class="key">
+      <span style="--sw:#f2a341">sharp page (mip 0)</span>
+      <span style="--sw:#4aa3ff">blurry page (mip 8)</span>
+      <span style="--sw:#ffffff">camera, drag handles, sample points</span>
+      <span style="--sw:#ef5d5d">nothing loaded, or a seam</span>
+      <span style="--sw:#1a1f27">empty cache slot</span>
+    </div>
+    <dl class="terms">
+      <dt>texel</dt><dd>one pixel of a texture, the image wrapped over a surface</dd>
+      <dt>page</dt><dd>a 128×128 texel square; the unit that gets loaded and thrown out</dd>
+      <dt>mip</dt><dd>a half-size copy of a texture; mip 0 is full size, each step halves the width, mip 8 here is a single page</dd>
+      <dt>physical cache</dt><dd>the one real GPU texture (2048² texels, 256 slots) that holds the loaded pages</dd>
+      <dt>page table</dt><dd>a small lookup image that says which cache slot each page went to</dd>
+      <dt>feedback pass</dt><dd>a cheap low-resolution render whose only output is the list of pages the pixels wanted</dd>
+      <dt>resident</dt><dd>loaded and sitting in the cache right now</dd>
+      <dt>anisotropic filtering</dt><dd>extra samples along a surface seen at a grazing angle, so it stays sharp instead of smearing</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#spaces"><span class="n">01</span>One huge texture, one small cache</a></li><li><a href="#pagetable"><span class="n">02</span>Finding a page in the cache</a></li><li><a href="#feedback"><span class="n">03</span>How the GPU asks for pages</a></li><li><a href="#eviction"><span class="n">04</span>When the cache runs out of room</a></li><li><a href="#borders"><span class="n">05</span>Why pages need a border</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="spaces">
+    <h2>One huge texture, one small cache</h2>
+    <p class="sub">Drag the camera and its aim handle on the map, and the grid beside it shows which pages are loaded right now.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c1map" class="sq grab" width="512" height="512" aria-label="Top-down map of the virtual texture with the pages the camera touches"></canvas>
+        <div class="cap"><span id="c1-virt"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c1cache" class="sq" width="512" height="512" aria-label="Physical cache slots"></canvas>
+        <div class="cap"><span id="c1-res"></span></div>
+      </div>
+    </div>
+    <div class="prose full">
+      <p class="plain">The texture is a 32k by 32k image laid over one kilometre of ground. Nothing can hold that in graphics memory, so it's <b>cut into 128×128 squares called pages</b>, and only the pages under the camera's view get loaded into a <b>small cache of fixed size</b>. The surprise is that <b>a view needs about the same number of pages</b> whether you look at your feet or at the horizon.</p>
+
+      <h3>What you're seeing</h3>
+      <p>The left map is the whole texture from above, 1024 m across. Each coloured square is a loaded page: amber is a sharp mip-0 page 4 m wide, blue is a blurry mip-8 page. Bright squares are in view this frame; dim ones are loaded but off screen. The two faint lines are the edges of the camera's view.</p>
+      <p>The right grid is the cache: 256 slots, each showing the mip number of the page inside it. Dark slots are empty.</p>
+
+      <h3>Try this</h3>
+      <ul class="try">
+        <li>Drag the camera dot somewhere else on the map. The loaded squares follow it, but the "view needs" count in the caption barely changes.</li>
+        <li>Push camera height all the way up. Amber squares give way to blue ones, sharp pages to blurry, and the count still holds roughly steady.</li>
+        <li>Switch anisotropy from 8× to 16×. Fine amber squares reach further toward the horizon and the count goes up.</li>
+      </ul>
+    </div>
+    <div class="controls">
+      <div class="ctl"><label for="c1h">Camera height <span class="val" id="c1hv">2 m</span></label><input type="range" id="c1h" min="0" max="100" step="1" value="9"></div>
+      <div class="ctl"><span class="lab">Max anisotropy</span><div class="seg" id="c1aniso" role="group" aria-label="Maximum anisotropy"><button data-v="1">1×</button><button data-v="4">4×</button><button data-v="8" aria-pressed="true">8×</button><button data-v="16">16×</button></div></div>
+    </div>
+    <div class="prose full">
+      <h3>The real version</h3>
+      <p>Numbers first. 32,768² texels at 4 bytes each (RGBA8: one byte each for red, green, blue and transparency) is 4 GiB. Add the mip chain, the stack of half-size copies down to a single page at mip 8, and it's 5.33 GiB. Compressed as BC7, a GPU format that spends about one byte per texel, it's 1.33 GiB.</p>
+      <p>Cut into 128² pages, that's 256×256 pages at mip 0, 128×128 at mip 1, and one page at mip 8. The physical cache is an ordinary GPU texture of 2048² texels: 16×16 slots, 4 MiB as BC7. A page's slot has nothing to do with where it sits in the virtual texture; the page table in the next section remembers where each one went.</p>
+      <p>What one view needs is bounded by screen pixels, not by world area. A 1920×1080 frame at one texel per pixel touches about 127 pages plus the partial pages along their edges, whichever mips they come from. Next to the camera those are mip-0 pages covering 4 m of ground; at the horizon one mip-8 page covers the whole kilometre. Raising the camera moves demand to coarser mips without adding much.</p>
+      <p>Anisotropic filtering does add. At a grazing angle a pixel's footprint on the ground is long and thin. The sampler picks the mip that suits the thin axis, so the ground near the horizon asks for finer pages, and there are many more of those.</p>
+      <p class="words">In words: the full texture is gigabytes, the cache is 4 MiB, and a 1080p view needs about 127 pages of it.</p>
+      <div class="math">virtual   = 32768² · 4 B = 4.00 GiB at mip 0 · ×4/3 with mips = 5.33 GiB · BC7 (1 B/texel) = 1.33 GiB
+pages(m)  = (256 &gt;&gt; m)²         256² + 128² + … + 1² = 87,381 pages in the chain
+cache     = 256 slots · 128² · 1 B = 4 MiB          one page = 16 KiB as BC7
+need      ≈ W·H / 128² + partials = 1920·1080 / 16384 ≈ 127 pages at 1 texel per pixel</div>
+      <p>pages(m) is the number of pages per side at mip m. W·H is the screen size in pixels, and 128² is the texels in one page.</p>
+      <p class="words">What this code does: measures how many texels one screen pixel covers, turns that into a mip level, and finds which page that lands in.</p>
+      <pre class="code"><span class="c">// which page does this pixel want? (same rule in the feedback pass and the sampler)</span>
+vec2  dx = dFdx(uv) * VT_SIZE, dy = dFdy(uv) * VT_SIZE;   <span class="c">// texels per screen pixel</span>
+float rhoMax = max(length(dx), length(dy));
+float rhoMin = min(length(dx), length(dy));
+float lod = log2(max(rhoMax / MAX_ANISO, rhoMin));        <span class="c">// aniso: the thin axis picks the mip, capped</span>
+<span class="k">uint</span>  mip = <span class="k">uint</span>(clamp(floor(lod), 0.0, 8.0));
+<span class="k">uvec2</span> page = <span class="k">uvec2</span>(uv * float(256u &gt;&gt; mip));               <span class="c">// 256 pages per side at mip 0</span></pre>
+      <p class="tldr">Demand is set by the pixels on screen, so a fixed 4 MiB cache can serve a 4 GiB texture.</p>
+    </div>
+  </section>
+
+  <section id="pagetable">
+    <h2>Finding a page in the cache</h2>
+    <p class="sub">Hover the texture window (a 256 m square around the camera above) to follow one sample from its address to its cache slot.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c2uv" class="sq grab" width="512" height="512" aria-label="Virtual texture window with resident pages and the fallback walk"></canvas>
+        <div class="cap"><span id="c2-uv"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c2pt" class="sq" width="512" height="512" aria-label="Page table window and physical cache with the resolved slot"></canvas>
+        <div class="cap"><span id="c2-pt"></span></div>
+      </div>
+    </div>
+    <div class="prose full">
+      <p class="plain">Every sample starts as a spot on the huge virtual texture, but the data lives in some unrelated slot of the cache. The <b>page table is the lookup that turns one into the other</b>: a tiny image with one entry per page saying which slot holds it. If a page isn't loaded, its entry <b>already points at the nearest blurrier page that is</b>, so the shader does one lookup and never has to search. It works like a coat check: the ticket number says nothing about where the coat hangs, the board behind the counter does.</p>
+
+      <h3>What you're seeing</h3>
+      <p>The left square is a 256 m window of the virtual texture around the camera from the first demo, 64 pages on a side at mip 0. Loaded pages are filled in; the white dot is your sample point. The solid outline is the page it asked for, dashed outlines are the blurrier parents it fell back through, and the last outline is white if a loaded page was found, red if none was.</p>
+      <p>The right side lists the matching page-table entries as slot x, slot y · mip. Dimmed entries are pointing at a parent. Below them is the cache, with the resolved slot outlined and the exact texel marked with a white dot.</p>
+
+      <h3>Try this</h3>
+      <ul class="try">
+        <li>Move the pointer across the filled-in pages. The entry is one hop and the outline is solid white.</li>
+        <li>Move to a dark area off to the side. The dashed outlines climb through bigger parent pages and the caption says how many levels it fell back.</li>
+        <li>Set requested mip to 4. The page you ask for is 16× wider, so fewer pages stand between you and a loaded one.</li>
+      </ul>
+    </div>
+    <div class="controls">
+      <div class="ctl"><span class="lab">Requested mip</span><div class="seg" id="c2mip" role="group" aria-label="Requested mip level"><button data-v="0" aria-pressed="true">0</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button></div></div>
+    </div>
+    <div class="prose full">
+      <h3>The real version</h3>
+      <p>The page table is itself a small mip-mapped texture: one texel per page, 256² texels at mip 0, 87,381 texels across the whole chain, about 340 KB as RGBA8. Each entry stores the slot coordinates and the mip of the page that sits in that slot.</p>
+      <p>Entries for pages that aren't resident are filled with their nearest resident ancestor, the closest blurrier page up the mip chain that is loaded. So the shader never walks. One fetch at the requested mip returns a page it can use, and the gap between the mip it asked for and the mip it got is how blurry that pixel will be.</p>
+      <p>The physical coordinate is scale and bias. Take the uv (the sample's position on the texture, 0 to 1 on each axis), keep the fraction that falls inside the resident page, add the slot's origin, and multiply by page size over cache size. The screen-space derivatives, how much uv changes from one pixel to the next, have to go through the same scale, or the hardware picks the wrong mip inside the cache. That's why the fetch is a <code>textureGrad</code> and not a plain <code>texture</code> call.</p>
+      <p class="words">In words: look up the entry for the page you want, then place your sample inside whichever slot the entry names.</p>
+      <div class="math">pagesAt(m) = 256 &gt;&gt; m
+page id    = ( m, ⌊u·pagesAt(m)⌋, ⌊v·pagesAt(m)⌋ )
+entry      = pageTable[m][py][px] = (sx, sy, m_res)     m_res ≥ m, copied from the nearest resident ancestor
+inPage     = frac( uv · pagesAt(m_res) )
+uv_phys    = ( (sx, sy) + inPage ) · 128 / 2048</div>
+      <p>m is the requested mip, (px, py) the page's grid position, (sx, sy) the slot it lives in, m_res the mip of the page that's really there, and uv_phys the final position in the 2048² cache.</p>
+      <p class="words">What this code does: one page-table read, a little arithmetic, one cache read with the derivatives corrected.</p>
+      <pre class="code"><span class="k">vec4</span> sampleVT(<span class="k">vec2</span> uv, <span class="k">float</span> lod) {
+  <span class="c">// page table: RGBA8, one texel per page, its own mip chain matches the virtual texture</span>
+  <span class="k">vec4</span> e = textureLod(pageTable, uv, lod);          <span class="c">// lod = floor(mip the pixel wants)</span>
+  <span class="k">float</span> resMip = e.b * 255.0;                        <span class="c">// mip of the page that is really there</span>
+  <span class="k">float</span> scale  = exp2(8.0 - resMip);                 <span class="c">// pages per side at that mip</span>
+  <span class="k">vec2</span> inPage  = fract(uv * scale);
+  <span class="k">vec2</span> uvPhys  = (e.rg * 255.0 + inPage) * (128.0 / 2048.0);
+  <span class="k">float</span> g = scale * (128.0 / 2048.0);                <span class="c">// virtual → physical derivative scale</span>
+  <span class="k">return</span> textureGrad(physCache, uvPhys, dFdx(uv) * g, dFdy(uv) * g);
+}</pre>
+      <p class="tldr">One lookup, one fetch: the page table always hands back something usable, just maybe blurrier than you asked for.</p>
+    </div>
+  </section>
+
+  <section id="feedback">
+    <h2>How the GPU asks for pages</h2>
+    <p class="sub">Drag the view to turn and walk, or let the autopilot drive, and watch pages arrive a few frames after they were asked for.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c3view" class="r169 grab" width="640" height="360" aria-label="Feedback buffer of requested page ids, colored by the page each pixel resolves to"></canvas>
+        <canvas id="c3tl" class="tl" width="640" height="80" aria-label="Timeline of missing pages and arrivals per frame"></canvas>
+        <div class="cap"><span id="c3-read"></span></div>
+        <div class="controls" style="margin-top:12px">
+          <div class="ctl"><label for="c3budget">Load budget <span class="val" id="c3budgetv">8 pages/frame</span></label><input type="range" id="c3budget" min="1" max="64" step="1" value="8"></div>
+          <div class="ctl chk"><input type="checkbox" id="c3auto" checked><label for="c3auto">autopilot</label></div>
+        </div>
+      </div>
+      <div class="prose">
+        <p class="plain">The GPU works out which pages it needs by <b>rendering a tiny version of the frame</b> whose only output is a page number per pixel. The CPU reads that list back, <b>loads the missing pages a few at a time</b>, and until each one lands its pixels <b>borrow a blurrier page</b> that's already there. That wait is the texture pop-in you see when you spin the camera in a game.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The view is coloured by the page each pixel ended up sampling: amber near the camera (sharp), blue toward the horizon (blurry). Dim blocks are pixels using a blurrier stand-in while their own page is on its way.</p>
+        <p>The strip underneath is a timeline of the last 160 frames. Amber bars are pages missing that frame; blue ticks are pages that arrived.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the view sideways fast. Dim blocks flood in on the side you turned toward, then sharpen over a few frames.</li>
+          <li>Drop the load budget to 1 page per frame. The amber bars stay tall and the average wait in the caption climbs.</li>
+          <li>Push the budget to 64. Missing pages clear almost as fast as they appear.</li>
+        </ul>
+
+        <h3>The real version</h3>
+        <p>A 1/8-resolution pass, 240×135 here, writes the page id each pixel would sample into an integer render target. The CPU reads that buffer back a frame or two later, so it never stalls the GPU, and squeezes 32,400 entries down to a few hundred unique page ids. Then it compares them with the resident set, the pages already in the cache.</p>
+        <p>1/8 is enough because a page covers at least 128 screen pixels on a side at the mip the pixel asked for, so every page still lands in at least one feedback texel.</p>
+        <p>Then there's a budget. The disk read, the BC7 transcode and the upload each cost time, so a frame issues N loads and the rest wait in a queue. Until a page lands, its pixels take the coarser entry the page table already holds. Loads go coarse first: one mip-3 page in flight fixes 64 mip-0 pages' worth of ground at once. When the camera turns fast, requests outrun arrivals, and that gap is the pop-in.</p>
+        <p class="words">In words: a small render lists the pages, each id packs into 32 bits, and the round trip costs about three frames.</p>
+        <div class="math">feedback = (1920/8) × (1080/8) = 240 × 135 = 32,400 texels · R32UI = 130 KB readback per frame
+id       = mip &lt;&lt; 24 | py &lt;&lt; 12 | px               (4 + 12 + 12 bits)
+lod_fb   = log2(ρ_fb) − 3                            derivatives at 1/8 res are 8× too large
+latency  ≈ 2 frames readback + 1 frame decode and upload = 50 ms at 60 Hz   (estimate; a cold disk adds more)</div>
+        <p>px and py are the page position, mip the level, ρ_fb the texels per pixel measured at 1/8 resolution, and the −3 undoes that 8× shrink (2³ = 8).</p>
+        <p class="words">What this code does: measures texels per pixel, picks a mip, and packs mip and page position into one integer.</p>
+        <pre class="code"><span class="c">// feedback.frag: 1/8-res target, one R32UI page id per texel</span>
+<span class="k">uint</span> main(<span class="k">vec2</span> uv) {
+  <span class="k">vec2</span> dx = dFdx(uv) * 32768.0, dy = dFdy(uv) * 32768.0;
+  <span class="k">float</span> rho = max(length(dx), length(dy)) / MAX_ANISO;
+  rho = max(rho, min(length(dx), length(dy)));
+  <span class="k">float</span> lod = log2(rho) - 3.0 + mipBias;             <span class="c">// -3: this buffer is 1/8 of the screen</span>
+  <span class="k">uint</span> m = <span class="k">uint</span>(clamp(floor(lod), 0.0, 8.0));
+  <span class="k">uvec2</span> p = <span class="k">uvec2</span>(uv * float(256u &gt;&gt; m));
+  <span class="k">return</span> (m &lt;&lt; 24u) | (p.y &lt;&lt; 12u) | p.x;           <span class="c">// 0xFFFFFFFF = nothing sampled here</span>
+}</pre>
+        <p class="tldr">The GPU renders a shopping list of pages, the CPU fills it a few pages per frame, and everything else waits on a blurrier stand-in.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="eviction">
+    <h2>When the cache runs out of room</h2>
+    <p class="sub">Watch which slots get thrown out when new pages arrive, and what happens when demand outgrows 256 slots.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c4cache" class="sq" width="512" height="512" aria-label="Physical cache slots shaded by age since last use"></canvas>
+        <div class="cap"><span id="c4-cache"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c4view" class="r169 grab" width="640" height="360" aria-label="What the pixels sample while the cache thrashes"></canvas>
+        <div class="cap"><span id="c4-view"></span></div>
+      </div>
+    </div>
+    <div class="prose full">
+      <p class="plain">The cache has 256 slots. When a new page arrives and every slot is taken, <b>the slot that has gone longest without being used gets overwritten</b>. That works while everything the view wants fits. When it doesn't, <b>the cache thrashes</b>: every slot was used this frame, so each new page kicks out one that's needed again next frame, and it never settles. It's a car park with 256 spaces and 300 cars that all want in at once.</p>
+
+      <h3>What you're seeing</h3>
+      <p>The grid is the cache. Brightness is how recently a slot was used: bright means this frame, dim means many frames ago. A red outline marks a slot that was evicted while a pixel this frame still needed it. Slots with a small white dot in the corner are pinned and never evicted.</p>
+      <p>The view on the right is coloured by the page each pixel sampled, with dim blocks on a blurrier stand-in. The three tiles below give the hit rate (how often a wanted page was already loaded), loads per frame, and the share of pixels on a stand-in.</p>
+
+      <h3>Try this</h3>
+      <ul class="try">
+        <li>Drag the mip bias down to −3. Demand jumps past 256 pages, red outlines appear across the grid, and the hit rate drops.</li>
+        <li>Put the bias back to 0. The grid calms down and the hit rate climbs.</li>
+        <li>Turn off pinning while the bias is at −3. Some pixels have nothing to fall back on at all, and the caption's no-data figure turns red.</li>
+      </ul>
+    </div>
+    <div class="controls">
+      <div class="ctl"><label for="c4bias">Mip bias <span class="val" id="c4biasv">−1.0</span></label><input type="range" id="c4bias" min="-3" max="1" step="0.5" value="-1"></div>
+      <div class="ctl"><label for="c4budget">Load budget <span class="val" id="c4budgetv">16 pages/frame</span></label><input type="range" id="c4budget" min="1" max="64" step="1" value="16"></div>
+      <div class="ctl chk"><input type="checkbox" id="c4pin" checked><label for="c4pin">pin mips 6 to 8 (21 pages)</label></div>
+    </div>
+    <div class="tiles">
+      <div class="tile"><div class="n" id="t4hit">—</div><div class="l">hit rate</div></div>
+      <div class="tile"><div class="n" id="t4loads">—</div><div class="l">loads per frame</div></div>
+      <div class="tile"><div class="n" id="t4fb">—</div><div class="l">pixels on a coarser page</div></div>
+    </div>
+    <div class="prose full">
+      <h3>The real version</h3>
+      <p>Each slot remembers the last frame a pixel used it. When a page arrives and no slot is free, the least recently used slot (LRU) is overwritten, and the page-table entries that pointed at it revert to the ancestor. That works while the working set, the pages one view needs, fits in the cache.</p>
+      <p>When it doesn't, the loop turns on itself. Every slot was used this frame, so the eviction takes a page that's needed again next frame. Loads per frame sit at the budget forever, and the hit rate can't rise above slots ÷ demand.</p>
+      <p>Mip bias −1 makes every pixel ask for the mip with four times the texels, which is what an "ultra" texture setting or a 4K target does to the same cache. Zooming out doesn't do this: demand is pixel-bounded, so a far view just moves it to coarser mips. Many small objects do, because each one needs at least one page per layer no matter how few pixels it covers.</p>
+      <p>The pinned coarse mips, 21 pages that never leave, are what keeps a thrashing cache from ever showing nothing. The fixes are a bigger physical texture, fewer layers per cache, or a smaller bias, not a cleverer eviction policy.</p>
+      <p class="words">In words: hit rate is the share of wanted pages already loaded, and once demand exceeds the slot count it's capped at slots over demand.</p>
+      <div class="math">hit rate = |requested ∩ resident| / |requested|
+steady state with demand D &gt; slots S:   hit ≤ S / D,   loads/frame = budget,   evictions/frame = budget
+bias b:  texels per pixel × 4^(−b)  →  up to 4× the pages per −1 step, less once the near ground clamps at mip 0
+LRU age  = frame − lastUsed[slot]      victim = argmax age over unpinned slots</div>
+      <p>S is the slot count (256), D the pages the view wants, b the mip bias, and lastUsed[slot] the frame a slot was last sampled.</p>
+      <p class="words">What this code does: reads the two-frame-old feedback, marks the hits, loads the missing pages coarse first, and evicts the oldest slot when one arrives.</p>
+      <pre class="code"><span class="c">// CPU, once per frame</span>
+ids       = readback(feedback[frame - 2]);              <span class="c">// two frames old: never wait on the GPU</span>
+requested = unique(ids);                                 <span class="c">// 32,400 texels → a few hundred pages</span>
+<span class="k">for</span> (p : requested) <span class="k">if</span> (resident(p)) lastUsed[slot(p)] = frame;
+missing = requested − resident − inFlight;
+sort(missing, coarseMipFirst);
+<span class="k">for</span> (p : take(missing, budget)) issueLoad(p);            <span class="c">// disk → transcode → upload, lands in ~3 frames</span>
+<span class="k">for</span> (p : arrived()) {
+  s = freeSlot() ?? evictLRU();                          <span class="c">// evicting a slot used this frame = thrash</span>
+  upload(p, s);
+  pageTable.write(p, s);                                 <span class="c">// and refill the entries of p's non-resident descendants</span>
+}</pre>
+      <p class="tldr">LRU works until demand exceeds 256 slots; after that no eviction rule saves you, only a bigger cache or a lower bias.</p>
+    </div>
+  </section>
+
+  <section id="borders">
+    <h2>Why pages need a border</h2>
+    <p class="sub">Drag the sample point on either side to watch a filter read the wrong page across a slot edge, and see what a border does about it.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c5phys" class="sq grab" width="512" height="512" aria-label="Physical cache texels around a slot edge with the filter taps"></canvas>
+        <div class="cap"><span id="c5-phys"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c5out" class="sq grab" width="512" height="512" aria-label="Rendered surface across the virtual page boundary, magnified"></canvas>
+        <div class="cap"><span id="c5-out"></span></div>
+      </div>
+    </div>
+    <div class="prose full">
+      <p class="plain">Pages that sit side by side in the virtual texture end up in <b>unrelated slots</b> of the cache. When the GPU smooths a sample by blending neighbouring texels, a sample near a slot edge <b>blends in a stranger's texels</b> and you get a visible seam. The fix is to <b>store each page with a few extra texels copied from its neighbours</b>, at the cost of some cache space.</p>
+
+      <h3>What you're seeing</h3>
+      <p>The left square is 32×32 texels of the cache around a slot edge (the solid white line), magnified. Dashed lines mark the border ring inside each slot. The white dots are the filter's sample taps; each small box is one texel a tap reads, red when the read crosses into the neighbouring slot.</p>
+      <p>The right square is the rendered surface, 16 texels wide, across the page boundary (dashed line). The tiles give the share of the cache the border eats, and the worst colour error at the seam out of 255.</p>
+
+      <h3>Try this</h3>
+      <ul class="try">
+        <li>Set the border to 0. The boxes on the left turn red and the seam error tile goes red.</li>
+        <li>Raise the border to 4 with the filter at aniso 8×. The taps stay inside the slot, the seam error goes green, and the cache-lost tile reads 12.1 %.</li>
+        <li>Switch the filter to aniso 16×. The taps reach further and cross the edge again; the border has to grow to cover them.</li>
+      </ul>
+    </div>
+    <div class="controls">
+      <div class="ctl"><label for="c5b">Border <span class="val" id="c5bv">2 texels</span></label><input type="range" id="c5b" min="0" max="8" step="1" value="2"></div>
+      <div class="ctl"><span class="lab">Page size</span><div class="seg" id="c5p" role="group" aria-label="Page size"><button data-v="128" aria-pressed="true">128²</button><button data-v="256">256²</button></div></div>
+      <div class="ctl"><span class="lab">Filter</span><div class="seg" id="c5f" role="group" aria-label="Filter"><button data-v="1">bilinear</button><button data-v="4">aniso 4×</button><button data-v="8" aria-pressed="true">aniso 8×</button><button data-v="16">aniso 16×</button></div></div>
+      <div class="ctl"><span class="lab">Page source</span><div class="seg" id="c5src" role="group" aria-label="Page source"><button data-v="stream" aria-pressed="true">streamed</button><button data-v="rvt">runtime composite</button></div></div>
+    </div>
+    <div class="tiles">
+      <div class="tile on"><div class="n" id="t5a">—</div><div class="l">cache lost, 128² pages</div></div>
+      <div class="tile"><div class="n" id="t5b">—</div><div class="l">cache lost, 256² pages</div></div>
+      <div class="tile"><div class="n" id="t5e">—</div><div class="l">max seam error</div></div>
+    </div>
+    <div class="prose full">
+      <h3>The real version</h3>
+      <p>Bilinear filtering reads a 2×2 block of texels and blends them, so any sample within half a texel of a slot edge blends in the neighbouring slot, which holds an unrelated page. The fix is to store each page with a border of b texels copied from its virtual neighbours.</p>
+      <p>The unique content then shrinks to (p − 2b)² texels. A 128² page with a 4-texel border gives up 12.1 % of the cache; a 256² page gives up 6.1 %. Some engines keep 128 unique texels and store 136² slots instead; the arithmetic comes out the same.</p>
+      <p>Anisotropic filtering takes up to N taps along the long axis of the footprint, and the hardware places them in physical space with no idea where the page ends. A 4-texel border covers about 8× anisotropy; past that the seam comes back, which is why engines clamp anisotropy on virtual textures. Trilinear filtering, which also blends in the next blurrier mip, needs the coarser mip of the same page, so physical caches usually carry a short mip chain per slot.</p>
+      <p>A runtime virtual texture never loads pages at all. Each page is drawn into its slot from layers (the terrain material, a splat map saying how much of each material goes where, decals) when the feedback pass asks for it. The border comes free: the viewport is widened by b texels and the same layers are drawn once. There's no disk copy of the texture, so the install doesn't grow with it either.</p>
+      <p class="words">In words: a border of b texels leaves (p − 2b)² unique texels and covers filter taps that reach about N/2 texels.</p>
+      <div class="math">inner = p − 2b                     unique texels per side
+lost  = 1 − (inner / p)²           p=128, b=4 → 12.1 %   ·   p=256, b=4 → 6.1 %
+reach = 0.5 texel (bilinear)  ·  ≈ N/2 texels (aniso N)     →  need b ≥ N/2 + 0.5
+uv_phys = ( slot·p + b + frac(uv·pagesAt(m_res)) · inner ) / 2048</div>
+      <p>p is the page size in texels, b the border width, N the anisotropy level, and inner the texels that belong to the page alone.</p>
+      <p class="words">What this code does: places the sample inside the inner region of its slot, then, for a runtime page, draws the layers into a slot rectangle widened by the border.</p>
+      <pre class="code"><span class="c">// physical uv with a b-texel border: unique texels live in [b, p − b)</span>
+<span class="k">vec2</span> inPage = fract(uv * scale);
+<span class="k">vec2</span> uvPhys = (e.rg * 255.0 * P + b + inPage * (P - 2.0 * b)) / PHYS_SIZE;
+<span class="c">// derivatives scale by inner/P as well, or the cache mip is off by a hair</span>
+
+<span class="c">// runtime VT: the page is rendered, not loaded</span>
+<span class="k">void</span> fillPage(Page p, Slot s) {
+  <span class="k">Rect</span> vp = slotRect(s).expand(b);                    <span class="c">// border by rendering, no copies</span>
+  <span class="k">Rect</span> uv = pageRect(p).expand(b / float(P - 2*b));   <span class="c">// same widening in virtual space</span>
+  <span class="k">for</span> (layer : [base, splat, decals]) draw(layer, vp, uv);
+}</pre>
+      <p class="tldr">Neighbouring pages aren't neighbours in the cache, so every page carries a copied border, and anisotropy gets capped near 8×.</p>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">Four ways to keep less texture in memory. Numbers are estimates for a 1080p frame; they move with resolution and layer count.</p>
+    <p class="plain">Read across a row to see what one approach costs and where it breaks. You're choosing between <b>how much memory stays in use</b>, <b>what the player sees while data is still loading</b>, and <b>whether the GPU's normal filtering still works</b>. Mip streaming suits ordinary materials; virtual texturing is what you reach for when one texture is huge or every surface is unique.</p>
+    <div class="tbl-wrap">
+    <table class="uses trade">
+      <thead><tr><th>Approach</th><th>Memory in use</th><th>Wait time and what it looks like</th><th>Cost per frame</th><th>Filtering</th><th>Pick it when</th></tr></thead>
+      <tbody>
+        <tr><td>Mip streaming (per texture)</td><td>Whole mip levels per texture. A 2048² BC7 texture is 4 MiB at mip 0 and 1.3 MiB from mip 1 down. Budgets of 1 to 3 GiB are typical.</td><td>One large read per mip level. When it's late, a whole object goes blurry, then snaps sharp.</td><td>CPU: sort textures by how much screen they cover, ~0.1 ms est. GPU: none, the sampler is untouched.</td><td>Full hardware filtering, no borders, any anisotropy.</td><td>Many mid-sized textures, ordinary materials, nothing uniquely painted.</td></tr>
+        <tr><td>Streaming virtual texture</td><td>Fixed: the physical cache (4 MiB per 2048² BC7 layer here, 16 to 64 MiB in shipped games) plus a page table of a few hundred KB.</td><td>Per page, 16 KiB, about 3 frames plus the disk. When it's late, a blocky blurry patch pops sharp inside one page.</td><td>GPU: the feedback pass plus one extra fetch per sample, ~0.2 to 0.5 ms est. CPU: readback, diff, transcode, ~0.5 to 2 ms est.</td><td>Needs borders; anisotropy capped near 8×; trilinear from per-slot mips.</td><td>Huge or unique textures, terrain, open worlds, a fixed memory ceiling no matter the content.</td></tr>
+        <tr><td>Runtime virtual texture</td><td>Same cache, no disk copy. The source layers stay loaded as ordinary textures.</td><td>Per page, a few draws, usually under a frame. When it's late, a page is drawn late, rarely visible.</td><td>GPU: page fills cost draws when the view moves; a 136² viewport per page. CPU: the same feedback loop.</td><td>Same as streaming VT; borders are drawn rather than copied.</td><td>Terrain built from layers, decals baked at runtime, materials cheaper to draw once than to sample every frame.</td></tr>
+        <tr><td>Hardware tiled resources</td><td>A tile pool of 64 KiB tiles (256² BC7 or 128² RGBA8 per tile) mapped into a real texture.</td><td>Tile mapping updates go through a queue; until then the sampler reads zero or the mapped coarse mip.</td><td>No extra lookup in the shader, no borders; a residency map is still needed to clamp the mip.</td><td>Full hardware filtering across tile edges.</td><td>DX11.2+, DX12 or Vulkan sparse residency is available, and you want the sampler unchanged.</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">Every row uses the same three parts, a feedback pass, a page table and a physical cache; what differs is where the pages come from.</p>
+    <p class="plain">Each row is one job the technique does in a real game. The second column says <b>what question the pixels are asking</b>, the third <b>what data has to exist to answer it</b>, and the last names the <b>engines and games it shipped in</b>.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Use</th><th>What the pixels ask</th><th>Data it needs</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>Unique world texturing</td><td>Every surface has its own hand-made texels; the feedback pass asks for the pages under the visible pixels.</td><td>One enormous baked texture on disk, a 128² page cache, borders.</td><td>id Tech 5 MegaTexture in Rage (2011); id Tech 6 and 7 in Doom (2016) and Doom Eternal</td></tr>
+        <tr><td>Streaming virtual textures</td><td>Per-material textures share one page table; the material samples through one extra lookup.</td><td>Tiled texture assets, a physical cache per layer, a feedback target.</td><td>Unreal Engine 4.23+ Streaming Virtual Textures; Unity HDRP Streaming Virtual Texturing</td></tr>
+        <tr><td>Runtime terrain compositing</td><td>Blend terrain layers and decals into a page once, then sample that page every frame.</td><td>Layer textures, a page cache, no disk copy.</td><td>Unreal Engine Runtime Virtual Textures (4.23+); Far Cry 4 adaptive virtual texturing (GDC 2015)</td></tr>
+        <tr><td>Virtual shadow maps</td><td>Shadow depth pages are made only where visible pixels need shadow at that resolution.</td><td>A 16k² virtual depth map per light, a physical page pool, a page table.</td><td>Unreal Engine 5 Virtual Shadow Maps</td></tr>
+        <tr><td>Hardware page mapping</td><td>The same residency logic, but the page table is the GPU's own and the sampler is unchanged.</td><td>A tile pool, tile mapping updates, a residency map.</td><td>DX11.2 tiled resources, DX12 reserved resources, Vulkan sparse residency; many engines</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">One trap: virtual texturing does not make the game smaller to install. The whole texture still lives on disk, and unique texturing usually makes that copy bigger than a game built from repeating materials would need. What shrinks is the graphics memory in use, which becomes a fixed number chosen up front, and the per-frame cost, which tracks screen pixels instead of world size.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  // ---------- constants ----------
+  const T = 32768, P = 128, NP = 256, SL = 16, SLOTS = 256, WORLD = 1024, TPM = T / WORLD; // 32 texels per metre
+  const SW = 1920, SH = 1080, FBS = 8, FW = SW / FBS, FH = SH / FBS; // 240 × 135
+  const HFOV = 60 * Math.PI / 180, TANH = Math.tan(HFOV / 2), TANV = TANH * SH / SW;
+  const AMBER = [242, 163, 65], BLUE = [74, 163, 255], EMPTY = [26, 31, 39], RED = [239, 93, 93];
+  const $ = id => document.getElementById(id);
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const key = (m, px, py) => (m << 18) | (py << 9) | px;
+  const kM = k => k >> 18, kX = k => k & 511, kY = k => (k >> 9) & 511;
+  const parentKey = k => key(kM(k) + 1, kX(k) >> 1, kY(k) >> 1);
+  const rgb = c => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+  const MONO = "11px 'IBM Plex Mono', Menlo, Consolas, monospace";
+  function hash2(x, y, m) { let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(m, 2246822519)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+  const colCache = new Map();
+  function pageCol(k) {
+    let c = colCache.get(k); if (c) return c;
+    const m = kM(k), t = m / 8, b = 0.68 + 0.32 * hash2(kX(k), kY(k), m);
+    c = [(AMBER[0] + (BLUE[0] - AMBER[0]) * t) * b, (AMBER[1] + (BLUE[1] - AMBER[1]) * t) * b, (AMBER[2] + (BLUE[2] - AMBER[2]) * t) * b];
+    colCache.set(k, c); return c;
+  }
+  function seg(id, fn) {
+    const el = $(id);
+    el.addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; el.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); fn(b.dataset.v); });
+  }
+  function ptr(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width * canvas.width, (ev.clientY - r.top) / r.height * canvas.height]; }
+  function fmtMiB(b) { return (b / 1048576).toFixed(2) + " MiB"; }
+  function inView(el) { const r = el.getBoundingClientRect(); return r.bottom > -100 && r.top < innerHeight + 100; }
+
+  // ---------- feedback pass: camera → page id per 1/8-res texel ----------
+  function makeFB(fw, fh) { return { fw, fh, ids: new Int32Array(fw * fh), gx: new Float32Array((fw + 1) * (fh + 1)), gz: new Float32Array((fw + 1) * (fh + 1)), ok: new Uint8Array((fw + 1) * (fh + 1)) }; }
+  function feedbackPass(fb, cam, bias, aniso) {
+    const { fw, fh, ids, gx, gz, ok } = fb, cw = fw + 1;
+    const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+    const rx = cy, rz = -sy, ux = -sp * sy, uy = cp, uz = -sp * cy, fx = cp * sy, fy = sp, fz = cp * cy;
+    for (let j = 0; j <= fh; j++) {
+      const syy = (1 - 2 * j / fh) * TANV;
+      for (let i = 0; i <= fw; i++) {
+        const sx = (2 * i / fw - 1) * TANH, dy = uy * syy + fy, o = j * cw + i;
+        if (dy >= -2e-3) { ok[o] = 0; continue; }
+        const t = cam.h / -dy; ok[o] = 1;
+        gx[o] = cam.x + (rx * sx + ux * syy + fx) * t; gz[o] = cam.z + (rz * sx + uz * syy + fz) * t;
+      }
+    }
+    for (let j = 0; j < fh; j++) for (let i = 0; i < fw; i++) {
+      const o = j * cw + i, o10 = o + 1, o01 = o + cw, o11 = o01 + 1, n = j * fw + i;
+      if (!(ok[o] && ok[o10] && ok[o01] && ok[o11])) { ids[n] = -1; continue; }
+      const la = Math.hypot(gx[o10] - gx[o], gz[o10] - gz[o]) * TPM / FBS; // texels per full-res pixel, across
+      const lb = Math.hypot(gx[o01] - gx[o], gz[o01] - gz[o]) * TPM / FBS; // along
+      const mx = Math.max(la, lb), mn = Math.min(la, lb);
+      let lod = Math.log2(Math.max(mx / aniso, mn)) + bias; lod = lod < 0 ? 0 : lod > 8 ? 8 : lod;
+      const m = lod | 0, n1 = NP >> m;
+      const cx = (gx[o] + gx[o10] + gx[o01] + gx[o11]) * 0.25 / WORLD, cz = (gz[o] + gz[o10] + gz[o01] + gz[o11]) * 0.25 / WORLD;
+      const u = cx - Math.floor(cx), v = cz - Math.floor(cz);
+      ids[n] = key(m, clamp((u * n1) | 0, 0, n1 - 1), clamp((v * n1) | 0, 0, n1 - 1));
+    }
+  }
+  function uniqueIds(ids) { const s = new Set(); for (let i = 0; i < ids.length; i++) if (ids[i] >= 0) s.add(ids[i]); return s; }
+
+  // ---------- physical cache with LRU, load queue and latency ----------
+  class Cache {
+    constructor() {
+      this.page = new Int32Array(SLOTS).fill(-1); this.used = new Int32Array(SLOTS).fill(-1); this.flash = new Int32Array(SLOTS).fill(-99);
+      this.map = new Map(); this.inflight = new Map(); this.firstReq = new Map(); this.pinned = new Set(); this.frame = 0; this.cursor = 0;
+      this.st = { req: 0, hits: 0, missing: 0, queued: 0, issued: 0, arrived: 0, evict: 0, thrash: 0, waitSum: 0, waitN: 0, inflight: 0, resident: 0 };
+    }
+    setPinned(on) {
+      this.pinned.clear();
+      if (!on) return;
+      for (let m = 6; m <= 8; m++) { const n = NP >> m; for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { const k = key(m, x, y); this.pinned.add(k); if (!this.map.has(k)) this.install(k); } }
+    }
+    install(k) {
+      let s = -1; for (let i = 0; i < SLOTS; i++) if (this.page[i] < 0) { s = i; break; }
+      let evict = 0, thrash = 0;
+      if (s < 0) {
+        let bu = Infinity; // oldest slot wins; ties (all used this frame) rotate like a clock hand so churn spreads over the cache
+        for (let n = 0; n < SLOTS; n++) { const i = (this.cursor + n) % SLOTS; if (this.pinned.has(this.page[i])) continue; if (this.used[i] < bu) { bu = this.used[i]; s = i; } }
+        if (s < 0) return { ok: false, evict, thrash };
+        this.cursor = (s + 1) % SLOTS;
+        evict = 1; if (bu === this.frame) { thrash = 1; this.flash[s] = this.frame; }
+        this.map.delete(this.page[s]);
+      }
+      this.page[s] = k; this.used[s] = this.frame; this.map.set(k, s);
+      return { ok: true, evict, thrash };
+    }
+    dropNotIn(req) { for (let i = 0; i < SLOTS; i++) { const k = this.page[i]; if (k >= 0 && !req.has(k) && !this.pinned.has(k)) { this.map.delete(k); this.page[i] = -1; } } }
+    resolve(k) { let d = 0; for (;;) { if (this.map.has(k)) return [k, d]; if (kM(k) >= 8) return [-1, d]; k = parentKey(k); d++; } }
+    update(req, budget, latency) {
+      const f = ++this.frame; let hits = 0;
+      for (const k of req) { const s = this.map.get(k); if (s !== undefined) { this.used[s] = f; hits++; } }
+      for (const k of this.pinned) { const s = this.map.get(k); if (s !== undefined) this.used[s] = f; }
+      let arrived = 0, evict = 0, thrash = 0, waitSum = 0, waitN = 0;
+      const arrive = () => {
+        for (const [k, t] of this.inflight) if (t <= f) {
+          this.inflight.delete(k); const r = this.install(k); if (!r.ok) continue;
+          arrived++; evict += r.evict; thrash += r.thrash;
+          const fr = this.firstReq.get(k); if (fr !== undefined) { waitSum += f - fr; waitN++; this.firstReq.delete(k); }
+        }
+      };
+      arrive();
+      const missing = [];
+      for (const k of req) if (!this.map.has(k)) { if (!this.firstReq.has(k)) this.firstReq.set(k, f); if (!this.inflight.has(k)) missing.push(k); }
+      missing.sort((a, b) => kM(b) - kM(a));
+      const issued = Math.min(budget, missing.length);
+      for (let i = 0; i < issued; i++) this.inflight.set(missing[i], f + latency);
+      if (latency === 0) arrive();
+      for (const k of this.firstReq.keys()) if (!req.has(k) && !this.inflight.has(k)) this.firstReq.delete(k);
+      Object.assign(this.st, { req: req.size, hits, missing: req.size - hits, queued: missing.length - issued, issued, arrived, evict, thrash, waitSum, waitN, inflight: this.inflight.size, resident: this.map.size });
+    }
+  }
+
+  // ---------- shared drawing ----------
+  function drawCacheGrid(ctx, cache, ox, oy, cell, opts) {
+    const f = cache.frame;
+    for (let s = 0; s < SLOTS; s++) {
+      const x = ox + (s % SL) * cell, y = oy + ((s / SL) | 0) * cell, k = cache.page[s];
+      if (k < 0) { ctx.fillStyle = rgb(EMPTY); ctx.fillRect(x + 1, y + 1, cell - 2, cell - 2); continue; }
+      let c = pageCol(k), a = 1;
+      if (opts.ages) { const age = f - cache.used[s]; a = age <= 0 ? 1 : Math.max(0.22, 1 - age / 45); }
+      ctx.fillStyle = `rgb(${c[0] * a | 0},${c[1] * a | 0},${c[2] * a | 0})`; ctx.fillRect(x + 1, y + 1, cell - 2, cell - 2);
+      if (opts.digits) { ctx.fillStyle = "rgba(11,14,19,0.85)"; ctx.font = MONO; ctx.textBaseline = "top"; ctx.fillText(kM(k), x + 4, y + 3); }
+      if (cache.pinned.has(k)) { ctx.fillStyle = "#fff"; ctx.fillRect(x + cell - 6, y + cell - 6, 3, 3); }
+      if (opts.ages && cache.flash[s] === f) { ctx.strokeStyle = "#ef5d5d"; ctx.lineWidth = 2; ctx.strokeRect(x + 1.5, y + 1.5, cell - 3, cell - 3); }
+    }
+    if (opts.hi >= 0) { const x = ox + (opts.hi % SL) * cell, y = oy + ((opts.hi / SL) | 0) * cell; ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, cell - 2, cell - 2); }
+  }
+  function renderView(ctx, fb, cache, img, out, stats) {
+    const { fw, fh, ids } = fb, d = img.data, res = new Map(); let fbPix = 0, none = 0, ground = 0, dsum = 0;
+    for (let n = 0; n < fw * fh; n++) {
+      const k = ids[n], o = n * 4;
+      if (k < 0) { d[o] = 11; d[o + 1] = 14; d[o + 2] = 19; d[o + 3] = 255; continue; }
+      ground++;
+      let r = res.get(k); if (!r) { r = cache.resolve(k); res.set(k, r); }
+      if (r[0] < 0) { none++; d[o] = 120; d[o + 1] = 40; d[o + 2] = 40; d[o + 3] = 255; continue; }
+      const c = pageCol(r[0]); let a = 1; if (r[1] > 0) { a = 0.45; fbPix++; dsum += r[1]; }
+      d[o] = c[0] * a; d[o + 1] = c[1] * a; d[o + 2] = c[2] * a; d[o + 3] = 255;
+    }
+    out.getContext("2d").putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(out, 0, 0, ctx.canvas.width, ctx.canvas.height);
+    if (stats) { stats.fbPix = fbPix; stats.none = none; stats.ground = ground; stats.meanDelta = fbPix ? dsum / fbPix : 0; }
+  }
+  function dragView(canvas, cam, onDrag) {
+    let last = null;
+    canvas.addEventListener("pointerdown", ev => { last = [ev.clientX, ev.clientY]; canvas.setPointerCapture(ev.pointerId); });
+    canvas.addEventListener("pointermove", ev => {
+      if (!last) return;
+      const dx = ev.clientX - last[0], dy = ev.clientY - last[1]; last = [ev.clientX, ev.clientY];
+      cam.yaw += dx * 0.004; const step = -dy * 0.35;
+      cam.x += Math.sin(cam.yaw) * step; cam.z += Math.cos(cam.yaw) * step;
+      cam.x = ((cam.x % WORLD) + WORLD) % WORLD; cam.z = ((cam.z % WORLD) + WORLD) % WORLD;
+      onDrag();
+    });
+    const end = ev => { last = null; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) { } };
+    canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
+  }
+
+  // ---------- 1. virtual vs physical ----------
+  const d1 = { cam: { x: 260, z: 760, yaw: Math.atan2(512 - 260, 512 - 760), h: 2, pitch: -12 * Math.PI / 180 }, aniso: 8, cache: new Cache(), fb: makeFB(FW, FH), req: new Set(), hover: null };
+  d1.cache.setPinned(true);
+  const c1map = $("c1map"), x1m = c1map.getContext("2d"), c1cache = $("c1cache"), x1c = c1cache.getContext("2d");
+  function run1() {
+    feedbackPass(d1.fb, d1.cam, 0, d1.aniso);
+    d1.req = uniqueIds(d1.fb.ids);
+    d1.cache.dropNotIn(d1.req);
+    d1.cache.update(d1.req, Infinity, 0);
+    draw1(); draw2();
+  }
+  function draw1() {
+    const ctx = x1m, cam = d1.cam, cache = d1.cache;
+    ctx.fillStyle = "#0b0e13"; ctx.fillRect(0, 0, 512, 512);
+    ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath();
+    for (let g = 32; g < 512; g += 32) { ctx.moveTo(g + 0.5, 0); ctx.lineTo(g + 0.5, 512); ctx.moveTo(0, g + 0.5); ctx.lineTo(512, g + 0.5); }
+    ctx.stroke();
+    const keys = [...cache.map.keys()].sort((a, b) => kM(b) - kM(a));
+    const perMip = new Array(9).fill(0);
+    for (const k of keys) {
+      const m = kM(k), s = 2 << m, x = kX(k) * s, y = kY(k) * s; perMip[m]++;
+      const c = pageCol(k), a = d1.req.has(k) ? 1 : 0.4;
+      ctx.fillStyle = `rgb(${c[0] * a | 0},${c[1] * a | 0},${c[2] * a | 0})`;
+      if (s >= 8) ctx.fillRect(x + 0.5, y + 0.5, s - 1, s - 1); else ctx.fillRect(x, y, s, s);
+    }
+    // frustum
+    const cx = cam.x / 2, cz = cam.z / 2;
+    ctx.strokeStyle = "rgba(255,255,255,0.45)"; ctx.lineWidth = 1; ctx.beginPath();
+    for (const a of [-HFOV / 2, HFOV / 2]) { ctx.moveTo(cx, cz); ctx.lineTo(cx + Math.sin(cam.yaw + a) * 700, cz + Math.cos(cam.yaw + a) * 700); }
+    ctx.stroke();
+    const ax = cx + Math.sin(cam.yaw) * 60, az = cz + Math.cos(cam.yaw) * 60;
+    ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(cx, cz); ctx.lineTo(ax, az); ctx.stroke(); ctx.setLineDash([]);
+    handle(ctx, cx, cz, 7); handle(ctx, ax, az, 5);
+    ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.font = MONO; ctx.textBaseline = "top"; ctx.fillText("1024 m · 256 × 256 pages at mip 0 · 4 m per page · dim = resident but not in view", 8, 8);
+    // cache
+    x1c.fillStyle = "#0b0e13"; x1c.fillRect(0, 0, 512, 512);
+    drawCacheGrid(x1c, cache, 0, 0, 32, { digits: true, ages: false, hi: -1 });
+    const need = d1.req.size, res = cache.map.size, pinned = cache.pinned.size; let over = 0; for (const k of d1.req) if (!cache.map.has(k)) over++;
+    const mips = perMip.map((n, m) => n ? `m${m}:${n}` : "").filter(Boolean).join(" ");
+    $("c1-virt").innerHTML = `virtual <strong>32768² · 4.00 GiB</strong> RGBA8 (5.33 GiB with mips) · view needs <strong>${need} pages</strong> · ${mips}`;
+    $("c1-res").innerHTML = `resident <strong>${res} of 256 slots</strong> (${pinned} pinned) · <strong>${fmtMiB(res * P * P)}</strong> of 4 MiB BC7` + (over > 0 ? ` · <span style="color:#ef5d5d">${over} pages do not fit</span>` : "");
+  }
+  function handle(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b0e13"; ctx.stroke(); }
+  {
+    let active = -1, pend = false;
+    const req = () => { if (pend) return; pend = true; requestAnimationFrame(() => { pend = false; run1(); }); };
+    c1map.addEventListener("pointerdown", ev => {
+      const [x, y] = ptr(c1map, ev), cam = d1.cam, cx = cam.x / 2, cz = cam.z / 2, ax = cx + Math.sin(cam.yaw) * 60, az = cz + Math.cos(cam.yaw) * 60;
+      const dc = Math.hypot(x - cx, y - cz), da = Math.hypot(x - ax, y - az);
+      active = da < 14 && da <= dc ? 1 : dc < 18 ? 0 : 1;
+      c1map.setPointerCapture(ev.pointerId); move(x, y);
+    });
+    function move(x, y) {
+      const cam = d1.cam;
+      if (active === 0) { cam.x = clamp(x * 2, 4, WORLD - 4); cam.z = clamp(y * 2, 4, WORLD - 4); }
+      else if (active === 1) cam.yaw = Math.atan2(x * 2 - cam.x, y * 2 - cam.z);
+      req();
+    }
+    c1map.addEventListener("pointermove", ev => { if (active < 0) return; const [x, y] = ptr(c1map, ev); move(x, y); });
+    const end = ev => { active = -1; try { c1map.releasePointerCapture(ev.pointerId); } catch (e) { } };
+    c1map.addEventListener("pointerup", end); c1map.addEventListener("pointercancel", end);
+    const hEl = $("c1h");
+    const hOf = v => Math.round(Math.pow(10, 0.1 + v / 100 * 2.2) * 10) / 10; // 1.3 m .. 200 m, log
+    hEl.addEventListener("input", () => { d1.cam.h = hOf(+hEl.value); $("c1hv").textContent = d1.cam.h.toFixed(1) + " m"; req(); });
+    d1.cam.h = hOf(+hEl.value); $("c1hv").textContent = d1.cam.h.toFixed(1) + " m";
+    seg("c1aniso", v => { d1.aniso = +v; req(); });
+  }
+
+  // ---------- 2. page table and indirection ----------
+  const c2uv = $("c2uv"), x2u = c2uv.getContext("2d"), c2pt = $("c2pt"), x2p = c2pt.getContext("2d");
+  const d2 = { mip: 0, hover: null }; // hover in mip-0 page units (continuous)
+  function win2() { const cam = d1.cam; return [clamp(Math.round(cam.x / 4) - 32, 0, NP - 64), clamp(Math.round(cam.z / 4) - 32, 0, NP - 64)]; }
+  function draw2() {
+    const cache = d1.cache, [wx0, wz0] = win2(), cam = d1.cam, ctx = x2u;
+    if (!d2.hover) { const ax = cam.x + Math.sin(cam.yaw) * 120, az = cam.z + Math.cos(cam.yaw) * 120; d2.hover = [clamp(ax / 4, 0.01, NP - 0.01), clamp(az / 4, 0.01, NP - 0.01), false]; }
+    ctx.fillStyle = "#0b0e13"; ctx.fillRect(0, 0, 512, 512);
+    const keys = [...cache.map.keys()].sort((a, b) => kM(b) - kM(a));
+    for (const k of keys) {
+      const m = kM(k), s = 1 << m, x0 = (kX(k) << m) - wx0, y0 = (kY(k) << m) - wz0;
+      if (x0 + s <= 0 || x0 >= 64 || y0 + s <= 0 || y0 >= 64) continue;
+      ctx.fillStyle = rgb(pageCol(k)); ctx.fillRect(x0 * 8 + 0.5, y0 * 8 + 0.5, s * 8 - 1, s * 8 - 1);
+    }
+    ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath();
+    for (let g = 64; g < 512; g += 64) { ctx.moveTo(g + 0.5, 0); ctx.lineTo(g + 0.5, 512); ctx.moveTo(0, g + 0.5); ctx.lineTo(512, g + 0.5); }
+    ctx.stroke();
+    // camera marker
+    const cx = (cam.x / 4 - wx0) * 8, cz = (cam.z / 4 - wz0) * 8;
+    if (cx >= 0 && cx <= 512 && cz >= 0 && cz <= 512) { ctx.strokeStyle = "rgba(255,255,255,0.45)"; ctx.beginPath(); for (const a of [-HFOV / 2, HFOV / 2]) { ctx.moveTo(cx, cz); ctx.lineTo(cx + Math.sin(cam.yaw + a) * 800, cz + Math.cos(cam.yaw + a) * 800); } ctx.stroke(); handle(ctx, cx, cz, 5); }
+    // hover walk
+    const [hx, hz] = d2.hover, u = hx / NP, v = hz / NP, m = d2.mip, n = NP >> m;
+    const px = clamp((u * n) | 0, 0, n - 1), py = clamp((v * n) | 0, 0, n - 1), k0 = key(m, px, py);
+    const chain = []; let k = k0; for (;;) { chain.push(k); if (cache.map.has(k) || kM(k) >= 8) break; k = parentKey(k); }
+    const resK = cache.map.has(k) ? k : -1;
+    chain.forEach((ck, i) => {
+      const cm = kM(ck), s = 1 << cm, x0 = ((kX(ck) << cm) - wx0) * 8, y0 = ((kY(ck) << cm) - wz0) * 8, last = i === chain.length - 1;
+      ctx.lineWidth = last ? 2 : 1; ctx.strokeStyle = last ? (resK >= 0 ? "#fff" : "#ef5d5d") : "rgba(255,255,255,0.55)";
+      ctx.setLineDash(i === 0 ? [] : [4, 3]); ctx.strokeRect(x0 + 1, y0 + 1, s * 8 - 2, s * 8 - 2);
+    });
+    ctx.setLineDash([]);
+    const dotx = (hx - wx0) * 8, dotz = (hz - wz0) * 8;
+    ctx.beginPath(); ctx.arc(dotx, dotz, 3.5, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.font = MONO; ctx.textBaseline = "top"; ctx.fillText(`window: pages ${wx0}–${wx0 + 63} × ${wz0}–${wz0 + 63} at mip 0 · 256 m`, 8, 8);
+    // right: page table window (top) + cache (bottom)
+    const pc = x2p; pc.fillStyle = "#0b0e13"; pc.fillRect(0, 0, 512, 512);
+    const ex0 = clamp(px - 8, 0, Math.max(0, n - 16)), ey0 = clamp(py - 8, 0, Math.max(0, n - 16)), cnt = Math.min(16, n);
+    pc.font = "9px 'IBM Plex Mono', Menlo, Consolas, monospace"; pc.textBaseline = "top";
+    for (let ey = 0; ey < cnt; ey++) for (let ex = 0; ex < cnt; ex++) {
+      const ek = key(m, ex0 + ex, ey0 + ey), [rk, d] = cache.resolve(ek), x = 16 + ex * 30, y = 16 + ey * 14;
+      let c = rk < 0 ? [70, 30, 30] : pageCol(rk), a = d > 0 ? 0.5 : 1;
+      pc.fillStyle = `rgb(${c[0] * a | 0},${c[1] * a | 0},${c[2] * a | 0})`; pc.fillRect(x, y, 29, 13);
+      if (rk >= 0) { pc.fillStyle = "rgba(11,14,19,0.9)"; const s = cache.map.get(rk); pc.fillText(`${s % SL},${(s / SL) | 0}·${kM(rk)}`, x + 2, y + 2); }
+    }
+    pc.strokeStyle = "#fff"; pc.lineWidth = 2; pc.strokeRect(16 + (px - ex0) * 30, 16 + (py - ey0) * 14, 29, 13);
+    pc.fillStyle = "rgba(255,255,255,0.7)"; pc.font = MONO; pc.fillText(`page table, mip ${m}: entries x ${ex0}–${ex0 + cnt - 1}, y ${ey0}–${ey0 + cnt - 1} · (slot x, slot y · mip)`, 16, 2);
+    pc.strokeStyle = "rgba(255,255,255,0.2)"; pc.lineWidth = 1; pc.beginPath(); pc.moveTo(0, 248.5); pc.lineTo(512, 248.5); pc.stroke();
+    pc.fillStyle = "rgba(255,255,255,0.7)"; pc.fillText("physical cache 2048² · 16 × 16 slots", 16, 252);
+    const hi = resK >= 0 ? cache.map.get(resK) : -1;
+    drawCacheGrid(pc, cache, 0, 268, 15.25, { digits: false, ages: false, hi });
+    let ptText, uvText;
+    if (resK >= 0) {
+      const mr = kM(resK), scale = NP >> mr, fu = u * scale - Math.floor(u * scale), fv = v * scale - Math.floor(v * scale);
+      const sx = hi % SL, sy = (hi / SL) | 0, upx = (sx + fu) * P / 2048, upy = (sy + fv) * P / 2048;
+      pc.beginPath(); pc.arc((sx + fu) * 15.25, 268 + (sy + fv) * 15.25, 3, 0, Math.PI * 2); pc.fillStyle = "#fff"; pc.fill();
+      ptText = `entry (sx <strong>${sx}</strong>, sy <strong>${sy}</strong>, mip <strong>${mr}</strong>) · scale ${scale} · uv_phys (${upx.toFixed(4)}, ${upy.toFixed(4)}) · texel (${(upx * 2048) | 0}, ${(upy * 2048) | 0}) of 2048²`;
+      uvText = `uv (<strong>${u.toFixed(4)}, ${v.toFixed(4)}</strong>) · mip ${m} page (${px}, ${py}) → ` + (chain.length > 1 ? `not resident, fell back <strong>${chain.length - 1} level${chain.length > 2 ? "s" : ""}</strong> to mip ${mr}` : "<strong>resident</strong>");
+    } else {
+      ptText = `no resident page at any mip for this entry`;
+      uvText = `uv (<strong>${u.toFixed(4)}, ${v.toFixed(4)}</strong>) · mip ${m} page (${px}, ${py}) → <span style="color:#ef5d5d">no ancestor resident</span>`;
+    }
+    $("c2-uv").innerHTML = uvText; $("c2-pt").innerHTML = ptText;
+  }
+  {
+    let pend = false; const req = () => { if (pend) return; pend = true; requestAnimationFrame(() => { pend = false; draw2(); }); };
+    const set = ev => { const [x, y] = ptr(c2uv, ev), [wx0, wz0] = win2(); d2.hover = [clamp(wx0 + x / 8, 0.001, NP - 0.001), clamp(wz0 + y / 8, 0.001, NP - 0.001), true]; req(); };
+    c2uv.addEventListener("pointermove", set); c2uv.addEventListener("pointerdown", set);
+    seg("c2mip", v => { d2.mip = +v; req(); });
+  }
+
+  // ---------- 3. feedback pass ----------
+  const c3v = $("c3view"), x3v = c3v.getContext("2d"), c3t = $("c3tl"), x3t = c3t.getContext("2d");
+  const d3 = { cam: { x: 500, z: 820, yaw: 2.6, h: 2, pitch: -12 * Math.PI / 180 }, cache: new Cache(), fb: makeFB(FW, FH), img: new ImageData(FW, FH), off: document.createElement("canvas"), budget: 8, latency: 3, auto: true, hist: [], stats: {}, tick: 0 };
+  d3.off.width = FW; d3.off.height = FH; d3.cache.setPinned(true);
+  function step3(draw = true) {
+    const cam = d3.cam;
+    if (d3.auto) { cam.yaw += 0.0055; cam.x += Math.sin(cam.yaw) * 0.55; cam.z += Math.cos(cam.yaw) * 0.55; cam.x = ((cam.x % WORLD) + WORLD) % WORLD; cam.z = ((cam.z % WORLD) + WORLD) % WORLD; }
+    feedbackPass(d3.fb, cam, 0, 8);
+    const req = uniqueIds(d3.fb.ids);
+    d3.cache.update(req, d3.budget, d3.latency);
+    const st = d3.cache.st;
+    d3.hist.push([st.missing, st.arrived, st.req]); if (d3.hist.length > 160) d3.hist.shift();
+    if (st.waitN) { d3.waitAvg = d3.waitAvg ? d3.waitAvg * 0.9 + (st.waitSum / st.waitN) * 0.1 : st.waitSum / st.waitN; }
+    if (!draw) return;
+    renderView(x3v, d3.fb, d3.cache, d3.img, d3.off, d3.stats);
+    // timeline
+    const t = x3t; t.fillStyle = "#0b0e13"; t.fillRect(0, 0, 640, 80);
+    let mx = 1; for (const h of d3.hist) mx = Math.max(mx, h[0], h[1]);
+    const n = d3.hist.length;
+    for (let i = 0; i < n; i++) { const [mi, ar] = d3.hist[i], x = 640 - (n - i) * 4; t.fillStyle = "#f2a341"; t.fillRect(x, 72 - mi / mx * 60, 3, mi / mx * 60); if (ar) { t.fillStyle = "#4aa3ff"; t.fillRect(x, 72 - ar / mx * 60 - 1, 3, 2); } }
+    t.strokeStyle = "rgba(255,255,255,0.2)"; t.beginPath(); t.moveTo(0, 72.5); t.lineTo(640, 72.5); t.stroke();
+    t.fillStyle = "rgba(255,255,255,0.7)"; t.font = MONO; t.textBaseline = "top"; t.fillText(`last 160 frames · amber: pages missing this frame (max ${mx}) · blue: pages arrived`, 8, 6);
+    if ((d3.tick++ % 3) === 0) {
+      const wait = d3.waitAvg || 0;
+      $("c3-read").innerHTML = `requested <strong>${st.req} pages</strong> · missing ${st.missing} · in flight ${st.inflight} · queued ${st.queued} · arrived ${st.arrived} · avg wait <strong>${wait.toFixed(1)} frames</strong> (${(wait * 16.7).toFixed(0)} ms at 60 Hz) · ${(100 * d3.stats.fbPix / Math.max(1, d3.stats.ground)).toFixed(0)} % of ground pixels on a coarser page`;
+    }
+  }
+  dragView(c3v, d3.cam, () => { if (d3.auto) { d3.auto = false; $("c3auto").checked = false; } });
+  $("c3auto").addEventListener("change", ev => { d3.auto = ev.target.checked; });
+  $("c3budget").addEventListener("input", ev => { d3.budget = +ev.target.value; $("c3budgetv").textContent = d3.budget + " pages/frame"; });
+
+  // ---------- 4. cache eviction ----------
+  const c4c = $("c4cache"), x4c = c4c.getContext("2d"), c4v = $("c4view"), x4v = c4v.getContext("2d");
+  const d4 = { cam: { x: 700, z: 300, yaw: -2.2, h: 3, pitch: -14 * Math.PI / 180 }, cache: new Cache(), fb: makeFB(FW, FH), img: new ImageData(FW, FH), off: document.createElement("canvas"), bias: -1, budget: 16, latency: 3, stats: {}, hit: 0, loads: 0, thrash: 0, tick: 0 };
+  d4.off.width = FW; d4.off.height = FH; d4.cache.setPinned(true);
+  function step4(draw = true) {
+    feedbackPass(d4.fb, d4.cam, d4.bias, 8);
+    const req = uniqueIds(d4.fb.ids);
+    d4.cache.update(req, d4.budget, d4.latency);
+    const st = d4.cache.st, k = 0.08;
+    d4.hit += ((st.req ? st.hits / st.req : 1) - d4.hit) * k; d4.loads += (st.arrived - d4.loads) * k; d4.thrash += (st.thrash - d4.thrash) * k;
+    if (!draw) return;
+    renderView(x4v, d4.fb, d4.cache, d4.img, d4.off, d4.stats);
+    x4c.fillStyle = "#0b0e13"; x4c.fillRect(0, 0, 512, 512);
+    drawCacheGrid(x4c, d4.cache, 0, 0, 32, { digits: true, ages: true, hi: -1 });
+    if ((d4.tick++ % 3) === 0) {
+      $("t4hit").textContent = (100 * d4.hit).toFixed(0) + " %";
+      $("t4loads").textContent = d4.loads.toFixed(1);
+      $("t4fb").textContent = (100 * d4.stats.fbPix / Math.max(1, d4.stats.ground)).toFixed(0) + " %";
+      $("c4-cache").innerHTML = `demand <strong>${st.req} pages</strong> for 256 slots · resident ${st.resident} · evicted while still needed <strong>${d4.thrash.toFixed(1)}/frame</strong> · in flight ${st.inflight}`;
+      $("c4-view").innerHTML = `fallback pixels <strong>${(100 * d4.stats.fbPix / Math.max(1, d4.stats.ground)).toFixed(0)} %</strong> · mean +${d4.stats.meanDelta.toFixed(1)} mips coarser · no data <span class="${d4.stats.none ? "fail" : "pass"}">${(100 * d4.stats.none / Math.max(1, d4.stats.ground)).toFixed(1)} %</span>`;
+    }
+  }
+  dragView(c4v, d4.cam, () => { });
+  $("c4bias").addEventListener("input", ev => { d4.bias = +ev.target.value; $("c4biasv").textContent = (d4.bias > 0 ? "+" : d4.bias < 0 ? "−" : "") + Math.abs(d4.bias).toFixed(1); });
+  $("c4budget").addEventListener("input", ev => { d4.budget = +ev.target.value; $("c4budgetv").textContent = d4.budget + " pages/frame"; });
+  $("c4pin").addEventListener("change", ev => { d4.cache.setPinned(ev.target.checked); });
+
+  // ---------- 5. borders and filtering ----------
+  const c5p = $("c5phys"), x5p = c5p.getContext("2d"), c5o = $("c5out"), x5o = c5o.getContext("2d");
+  const d5 = { p: 128, b: 2, taps: 8, src: "stream", sx: -1.0, sy: 0.0, phys: null, inner: 126, truth: null, tx0: 0, ty0: 0, tw: 0, th: 0 };
+  const PAGES5 = { L: [5, 7], U1: [40, 3], U2: [17, 51], R: [6, 7] }, SLOT5 = { L: [0, 0], U1: [1, 0], U2: [0, 1], R: [1, 1] };
+  function virt(x, y, src) {
+    const s = 0.5 + 0.5 * Math.sin(x * 0.012 + y * 0.008 + Math.sin(y * 0.021) * 1.5);
+    const chk = ((Math.floor(x / 4) + Math.floor(y / 4)) & 1) ? 1 : 0.7;
+    const st = 0.86 + 0.14 * Math.sin(x * 1.7 + y * 0.4);
+    let r = (AMBER[0] + (BLUE[0] - AMBER[0]) * s) * chk * st, g = (AMBER[1] + (BLUE[1] - AMBER[1]) * s) * chk * st, bl = (AMBER[2] + (BLUE[2] - AMBER[2]) * s) * chk * st;
+    if (src === "rvt") { const dx = ((x % 48) + 48) % 48 - 24, dy = ((y % 48) + 48) % 48 - 24, d = Math.hypot(dx, dy), ring = Math.max(0, 1 - Math.abs(d - 10) / 1.6); r += (235 - r) * ring * 0.85; g += (238 - g) * ring * 0.85; bl += (242 - bl) * ring * 0.85; }
+    return [r, g, bl];
+  }
+  function build5() {
+    const p = d5.p, b = d5.b, inner = p - 2 * b, W = 2 * p; d5.inner = inner;
+    const phys = new Float32Array(W * W * 3); d5.phys = phys;
+    for (const name in PAGES5) {
+      const [px, py] = PAGES5[name], [sx, sy] = SLOT5[name];
+      for (let j = 0; j < p; j++) for (let i = 0; i < p; i++) {
+        const vx = px * inner + i - b, vy = py * inner + j - b, c = virt(vx + 0.5, vy + 0.5, d5.src), o = ((sy * p + j) * W + sx * p + i) * 3;
+        phys[o] = c[0]; phys[o + 1] = c[1]; phys[o + 2] = c[2];
+      }
+    }
+    // truth texels around the boundary window
+    const bx = 6 * inner, by = 7 * inner + (inner >> 1);
+    d5.tx0 = bx - 24; d5.ty0 = by - 24; d5.tw = 48; d5.th = 48;
+    const tr = new Float32Array(48 * 48 * 3); d5.truth = tr;
+    for (let j = 0; j < 48; j++) for (let i = 0; i < 48; i++) { const c = virt(d5.tx0 + i + 0.5, d5.ty0 + j + 0.5, d5.src), o = (j * 48 + i) * 3; tr[o] = c[0]; tr[o + 1] = c[1]; tr[o + 2] = c[2]; }
+  }
+  function bilin(buf, W, H, x, y, out) {
+    const fx = x - 0.5, fy = y - 0.5; let ix = Math.floor(fx), iy = Math.floor(fy); const tx = fx - ix, ty = fy - iy;
+    const x0 = clamp(ix, 0, W - 1), x1 = clamp(ix + 1, 0, W - 1), y0 = clamp(iy, 0, H - 1), y1 = clamp(iy + 1, 0, H - 1);
+    const o00 = (y0 * W + x0) * 3, o10 = (y0 * W + x1) * 3, o01 = (y1 * W + x0) * 3, o11 = (y1 * W + x1) * 3;
+    for (let c = 0; c < 3; c++) out[c] += (buf[o00 + c] * (1 - tx) + buf[o10 + c] * tx) * (1 - ty) + (buf[o01 + c] * (1 - tx) + buf[o11 + c] * tx) * ty;
+  }
+  function v2p(vx, vy) { // virtual texel coords → physical texel coords through the page table, or null
+    const inner = d5.inner, px = Math.floor(vx / inner), py = Math.floor(vy / inner);
+    for (const name in PAGES5) if (PAGES5[name][0] === px && PAGES5[name][1] === py) { const [sx, sy] = SLOT5[name]; return [sx * d5.p + d5.b + (vx - px * inner), sy * d5.p + d5.b + (vy - py * inner)]; }
+    return null;
+  }
+  function sampleCache(vx, vy, out) { // hardware-style: map the centre once, then offset taps in physical space
+    const N = d5.taps, ph = v2p(vx, vy); out[0] = out[1] = out[2] = 0; if (!ph) return false;
+    const W = 2 * d5.p; for (let k = 0; k < N; k++) bilin(d5.phys, W, W, ph[0] + k + 0.5 - N / 2, ph[1], out);
+    out[0] /= N; out[1] /= N; out[2] /= N; return true;
+  }
+  function sampleTruth(vx, vy, out) { const N = d5.taps; out[0] = out[1] = out[2] = 0; for (let k = 0; k < N; k++) bilin(d5.truth, 48, 48, vx - d5.tx0 + k + 0.5 - N / 2, vy - d5.ty0, out); out[0] /= N; out[1] /= N; out[2] /= N; }
+  const img5 = new ImageData(128, 128), off5 = document.createElement("canvas"); off5.width = 128; off5.height = 128;
+  function draw5() {
+    const p = d5.p, b = d5.b, inner = d5.inner, bx = 6 * inner, by = 7 * inner + (inner >> 1), N = d5.taps;
+    const vx = bx + d5.sx, vy = by + d5.sy;
+    // right: rendered window, 16 virtual texels across the boundary at 8 px per texel
+    const d = img5.data, a = [0, 0, 0], t = [0, 0, 0]; let maxErr = 0;
+    for (let j = 0; j < 128; j++) for (let i = 0; i < 128; i++) {
+      const x = bx - 8 + (i + 0.5) / 8, y = by - 8 + (j + 0.5) / 8, o = (j * 128 + i) * 4;
+      const ok = sampleCache(x, y, a); sampleTruth(x, y, t);
+      if (ok) { const e = Math.max(Math.abs(a[0] - t[0]), Math.abs(a[1] - t[1]), Math.abs(a[2] - t[2])); if (e > maxErr) maxErr = e; d[o] = a[0]; d[o + 1] = a[1]; d[o + 2] = a[2]; }
+      else { d[o] = 120; d[o + 1] = 40; d[o + 2] = 40; }
+      d[o + 3] = 255;
+    }
+    off5.getContext("2d").putImageData(img5, 0, 0);
+    x5o.imageSmoothingEnabled = false; x5o.drawImage(off5, 0, 0, 512, 512);
+    x5o.setLineDash([4, 4]); x5o.strokeStyle = "rgba(255,255,255,0.8)"; x5o.lineWidth = 1; x5o.beginPath(); x5o.moveTo(256.5, 0); x5o.lineTo(256.5, 512); x5o.stroke(); x5o.setLineDash([]);
+    const hx = 256 + d5.sx * 32, hy = 256 + d5.sy * 32;
+    x5o.strokeStyle = "rgba(255,255,255,0.6)"; x5o.beginPath(); x5o.moveTo(hx - N * 16, hy); x5o.lineTo(hx + N * 16, hy); x5o.stroke();
+    handle(x5o, hx, hy, 6);
+    x5o.fillStyle = "rgba(255,255,255,0.75)"; x5o.font = MONO; x5o.textBaseline = "top"; x5o.fillText(`surface, 16 virtual texels wide · page (5,7) | page (6,7)`, 8, 8);
+    // left: physical window 32 × 32 texels around the slot edge x = p, 16 px per texel
+    const ph = v2p(vx, vy), W = 2 * p, wx0 = p - 16, wy0 = ph ? Math.floor(ph[1]) - 16 : b + (inner >> 1) - 16;
+    const pd = x5p; pd.fillStyle = "#0b0e13"; pd.fillRect(0, 0, 512, 512);
+    for (let j = 0; j < 32; j++) for (let i = 0; i < 32; i++) {
+      const tx = wx0 + i, ty = wy0 + j; if (tx < 0 || ty < 0 || tx >= W || ty >= W) continue;
+      const o = (ty * W + tx) * 3; pd.fillStyle = `rgb(${d5.phys[o] | 0},${d5.phys[o + 1] | 0},${d5.phys[o + 2] | 0})`; pd.fillRect(i * 16, j * 16, 16, 16);
+    }
+    pd.strokeStyle = "rgba(255,255,255,0.1)"; pd.lineWidth = 1; pd.beginPath(); for (let g = 16; g < 512; g += 16) { pd.moveTo(g + 0.5, 0); pd.lineTo(g + 0.5, 512); pd.moveTo(0, g + 0.5); pd.lineTo(512, g + 0.5); } pd.stroke();
+    pd.strokeStyle = "#fff"; pd.lineWidth = 2; pd.beginPath(); pd.moveTo(256, 0); pd.lineTo(256, 512); pd.stroke();
+    if (b > 0) { pd.setLineDash([5, 4]); pd.strokeStyle = "rgba(255,255,255,0.7)"; pd.lineWidth = 1; pd.beginPath(); pd.moveTo(256 - b * 16 + 0.5, 0); pd.lineTo(256 - b * 16 + 0.5, 512); pd.moveTo(256 + b * 16 + 0.5, 0); pd.lineTo(256 + b * 16 + 0.5, 512); pd.stroke(); pd.setLineDash([]); }
+    let reach = 0, bleed = false;
+    if (ph) {
+      for (let k = 0; k < N; k++) {
+        const tx = ph[0] + k + 0.5 - N / 2, ty = ph[1], cx = (tx - wx0) * 16, cy = (ty - wy0) * 16;
+        const fx = Math.floor(tx - 0.5), fy = Math.floor(ty - 0.5);
+        for (const [ox, oy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const qx = fx + ox, qy = fy + oy; if (qx >= p) bleed = true; pd.strokeStyle = qx >= p ? "#ef5d5d" : "rgba(255,255,255,0.55)"; pd.lineWidth = 1; pd.strokeRect((qx - wx0) * 16 + 1.5, (qy - wy0) * 16 + 1.5, 13, 13); }
+        pd.beginPath(); pd.arc(cx, cy, 3, 0, Math.PI * 2); pd.fillStyle = "#fff"; pd.fill();
+        reach = Math.max(reach, tx + 0.5 - ph[0]);
+      }
+      handle(pd, (ph[0] - wx0) * 16, (ph[1] - wy0) * 16, 6);
+    }
+    pd.fillStyle = "rgba(255,255,255,0.75)"; pd.font = MONO; pd.textBaseline = "top";
+    pd.fillText(`slot (0,0): page (5,7)   |   slot (1,0): page (40,3)`, 8, 8);
+    pd.fillText(`${b}-texel border ring inside each slot`, 8, 22);
+    const err = Math.round(maxErr);
+    $("c5-phys").innerHTML = `sample at boundary ${d5.sx >= 0 ? "+" : "−"}${Math.abs(d5.sx).toFixed(2)} texels · ${N} tap${N > 1 ? "s" : ""}, reach <strong>+${reach.toFixed(1)} texels</strong> · border ${b} → ` + (bleed ? `<span class="fail">taps cross into slot (1,0)</span>` : `<span class="pass">taps stay inside the slot</span>`);
+    $("c5-out").innerHTML = d5.src === "stream" ? `page fill: <strong>${(p * p / 1024).toFixed(0)} KiB</strong> BC7 read + transcode + upload · borders copied from 8 neighbours` : `page fill: <strong>3 layer draws</strong> into a ${p}² viewport, border rendered not copied · no disk copy`;
+    $("t5a").textContent = (100 * (1 - Math.pow((128 - 2 * b) / 128, 2))).toFixed(1) + " %";
+    $("t5b").textContent = (100 * (1 - Math.pow((256 - 2 * b) / 256, 2))).toFixed(1) + " %";
+    const te = $("t5e"); te.textContent = err + " / 255"; te.className = "n " + (err > 2 ? "fail" : "pass");
+  }
+  {
+    let pend = false; const req = () => { if (pend) return; pend = true; requestAnimationFrame(() => { pend = false; draw5(); }); };
+    const rebuild = () => { build5(); req(); };
+    let dragging = null;
+    const setFromOut = (x, y) => { d5.sx = clamp((x - 256) / 32, -7.5, 7.5); d5.sy = clamp((y - 256) / 32, -7.5, 7.5); req(); };
+    const setFromPhys = (x, y) => { const inner = d5.inner, p = d5.p, b = d5.b, wx0 = p - 16, ph = v2p(6 * inner + d5.sx, 7 * inner + (inner >> 1) + d5.sy), wy0 = ph ? Math.floor(ph[1]) - 16 : 0;
+      const tx = wx0 + x / 16, ty = wy0 + y / 16; d5.sx = clamp(tx - b - inner, -7.5, 7.5); d5.sy = clamp(ty - b - (inner >> 1), -7.5, 7.5); req(); };
+    for (const [cv, fn] of [[c5o, setFromOut], [c5p, setFromPhys]]) {
+      cv.addEventListener("pointerdown", ev => { dragging = cv; cv.setPointerCapture(ev.pointerId); const [x, y] = ptr(cv, ev); fn(x, y); });
+      cv.addEventListener("pointermove", ev => { if (dragging !== cv) return; const [x, y] = ptr(cv, ev); fn(x, y); });
+      const end = ev => { dragging = null; try { cv.releasePointerCapture(ev.pointerId); } catch (e) { } };
+      cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
+    }
+    $("c5b").addEventListener("input", ev => { d5.b = +ev.target.value; $("c5bv").textContent = d5.b + " texel" + (d5.b === 1 ? "" : "s"); rebuild(); });
+    seg("c5p", v => { d5.p = +v; rebuild(); });
+    seg("c5f", v => { d5.taps = +v; req(); });
+    seg("c5src", v => { d5.src = v; rebuild(); });
+    build5(); draw5();
+  }
+
+  // ---------- boot and frame loop ----------
+  run1();
+  for (let i = 0; i < 150; i++) { step3(false); step4(false); } // warm both caches so the page at rest shows a settled state
+  step3(); step4();
+  let hidden = false;
+  document.addEventListener("visibilitychange", () => { hidden = document.hidden; });
+  function loop() {
+    if (!hidden) { if (inView(c3v)) step3(); if (inView(c4v)) step4(); }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>

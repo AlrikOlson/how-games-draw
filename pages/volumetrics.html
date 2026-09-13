@@ -1,0 +1,1107 @@
+<title>Volumetric Fog &amp; Light</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas { aspect-ratio: 1; }
+.tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 480px) { .tiles.four { grid-template-columns: 1fr 1fr; } }
+.tile .n small { font-size: 14px; color: var(--muted); }
+.ctl.chk { flex-direction: row; align-items: center; gap: 8px; padding-bottom: 4px; }
+.ctl.chk label { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--ink); font-family: var(--font-mono); }
+.uses.trade td { font-size: 14px; }
+.uses.trade td:first-child { white-space: normal; min-width: 11ch; }
+.uses.trade td:nth-child(2) { max-width: none; white-space: nowrap; font-family: var(--font-mono); font-size: 13px; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">20 m × 15 m side view · one 60° spotlight · three occluders · drag the light, its aim and the fog blob</p>
+    <h1>Volumetric Fog</h1>
+    <p class="lead">Fog in a game is light bouncing off tiny particles in the air, drawn so the camera can see it. Done properly it gives you light shafts, glowing spotlight cones and dark air behind pillars, for about 1 to 2 ms of frame time. The thing people get wrong is treating fog as a colour you tint the screen with. Real fog has no colour of its own: what you see is light from the scene's lamps, so it is bright inside a spotlight and dark behind a wall.</p>
+    <div class="key">
+      <span style="--sw:#f2a341">light scattered toward you</span>
+      <span style="--sw:#4aa3ff">how thick the fog is</span>
+      <span style="--sw:#ffffff">view ray and drag handles</span>
+      <span style="--sw:#787e88">solid object that blocks light</span>
+      <span style="--sw:#ef5d5d">step that sits in shadow</span>
+    </div>
+    <dl class="terms">
+      <dt>view ray</dt><dd>the straight line from the camera out through one pixel</dd>
+      <dt>ray march</dt><dd>walking along a ray in small steps and adding up what you find at each one</dd>
+      <dt>transmittance, T</dt><dd>the fraction of light that makes it through the fog, from 1 (all of it) to 0 (none)</dd>
+      <dt>in-scatter, L</dt><dd>light the fog itself sends toward the camera; the glow you see in the air</dd>
+      <dt>occluder</dt><dd>a solid object that blocks light and casts a shadow</dd>
+      <dt>phase function</dt><dd>the rule for how much a particle throws light forward, sideways or back</dd>
+      <dt>froxel</dt><dd>one cell of a 3D grid that fills the camera's view; short for frustum voxel</dd>
+      <dt>optical depth, τ</dt><dd>how much fog a ray has passed through, added up; T = exp(−τ)</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#march"><span class="n">01</span>One ray through the fog</a></li><li><a href="#phase"><span class="n">02</span>Which way fog throws light</a></li><li><a href="#froxels"><span class="n">03</span>Froxels</a></li><li><a href="#height"><span class="n">04</span>Height fog with no loop</a></li><li><a href="#clouds"><span class="n">05</span>Clouds that shade themselves</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="march">
+    <h2>One ray through the fog</h2>
+    <p class="sub">Hover over the scene to pick one view ray and watch it get built up step by step.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c1" width="512" height="512" class="grab" aria-label="Ray march through a spotlit fog volume with three occluders"></canvas>
+        <div class="cap"><span id="c1-read">—</span><span id="c1-read2"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">The camera shoots a <b>straight line out through one pixel</b>, called a view ray, and walks along it in small steps. At each step it asks two questions: <b>how much fog is here</b>, and <b>is the spotlight shining on it</b>. Lit fog adds glow to the pixel, and every bit of fog also <b>dims whatever is behind it</b>.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The amber haze is fog the spotlight is lighting. Brighter means more glow would reach you from that spot. Behind each grey pillar the light is blocked, so the fog there stays dark. Those dark wedges are light shafts, and nothing on this page fakes them.</p>
+        <p>The strip under the scene is your chosen ray, step by step. Blue bars are fog thickness, amber bars are light after the shadow check, and a red stub means that step sits in shadow. The white curve is how much of the background still gets through, sliding from 1 toward 0. The thin 64-row strip on the far left is the camera's whole image, one row per ray.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the amber light so it sits above a pillar. A whole band of rows in the left strip goes dark at once.</li>
+          <li>Drop the steps to 8. The strip turns chunky and the L value in the readout shifts. Push it to 128 and the value settles.</li>
+          <li>Turn blob density up to 0.6 and hover through the blue blob. The white curve drops fast and the far end of the ray stops mattering.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><label for="steps1">Steps <span class="val" id="steps1v">48</span></label><input type="range" id="steps1" min="8" max="128" step="8" value="48"></div>
+          <div class="ctl"><label for="blob1">Blob density <span class="val" id="blob1v">0.30 /m</span></label><input type="range" id="blob1" min="0" max="0.6" step="0.05" value="0.3"></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Each step reads the fog density ρ, the amount of material per metre. The extinction coefficient σ_t is how fast that material dims light, and the scattering coefficient σ_s is the part that redirects light rather than absorbing it. Their ratio is the albedo, 0.9 here, meaning 90% of what the fog stops gets bounced rather than eaten.</p>
+        <p>The phase function p(θ) says how much of that bounce heads back to the camera, for the angle θ between the light and the view ray. V is the shadow test: 1 if the light can see the point, 0 if a pillar is in the way. Transmittance T is the running product of every step's dimming so far, so glow found far along the ray counts for less.</p>
+        <p class="words">In words: at each point along the ray, take the fog there, times the light reaching it, times how much bounces your way, times how much of that survives the trip back to the camera. Add it all up.</p>
+        <div class="math">T(t) = exp( −∫₀ᵗ σ_t(s) ds )                       transmittance, 1 → 0
+L    = ∫₀ᴰ T(t) · σ_s(t) · p(θ) · L_light(t) · V(t) dt   single scattering
+σ_s  = albedo · σ_t          here albedo = 0.9, σ_t in 1/m
+pixel = L_surface · T(D) + L</div>
+        <p>T(t) is transmittance at distance t, σ_t the extinction per metre, σ_s the scattering part of it, p(θ) the phase function, L_light the spotlight's brightness at that point, V the shadow test, D the distance to whatever the ray hits, and L_surface the colour of that surface.</p>
+        <p class="words">What this code does: walks the ray in STEPS equal steps, and at each one adds lit fog scaled by the transmittance so far, then shrinks the transmittance.</p>
+<pre class="code"><span class="c">// one view ray, STEPS samples; each step checks the light's shadow map</span>
+<span class="k">vec3</span> T = vec3(1.0), L = vec3(0.0);
+<span class="k">float</span> dt = rayLength / STEPS;
+<span class="k">for</span> (int i = 0; i &lt; STEPS; i++) {
+  vec3  p    = ro + rd * (float(i) + 0.5) * dt;
+  float rho  = density(p);                  <span class="c">// base fog + fog that thins with height + local blobs</span>
+  float sigT = rho, sigS = albedo * rho;
+  float V    = shadowMap(p);                <span class="c">// 1 lit, 0 shadowed</span>
+  vec3  Li   = lightColor * spotFalloff(p) * V;
+  float ph   = hg(dot(-rd, normalize(p - lightPos)), g);
+  vec3  stepT = exp(-sigT * dt);
+  L += T * sigS * ph * Li * (1.0 - stepT) / sigT;   <span class="c">// exact across the whole step, more accurate than sigS*dt</span>
+  T *= stepT;
+}
+color = sceneColor * T + L;</pre>
+        <p class="tldr">Fog glow is lit fog added up along the ray, with each step counting for less than the one before it.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="phase">
+    <h2>Which way fog throws light</h2>
+    <p class="sub">Drag the light around the ring on the left, or move the light and camera on the right, and watch the halo change.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c2a" width="512" height="512" class="grab" aria-label="Polar plot of the Henyey-Greenstein phase function"></canvas>
+        <div class="cap"><span id="c2a-read">—</span><span>rings: 10⁻³ … 10 sr⁻¹</span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c2b" width="512" height="512" class="grab" aria-label="Fog scene rendered with the selected phase function"></canvas>
+        <div class="cap"><span id="c2b-read">—</span><span>bottom: the camera's 96-pixel image</span></div>
+      </div>
+    </div>
+    <div class="cols wide" style="margin-top:22px">
+      <div class="prose">
+        <p class="plain">A fog particle doesn't scatter light evenly. <b>Water droplets and dust throw most light straight ahead</b>, which is why a street lamp in fog has a <b>bright halo when you look at it</b> and the fog looks <b>dull grey when you look away</b>. The phase function is the rule for how much goes in each direction.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The left canvas plots that rule. The distance from the centre to the curve, on a log scale, is how much light heads in that direction. A fat lobe pointing forward means most light keeps going the way it was travelling. The rings mark 10⁻³ up to 10 per steradian, where a steradian is a unit of solid angle, the 3D version of an angle.</p>
+        <p>The right canvas is the fog scene with a plain round light and a camera that always looks at it. The 96-pixel strip at the bottom is the camera's image, and the readout compares the column looking straight at the light with the column at the edge.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Set g to 0.9. On the right, the columns aimed at the light go bright and everything else goes dark. That is the halo.</li>
+          <li>Set g to −0.5. Now the columns aimed at the light go dark and fog lit from behind the camera takes over.</li>
+          <li>Drag the light on the left plot round to the far side, behind the camera, and read how small p(θ) gets at g = 0.7.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><label for="g2">Anisotropy g <span class="val" id="g2v">0.70</span></label><input type="range" id="g2" min="-0.9" max="0.9" step="0.05" value="0.7"></div>
+        </div>
+        <div class="tiles four">
+          <div class="tile"><div class="n" id="t2a">—</div><div class="l">p(θ), g = −0.5</div></div>
+          <div class="tile"><div class="n" id="t2b">—</div><div class="l">p(θ), g = 0</div></div>
+          <div class="tile"><div class="n" id="t2c">—</div><div class="l">p(θ), g = 0.5</div></div>
+          <div class="tile"><div class="n" id="t2d">—</div><div class="l">p(θ), g = 0.9</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="cols" style="margin-top:22px">
+      <div class="prose">
+        <h3>The real version</h3>
+        <p>The phase function p(θ) is to a particle what a BRDF is to a surface: the rule for how much light arriving from one direction leaves toward another. θ is the angle between the light's direction of travel and the direction to your eye. It integrates to 1 over the sphere, so it only redistributes light and never adds any.</p>
+        <p>The one knob, g, is called anisotropy and is the average of cosθ. At g = 0.9 a peaky lobe sends 15 sr⁻¹ straight ahead and almost nothing backward, while g = 0 sends 1/4π = 0.08 sr⁻¹ everywhere. Engines usually use a single Henyey-Greenstein lobe with g around 0.3 to 0.7, or mix a forward lobe with a small backward lobe.</p>
+        <p class="words">In words: the closer the outgoing direction is to the light's own direction of travel, the more light goes that way, and g sets how sharp that preference is.</p>
+        <div class="math">p(θ) = (1 − g²) / ( 4π (1 + g² − 2g cosθ)^1.5 )      cosθ = ω_light · ω_out
+∫ p dω = 1 over the sphere;  g = ⟨cosθ⟩, −1 (back) … 0 (isotropic) … 1 (forward)</div>
+        <p>g is the anisotropy from −1 to 1, θ the angle between the light direction ω_light and the outgoing direction ω_out, and the 4π is what makes the whole sphere add up to 1.</p>
+      </div>
+      <div class="prose">
+        <p class="words">What this code does: computes one Henyey-Greenstein lobe, then blends in a small backward lobe for the two-lobe version most engines ship.</p>
+<pre class="code"><span class="k">float</span> hg(<span class="k">float</span> cosTheta, <span class="k">float</span> g) {
+  float g2 = g * g;
+  float d  = 1.0 + g2 - 2.0 * g * cosTheta;
+  <span class="k">return</span> (1.0 - g2) / (4.0 * PI * d * sqrt(d));   <span class="c">// d^1.5 without calling pow()</span>
+}
+<span class="c">// cosTheta: light propagation direction dotted with the direction toward the eye</span>
+<span class="k">float</span> phase(<span class="k">vec3</span> rd, <span class="k">vec3</span> toLight) {
+  float c = dot(-rd, -toLight);              <span class="c">// == dot(rd, toLight)</span>
+  <span class="k">return</span> mix(hg(c, 0.7), hg(c, -0.2), 0.15); <span class="c">// two lobes: a small amount scatters backward</span>
+}</pre>
+        <p class="tldr">Fog is brightest when you look toward the light, because particles throw most light forward.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="froxels">
+    <h2>Froxels: a 3D grid of fog cells</h2>
+    <p class="sub">Hover over the scene to see which grid cell a surface at that depth would read its fog from.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c3" width="512" height="512" aria-label="Froxel grid over the fog scene, coloured by scattered light"></canvas>
+        <div class="cap"><span id="c3-read">—</span><span id="c3-read2"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Marching every pixel is expensive because <b>neighbouring pixels do almost the same work</b>. So engines chop the camera's view into a <b>coarse 3D grid of cells</b>, work out the fog <b>once per cell</b>, and let every pixel share. At 1080p that means one cell per 8×8 block of pixels and 64 layers of depth.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The scene is the froxel grid seen from the side: wedges fanning out from the camera, cut by depth. Each cell is coloured by what it stores. The default view is the glow built up from the camera to that cell; switch to transmittance to see how much background gets through instead.</p>
+        <p>Hover and the white outline is the cell a surface at that spot would read. The readout gives the cell's T and L and the exact blend the pixel would use. The strip shows one column of cells from near to far.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drop angular slices to 8 and depth slices to 8. Shadow edges and the light cone turn into big blocks.</li>
+          <li>Switch sample to linear. The blocks blur into each other, the same way a photo viewer smooths a zoomed-in image.</li>
+          <li>Tick jitter + temporal blend. The frame count in the readout climbs and the blocky edges smooth out over a second or two.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><label for="nx3">Angular slices <span class="val" id="nx3v">32</span></label><input type="range" id="nx3" min="8" max="64" step="8" value="32"></div>
+          <div class="ctl"><label for="nz3">Depth slices <span class="val" id="nz3v">64</span></label><input type="range" id="nz3" min="8" max="128" step="8" value="64"></div>
+          <div class="ctl"><span class="lab">Show</span><div class="seg" id="seg3m" role="group" aria-label="Froxel display mode"><button data-v="injected">injected</button><button data-v="integrated" aria-pressed="true">integrated L</button><button data-v="T">transmittance</button></div></div>
+          <div class="ctl"><span class="lab">Sample</span><div class="seg" id="seg3s" role="group" aria-label="Sampling mode"><button data-v="nearest" aria-pressed="true">nearest</button><button data-v="linear">linear</button></div></div>
+          <div class="ctl chk"><input type="checkbox" id="jit3"><label for="jit3">jitter + temporal blend</label></div>
+        </div>
+      </div>
+    </div>
+    <div class="prose" style="margin-top:22px">
+      <p>The table compares grid sizes. The last column says how many cells there are for each pixel on a 1080p screen: below 1 means several pixels share a cell, and the highlighted row tracks the depth-slice slider above.</p>
+    </div>
+    <div class="tbl-wrap">
+    <table class="stats">
+      <thead><tr><th>Grid size</th><th>Cells</th><th>Memory, one RGBA16F texture</th><th>Cells per 1080p pixel</th></tr></thead>
+      <tbody>
+        <tr><td>This 2D demo (angular × depth)</td><td id="m3a"></td><td id="m3b"></td><td>—</td></tr>
+        <tr><td>Assassin's Creed IV, 160 × 90 × 64</td><td>921,600</td><td>7.03 MB</td><td>0.44</td></tr>
+        <tr><td>Unreal default at 1080p, 240 × 135 × 64</td><td>2,073,600</td><td>15.82 MB</td><td>1.00</td></tr>
+        <tr><td>240 × 135 × <span id="m3z">64</span> (this depth-slice count)</td><td id="m3c"></td><td id="m3d" class="hi"></td><td id="m3e"></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="prose" style="margin-top:22px">
+      <h3>The real version</h3>
+      <p>The frustum is the wedge of space the camera can see, and a froxel is one cell of it, short for frustum voxel. Unreal's default at 1080p is one froxel per 8×8 pixel tile and 64 depth slices: 2,073,600 froxels, the same count as pixels, but each one is written once and read by the 64 pixels along its column.</p>
+      <p>Depth slices are spaced logarithmically, close together near the camera and further apart far away, so a cell covers about the same number of screen pixels near and far. The injection pass stores two things per cell: scattering, the lit glow, and extinction, how much the cell dims light. The integration pass walks each column front to back carrying transmittance, and writes the built-up glow and transmittance back into each cell.</p>
+      <p>Applying fog to a pixel is then one 3D texture read at its depth. Surfaces never stop the integration; the depth buffer, the per-pixel record of how far away each surface is, just picks which slice to read.</p>
+      <p>Cells are coarse, so shadow edges and light cones come out blocky. Two fixes ship together. Trilinear filtering blends the eight cells around a sample point instead of snapping to one. Jittering moves the sample point inside each cell every frame and blends with last frame's result, shifted to line up with the camera's motion. With the camera still, as here, that shift is nothing and the history is a plain running average.</p>
+      <p class="words">In words: fill every cell with lit fog, sweep each column from front to back adding up glow and multiplying down transmittance, then read one cell per pixel.</p>
+      <div class="math">z_i = n · (f/n)^(i/N)         log slices, n = 0.5 m, f = 16 m
+inject:    S_i = σ_s ρ p(θ) L_light V     E_i = σ_t ρ         per cell
+integrate: L += T · S_i · (1 − e^(−E_i Δz)) / E_i ;  T *= e^(−E_i Δz)
+apply:     pixel = colour · T(z) + L(z)   one trilinear read</div>
+      <p>z_i is the front of slice i out of N, n and f the near and far distances, S_i and E_i the scattering and extinction stored in a cell, Δz the slice thickness, and T(z) and L(z) the values read at a pixel's depth.</p>
+      <p class="words">What this code does: one thread per column sweeps front to back, storing the running glow and transmittance in every cell; then each pixel does one filtered texture read to apply it.</p>
+<pre class="code"><span class="c">// integration pass: one thread per froxel column, scanning front to back</span>
+<span class="k">vec3</span> L = vec3(0.0); <span class="k">float</span> T = 1.0;
+<span class="k">for</span> (int z = 0; z &lt; SLICES; z++) {
+  vec4  cell   = injected[ivec3(xy, z)];       <span class="c">// rgb = lit glow (σ_s ρ p Li V), a = extinction (σ_t ρ)</span>
+  float dz     = sliceDepth(z + 1) - sliceDepth(z);
+  float stepT  = exp(-cell.a * dz);
+  L += T * cell.rgb * (1.0 - stepT) / max(cell.a, 1e-5);
+  T *= stepT;
+  integrated[ivec3(xy, z)] = vec4(L, T);
+}
+<span class="c">// apply, in the lighting or composite pass: one trilinear fetch per pixel</span>
+<span class="k">vec3</span> uvw  = vec3(screenUV, sliceFromDepth(viewZ));  <span class="c">// log mapping, same as injection</span>
+<span class="k">vec4</span> fog  = texture(integratedVolume, uvw);
+color = color * fog.a + fog.rgb;</pre>
+      <p class="tldr">Work out the fog once per coarse cell, then every pixel just reads one cell.</p>
+    </div>
+  </section>
+
+  <section id="height">
+    <h2>Height fog with no loop</h2>
+    <p class="sub">Drag the camera or its aim point and compare the exact answer with a stepped march.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c4" width="512" height="512" class="grab" aria-label="Height fog with an analytic ray integral compared with a numeric march"></canvas>
+        <div class="cap"><span id="c4-read">—</span><span id="c4-read2"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">If fog is <b>thickest at the ground and thins out as you go up</b>, there is a <b>single formula</b> for how much of it a ray passes through. No stepping, no grid, <b>one exponential per pixel</b>. It is the cheapest fog there is, and the catch is that it <b>can't do shadows or light shafts</b>.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The scene shows fog fading with height, with your view ray running from the camera to the aim point. In the strip below, white is the exact formula's answer along the ray and amber is a stepped march trying to match it. The 1D image on the left is the camera's whole picture, done entirely with the formula.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Set march steps to 4 and aim the ray down through the thick fog near the ground. The readout's "% off" figure jumps.</li>
+          <li>Push march steps to 64. The two curves sit on top of each other, at the cost of 64 density taps per pixel.</li>
+          <li>Tick distance fog. The fog becomes the same thickness everywhere, and optical depth is just density times distance.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><label for="d04">d0 at ground <span class="val" id="d04v">0.12 /m</span></label><input type="range" id="d04" min="0.02" max="0.4" step="0.01" value="0.12"></div>
+          <div class="ctl"><label for="h4">Scale height H <span class="val" id="h4v">6 m</span></label><input type="range" id="h4" min="1" max="30" step="0.5" value="6"></div>
+          <div class="ctl"><label for="n4">March steps <span class="val" id="n4v">12</span></label><input type="range" id="n4" min="4" max="64" step="4" value="12"></div>
+          <div class="ctl chk"><input type="checkbox" id="dist4"><label for="dist4">distance fog (H → ∞)</label></div>
+        </div>
+        <div class="tiles">
+          <div class="tile on"><div class="n" id="t4a">—</div><div class="l">τ closed form, 1 exp</div></div>
+          <div class="tile"><div class="n" id="t4b">—</div><div class="l">τ marched, <span id="t4bn">12</span> taps</div></div>
+          <div class="tile"><div class="n" id="t4c">—</div><div class="l">density taps at 1080p, marched</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Optical depth τ is how much fog a ray has passed through, added up, and transmittance is exp(−τ). When density depends only on height, ρ(h) = d0 · exp(−h/H), where d0 is the density at the ground and H is the scale height, the knob for how fast the fog thins as you climb. For that profile the integral along a straight ray collapses to one exponential and a division.</p>
+        <p>The march needs N density taps to approach the same number, and at low N it is visibly wrong wherever the ray crosses the steep part of the profile near the ground.</p>
+        <p>The price is that the light term is a constant colour, usually the sun or sky. There is no shadowing and no light shafts, because the formula only knows about density, not about where the lights are. Distance fog is the same formula with H set to infinity, so density is uniform and optical depth is simply <code>d0 · D</code>.</p>
+        <p class="words">In words: the fog a ray crosses equals the density at your eye, times a factor for how fast the ray climbs or dives, times how far it goes before it hits something.</p>
+        <div class="math">ρ(h) = d0 · exp(−h / H)
+τ = ∫₀ᴰ ρ(h₀ + t·dir_y) dt = d0 · exp(−h₀/H) · (H / dir_y) · (1 − exp(−dir_y · D / H))
+    (dir_y = 0: τ = d0 · exp(−h₀/H) · D;   H → ∞: τ = d0 · D, plain distance fog)
+T = exp(−τ);   pixel = colour · T + fogColour · (1 − T)</div>
+        <p>h₀ is the camera height, dir_y the vertical part of the ray direction, D the distance to the surface, τ the optical depth and T the transmittance.</p>
+        <p class="words">What this code does: computes the exact optical depth from the camera height and ray slope, with a special case for level rays, then blends the pixel toward one fog colour.</p>
+<pre class="code"><span class="c">// exact exponential height fog, per pixel, no loop</span>
+<span class="k">float</span> heightFogOpticalDepth(<span class="k">vec3</span> ro, <span class="k">vec3</span> rd, <span class="k">float</span> D) {
+  float k = rd.y / H;
+  float base = d0 * exp(-ro.y / H);
+  <span class="k">if</span> (abs(k) &lt; 1e-4) <span class="k">return</span> base * D;      <span class="c">// level ray: no change in height</span>
+  <span class="k">return</span> base * (1.0 - exp(-k * D)) / k;
+}
+<span class="k">float</span> T = exp(-heightFogOpticalDepth(cameraPos, rd, sceneDepth));
+color = mix(fogColor, color, T);              <span class="c">// fogColor is one constant, see the note at the end of the page</span></pre>
+        <p class="tldr">Height fog is one formula per pixel: nearly free, but it can only ever be one flat colour.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="clouds">
+    <h2>Clouds that shade themselves</h2>
+    <p class="sub">Drag the sun and hover to pick the view ray through a cloud layer.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5" width="512" height="512" class="grab" aria-label="Ray-marched cloud layer with a secondary march toward the sun"></canvas>
+        <div class="cap"><span id="c5-read">—</span><span id="c5-read2"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Clouds are fog with two upgrades. Their shape comes from <b>a noise pattern instead of a smooth blob</b>, and a cloud <b>casts shadow on itself</b>, so a point deep inside gets less sun than the edge. Both upgrades <b>multiply the work</b>: every step along your view ray now needs its own short march toward the sun.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The band between 9 m and 16 m is the cloud layer, shaped by noise. Your view ray marches through it, and at some of the steps you can see a second, shorter march of amber dots heading toward the sun to find out how much cloud is in the way.</p>
+        <p>The strip shows the steps: density, how much sun reaches each one, and the transmittance curve. The tiles turn the sample count into an estimated frame time.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Set sun steps M to 0. The clouds lose their shading and go flat, and the samples per pixel drop to N.</li>
+          <li>Switch the light term to Beer. The edges facing the sun brighten. Switch back to Beer-Powder and they darken with a brighter interior, which is what real clouds do.</li>
+          <li>Raise cost per sample to 200 ps and compare the two ms tiles. Drawing at quarter size and updating 1/16 of the pixels per frame is what makes clouds fit in a frame.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><label for="n5">View steps N <span class="val" id="n5v">48</span></label><input type="range" id="n5" min="16" max="128" step="8" value="48"></div>
+          <div class="ctl"><label for="m5">Sun steps M <span class="val" id="m5v">6</span></label><input type="range" id="m5" min="0" max="8" step="1" value="6"></div>
+          <div class="ctl"><label for="cov5">Coverage <span class="val" id="cov5v">0.55</span></label><input type="range" id="cov5" min="0.3" max="0.8" step="0.05" value="0.55"></div>
+          <div class="ctl"><label for="ps5">Cost per sample <span class="val" id="ps5v">40 ps</span></label><input type="range" id="ps5" min="10" max="200" step="10" value="40"></div>
+          <div class="ctl"><span class="lab">Light term</span><div class="seg" id="seg5" role="group" aria-label="Light attenuation model"><button data-v="beer">Beer</button><button data-v="powder" aria-pressed="true">Beer-Powder</button></div></div>
+        </div>
+        <div class="tiles">
+          <div class="tile on"><div class="n" id="t5a">—</div><div class="l">samples per pixel</div></div>
+          <div class="tile"><div class="n" id="t5b">—</div><div class="l">est. ms, 1080p every pixel</div></div>
+          <div class="tile"><div class="n" id="t5c">—</div><div class="l">est. ms, ¼ res + 1/16 per frame</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Density comes from a noise field, a texture of random-looking bumps at several scales, so every sample costs several texture reads. The sun term at each sample is another march of M steps, so a pixel costs N · (1 + M) samples. The tiles multiply that by the pixels in a 1080p frame and by a chosen cost per sample, which is why shipped clouds render at reduced resolution and update a fraction of the pixels each frame.</p>
+        <p>Beer-Lambert is the plain rule: light through material falls off as exp(−τ). It makes cloud edges brightest, since they have the least material between them and the sun. Real clouds show dark edges and a bright interior, because thin regions scatter light out of the view before it can bounce back. The "powder" term <code>1 − exp(−2τ)</code> fakes that with no extra samples.</p>
+        <p class="words">In words: for each step on the view ray, march a few steps toward the sun to see how much cloud blocks it, then add the lit cloud and dim the ray.</p>
+        <div class="math">Beer-Lambert:  E(τ) = exp(−τ),   τ = ∫ σ_t ds toward the sun (M samples)
+Beer-Powder:   E(τ) = 2 · exp(−τ) · (1 − exp(−2τ))
+samples per pixel = N · (1 + M);   ms ≈ pixels · samples · cost_per_sample</div>
+        <p>E(τ) is the sunlight reaching a sample after passing through optical depth τ, N the view steps, M the sun steps, and cost_per_sample the time for one density lookup.</p>
+        <p class="words">What this code does: a loop inside a loop, N steps along the view with M short steps toward the sun at each, and an early exit once the ray can't see any further.</p>
+<pre class="code"><span class="c">// nested march: N view samples, each with M samples toward the sun</span>
+<span class="k">float</span> T = 1.0; <span class="k">vec3</span> L = vec3(0.0);
+<span class="k">for</span> (int i = 0; i &lt; N; i++) {
+  vec3 p = ro + rd * t;
+  float rho = cloudDensity(p);              <span class="c">// shape noise × erosion noise × height profile</span>
+  <span class="k">if</span> (rho &gt; 0.0) {
+    float tau = 0.0;
+    <span class="k">for</span> (int k = 0; k &lt; M; k++)            <span class="c">// short march, coarser steps than the view ray</span>
+      tau += cloudDensity(p + sunDir * (float(k) + 0.5) * dsSun) * dsSun;
+    float E = 2.0 * exp(-tau) * (1.0 - exp(-2.0 * tau));  <span class="c">// Beer-Powder</span>
+    L += T * rho * E * sunColor * hg(dot(rd, sunDir), 0.3) * dt;
+    T *= exp(-rho * dt);
+    <span class="k">if</span> (T &lt; 0.01) <span class="k">break</span>;                 <span class="c">// stop early once the ray can't see any further</span>
+  }
+  t += dt;
+}</pre>
+        <p class="tldr">Clouds cost N times (1 + M) samples per pixel, which is why they are drawn small and spread over many frames.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">Five ways to draw fog, from cheapest to dearest.</p>
+    <div class="prose">
+      <p class="plain">Read down the rows. You are choosing between <b>cost</b> on one side and <b>whether the fog reacts to moving lights and casts shadows</b> on the other. Costs are estimates for a 1080p frame on a console-class GPU.</p>
+    </div>
+    <div class="tbl-wrap">
+    <table class="uses trade">
+      <thead><tr><th>Way of drawing fog</th><th>Cost (est.)</th><th>Memory</th><th>Reacts to moving lights</th><th>Shadows in the fog</th><th>Breaks when</th></tr></thead>
+      <tbody>
+        <tr><td>Height or distance fog by formula</td><td>&lt; 0.1 ms</td><td>none</td><td>no, one fixed colour</td><td>none</td><td>Any local light is on: the fog stays a flat tint while a spotlight sweeps through it.</td></tr>
+        <tr><td>God rays by smearing the screen (radial blur)</td><td>0.2–0.5 ms</td><td>one half-size screen buffer, about 2 MB</td><td>one light only</td><td>only what the depth buffer can see</td><td>The light leaves the screen or sits behind the camera: the shafts vanish or smear.</td></tr>
+        <tr><td>March every pixel</td><td>2–8 ms at half res, 16–64 steps</td><td>one half-size screen buffer</td><td>yes</td><td>shadow map lookup at every step</td><td>Too few steps: visible bands and noise, which then need dithering and a blur to hide.</td></tr>
+        <tr><td>Froxel grid</td><td>1–2 ms</td><td>7–16 MB per 3D texture, two or three of them</td><td>yes, a list of lights per cell</td><td>shadow map lookup once per cell</td><td>A thin shaft or a small light is smaller than one cell and gets lost; fast camera motion leaves ghost trails.</td></tr>
+        <tr><td>Marched clouds</td><td>2–6 ms at quarter res, spread over frames</td><td>noise textures, 8–20 MB</td><td>the sun only</td><td>a second short march per sample</td><td>The camera turns fast: last frame's result no longer lines up and the noise shows through.</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">Every row adds up the same lit fog; what differs is where the samples are taken and how many pixels share each one.</p>
+    <div class="prose">
+      <p class="plain">Each row is one technique from this page as a shipped engine or game used it. The middle columns say <b>what the GPU works out per pixel</b> and <b>what it has to keep in memory</b> to do that.</p>
+    </div>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Technique</th><th>What the GPU works out</th><th>Data it needs</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>Froxel grid</td><td>Fill each cell with lit fog, sweep each column front to back, then one filtered read per pixel.</td><td>Two or three RGBA16F 3D textures, a per-cell light list, shadow maps</td><td>Assassin's Creed IV: Black Flag (Wronski, SIGGRAPH 2014); Frostbite (Hillaire, SIGGRAPH 2015); Unreal Engine Volumetric Fog; Unity HDRP</td></tr>
+        <tr><td>Height fog by formula</td><td>One formula per pixel from the camera height, the ray direction and the distance to the surface.</td><td>d0, H, one fog colour, the depth buffer</td><td>Unreal's Exponential Height Fog, many engines</td></tr>
+        <tr><td>God rays by screen smear</td><td>Smear the bright sun pixels outward from the sun's spot on screen, blocked wherever something stands in front.</td><td>A half-size mask of what blocks the sun, the sun's position on screen</td><td>GPU Gems 3, ch. 13 (Mitchell, 2007); Crysis (2007)</td></tr>
+        <tr><td>Marched clouds</td><td>Two loops: N steps along the view, each with a short march toward the sun through 3D noise.</td><td>A coarse 128³ and a fine 32³ noise texture, a weather map, last frame's result</td><td>Horizon Zero Dawn (Schneider, SIGGRAPH 2015); Unreal Engine Volumetric Clouds</td></tr>
+        <tr><td>One glowing light cone</td><td>March only the pixels inside the box around that light, at reduced resolution.</td><td>The light's shadow map, a half-size glow buffer</td><td>Many engines before froxel grids became standard</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">Fog colour is not a tint. What you see in fog is light from the scene's lamps, so it is bright inside a spotlight cone, dark behind a wall, warm near a lamp and blue under the sky. A baked fog colour stays the same when a light moves, which is why formula fog looks wrong the moment a headlight sweeps through it, while froxel fog and marching work the colour out from the lights so it moves with them.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const VW = 512, VH = 384, SH = 128, PI = Math.PI;
+  const AMB = [242, 163, 65], BLU = [74, 163, 255], GND = [11, 14, 19], OCC = [120, 126, 136];
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  const tone = (v, k) => 1 - Math.exp(-k * v);
+  const fmtN = n => Math.round(n).toLocaleString("en-US");
+  const fmtB = b => b >= 1048576 ? (b / 1048576).toFixed(2) + " MB" : b >= 1024 ? (b / 1024).toFixed(1) + " KB" : b + " B";
+  const el = id => document.getElementById(id);
+  function hg(c, g) { const g2 = g * g; const d = Math.max(1e-6, 1 + g2 - 2 * g * c); return (1 - g2) / (4 * PI * d * Math.sqrt(d)); }
+  function halton(i, b) { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; }
+
+  // ---------- canvas helpers ----------
+  function fillImg(img, fn) {
+    const w = img.width, h = img.height, p = img.data;
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      const c = fn(i, j), o = (j * w + i) * 4;
+      p[o] = c[0]; p[o + 1] = c[1]; p[o + 2] = c[2]; p[o + 3] = 255;
+    }
+    return img;
+  }
+  const scratch = document.createElement("canvas");
+  function blit(ctx, img, x, y, w, h) {
+    scratch.width = img.width; scratch.height = img.height;
+    scratch.getContext("2d").putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(scratch, x, y, w, h);
+  }
+  function mixc(b, a, s) { return [clamp(GND[0] + BLU[0] * b + AMB[0] * a + (s || 0), 0, 255), clamp(GND[1] + BLU[1] * b + AMB[1] * a + (s || 0), 0, 255), clamp(GND[2] + BLU[2] * b + AMB[2] * a + (s || 0), 0, 255)]; }
+  function handle(ctx, x, y, r = 7, fill = "#ffffff") { ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * PI); ctx.fillStyle = fill; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b0e13"; ctx.stroke(); }
+  function ring(ctx, x, y, r, col, w = 1.5, dash) { ctx.save(); if (dash) ctx.setLineDash(dash); ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * PI); ctx.lineWidth = w; ctx.strokeStyle = col; ctx.stroke(); ctx.restore(); }
+  function line(ctx, x0, y0, x1, y1, col, w = 1, dash) { ctx.save(); if (dash) ctx.setLineDash(dash); ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); ctx.restore(); }
+  function text(ctx, s, x, y, col = "rgba(255,255,255,0.6)", align = "left", size = 10) { ctx.font = size + 'px "IBM Plex Mono", Menlo, Consolas, monospace'; ctx.fillStyle = col; ctx.textAlign = align; ctx.textBaseline = "middle"; ctx.fillText(s, x, y); }
+  function glow(ctx, x, y, r, col) { const g = ctx.createRadialGradient(x, y, 2, x, y, r); g.addColorStop(0, col); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r); }
+  function camIcon(ctx, x, y, ang, fov, len) {
+    line(ctx, x, y, x + Math.cos(ang - fov / 2) * len, y - Math.sin(ang - fov / 2) * len, "rgba(255,255,255,0.22)", 1, [3, 4]);
+    line(ctx, x, y, x + Math.cos(ang + fov / 2) * len, y - Math.sin(ang + fov / 2) * len, "rgba(255,255,255,0.22)", 1, [3, 4]);
+    ctx.beginPath(); ctx.moveTo(x - 6, y - 6); ctx.lineTo(x + 7, y); ctx.lineTo(x - 6, y + 6); ctx.closePath(); ctx.fillStyle = "#ffffff"; ctx.fill();
+  }
+  function pxOf(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width * canvas.width, (ev.clientY - r.top) / r.height * canvas.height]; }
+  function drag(canvas, getHandles, onMove, onHover) {
+    let active = -1;
+    canvas.addEventListener("pointerdown", ev => {
+      const [x, y] = pxOf(canvas, ev); const hs = getHandles(); let best = -1, bd = 18;
+      hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
+      if (best >= 0) { active = best; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); }
+      else if (onHover) onHover(x, y);
+    });
+    canvas.addEventListener("pointermove", ev => {
+      const [x, y] = pxOf(canvas, ev);
+      if (active >= 0) onMove(active, clamp(x, 4, VW - 4), clamp(y, 4, VH - 4));
+      else if (onHover) onHover(x, y);
+    });
+    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
+  }
+  function raf(fn) { let pend = false; return () => { if (pend) return; pend = true; requestAnimationFrame(() => { pend = false; fn(); }); }; }
+  function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
+  function onSeg(id, fn) { const s = el(id); s.addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; segOn(s, b.dataset.v); fn(b.dataset.v); }); }
+  function onRange(id, fmt, fn) { const r = el(id), v = el(id + "v"); const upd = () => { v.textContent = fmt(+r.value); }; r.addEventListener("input", () => { upd(); fn(+r.value); }); upd(); return r; }
+  // per-lane trace strip below the scene
+  function strip(ctx, lanes, title) {
+    ctx.fillStyle = "#0b0e13"; ctx.fillRect(0, VH, VW, SH);
+    line(ctx, 0, VH + 0.5, VW, VH + 0.5, "rgba(255,255,255,0.2)");
+    const X0 = 48, X1 = 500, top = VH + (title ? 14 : 2), LH = (SH - (title ? 16 : 4)) / lanes.length;
+    if (title) text(ctx, title, X0, VH + 8, "rgba(255,255,255,0.45)");
+    lanes.forEach((ln, k) => {
+      const y0 = top + k * LH + 3, y1 = top + (k + 1) * LH - 3;
+      text(ctx, ln.l, 6, (y0 + y1) / 2, "rgba(255,255,255,0.6)");
+      line(ctx, X0, y1 + 0.5, X1, y1 + 0.5, "rgba(255,255,255,0.12)");
+      const n = ln.v.length, mx = ln.max || 1;
+      if (ln.kind === "bar") {
+        const bw = (X1 - X0) / n;
+        for (let i = 0; i < n; i++) {
+          const v = ln.v[i];
+          if (v < 0) { ctx.fillStyle = "rgba(239,93,93,0.85)"; ctx.fillRect(X0 + i * bw, y1 - 3, Math.max(1, bw - 1), 3); continue; }
+          const h = clamp(v / mx, 0, 1) * (y1 - y0); ctx.fillStyle = ln.col; ctx.fillRect(X0 + i * bw, y1 - h, Math.max(1, bw - 1), h);
+        }
+      } else {
+        ctx.beginPath();
+        for (let i = 0; i < n; i++) { const x = X0 + (i + 0.5) / n * (X1 - X0), y = y1 - clamp(ln.v[i] / mx, 0, 1) * (y1 - y0); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+        ctx.strokeStyle = ln.col; ctx.lineWidth = 1.5; ctx.stroke();
+      }
+    });
+  }
+  // rects [x, y, w, h] in world metres; nearest hit distance along a ray, or Infinity
+  function rayRects(ox, oy, dx, dy, rects) {
+    let best = Infinity; const ix = 1 / (dx || 1e-9), iy = 1 / (dy || 1e-9);
+    for (const [x, y, w, h] of rects) {
+      let t0 = (x - ox) * ix, t1 = (x + w - ox) * ix; if (t0 > t1) { const s = t0; t0 = t1; t1 = s; }
+      let s0 = (y - oy) * iy, s1 = (y + h - oy) * iy; if (s0 > s1) { const s = s0; s0 = s1; s1 = s; }
+      const tn = Math.max(t0, s0), tf = Math.min(t1, s1);
+      if (tf >= tn && tf > 0) { const t = tn > 0 ? tn : 0; if (t < best) best = t; }
+    }
+    return best;
+  }
+  function inRects(x, y, rects) { for (const [rx, ry, w, h] of rects) if (x >= rx && x <= rx + w && y >= ry && y <= ry + h) return true; return false; }
+  function exitT(ox, oy, dx, dy, w, h) {
+    let t = Infinity;
+    if (dx > 0) t = Math.min(t, (w - ox) / dx); else if (dx < 0) t = Math.min(t, -ox / dx);
+    if (dy > 0) t = Math.min(t, (h - oy) / dy); else if (dy < 0) t = Math.min(t, -oy / dy);
+    return Math.max(0, t);
+  }
+
+  // ---------- scene A: 20 m × 15 m, shared by demos 1 to 3 ----------
+  const SC = { w: 20, h: 15, ppm: 25.6 };
+  const A = {
+    rects: [[7, 0, 1, 7], [11.5, 0, 1.5, 4.5], [9.2, 9.6, 1.6, 1.3]],
+    cam: [1.5, 5.5], fov: 70 * PI / 180, light: [13, 14], aim: [10, 1],
+    blob: [5, 10], blobK: 0.3, blobR: 2.4, uni: 0.02, d0: 0.15, H: 3, albedo: 0.9, I: 110, g: 0.3,
+    cosO: Math.cos(30 * PI / 180), cosI: Math.cos(20 * PI / 180)
+  };
+  const toPx = (x, y) => [x * SC.ppm, VH - y * SC.ppm];
+  const toW = (px, py) => [px / SC.ppm, (VH - py) / SC.ppm];
+  function densA(x, y) { const dx = x - A.blob[0], dy = y - A.blob[1]; return A.uni + A.d0 * Math.exp(-y / A.H) + A.blobK * Math.exp(-(dx * dx + dy * dy) / (A.blobR * A.blobR * 0.5)); }
+  function lightA(x, y, L, aim, cone) {
+    const dx = x - L[0], dy = y - L[1], d2 = dx * dx + dy * dy, d = Math.sqrt(d2) || 1e-6;
+    let f = A.I / (d2 + 1);
+    if (cone) { const ax = aim[0] - L[0], ay = aim[1] - L[1], al = Math.hypot(ax, ay) || 1; f *= smooth(A.cosO, A.cosI, (dx * ax + dy * ay) / (d * al)); }
+    return f;
+  }
+  function visA(x, y, L) { const dx = L[0] - x, dy = L[1] - y, len = Math.hypot(dx, dy) || 1e-6; return rayRects(x, y, dx / len, dy / len, A.rects) < len ? 0 : 1; }
+  // [density, source term σ_s ρ p Li V, visibility, phase]
+  function srcA(x, y, cam, L, aim, cone, g) {
+    const rho = densA(x, y); const Li = lightA(x, y, L, aim, cone);
+    if (Li < 1e-4) return [rho, 0, 1, 0, 0];
+    const V = visA(x, y, L);
+    const lx = x - L[0], ly = y - L[1], ll = Math.hypot(lx, ly) || 1e-6;
+    const ox = cam[0] - x, oy = cam[1] - y, ol = Math.hypot(ox, oy) || 1e-6;
+    const ph = hg((lx * ox + ly * oy) / (ll * ol), g);
+    return [rho, A.albedo * rho * ph * Li * V, V, ph, Li];
+  }
+  function fieldA(cam, L, aim, cone, g) {
+    const img = new ImageData(128, 96);
+    return fillImg(img, (i, j) => {
+      const x = (i + 0.5) / 128 * SC.w, y = SC.h - (j + 0.5) / 96 * SC.h;
+      if (inRects(x, y, A.rects)) return OCC;
+      const r = srcA(x, y, cam, L, aim, cone, g);
+      return mixc(tone(r[0], 3) * 0.7, tone(r[1], 35));
+    });
+  }
+  function marchA(ox, oy, dx, dy, N, cam, L, aim, cone, g) {
+    const tmax = Math.min(rayRects(ox, oy, dx, dy, A.rects), exitT(ox, oy, dx, dy, SC.w, SC.h)), dt = tmax / N;
+    let T = 1, Lc = 0, shadowed = 0;
+    const rho = new Float32Array(N), vis = new Float32Array(N), src = new Float32Array(N), Ts = new Float32Array(N), Ls = new Float32Array(N), pts = [];
+    for (let i = 0; i < N; i++) {
+      const t = (i + 0.5) * dt, x = ox + dx * t, y = oy + dy * t;
+      const r = srcA(x, y, cam, L, aim, cone, g);
+      const st = Math.exp(-r[0] * dt);
+      Lc += T * r[1] * (1 - st) / Math.max(r[0], 1e-6); T *= st;
+      rho[i] = r[0]; src[i] = r[1]; Ts[i] = T; Ls[i] = Lc; pts.push([x, y]);
+      if (r[4] < 1e-4) vis[i] = 0; else if (r[2]) vis[i] = r[4]; else { vis[i] = -1; shadowed++; }
+    }
+    return { tmax, dt, T, L: Lc, rho, vis, src, Ts, Ls, pts, shadowed };
+  }
+  function drawRects(ctx) { ctx.fillStyle = "#787e88"; for (const [x, y, w, h] of A.rects) { const [px, py] = toPx(x, y + h); ctx.fillRect(px, py, w * SC.ppm, h * SC.ppm); } }
+  function drawCone(ctx, L, aim) {
+    const [lx, ly] = toPx(L[0], L[1]); const ang = Math.atan2(aim[1] - L[1], aim[0] - L[0]);
+    for (const s of [-1, 1]) { const a = ang + s * 30 * PI / 180; line(ctx, lx, ly, lx + Math.cos(a) * 900, ly - Math.sin(a) * 900, "rgba(242,163,65,0.35)", 1, [4, 5]); }
+    line(ctx, lx, ly, ...toPx(aim[0], aim[1]), "rgba(242,163,65,0.25)", 1, [2, 6]);
+  }
+  function lightHandle(ctx, L) { const [lx, ly] = toPx(L[0], L[1]); glow(ctx, lx, ly, 34, "rgba(255,225,170,0.85)"); handle(ctx, lx, ly, 8, "#f2a341"); }
+
+  // ---------- 1. single scattering ----------
+  const c1 = el("c1"), x1 = c1.getContext("2d");
+  const S1 = { N: 48, hover: [18, 12] };
+  let field1 = null, dirty1 = true;
+  function draw1() {
+    if (dirty1) { field1 = fieldA(A.cam, A.light, A.aim, true, A.g); dirty1 = false; }
+    blit(x1, field1, 0, 0, VW, VH);
+    drawCone(x1, A.light, A.aim);
+    const [cx, cy] = toPx(A.cam[0], A.cam[1]);
+    camIcon(x1, cx, cy, 0, A.fov, 900);
+    let ang = Math.atan2(S1.hover[1] - A.cam[1], S1.hover[0] - A.cam[0]); ang = clamp(ang, -A.fov / 2 + 1e-3, A.fov / 2 - 1e-3);
+    const dx = Math.cos(ang), dy = Math.sin(ang);
+    const m = marchA(A.cam[0], A.cam[1], dx, dy, S1.N, A.cam, A.light, A.aim, true, A.g);
+    // the camera's 1D image, 64 rows
+    const ROWS = 64, sy = 40, sh = 304 / ROWS, row = Math.floor((A.fov / 2 - ang) / A.fov * ROWS);
+    for (let r = 0; r < ROWS; r++) {
+      const a = A.fov / 2 - (r + 0.5) / ROWS * A.fov;
+      const mr = marchA(A.cam[0], A.cam[1], Math.cos(a), Math.sin(a), 32, A.cam, A.light, A.aim, true, A.g);
+      const v = tone(mr.L, 25); x1.fillStyle = `rgb(${Math.round(11 + 231 * v)},${Math.round(14 + 149 * v)},${Math.round(19 + 46 * v)})`;
+      x1.fillRect(4, sy + r * sh, 10, sh + 0.5);
+    }
+    x1.strokeStyle = "rgba(255,255,255,0.35)"; x1.lineWidth = 1; x1.strokeRect(3.5, sy - 0.5, 11, 305);
+    x1.fillStyle = "#fff"; x1.fillRect(15, sy + row * sh, 4, sh);
+    // hovered ray
+    const [ex, ey] = toPx(A.cam[0] + dx * m.tmax, A.cam[1] + dy * m.tmax);
+    line(x1, cx, cy, ex, ey, "rgba(255,255,255,0.9)", 1.5);
+    const [lx, ly] = toPx(A.light[0], A.light[1]);
+    m.pts.forEach((p, i) => {
+      const [px, py] = toPx(p[0], p[1]);
+      if (m.vis[i] !== 0) { let sx = lx - px, syy = ly - py; const sl = Math.hypot(sx, syy) || 1; sx /= sl; syy /= sl; line(x1, px, py, px + sx * 9, py + syy * 9, m.vis[i] < 0 ? "#ef5d5d" : "#f2a341", 1.5); }
+      x1.beginPath(); x1.arc(px, py, 2, 0, 2 * PI); x1.fillStyle = `rgba(255,255,255,${0.3 + 0.7 * m.Ts[i]})`; x1.fill();
+    });
+    drawRects(x1);
+    // handles
+    const [bx, by] = toPx(A.blob[0], A.blob[1]);
+    ring(x1, bx, by, A.blobR * SC.ppm, "rgba(74,163,255,0.5)", 1, [3, 4]); handle(x1, bx, by, 6, "#4aa3ff");
+    handle(x1, ...toPx(A.aim[0], A.aim[1]), 5, "#f2a341");
+    lightHandle(x1, A.light);
+    text(x1, "camera image", 24, sy + 152, "rgba(255,255,255,0.45)");
+    strip(x1, [
+      { l: "ρ /m", kind: "bar", v: m.rho, max: 0.5, col: "#4aa3ff" },
+      { l: "V·Lᵢ", kind: "bar", v: m.vis, max: 3, col: "#f2a341" },
+      { l: "T", kind: "line", v: m.Ts, max: 1, col: "#ffffff" },
+      { l: "ΣL", kind: "line", v: m.Ls, max: 0.1, col: "#f2a341" }
+    ], `ray ${m.tmax.toFixed(1)} m · ${S1.N} steps of ${m.dt.toFixed(2)} m · g = ${A.g}`);
+    el("c1-read").innerHTML = `row ${row + 1}/64 · Δt <strong>${m.dt.toFixed(2)} m</strong> · T(D) = <strong>${m.T.toFixed(3)}</strong> · L = <strong>${m.L.toFixed(3)}</strong>`;
+    el("c1-read2").textContent = `${m.shadowed} of ${S1.N} steps shadowed`;
+  }
+  const req1 = raf(draw1);
+  drag(c1, () => [toPx(A.light[0], A.light[1]), toPx(A.aim[0], A.aim[1]), toPx(A.blob[0], A.blob[1])],
+    (i, x, y) => { const w = toW(x, y); (i === 0 ? A.light : i === 1 ? A.aim : A.blob).splice(0, 2, w[0], w[1]); dirty1 = dirty3 = true; req1(); req3(); },
+    (x, y) => { if (y < VH) { S1.hover = toW(x, y); req1(); } });
+  onRange("steps1", v => String(v), v => { S1.N = v; req1(); });
+  onRange("blob1", v => v.toFixed(2) + " /m", v => { A.blobK = v; dirty1 = dirty3 = true; req1(); req3(); });
+
+  // ---------- 2. phase functions ----------
+  const c2a = el("c2a"), x2a = c2a.getContext("2d"), c2b = el("c2b"), x2b = c2b.getContext("2d");
+  const S2 = { g: 0.7, phi: 0.62, cam: [3, 3.5], light: [15, 10.5], fov: 120 * PI / 180 };
+  const PR = 196, PC = [256, 256];
+  const rlog = p => clamp((Math.log10(Math.max(p, 1e-9)) + 3) / (Math.log10(20) + 3), 0, 1) * PR;
+  let field2 = null, dirty2 = true;
+  function lobe(g, lx, ly, col, w) {
+    x2a.beginPath();
+    for (let k = 0; k <= 180; k++) {
+      const ps = k / 180 * 2 * PI, ox = Math.cos(ps), oy = -Math.sin(ps); // outgoing direction, canvas space
+      const r = rlog(hg(lx * ox + ly * oy, g));
+      const X = PC[0] + ox * r, Y = PC[1] + oy * r; k ? x2a.lineTo(X, Y) : x2a.moveTo(X, Y);
+    }
+    x2a.closePath(); x2a.strokeStyle = col; x2a.lineWidth = w; x2a.stroke();
+  }
+  function draw2a() {
+    x2a.fillStyle = "#0b0e13"; x2a.fillRect(0, 0, 512, 512);
+    for (const e of [-2, -1, 0, 1]) { const r = rlog(Math.pow(10, e)); ring(x2a, PC[0], PC[1], r, "rgba(255,255,255,0.12)"); text(x2a, (e < 0 ? "10^" + e : e === 0 ? "1" : "10") + " sr⁻¹", PC[0] + 3, PC[1] - r - 7, "rgba(255,255,255,0.4)"); }
+    ring(x2a, PC[0], PC[1], PR, "rgba(255,255,255,0.25)");
+    // light propagation direction: from the handle on the ring into the centre
+    const hx = PC[0] + Math.cos(S2.phi) * PR, hy = PC[1] - Math.sin(S2.phi) * PR;
+    const lx = (PC[0] - hx) / PR, ly = (PC[1] - hy) / PR;
+    const refs = [[-0.5, "rgba(74,163,255,0.55)"], [0, "rgba(255,255,255,0.4)"], [0.5, "rgba(255,255,255,0.3)"], [0.9, "rgba(255,255,255,0.22)"]];
+    for (const [g, col] of refs) lobe(g, lx, ly, col, 1);
+    lobe(S2.g, lx, ly, "#f2a341", 2.5);
+    // camera at the left, outgoing direction (-1, 0)
+    line(x2a, PC[0], PC[1], 40, PC[1], "rgba(255,255,255,0.5)", 1, [3, 4]);
+    camIcon(x2a, 46, PC[1], PI, 0.001, 0);
+    text(x2a, "to camera", 30, PC[1] + 16, "rgba(255,255,255,0.5)");
+    line(x2a, hx, hy, PC[0], PC[1], "#f2a341", 1.5);
+    const cosT = -lx; // dot(ω_light, ω_out) with ω_out = (-1, 0)
+    const p = hg(cosT, S2.g), r = rlog(p);
+    handle(x2a, PC[0] - r, PC[1], 5, "#ffffff");
+    handle(x2a, hx, hy, 8, "#f2a341"); text(x2a, "light", hx, hy - 16, "rgba(255,255,255,0.7)", "center");
+    handle(x2a, PC[0], PC[1], 3, "#ffffff");
+    const theta = Math.acos(clamp(cosT, -1, 1)) * 180 / PI;
+    el("c2a-read").innerHTML = `θ = <strong>${theta.toFixed(0)}°</strong> · p(θ) = <strong>${p.toFixed(4)} sr⁻¹</strong> at g = ${S2.g.toFixed(2)}`;
+    [["t2a", -0.5], ["t2b", 0], ["t2c", 0.5], ["t2d", 0.9]].forEach(([id, g]) => { el(id).textContent = hg(cosT, g).toFixed(4); });
+    text(x2a, `amber: g = ${S2.g.toFixed(2)}`, 12, 16, "#f2a341", "left", 11);
+    text(x2a, "blue: g = −0.5 · white: g = 0, 0.5, 0.9", 12, 32, "rgba(255,255,255,0.5)", "left", 11);
+    text(x2a, "θ = " + theta.toFixed(0) + "°", PC[0] - r - 8, PC[1] - 14, "rgba(255,255,255,0.8)", "right", 11);
+  }
+  function draw2b() {
+    if (dirty2) { field2 = fieldA(S2.cam, S2.light, S2.light, false, S2.g); dirty2 = false; }
+    blit(x2b, field2, 0, 0, VW, VH);
+    const [cx, cy] = toPx(S2.cam[0], S2.cam[1]);
+    const ang = Math.atan2(S2.light[1] - S2.cam[1], S2.light[0] - S2.cam[0]);
+    camIcon(x2b, cx, cy, ang, S2.fov, 900);
+    drawRects(x2b);
+    // 96-pixel camera image along the bottom strip
+    const COLS = 96, vals = new Float32Array(COLS); let peak = 0, peakI = 0;
+    for (let c = 0; c < COLS; c++) {
+      const a = ang + S2.fov / 2 - (c + 0.5) / COLS * S2.fov;
+      const mr = marchA(S2.cam[0], S2.cam[1], Math.cos(a), Math.sin(a), 32, S2.cam, S2.light, S2.light, false, S2.g);
+      vals[c] = mr.L; if (mr.L > peak) { peak = mr.L; peakI = c; }
+    }
+    x2b.fillStyle = "#0b0e13"; x2b.fillRect(0, VH, VW, SH); line(x2b, 0, VH + 0.5, VW, VH + 0.5, "rgba(255,255,255,0.2)");
+    text(x2b, `camera image, ${COLS} px, g = ${S2.g.toFixed(2)} · centre column looks at the light`, 16, VH + 14, "rgba(255,255,255,0.5)");
+    const bw = 480 / COLS;
+    for (let c = 0; c < COLS; c++) { const v = tone(vals[c], 25); x2b.fillStyle = `rgb(${Math.round(11 + 231 * v)},${Math.round(14 + 149 * v)},${Math.round(19 + 46 * v)})`; x2b.fillRect(16 + c * bw, VH + 28, bw + 0.5, 44); }
+    x2b.strokeStyle = "rgba(255,255,255,0.35)"; x2b.strokeRect(15.5, VH + 27.5, 481, 45);
+    line(x2b, 256, VH + 74, 256, VH + 82, "#fff", 1);
+    x2b.beginPath();
+    for (let c = 0; c < COLS; c++) { const x = 16 + (c + 0.5) * bw, y = VH + 122 - clamp(vals[c] / 0.1, 0, 1) * 34; c ? x2b.lineTo(x, y) : x2b.moveTo(x, y); }
+    x2b.strokeStyle = "#f2a341"; x2b.lineWidth = 1.5; x2b.stroke();
+    text(x2b, "L per column, 0 … 0.1", 16, VH + 92, "rgba(255,255,255,0.4)");
+    handle(x2b, cx, cy, 7, "#ffffff");
+    const [lx, ly] = toPx(S2.light[0], S2.light[1]); glow(x2b, lx, ly, 34, "rgba(255,225,170,0.85)"); handle(x2b, lx, ly, 8, "#f2a341");
+    el("c2b-read").innerHTML = `centre column L = <strong>${vals[COLS >> 1].toFixed(3)}</strong> · edge column L = <strong>${vals[0].toFixed(3)}</strong> · ratio ${(vals[COLS >> 1] / Math.max(1e-4, vals[0])).toFixed(1)}×`;
+  }
+  const req2a = raf(draw2a), req2b = raf(draw2b);
+  drag(c2a, () => [[PC[0] + Math.cos(S2.phi) * PR, PC[1] - Math.sin(S2.phi) * PR]], (i, x, y) => { S2.phi = Math.atan2(PC[1] - y, x - PC[0]); req2a(); });
+  drag(c2b, () => [toPx(S2.cam[0], S2.cam[1]), toPx(S2.light[0], S2.light[1])], (i, x, y) => { const w = toW(x, y); (i === 0 ? S2.cam : S2.light).splice(0, 2, w[0], w[1]); dirty2 = true; req2b(); });
+  onRange("g2", v => v.toFixed(2), v => { S2.g = v; dirty2 = true; req2a(); req2b(); });
+
+  // ---------- 3. froxels ----------
+  const c3 = el("c3"), x3 = c3.getContext("2d");
+  const F = { cam: [1, 7.5], fov: 64 * PI / 180, n: 0.5, f: 16, NX: 32, NZ: 64, mode: "integrated", samp: "nearest", jitter: false, frame: 0, hover: [11, 6.5] };
+  const G = { N: 0, scat: null, ext: null, hs: null, he: null, L: null, T: null };
+  let dirty3 = true;
+  function alloc3() { const N = F.NX * F.NZ; if (G.N === N) return; G.N = N; for (const k of ["scat", "ext", "hs", "he", "L", "T"]) G[k] = new Float32Array(N); F.frame = 0; }
+  function inject3(jx, jy) {
+    alloc3(); const { NX, NZ, n, f, fov, cam } = F, lr = Math.log(f / n);
+    for (let i = 0; i < NX; i++) {
+      const a = -fov / 2 + (i + jx) / NX * fov, ta = Math.tan(a);
+      for (let j = 0; j < NZ; j++) {
+        const z = n * Math.exp((j + jy) / NZ * lr), x = cam[0] + z, y = cam[1] + z * ta, k = i * NZ + j;
+        if (x < 0 || x > SC.w || y < 0 || y > SC.h) { G.scat[k] = 0; G.ext[k] = A.uni; continue; }
+        const r = srcA(x, y, cam, A.light, A.aim, true, A.g); G.scat[k] = r[1]; G.ext[k] = r[0];
+      }
+    }
+    const blend = F.jitter && F.frame > 0 ? 0.08 : 1;
+    for (let k = 0; k < G.N; k++) { G.hs[k] += (G.scat[k] - G.hs[k]) * blend; G.he[k] += (G.ext[k] - G.he[k]) * blend; }
+  }
+  function integrate3() {
+    const { NX, NZ, n, f, fov } = F, lr = Math.log(f / n);
+    for (let i = 0; i < NX; i++) {
+      const a = -fov / 2 + (i + 0.5) / NX * fov, inv = 1 / Math.cos(a); let T = 1, L = 0;
+      for (let j = 0; j < NZ; j++) {
+        const z0 = n * Math.exp(j / NZ * lr), z1 = n * Math.exp((j + 1) / NZ * lr), ds = (z1 - z0) * inv, k = i * NZ + j;
+        const e = Math.max(G.he[k], 1e-6), st = Math.exp(-e * ds);
+        L += T * G.hs[k] * (1 - st) / e; T *= st; G.L[k] = L; G.T[k] = T;
+      }
+    }
+  }
+  function sample3(arr, u, v) {
+    const { NX, NZ } = F;
+    if (F.samp === "nearest") return arr[clamp(Math.floor(u), 0, NX - 1) * NZ + clamp(Math.floor(v), 0, NZ - 1)];
+    const uu = clamp(u - 0.5, 0, NX - 1), vv = clamp(v - 0.5, 0, NZ - 1), i0 = Math.floor(uu), j0 = Math.floor(vv), i1 = Math.min(i0 + 1, NX - 1), j1 = Math.min(j0 + 1, NZ - 1), fu = uu - i0, fv = vv - j0;
+    return (arr[i0 * NZ + j0] * (1 - fu) + arr[i1 * NZ + j0] * fu) * (1 - fv) + (arr[i0 * NZ + j1] * (1 - fu) + arr[i1 * NZ + j1] * fu) * fv;
+  }
+  const img3 = new ImageData(256, 192);
+  function froxelOf(x, y) { // world -> [u, v] fractional froxel coords, or null when outside the frustum
+    const z = x - F.cam[0]; if (z < F.n || z > F.f) return null;
+    const a = Math.atan2(y - F.cam[1], z); if (Math.abs(a) > F.fov / 2) return null;
+    return [(a + F.fov / 2) / F.fov * F.NX, Math.log(z / F.n) / Math.log(F.f / F.n) * F.NZ, z];
+  }
+  function draw3() {
+    if (dirty3) { inject3(0.5, 0.5); integrate3(); dirty3 = false; }
+    const arr = F.mode === "injected" ? G.hs : F.mode === "T" ? G.T : G.L;
+    fillImg(img3, (i, j) => {
+      const x = (i + 0.5) / 256 * SC.w, y = SC.h - (j + 0.5) / 192 * SC.h;
+      if (inRects(x, y, A.rects)) return OCC;
+      const fr = froxelOf(x, y);
+      if (!fr) return mixc(tone(densA(x, y), 2.2) * 0.3, 0);
+      const v = sample3(arr, fr[0], fr[1]);
+      if (F.mode === "injected") return mixc(0, tone(v, 35), 10);
+      if (F.mode === "T") { const w = 14 + 226 * v; return [w, w, w]; }
+      return mixc(0, tone(v, 25), 10);
+    });
+    blit(x3, img3, 0, 0, VW, VH);
+    drawCone(x3, A.light, A.aim);
+    const [cx, cy] = toPx(F.cam[0], F.cam[1]);
+    camIcon(x3, cx, cy, 0, F.fov, 900);
+    // near and far planes
+    for (const z of [F.n, F.f]) { const hh = z * Math.tan(F.fov / 2); line(x3, ...toPx(F.cam[0] + z, F.cam[1] - hh), ...toPx(F.cam[0] + z, F.cam[1] + hh), "rgba(255,255,255,0.3)", 1); }
+    const bx = toPx(A.blob[0], A.blob[1]); ring(x3, bx[0], bx[1], A.blobR * SC.ppm, "rgba(74,163,255,0.4)", 1, [3, 4]);
+    lightHandle(x3, A.light);
+    // hovered froxel
+    const fr = froxelOf(F.hover[0], F.hover[1]);
+    let sliceI = Math.floor(F.NX / 2), readout = "hover inside the frustum";
+    if (fr) {
+      const i = clamp(Math.floor(fr[0]), 0, F.NX - 1), j = clamp(Math.floor(fr[1]), 0, F.NZ - 1), lr = Math.log(F.f / F.n); sliceI = i;
+      const a0 = -F.fov / 2 + i / F.NX * F.fov, a1 = a0 + F.fov / F.NX, z0 = F.n * Math.exp(j / F.NZ * lr), z1 = F.n * Math.exp((j + 1) / F.NZ * lr);
+      x3.beginPath();
+      [[z0, a0], [z1, a0], [z1, a1], [z0, a1]].forEach(([z, a], q) => { const p = toPx(F.cam[0] + z, F.cam[1] + z * Math.tan(a)); q ? x3.lineTo(p[0], p[1]) : x3.moveTo(p[0], p[1]); });
+      x3.closePath(); x3.strokeStyle = "#ffffff"; x3.lineWidth = 1.5; x3.stroke();
+      const k = i * F.NZ + j;
+      readout = `froxel (${i}, ${j}) · z ${z0.toFixed(2)}–${z1.toFixed(2)} m · T = <strong>${G.T[k].toFixed(3)}</strong> · L = <strong>${G.L[k].toFixed(3)}</strong> → colour·${G.T[k].toFixed(2)} + ${G.L[k].toFixed(3)}`;
+    }
+    const sS = G.hs.subarray(sliceI * F.NZ, (sliceI + 1) * F.NZ), sT = G.T.subarray(sliceI * F.NZ, (sliceI + 1) * F.NZ), sL = G.L.subarray(sliceI * F.NZ, (sliceI + 1) * F.NZ);
+    strip(x3, [
+      { l: "inject", kind: "bar", v: sS, max: 0.04, col: "#f2a341" },
+      { l: "T", kind: "line", v: sT, max: 1, col: "#ffffff" },
+      { l: "ΣL", kind: "line", v: sL, max: 0.1, col: "#f2a341" }
+    ], `column ${sliceI} of ${F.NX} · ${F.NZ} depth slices, z = 0.5 → 16 m (log)`);
+    const count = F.NX * F.NZ;
+    el("c3-read").innerHTML = `${F.NX} × ${F.NZ} = <strong>${fmtN(count)}</strong> froxels · ${fmtB(count * 8)} as RGBA16F${F.jitter ? " · frame " + F.frame : ""}`;
+    el("c3-read2").innerHTML = readout;
+    el("m3a").textContent = fmtN(count); el("m3b").textContent = fmtB(count * 8);
+    const c3d = 240 * 135 * F.NZ; el("m3z").textContent = F.NZ; el("m3c").textContent = fmtN(c3d); el("m3d").textContent = fmtB(c3d * 8); el("m3e").textContent = (c3d / 2073600).toFixed(2);
+  }
+  const req3 = raf(draw3);
+  function loop3() {
+    if (!F.jitter) return;
+    F.frame++; inject3(halton(F.frame, 2), halton(F.frame, 3)); integrate3(); dirty3 = false; draw3();
+    requestAnimationFrame(loop3);
+  }
+  drag(c3, () => [toPx(A.light[0], A.light[1])], (i, x, y) => { const w = toW(x, y); A.light.splice(0, 2, w[0], w[1]); dirty1 = dirty3 = true; req1(); req3(); }, (x, y) => { if (y < VH) { F.hover = toW(x, y); req3(); } });
+  onRange("nx3", v => String(v), v => { F.NX = v; F.frame = 0; dirty3 = true; req3(); });
+  onRange("nz3", v => String(v), v => { F.NZ = v; F.frame = 0; dirty3 = true; req3(); });
+  onSeg("seg3m", v => { F.mode = v; req3(); });
+  onSeg("seg3s", v => { F.samp = v; req3(); });
+  el("jit3").addEventListener("change", ev => { F.jitter = ev.target.checked; F.frame = 0; if (F.jitter) loop3(); else { dirty3 = true; req3(); } });
+
+  // ---------- 4. height fog ----------
+  const c4 = el("c4"), x4 = c4.getContext("2d");
+  const D4 = { w: 30, h: 22.5, ppm: 512 / 30, rects: [[18, 0, 1.5, 7], [25, 0, 2, 4]], cam: [3, 6], aim: [27, 1.5], d0: 0.12, H: 6, N: 12, dist: false, fov: 60 * PI / 180 };
+  const toPx4 = (x, y) => [x * D4.ppm, VH - y * D4.ppm], toW4 = (px, py) => [px / D4.ppm, (VH - py) / D4.ppm];
+  const dens4 = y => D4.dist ? D4.d0 : D4.d0 * Math.exp(-y / D4.H);
+  function tau4(h0, dy, D) { if (D4.dist) return D4.d0 * D; const base = D4.d0 * Math.exp(-h0 / D4.H), k = dy / D4.H; return Math.abs(k) < 1e-5 ? base * D : base * (1 - Math.exp(-k * D)) / k; }
+  function rayEnd4(ox, oy, dx, dy) { return Math.min(rayRects(ox, oy, dx, dy, D4.rects), exitT(ox, oy, dx, dy, D4.w, D4.h)); }
+  const img4 = new ImageData(128, 96); let field4dirty = true;
+  function draw4() {
+    if (field4dirty) {
+      fillImg(img4, (i, j) => { const x = (i + 0.5) / 128 * D4.w, y = D4.h - (j + 0.5) / 96 * D4.h; if (inRects(x, y, D4.rects)) return OCC; return mixc(tone(dens4(y), 3.5) * 0.7, 0); });
+      field4dirty = false;
+    }
+    blit(x4, img4, 0, 0, VW, VH);
+    line(x4, 0, VH - 0.5, VW, VH - 0.5, "rgba(255,255,255,0.35)", 1);
+    const [cx, cy] = toPx4(D4.cam[0], D4.cam[1]);
+    let dx = D4.aim[0] - D4.cam[0], dy = D4.aim[1] - D4.cam[1]; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+    const ang = Math.atan2(dy, dx);
+    camIcon(x4, cx, cy, ang, D4.fov, 900);
+    const D = rayEnd4(D4.cam[0], D4.cam[1], dx, dy);
+    const ta = tau4(D4.cam[1], dy, D);
+    const N = D4.N, dt = D / N, rho = new Float32Array(N), Tn = new Float32Array(N), Ta = new Float32Array(96);
+    let tn = 0;
+    for (let i = 0; i < N; i++) { const t = (i + 0.5) * dt; rho[i] = dens4(D4.cam[1] + dy * t); tn += rho[i] * dt; Tn[i] = Math.exp(-tn); }
+    for (let i = 0; i < 96; i++) Ta[i] = Math.exp(-tau4(D4.cam[1], dy, (i + 0.5) / 96 * D));
+    // the camera's 1D image: analytic fog on every row
+    const ROWS = 64, sy = 40, sh = 304 / ROWS;
+    for (let r = 0; r < ROWS; r++) {
+      const a = ang + D4.fov / 2 - (r + 0.5) / ROWS * D4.fov, rdx = Math.cos(a), rdy = Math.sin(a);
+      const Dr = rayEnd4(D4.cam[0], D4.cam[1], rdx, rdy), hitRect = rayRects(D4.cam[0], D4.cam[1], rdx, rdy, D4.rects) < Dr + 1e-6;
+      const hy = D4.cam[1] + rdy * Dr, sky = !hitRect && hy > 0.01;
+      const Tr = Math.exp(-tau4(D4.cam[1], rdy, Dr));
+      const base = sky ? [22, 30, 44] : hitRect ? [120, 126, 136] : [52, 48, 42];
+      x4.fillStyle = `rgb(${Math.round(base[0] * Tr + 159 * (1 - Tr))},${Math.round(base[1] * Tr + 180 * (1 - Tr))},${Math.round(base[2] * Tr + 200 * (1 - Tr))})`;
+      x4.fillRect(4, sy + r * sh, 10, sh + 0.5);
+    }
+    x4.strokeStyle = "rgba(255,255,255,0.35)"; x4.lineWidth = 1; x4.strokeRect(3.5, sy - 0.5, 11, 305);
+    const row = clamp(Math.floor((D4.fov / 2) / D4.fov * ROWS), 0, ROWS - 1); x4.fillStyle = "#fff"; x4.fillRect(15, sy + row * sh, 4, sh);
+    text(x4, "camera image, analytic", 24, sy + 152, "rgba(255,255,255,0.45)");
+    // the ray and its samples
+    const [ex, ey] = toPx4(D4.cam[0] + dx * D, D4.cam[1] + dy * D);
+    line(x4, cx, cy, ex, ey, "rgba(255,255,255,0.9)", 1.5);
+    for (let i = 0; i < N; i++) {
+      const t = (i + 0.5) * dt, [px, py] = toPx4(D4.cam[0] + dx * t, D4.cam[1] + dy * t);
+      const hgt = 4 + 26 * clamp(rho[i] / 0.4, 0, 1);
+      line(x4, px, py, px, py - hgt, "#4aa3ff", 2);
+      x4.beginPath(); x4.arc(px, py, 2.5, 0, 2 * PI); x4.fillStyle = "#fff"; x4.fill();
+    }
+    x4.fillStyle = "#787e88"; for (const [x, y, w, h] of D4.rects) { const p = toPx4(x, y + h); x4.fillRect(p[0], p[1], w * D4.ppm, h * D4.ppm); }
+    handle(x4, cx, cy, 7, "#ffffff"); handle(x4, ...toPx4(D4.aim[0], D4.aim[1]), 5, "#ffffff");
+    text(x4, "camera", cx, cy - 14, "rgba(255,255,255,0.6)", "center"); text(x4, "aim", ...toPx4(D4.aim[0], D4.aim[1] + 1.1), "rgba(255,255,255,0.6)", "center");
+    strip(x4, [
+      { l: "ρ /m", kind: "bar", v: rho, max: 0.4, col: "#4aa3ff" },
+      { l: "T exact", kind: "line", v: Ta, max: 1, col: "#ffffff" },
+      { l: "T march", kind: "line", v: Tn, max: 1, col: "#f2a341" }
+    ], `ray ${D.toFixed(1)} m · h₀ = ${D4.cam[1].toFixed(1)} m · dir_y = ${dy.toFixed(2)} · ${D4.dist ? "uniform density" : "H = " + D4.H + " m"}`);
+    const err = Math.abs(tn - ta) / Math.max(ta, 1e-6) * 100;
+    el("c4-read").innerHTML = `τ exact = <strong>${ta.toFixed(3)}</strong> · τ marched = <strong>${tn.toFixed(3)}</strong> (${err.toFixed(1)} % off)`;
+    el("c4-read2").innerHTML = `T = <strong>${Math.exp(-ta).toFixed(3)}</strong> · fog ${((1 - Math.exp(-ta)) * 100).toFixed(0)} %`;
+    el("t4a").textContent = ta.toFixed(3); el("t4b").textContent = tn.toFixed(3); el("t4bn").textContent = N;
+    el("t4c").innerHTML = (2073600 * N / 1e6).toFixed(1) + " M <small>vs 2.1 M</small>";
+  }
+  const req4 = raf(draw4);
+  drag(c4, () => [toPx4(D4.cam[0], D4.cam[1]), toPx4(D4.aim[0], D4.aim[1])], (i, x, y) => { const w = toW4(x, y); if (i === 0 && inRects(w[0], w[1], D4.rects)) return; (i === 0 ? D4.cam : D4.aim).splice(0, 2, w[0], w[1]); req4(); });
+  onRange("d04", v => v.toFixed(2) + " /m", v => { D4.d0 = v; field4dirty = true; req4(); });
+  onRange("h4", v => v + " m", v => { D4.H = v; field4dirty = true; req4(); });
+  onRange("n4", v => String(v), v => { D4.N = v; req4(); });
+  el("dist4").addEventListener("change", ev => { D4.dist = ev.target.checked; field4dirty = true; req4(); });
+
+  // ---------- 5. clouds ----------
+  const c5 = el("c5"), x5 = c5.getContext("2d");
+  const C5 = { w: 24, h: 18, ppm: 512 / 24, cam: [2, 0.8], hover: [14, 12.5], sun: [21, 17], N: 48, M: 6, cov: 0.55, mode: "powder", ps: 40, y0: 9, y1: 16, sunLen: 4 };
+  const toPx5 = (x, y) => [x * C5.ppm, VH - y * C5.ppm], toW5 = (px, py) => [px / C5.ppm, (VH - py) / C5.ppm];
+  // value-noise fBm baked on a 144 × 108 grid covering the world
+  const NW = 144, NH = 108, noise = new Float32Array(NW * NH);
+  (() => {
+    let seed = 1337; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    const octs = [[6, 1], [12, 0.5], [24, 0.25], [48, 0.125]]; let norm = 0;
+    for (const [cells, amp] of octs) {
+      const gw = cells + 1, gh = Math.ceil(cells * NH / NW) + 1, lat = new Float32Array(gw * gh); for (let k = 0; k < lat.length; k++) lat[k] = rnd();
+      for (let j = 0; j < NH; j++) for (let i = 0; i < NW; i++) {
+        const u = i / NW * cells, v = j / NW * cells, i0 = Math.floor(u), j0 = Math.floor(v), fu = u - i0, fv = v - j0, su = fu * fu * (3 - 2 * fu), sv = fv * fv * (3 - 2 * fv);
+        const a = lat[j0 * gw + i0], b = lat[j0 * gw + i0 + 1], c = lat[(j0 + 1) * gw + i0], d = lat[(j0 + 1) * gw + i0 + 1];
+        noise[j * NW + i] += amp * ((a * (1 - su) + b * su) * (1 - sv) + (c * (1 - su) + d * su) * sv);
+      }
+      norm += amp;
+    }
+    for (let k = 0; k < noise.length; k++) noise[k] /= norm;
+  })();
+  function fbm5(x, y) {
+    const u = clamp(x / C5.w * NW - 0.5, 0, NW - 1.001), v = clamp((C5.h - y) / C5.h * NH - 0.5, 0, NH - 1.001), i0 = u | 0, j0 = v | 0, fu = u - i0, fv = v - j0;
+    return (noise[j0 * NW + i0] * (1 - fu) + noise[j0 * NW + i0 + 1] * fu) * (1 - fv) + (noise[(j0 + 1) * NW + i0] * (1 - fu) + noise[(j0 + 1) * NW + i0 + 1] * fu) * fv;
+  }
+  function dens5(x, y) {
+    if (y < C5.y0 || y > C5.y1) return 0;
+    const prof = smooth(C5.y0, C5.y0 + 1.5, y) * (1 - smooth(C5.y1 - 2.5, C5.y1, y));
+    return Math.max(0, (fbm5(x, y) - (1 - C5.cov)) / C5.cov) * 1.6 * prof;
+  }
+  function sunDir5() { let dx = C5.sun[0] - 12, dy = C5.sun[1] - 12.5; const l = Math.hypot(dx, dy) || 1; return [dx / l, dy / l]; }
+  function energy5(x, y, sd) {
+    if (C5.M === 0) return [1, 0];
+    const ds = C5.sunLen / C5.M; let tau = 0;
+    for (let k = 0; k < C5.M; k++) tau += dens5(x + sd[0] * (k + 0.5) * ds, y + sd[1] * (k + 0.5) * ds) * ds;
+    const beer = Math.exp(-tau);
+    return [C5.mode === "powder" ? 2 * beer * (1 - Math.exp(-2 * tau)) : beer, tau];
+  }
+  const img5 = new ImageData(128, 96); let field5dirty = true;
+  function draw5() {
+    const sd = sunDir5();
+    if (field5dirty) {
+      fillImg(img5, (i, j) => {
+        const x = (i + 0.5) / 128 * C5.w, y = C5.h - (j + 0.5) / 96 * C5.h;
+        const sky = 0.10 + 0.12 * (y / C5.h);
+        const rho = dens5(x, y);
+        if (rho < 0.002) return mixc(sky, 0);
+        const E = energy5(x, y, sd)[0], d = tone(rho, 1.6);
+        return mixc(sky * (1 - d) + 0.25 * d, E * d);
+      });
+      field5dirty = false;
+    }
+    blit(x5, img5, 0, 0, VW, VH);
+    for (const yy of [C5.y0, C5.y1]) line(x5, 0, VH - yy * C5.ppm + 0.5, VW, VH - yy * C5.ppm + 0.5, "rgba(255,255,255,0.15)", 1, [3, 5]);
+    line(x5, 0, VH - 0.5, VW, VH - 0.5, "rgba(255,255,255,0.35)", 1);
+    // view ray through the layer
+    const [cx, cy] = toPx5(C5.cam[0], C5.cam[1]);
+    let dx = C5.hover[0] - C5.cam[0], dy = C5.hover[1] - C5.cam[1]; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+    if (dy < 0.08) { dy = 0.08; dx = Math.sqrt(1 - dy * dy) * Math.sign(dx || 1); }
+    const t0 = (C5.y0 - C5.cam[1]) / dy, t1 = Math.min((C5.y1 - C5.cam[1]) / dy, exitT(C5.cam[0], C5.cam[1], dx, dy, C5.w, C5.h));
+    const N = C5.N, dt = Math.max(0, t1 - t0) / N, rho = new Float32Array(N), En = new Float32Array(N), Ts = new Float32Array(N), Ls = new Float32Array(N);
+    const ph = hg(dx * sd[0] + dy * sd[1], 0.3); // dot(-sunDir, -rd): light travels along -sunDir, the eye is along -rd
+    let T = 1, L = 0;
+    const sec = [];
+    for (let i = 0; i < N; i++) {
+      const t = t0 + (i + 0.5) * dt, x = C5.cam[0] + dx * t, y = C5.cam[1] + dy * t;
+      const r = dens5(x, y); rho[i] = r;
+      const [E] = energy5(x, y, sd); En[i] = r > 0.002 ? E : 0;
+      L += T * r * E * ph * 6 * dt; T *= Math.exp(-r * dt); Ts[i] = T; Ls[i] = L;
+      if (i % 6 === 3 && r > 0.002) sec.push([x, y]);
+    }
+    line(x5, cx, cy, ...toPx5(C5.cam[0] + dx * t0, C5.cam[1] + dy * t0), "rgba(255,255,255,0.4)", 1, [3, 4]);
+    line(x5, ...toPx5(C5.cam[0] + dx * t0, C5.cam[1] + dy * t0), ...toPx5(C5.cam[0] + dx * t1, C5.cam[1] + dy * t1), "rgba(255,255,255,0.9)", 1.5);
+    for (let i = 0; i < N; i++) { const t = t0 + (i + 0.5) * dt, p = toPx5(C5.cam[0] + dx * t, C5.cam[1] + dy * t); x5.beginPath(); x5.arc(p[0], p[1], 2, 0, 2 * PI); x5.fillStyle = `rgba(255,255,255,${0.3 + 0.7 * Ts[i]})`; x5.fill(); }
+    // secondary marches, drawn for a few samples
+    const ds = C5.M ? C5.sunLen / C5.M : 0;
+    for (const [x, y] of sec) {
+      line(x5, ...toPx5(x, y), ...toPx5(x + sd[0] * C5.sunLen, y + sd[1] * C5.sunLen), "rgba(242,163,65,0.5)", 1);
+      for (let k = 0; k < C5.M; k++) { const p = toPx5(x + sd[0] * (k + 0.5) * ds, y + sd[1] * (k + 0.5) * ds); x5.beginPath(); x5.arc(p[0], p[1], 1.8, 0, 2 * PI); x5.fillStyle = "#f2a341"; x5.fill(); }
+    }
+    camIcon(x5, cx, cy, Math.atan2(dy, dx), 0.001, 0);
+    const [sx, sy] = toPx5(C5.sun[0], C5.sun[1]); glow(x5, sx, sy, 40, "rgba(255,225,170,0.9)"); handle(x5, sx, sy, 9, "#f2a341");
+    line(x5, sx, sy, sx - sd[0] * 40, sy + sd[1] * 40, "#f2a341", 2);
+    text(x5, "sun", sx, sy - 18, "rgba(255,255,255,0.7)", "center");
+    strip(x5, [
+      { l: "ρ /m", kind: "bar", v: rho, max: 1.6, col: "#4aa3ff" },
+      { l: "E sun", kind: "bar", v: En, max: 1, col: "#f2a341" },
+      { l: "T", kind: "line", v: Ts, max: 1, col: "#ffffff" },
+      { l: "ΣL", kind: "line", v: Ls, max: 1, col: "#f2a341" }
+    ], `${N} view samples of ${dt.toFixed(2)} m · ${C5.M} sun samples of ${ds.toFixed(2)} m each · ${C5.mode === "powder" ? "Beer-Powder" : "Beer-Lambert"}`);
+    const spp = N * (1 + C5.M), msFull = 2073600 * spp * C5.ps * 1e-9;
+    el("c5-read").innerHTML = `T = <strong>${T.toFixed(3)}</strong> · L = <strong>${L.toFixed(3)}</strong> · ${spp} samples on this pixel`;
+    el("c5-read2").innerHTML = `${fmtN(spp * 2073600 / 1e6)} M samples per 1080p frame`;
+    el("t5a").textContent = spp; el("t5b").textContent = msFull.toFixed(1); el("t5c").textContent = (msFull / 64).toFixed(2);
+  }
+  const req5 = raf(draw5);
+  drag(c5, () => [toPx5(C5.sun[0], C5.sun[1])], (i, x, y) => { C5.sun = toW5(x, y); field5dirty = true; req5(); }, (x, y) => { if (y < VH) { C5.hover = toW5(x, y); req5(); } });
+  onRange("n5", v => String(v), v => { C5.N = v; req5(); });
+  onRange("m5", v => String(v), v => { C5.M = v; field5dirty = true; req5(); });
+  onRange("cov5", v => v.toFixed(2), v => { C5.cov = v; field5dirty = true; req5(); });
+  onRange("ps5", v => v + " ps", v => { C5.ps = v; req5(); });
+  onSeg("seg5", v => { C5.mode = v; field5dirty = true; req5(); });
+
+  draw1(); draw2a(); draw2b(); draw3(); draw4(); draw5();
+})();
+</script>

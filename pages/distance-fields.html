@@ -1,0 +1,643 @@
+<title>Distance Field Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.key .k-out::before { background: #f2a341; }
+.key .k-in::before { background: #4aa3ff; }
+.key .k-zero::before { background: #ffffff; outline: 1px solid var(--line); }
+.key .k-empty::before { background: #1a1f27; outline: 1px solid #3a4150; }
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+.step { border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; background: var(--surface); }
+.step.on { border-color: var(--accent); }
+.step .n { font-family: var(--font-mono); font-size: 26px; line-height: 1.1; font-weight: 500; }
+.step .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+@media (max-width: 480px) { .steps { grid-template-columns: 1fr; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">10 m × 10 m slice · three occluders · drag the white handles</p>
+    <h1>Distance Field Explorer</h1>
+    <p class="lead">A distance field is a grid where every cell stores one number: how far it is to the nearest object, with a minus sign when the cell is inside one. That single number lets a ray jump through empty space, gives soft shadows without extra rays, and keeps an edge crisp at low resolution. The thing people mix up is <b>sparse</b> versus <b>signed</b>. Signed says what the number means; sparse says where you bother to store it. Game engines use both at once.</p>
+    <div class="key">
+      <span class="k-out">outside a shape, +d</span>
+      <span class="k-in">inside a shape, −d</span>
+      <span class="k-zero">on the surface, d = 0</span>
+      <span class="k-empty">brick not stored</span>
+    </div>
+    <dl class="terms">
+      <dt>distance field</dt><dd>a grid where each cell stores the distance to the nearest surface</dd>
+      <dt>signed</dt><dd>the number carries a sign: negative inside an object, positive outside</dd>
+      <dt>sparse</dt><dd>only the cells near a surface are stored; the rest are dropped</dd>
+      <dt>texel</dt><dd>one cell of a texture; one stored sample</dd>
+      <dt>brick</dt><dd>a small fixed-size block of cells, the unit a sparse field keeps or drops</dd>
+      <dt>band</dt><dd>how far from a surface a brick can be and still get stored</dd>
+      <dt>sphere tracing</dt><dd>walking a ray forward by the stored distance at each step</dd>
+      <dt>penumbra</dt><dd>the soft edge of a shadow</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#field"><span class="n">01</span>What each stored number means</a></li><li><a href="#storage"><span class="n">02</span>Store everything, or only near the surface</a></li><li><a href="#trace"><span class="n">03</span>Walking a ray with the stored distances</a></li><li><a href="#shadow"><span class="n">04</span>Soft shadows from the same field</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="field">
+    <h2>What each stored number means</h2>
+    <p class="sub">Hover or drag over the field to read the distance at any point. Rings are drawn every 0.5 m.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c1" width="512" height="512" aria-label="Signed distance field of three shapes"></canvas>
+        <div class="cap"><span id="c1-read">d = —</span><span>circle radius = |d|</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Think of the scene as graph paper. <b>Every square holds one number: how far to the nearest object.</b> A <b>minus sign means the square is inside</b> an object. That is the whole data structure, and everything else on this page is a way of using that one number.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The three shapes are a circle, a rotated box and a capsule, which is a line with rounded ends. Amber cells are outside a shape, blue cells are inside, and the thin white line is the surface, where the distance is zero. Colour fades as the distance grows, with a brighter ring every 0.5 m so you can count distance by eye.</p>
+        <p>Move the cursor and a white circle appears. Its radius is the stored distance. The dashed line points to the closest point on a surface.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Hover over open ground between the shapes. The circle grows until it just touches the nearest shape and never crosses it.</li>
+          <li>Hover inside the box. The readout flips to a minus sign, and the circle now shows how deep in you are.</li>
+          <li>Slide the cursor across a surface. The number passes through zero smoothly, with no jump.</li>
+        </ul>
+
+        <h3>The real version</h3>
+        <p>The grid is a texture, and each cell of it is a texel, one stored sample. A distance field texel stores the distance to the closest surface in world units, here metres. A signed distance field, or SDF, also stores the sign: negative inside, positive outside. The inside/outside test comes free with the same read.</p>
+        <p>An ordinary raster texture stores "is there something here". A distance field stores "how far is the nearest something", a much richer answer from the same memory. That answer is the guarantee the white circle draws: nothing is inside that radius. Ray marching, collision queries, soft shadows and ambient occlusion in the sections below all rest on it.</p>
+        <p>Because the value changes smoothly from cell to cell, a low-resolution field still reconstructs a crisp edge under bilinear filtering, the GPU's default way of blending the four nearest texels when you read between them. That is why a 64×64 SDF renders sharp UI text at any zoom. Valve published the trick in 2007 and most game UI uses it today.</p>
+
+        <p class="tldr">One number per cell, the distance to the nearest surface, with a sign that says inside or outside.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="storage">
+    <h2>Store everything, or only near the surface</h2>
+    <p class="sub">Compare the same field kept two ways, and watch the byte counts as you change the settings.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c2d" width="512" height="512" aria-label="Dense storage of the distance field"></canvas>
+        <div class="cap"><strong>Dense</strong><span id="c2d-cap"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c2s" width="512" height="512" aria-label="Sparse brick storage of the distance field"></canvas>
+        <div class="cap"><strong>Sparse</strong><span id="c2s-cap"></span></div>
+      </div>
+    </div>
+    <div class="prose" style="margin-top:22px">
+      <p class="plain">A full grid stores a distance for every cell, even in open air far from anything. <b>Most of those far-away numbers are never used</b>, so a sparse field cuts the grid into small square bricks and <b>keeps only the bricks that touch a surface</b>. Same shapes, a fraction of the memory.</p>
+
+      <h3>What you're seeing</h3>
+      <p>Left is the dense grid: every cell stored. Right is the sparse version. The faint grid lines are brick borders, the bright-outlined bricks are the ones kept, and the dark stippled bricks were thrown away. The band width slider sets how far from a surface a brick can be and still be kept.</p>
+
+      <h3>Try this</h3>
+      <ul class="try">
+        <li>Set resolution to 128. The dense byte count quadruples; the sparse count grows much less, because only the ring of bricks around the surfaces grows.</li>
+        <li>Drop the band to 0.1 m. The kept bricks shrink to a thin shell around each shape.</li>
+        <li>Switch brick size to 16. Fewer, bigger bricks, and more wasted empty cells inside each kept brick.</li>
+      </ul>
+    </div>
+    <div class="controls">
+      <div class="ctl"><span class="lab">Resolution</span><div class="seg" id="segN" role="group" aria-label="Grid resolution"><button data-v="32">32</button><button data-v="64" aria-pressed="true">64</button><button data-v="128">128</button></div></div>
+      <div class="ctl"><span class="lab">Brick size</span><div class="seg" id="segB" role="group" aria-label="Brick size"><button data-v="4">4</button><button data-v="8" aria-pressed="true">8</button><button data-v="16">16</button></div></div>
+      <div class="ctl"><label for="band">Band width <span class="val" id="bandv">0.5 m</span></label><input type="range" id="band" min="0.1" max="2.0" step="0.1" value="0.5"></div>
+    </div>
+    <div class="tbl-wrap">
+    <table class="stats" id="stats">
+      <thead><tr><th>float16, 2 bytes per texel</th><th>Dense</th><th>Sparse</th><th>Kept</th></tr></thead>
+      <tbody>
+        <tr><td>This 2D slice</td><td id="s2d"></td><td id="s2s"></td><td id="s2k" class="hi"></td></tr>
+        <tr><td>Same shapes as a 3D volume</td><td id="s3d"></td><td id="s3s"></td><td id="s3k" class="hi"></td></tr>
+        <tr><td>Bricks allocated (3D)</td><td id="s3bd"></td><td id="s3bs"></td><td></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="prose" style="margin-top:22px">
+      <h3>The real version</h3>
+      <p>Each cell holds a float16 value, a 16-bit number that takes 2 bytes, so every byte count in the table is the cell count times two. The 2D row is what you see above. The 3D row is computed, not guessed: the same sphere, rotated box and capsule voxelized at N³, where a voxel is one cell of a 3D grid, and cut into N/brick bricks per axis.</p>
+      <p>Memory in a sparse field scales with surface area, because only bricks near a surface survive. Memory in a dense field scales with volume, because every cell survives. That is why the gap widens as resolution goes up.</p>
+      <p>Unreal Engine 5 keeps both its per-mesh distance fields and its global distance field as bricks in an atlas, one big texture holding many small bricks side by side, for exactly this reason. It also quantizes each voxel below float16, meaning it stores fewer bits per number, on top of that.</p>
+
+      <p class="tldr">Keep the bricks near a surface and drop the rest; memory then grows with surface, not volume.</p>
+    </div>
+  </section>
+
+  <section id="trace">
+    <h2>Walking a ray with the stored distances</h2>
+    <p class="sub">Drag the ray's start or its aim point and count the steps it takes to reach a surface.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c3" width="512" height="512" class="grab" aria-label="Sphere tracing a ray through the field"></canvas>
+        <div class="cap"><span id="c3-read"></span><span>each circle is one step</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">The stored number is a promise: <b>nothing is closer than this distance</b>. So a ray can <b>jump forward by exactly that much</b> and never pass through a wall. In open space it takes big strides; near a shape it takes small careful ones.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The white line is the ray, from the start handle toward the aim handle. Each circle is one step: its radius is the distance the field reported there, and the ray moves to the edge of that circle. The amber dot is the hit. A ✕ in the step counter means the ray left the volume without hitting anything.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the start handle into open space. The first few circles get huge, and the ray covers most of the distance in two or three steps.</li>
+          <li>Switch to sparse. Out in the empty bricks the circles shrink to one band width and the step count climbs.</li>
+          <li>Switch to sparse + coarse. The big strides come back while the fine data stays sparse.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:6px">
+          <div class="ctl"><span class="lab">Sample from</span><div class="seg" id="segM" role="group" aria-label="Sampling mode"><button data-v="dense" aria-pressed="true">dense</button><button data-v="sparse">sparse</button><button data-v="coarse">sparse + coarse</button></div></div>
+          <div class="ctl"><label for="band3">Band <span class="val" id="band3v">0.5 m</span></label><input type="range" id="band3" min="0.2" max="2.0" step="0.1" value="0.5"></div>
+        </div>
+        <div class="steps">
+          <div class="step" id="st-dense"><div class="n">—</div><div class="l">dense steps</div></div>
+          <div class="step" id="st-sparse"><div class="n">—</div><div class="l">sparse steps</div></div>
+          <div class="step" id="st-coarse"><div class="n">—</div><div class="l">sparse + coarse</div></div>
+        </div>
+
+        <h3 style="margin-top:22px">The real version</h3>
+        <p>This is sphere tracing, also called ray marching an SDF. At each step the ray reads the distance <code>d</code> at its current position and advances by <code>d</code>. The rule that makes it safe is the one from the first section: no surface lies within radius <code>d</code>, so a step of <code>d</code> cannot cross anything. When <code>d</code> falls under a small threshold, call it a hit.</p>
+        <p class="words">In words: read the distance, move that far, repeat until the distance is nearly zero.</p>
+        <p>With a dense field that works everywhere. With a sparse field the bricks far from any surface were never stored, so out there the only safe answer is "at least one band width", and the ray crawls in steps of the band.</p>
+        <p>Engines fix this with a coarse fallback: a low-resolution dense field (16³ here, cells of 0.625 m) that answers the empty-space case with a conservative distance, one shortened enough to stay safe given the coarse cell size. Unreal's global distance field clipmaps and Godot's SDFGI cascades are this idea at scale, as nested fields around the camera, finer close in and coarser far out. The stored data stays small; the step count comes back down.</p>
+
+        <p class="tldr">Step by the stored distance and you can never overshoot; a sparse field needs a coarse fallback to keep the steps big in open space.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="shadow">
+    <h2>Soft shadows from the same field</h2>
+    <p class="sub">Drag the light and watch the shadow edges soften as they get further from the object casting them.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c4" width="512" height="512" class="grab" aria-label="Soft shadows computed by marching the distance field"></canvas>
+        <div class="cap"><span>shade = min over the ray of k · d / t</span><span id="c4-read"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Soft shadows come from the same numbers. <b>Each ground pixel walks a ray toward the light</b> and remembers <b>how close it came to brushing a surface</b>. Just missing a shape means a faint shadow; missing it by a lot means no shadow. No extra rays and no blur pass.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The pale shapes are the occluders, the objects that block light. The bright handle is the light; drag it. Ground brightness is the shadow: dark where the ray hit something, amber where it passed clean, and a gradient where it passed close. The soft edge widens the further the ground is from the object casting it.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the light close to the capsule. Its shadow has a sharp edge near the capsule and a soft one far away.</li>
+          <li>Push k to 48. Edges harden across the whole picture.</li>
+          <li>Pull k to 2. Everything goes soft and smeared.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:6px">
+          <div class="ctl"><label for="kval">Penumbra k <span class="val" id="kv">10</span></label><input type="range" id="kval" min="2" max="48" step="1" value="10"></div>
+        </div>
+
+        <h3 style="margin-top:22px">The real version</h3>
+        <p>A shadow ray that hits a surface is fully dark. One that passes a surface at distance <code>d</code> after travelling <code>t</code> is partly dark, scaled by <code>k·d/t</code>. That ratio is the angle the occluder covers as seen from the ground point, so the penumbra widens with distance from the occluder without any extra rays. The constant <code>k</code> sets how quickly an edge goes soft.</p>
+        <p class="words">In words: keep the smallest k·d/t seen along the ray; that is how lit the pixel is.</p>
+        <p>Raster shadow maps, which store depth as seen from the light, need filtering tricks to fake the same thing.</p>
+        <p>This is Unreal's Distance Field Shadows. The same march with a shorter ray and no light is Distance Field Ambient Occlusion, a measure of how boxed-in each point is. Lumen's software ray tracing traces these fields too, when hardware ray tracing is off.</p>
+
+        <p class="tldr">The nearest miss along the shadow ray sets how dark the pixel is, and the distance to that miss sets how soft the edge is.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">The same stored number, put to five different jobs.</p>
+    <p class="plain">Read each row left to right: what the game wants, the question it asks the field, how the field is kept in memory, and who ships it. <b>The value is the same in every row.</b> What differs is <b>which part of the field is stored</b> and what gets read back from it.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Use</th><th>What the game asks the field</th><th>How it is stored</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>Crisp text and decals</td><td>Is the sampled distance above or below 0. Soften that cutoff a little for anti-aliasing and outlines.</td><td>Small dense 2D texture, 8-bit</td><td>Team Fortress 2 decals (Valve, 2007), most engine UI text since</td></tr>
+        <tr><td>Soft shadows, AO</td><td>Walk toward the light, or in a half-dome of directions; keep the smallest k·d/t.</td><td>Sparse per-mesh bricks plus a dense coarse global field</td><td>Unreal Engine 4/5 Distance Field Shadows and DFAO</td></tr>
+        <tr><td>Global illumination</td><td>Trace bounced-light rays through the field instead of through triangles.</td><td>Clipmap cascades around the camera</td><td>Godot 4 SDFGI, Unreal Lumen software tracing</td></tr>
+        <tr><td>Particle and cloth collision</td><td>Read d and which way it grows at the particle; push the particle out that way.</td><td>Global field on the GPU</td><td>Unreal Niagara collision, many in-house engines</td></tr>
+        <tr><td>Sculpting and deformable worlds</td><td>Edits are min/max operations on the field; draw it by ray marching directly, with no mesh at all.</td><td>Sparse bricks, rebuilt as you edit</td><td>Dreams (Media Molecule), Claybook (Second Order)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">One naming trap. A "sparse voxel octree" is a different structure: it stores occupancy or colour in a tree, not distances. A sparse SDF is still a distance field; the octree or brick map only decides which cells exist.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  // ---------- scene: 10 m × 10 m slice, world coords 0..1, 1 unit = 10 m ----------
+  const M = 10; // metres per unit
+  const CIRC = { cx: 0.30, cy: 0.36, r: 0.13 };
+  const BOX  = { cx: 0.68, cy: 0.60, hx: 0.15, hy: 0.08, hz: 0.10, rot: -0.35 };
+  const CAP  = { ax: 0.22, ay: 0.78, bx: 0.52, by: 0.84, r: 0.045 };
+  const bc = Math.cos(BOX.rot), bs = Math.sin(BOX.rot);
+
+  function sdCircle(x, y) { return Math.hypot(x - CIRC.cx, y - CIRC.cy) - CIRC.r; }
+  function sdBox(x, y) {
+    const px = x - BOX.cx, py = y - BOX.cy;
+    const qx = bc * px + bs * py, qy = -bs * px + bc * py;
+    const dx = Math.abs(qx) - BOX.hx, dy = Math.abs(qy) - BOX.hy;
+    return Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) + Math.min(Math.max(dx, dy), 0);
+  }
+  function sdCap(x, y) {
+    const pax = x - CAP.ax, pay = y - CAP.ay, bax = CAP.bx - CAP.ax, bay = CAP.by - CAP.ay;
+    const h = Math.max(0, Math.min(1, (pax * bax + pay * bay) / (bax * bax + bay * bay)));
+    return Math.hypot(pax - bax * h, pay - bay * h) - CAP.r;
+  }
+  function sdf2(x, y) { return Math.min(sdCircle(x, y), sdBox(x, y), sdCap(x, y)); }
+
+  function sdf3(x, y, z) {
+    const zz = z - 0.5;
+    const s = Math.hypot(x - CIRC.cx, y - CIRC.cy, zz) - CIRC.r;
+    const px = x - BOX.cx, py = y - BOX.cy;
+    const qx = bc * px + bs * py, qy = -bs * px + bc * py;
+    const dx = Math.abs(qx) - BOX.hx, dy = Math.abs(qy) - BOX.hy, dz = Math.abs(zz) - BOX.hz;
+    const b = Math.hypot(Math.max(dx, 0), Math.max(dy, 0), Math.max(dz, 0)) + Math.min(Math.max(dx, dy, dz), 0);
+    const pax = x - CAP.ax, pay = y - CAP.ay, bax = CAP.bx - CAP.ax, bay = CAP.by - CAP.ay;
+    const h = Math.max(0, Math.min(1, (pax * bax + pay * bay) / (bax * bax + bay * bay)));
+    const c = Math.hypot(pax - bax * h, pay - bay * h, zz) - CAP.r;
+    return Math.min(s, b, c);
+  }
+
+  // ---------- viewport palette (viewports are always dark, like an engine debug view) ----------
+  const OUT = [242, 163, 65], IN = [74, 163, 255], GROUND = [11, 14, 19], EMPTY = [26, 31, 39];
+  function col(d) {
+    const m = Math.abs(d) * M;
+    if (m < 0.035) return [255, 255, 255];
+    const base = d < 0 ? IN : OUT;
+    let v = 0.16 + 0.84 * Math.exp(-m * 0.5);
+    const f = (m / 0.5) % 1;
+    if (f < 0.06 || f > 0.96) v = Math.min(1, v + 0.25);
+    return [GROUND[0] + (base[0] - GROUND[0]) * v, GROUND[1] + (base[1] - GROUND[1]) * v, GROUND[2] + (base[2] - GROUND[2]) * v];
+  }
+
+  function fieldImage(R, sample) {
+    const img = new ImageData(R, R), p = img.data;
+    for (let j = 0; j < R; j++) for (let i = 0; i < R; i++) {
+      const c = sample((i + 0.5) / R, (j + 0.5) / R, i, j);
+      const o = (j * R + i) * 4;
+      p[o] = c[0]; p[o + 1] = c[1]; p[o + 2] = c[2]; p[o + 3] = 255;
+    }
+    return img;
+  }
+  function blit(ctx, img, W) {
+    const off = document.createElement("canvas"); off.width = img.width; off.height = img.height;
+    off.getContext("2d").putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(off, 0, 0, W, W);
+    return off;
+  }
+  function handle(ctx, x, y, W, r = 7) {
+    ctx.beginPath(); ctx.arc(x * W, y * W, r, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff"; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = "#0b0e13"; ctx.stroke();
+  }
+  function fmtBytes(b) {
+    if (b >= 1e6) return (b / 1048576).toFixed(2) + " MB";
+    if (b >= 1e3) return (b / 1024).toFixed(1) + " KB";
+    return b + " B";
+  }
+  function fmtN(n) { return n.toLocaleString("en-US"); }
+
+  // pointer → world coords
+  function worldOf(canvas, ev) {
+    const r = canvas.getBoundingClientRect();
+    return [(ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height];
+  }
+  function drag(canvas, getHandles, onMove, onHover) {
+    let active = -1;
+    canvas.addEventListener("pointerdown", ev => {
+      const [x, y] = worldOf(canvas, ev);
+      const hs = getHandles(); let best = -1, bd = 0.045;
+      hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
+      if (best >= 0) { active = best; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); }
+    });
+    canvas.addEventListener("pointermove", ev => {
+      const [x, y] = worldOf(canvas, ev);
+      if (active >= 0) onMove(active, Math.max(0.01, Math.min(0.99, x)), Math.max(0.01, Math.min(0.99, y)));
+      else if (onHover) onHover(x, y);
+    });
+    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    canvas.addEventListener("pointerup", end);
+    canvas.addEventListener("pointercancel", end);
+    canvas.addEventListener("pointerleave", () => { if (onHover) onHover(-1, -1); });
+  }
+
+  // ---------- 1. the field ----------
+  const c1 = document.getElementById("c1"), x1 = c1.getContext("2d"), W = 512;
+  const fieldFull = fieldImage(512, (x, y) => col(sdf2(x, y)));
+  const fieldOff = blit(x1, fieldFull, W);
+  const read1 = document.getElementById("c1-read");
+  function draw1(hx, hy) {
+    x1.drawImage(fieldOff, 0, 0, W, W);
+    if (hx < 0) { read1.textContent = "d = —"; return; }
+    const d = sdf2(hx, hy);
+    x1.beginPath(); x1.arc(hx * W, hy * W, Math.abs(d) * W, 0, Math.PI * 2);
+    x1.lineWidth = 1.5; x1.strokeStyle = "rgba(255,255,255,0.9)"; x1.stroke();
+    x1.setLineDash([3, 4]); x1.beginPath(); x1.moveTo(hx * W, hy * W);
+    // nearest point along the gradient
+    const e = 0.002, gx = (sdf2(hx + e, hy) - sdf2(hx - e, hy)) / (2 * e), gy = (sdf2(hx, hy + e) - sdf2(hx, hy - e)) / (2 * e);
+    const gl = Math.hypot(gx, gy) || 1;
+    x1.lineTo((hx - gx / gl * d) * W, (hy - gy / gl * d) * W); x1.stroke(); x1.setLineDash([]);
+    x1.beginPath(); x1.arc(hx * W, hy * W, 3, 0, Math.PI * 2); x1.fillStyle = "#fff"; x1.fill();
+    read1.innerHTML = `d = <strong>${d >= 0 ? "+" : "−"}${(Math.abs(d) * M).toFixed(2)} m</strong> · ${d < 0 ? "inside" : "outside"}`;
+  }
+  draw1(-1, -1);
+  drag(c1, () => [], () => {}, (x, y) => draw1(x, y));
+  c1.addEventListener("pointerdown", ev => { const [x, y] = worldOf(c1, ev); draw1(x, y); });
+
+  // ---------- 2. dense vs sparse ----------
+  const c2d = document.getElementById("c2d"), c2s = document.getElementById("c2s");
+  const x2d = c2d.getContext("2d"), x2s = c2s.getContext("2d");
+  const st = { N: 64, B: 8, band: 0.05 };
+  const cache3 = {};
+  function brickMins3(N, B) {
+    const key = N + "/" + B;
+    if (cache3[key]) return cache3[key];
+    const nb = N / B, mins = new Float32Array(nb * nb * nb).fill(Infinity);
+    for (let k = 0; k < N; k++) { const z = (k + 0.5) / N, bk = (k / B) | 0;
+      for (let j = 0; j < N; j++) { const y = (j + 0.5) / N, bj = (j / B) | 0;
+        for (let i = 0; i < N; i++) {
+          const d = Math.abs(sdf3((i + 0.5) / N, y, z));
+          const bi = (bk * nb + bj) * nb + ((i / B) | 0);
+          if (d < mins[bi]) mins[bi] = d;
+        } } }
+    cache3[key] = mins; return mins;
+  }
+  function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
+  function draw2() {
+    const { N, B, band } = st, nb = N / B;
+    // 2D cell distances and brick minima
+    const cells = new Float32Array(N * N), mins2 = new Float32Array(nb * nb).fill(Infinity);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const d = sdf2((i + 0.5) / N, (j + 0.5) / N); cells[j * N + i] = d;
+      const bi = ((j / B) | 0) * nb + ((i / B) | 0); const a = Math.abs(d);
+      if (a < mins2[bi]) mins2[bi] = a;
+    }
+    let kept2 = 0; for (let b = 0; b < mins2.length; b++) if (mins2[b] <= band) kept2++;
+    const dense = fieldImage(N, (x, y, i, j) => col(cells[j * N + i]));
+    const sparse = fieldImage(N, (x, y, i, j) => {
+      const bi = ((j / B) | 0) * nb + ((i / B) | 0);
+      if (mins2[bi] <= band) return col(cells[j * N + i]);
+      return ((i + j) % 8 === 0) ? [36, 42, 52] : EMPTY;
+    });
+    blit(x2d, dense, W); blit(x2s, sparse, W);
+    for (const ctx of [x2d, x2s]) {
+      ctx.strokeStyle = "rgba(255,255,255,0.14)"; ctx.lineWidth = 1; ctx.beginPath();
+      for (let b = 1; b < nb; b++) { const p = Math.round(b * W / nb) + 0.5; ctx.moveTo(p, 0); ctx.lineTo(p, W); ctx.moveTo(0, p); ctx.lineTo(W, p); }
+      ctx.stroke();
+    }
+    // sparse: outline allocated bricks
+    x2s.strokeStyle = "rgba(255,255,255,0.45)"; x2s.beginPath();
+    const bw = W / nb;
+    for (let bj = 0; bj < nb; bj++) for (let bi = 0; bi < nb; bi++) if (mins2[bj * nb + bi] <= band) x2s.rect(bi * bw + 0.5, bj * bw + 0.5, bw - 1, bw - 1);
+    x2s.stroke();
+
+    const cell = (M / N).toFixed(3);
+    document.getElementById("c2d-cap").textContent = `${N}×${N} texels · ${cell} m each`;
+    document.getElementById("c2s-cap").textContent = `${kept2} of ${nb * nb} bricks · ${B}×${B} texels per brick`;
+
+    const d2 = N * N * 2, s2 = kept2 * B * B * 2;
+    document.getElementById("s2d").textContent = `${fmtN(N * N)} texels · ${fmtBytes(d2)}`;
+    document.getElementById("s2s").textContent = `${fmtN(kept2 * B * B)} texels · ${fmtBytes(s2)}`;
+    document.getElementById("s2k").textContent = (100 * s2 / d2).toFixed(1) + " %";
+
+    const mins3 = brickMins3(N, B);
+    let kept3 = 0; for (let b = 0; b < mins3.length; b++) if (mins3[b] <= band) kept3++;
+    const d3 = N * N * N * 2, s3 = kept3 * B * B * B * 2;
+    document.getElementById("s3d").textContent = `${fmtN(N * N * N)} voxels · ${fmtBytes(d3)}`;
+    document.getElementById("s3s").textContent = `${fmtN(kept3 * B * B * B)} voxels · ${fmtBytes(s3)}`;
+    document.getElementById("s3k").textContent = (100 * s3 / d3).toFixed(1) + " %";
+    document.getElementById("s3bd").textContent = fmtN(mins3.length);
+    document.getElementById("s3bs").textContent = fmtN(kept3);
+  }
+  document.getElementById("segN").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; st.N = +b.dataset.v; segOn(ev.currentTarget, st.N); draw2(); });
+  document.getElementById("segB").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; st.B = +b.dataset.v; segOn(ev.currentTarget, st.B); draw2(); });
+  const bandEl = document.getElementById("band");
+  bandEl.addEventListener("input", () => { st.band = +bandEl.value / M; document.getElementById("bandv").textContent = (+bandEl.value).toFixed(1) + " m"; draw2(); });
+  draw2();
+
+  // ---------- 3. sphere tracing ----------
+  const c3 = document.getElementById("c3"), x3 = c3.getContext("2d");
+  const tr = { o: [0.05, 0.56], a: [0.66, 0.60], mode: "dense", band: 0.05 };
+  const COARSE_N = 16, coarseErr = (1 / COARSE_N) * Math.SQRT2 / 2;
+  function sample(mode, x, y) {
+    const d = sdf2(x, y);
+    if (mode === "dense" || Math.abs(d) <= tr.band) return d;
+    if (mode === "sparse") return tr.band;
+    return Math.max(tr.band, d - coarseErr);
+  }
+  function march(mode) {
+    const [ox, oy] = tr.o; let dx = tr.a[0] - ox, dy = tr.a[1] - oy; const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+    const pts = []; let t = 0, hit = false;
+    for (let i = 0; i < 400; i++) {
+      const x = ox + dx * t, y = oy + dy * t;
+      if (x < 0 || x > 1 || y < 0 || y > 1) break;
+      const d = sample(mode, x, y);
+      pts.push([x, y, Math.max(d, 0)]);
+      if (d < 0.0015) { hit = true; break; }
+      t += d;
+    }
+    return { pts, hit };
+  }
+  function draw3() {
+    x3.globalAlpha = 0.5; x3.drawImage(fieldOff, 0, 0, W, W); x3.globalAlpha = 1;
+    x3.fillStyle = "rgba(11,14,19,0.35)"; x3.fillRect(0, 0, W, W);
+    const res = { dense: march("dense"), sparse: march("sparse"), coarse: march("coarse") };
+    const cur = res[tr.mode];
+    // ray line
+    const last = cur.pts[cur.pts.length - 1];
+    x3.strokeStyle = "rgba(255,255,255,0.35)"; x3.lineWidth = 1; x3.setLineDash([4, 5]);
+    x3.beginPath(); x3.moveTo(tr.o[0] * W, tr.o[1] * W); x3.lineTo(tr.a[0] * W, tr.a[1] * W); x3.stroke(); x3.setLineDash([]);
+    x3.strokeStyle = "#ffffff"; x3.lineWidth = 2; x3.beginPath(); x3.moveTo(tr.o[0] * W, tr.o[1] * W); x3.lineTo(last[0] * W, last[1] * W); x3.stroke();
+    // step circles
+    for (const [x, y, r] of cur.pts) {
+      x3.beginPath(); x3.arc(x * W, y * W, r * W, 0, Math.PI * 2);
+      x3.fillStyle = "rgba(255,255,255,0.06)"; x3.fill();
+      x3.strokeStyle = "rgba(255,255,255,0.75)"; x3.lineWidth = 1; x3.stroke();
+      x3.beginPath(); x3.arc(x * W, y * W, 2.5, 0, Math.PI * 2); x3.fillStyle = "#fff"; x3.fill();
+    }
+    if (cur.hit) { x3.beginPath(); x3.arc(last[0] * W, last[1] * W, 6, 0, Math.PI * 2); x3.fillStyle = "#f2a341"; x3.fill(); }
+    handle(x3, tr.o[0], tr.o[1], W);
+    handle(x3, tr.a[0], tr.a[1], W, 5);
+    for (const m of ["dense", "sparse", "coarse"]) {
+      const el = document.getElementById("st-" + m);
+      el.querySelector(".n").textContent = res[m].pts.length + (res[m].hit ? "" : " ✕");
+      el.classList.toggle("on", m === tr.mode);
+    }
+    document.getElementById("c3-read").innerHTML = `<strong>${cur.pts.length} steps</strong> · ${cur.hit ? "hit surface" : "left the volume"}`;
+  }
+  drag(c3, () => [tr.o, tr.a], (i, x, y) => { (i === 0 ? tr.o : tr.a)[0] = x; (i === 0 ? tr.o : tr.a)[1] = y; draw3(); });
+  document.getElementById("segM").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; tr.mode = b.dataset.v; segOn(ev.currentTarget, tr.mode); draw3(); });
+  const band3 = document.getElementById("band3");
+  band3.addEventListener("input", () => { tr.band = +band3.value / M; document.getElementById("band3v").textContent = (+band3.value).toFixed(1) + " m"; draw3(); });
+  draw3();
+
+  // ---------- 4. soft shadows ----------
+  const c4 = document.getElementById("c4"), x4 = c4.getContext("2d");
+  const sh = { L: [0.86, 0.14], k: 10 };
+  const R4 = 144;
+  const LIT = [214, 160, 78], DARK = [16, 19, 25], SHAPE = [226, 229, 234];
+  let pending4 = false;
+  function draw4() {
+    const [lx, ly] = sh.L, k = sh.k;
+    const img = fieldImage(R4, (x, y) => {
+      const d0 = sdf2(x, y);
+      if (d0 < 0) return SHAPE;
+      let dx = lx - x, dy = ly - y; const L = Math.hypot(dx, dy) || 1e-6; dx /= L; dy /= L;
+      let res = 1, t = 0.015;
+      for (let i = 0; i < 64 && t < L; i++) {
+        const d = sdf2(x + dx * t, y + dy * t);
+        if (d < 0.0015) { res = 0; break; }
+        res = Math.min(res, k * d / t);
+        t += Math.max(d, 0.008);
+      }
+      const fall = 1 / (1 + L * L * 1.2);
+      const s = res * res * (3 - 2 * res) * (0.35 + 0.65 * fall);
+      return [DARK[0] + (LIT[0] - DARK[0]) * s, DARK[1] + (LIT[1] - DARK[1]) * s, DARK[2] + (LIT[2] - DARK[2]) * s];
+    });
+    blit(x4, img, W);
+    x4.imageSmoothingEnabled = true;
+    const g = x4.createRadialGradient(lx * W, ly * W, 4, lx * W, ly * W, 40);
+    g.addColorStop(0, "rgba(255,240,210,0.9)"); g.addColorStop(1, "rgba(255,240,210,0)");
+    x4.fillStyle = g; x4.fillRect(lx * W - 40, ly * W - 40, 80, 80);
+    handle(x4, lx, ly, W, 8);
+    document.getElementById("c4-read").innerHTML = `light at <strong>${(lx * M).toFixed(1)}, ${(ly * M).toFixed(1)} m</strong>`;
+  }
+  function req4() { if (pending4) return; pending4 = true; requestAnimationFrame(() => { pending4 = false; draw4(); }); }
+  drag(c4, () => [sh.L], (i, x, y) => { sh.L[0] = x; sh.L[1] = y; req4(); });
+  const kEl = document.getElementById("kval");
+  kEl.addEventListener("input", () => { sh.k = +kEl.value; document.getElementById("kv").textContent = kEl.value; req4(); });
+  draw4();
+})();
+</script>

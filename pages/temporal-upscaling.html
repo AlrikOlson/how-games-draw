@@ -1,0 +1,983 @@
+<title>Temporal Upscaling</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas.sq { aspect-ratio: 1; }
+.vp canvas.r169 { aspect-ratio: 16 / 9; }
+.tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.tiles.four .tile .n { font-size: 20px; }
+@media (max-width: 820px) { .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .tiles.four { grid-template-columns: 1fr; } }
+.chk { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 13px; color: var(--ink); padding-bottom: 6px; cursor: pointer; }
+.btn { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 6px 12px; background: var(--chip); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.uses td:nth-child(2) { max-width: 34ch; }
+.uses.trade td:first-child { white-space: normal; min-width: 11ch; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">100×100 output from 50×50 input · Halton(2,3) jitter · stepped at 12 frames per second</p>
+    <h1>Temporal Upscaling</h1>
+    <p class="lead">Temporal upscaling draws a smaller picture each frame and builds the full-size one from that frame plus the last few. You skip shading every pixel you did not draw, and pay a fixed 1 to 2 ms for the upscaler at 4K. <b>The missing pixels are not guessed from their neighbours.</b> They were drawn on earlier frames at slightly shifted positions and moved into place, which is why DLSS 2, FSR 2, XeSS and Unreal's TSR all need depth, motion vectors and the jitter offset from the engine, while a one-frame upscaler such as FSR 1 needs none of that and can only sharpen what it has.</p>
+    <div class="key">
+      <span style="--sw:#f2a341">sample drawn this frame</span>
+      <span style="--sw:#4aa3ff">samples kept from earlier frames</span>
+      <span style="--sw:#ffffff">motion arrow, labels</span>
+      <span style="--sw:#ef5d5d">history thrown away</span>
+    </div>
+    <dl class="terms">
+      <dt>input resolution</dt><dd>the smaller size the frame is drawn at; 1920×1080 for a 4K screen in Performance mode</dd>
+      <dt>scale s</dt><dd>output width over input width; at 2× each input pixel covers 2 by 2 output pixels</dd>
+      <dt>jitter</dt><dd>a shift of less than one pixel applied to the whole picture, different every frame</dd>
+      <dt>history</dt><dd>last frame's finished picture, kept so this frame can reuse it</dd>
+      <dt>motion vector</dt><dd>how far each pixel moved since last frame, in pixels</dd>
+      <dt>reprojection</dt><dd>following a motion vector back to find where a pixel was last frame</dd>
+      <dt>disocclusion</dt><dd>a spot that was hidden last frame and is visible now, so its history belongs to something else</dd>
+      <dt>mip level</dt><dd>one of the smaller, pre-blurred copies of a texture that the GPU picks from by distance</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#jitter"><span class="n">01</span>Shift the grid a little each frame</a></li><li><a href="#reproject"><span class="n">02</span>Reuse last frame, or throw it away</a></li><li><a href="#accumulate"><span class="n">03</span>Add the frames up, then sharpen</a></li><li><a href="#failures"><span class="n">04</span>Where it breaks</a></li><li><a href="#cost"><span class="n">05</span>What it costs</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="jitter">
+    <h2>Shift the grid a little each frame</h2>
+    <p class="sub">Watch the coarse input grid slide under the fine output grid, and hover an output pixel to count the samples it has collected.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c1" class="sq" width="512" height="512" aria-label="Jittered input samples landing in an 8 by 8 block of output pixels"></canvas>
+        <div class="cap"><span id="c1-read"></span><span id="c1-hover">hover an output pixel</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">The GPU draws a <b>coarse grid of samples</b>, spaced wider than the screen pixels. Every frame the whole grid <b>slides by a fraction of a pixel</b>, so the samples land in new spots. After a few frames <b>every screen pixel has been hit several times</b>, and there is enough real detail to build a sharp full-size picture. Some cameras do the same thing: nudge the sensor between shots, then stack the shots.</p>
+
+        <h3>What you're seeing</h3>
+        <p>An 8 by 8 block of output pixels, zoomed in. Amber dots are this frame's samples. Blue dots are samples from earlier frames, fading as they age. The dashed blue lines are the input grid in its current shifted position.</p>
+        <p>The number in each cell counts the samples that have landed in it so far; a red cell has none yet. The small square at the top right is one input pixel with the shift positions numbered in order. The bar chart at the bottom counts how many cells have 0, 1, 2 or more samples.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag Frames accumulated down to 1. At 2× only one cell in four gets a sample; the other 48 go red.</li>
+          <li>Push it to 32. Every cell has several samples and the bar chart bunches up around N/s², which is 8 at 2×.</li>
+          <li>Click 3×. One input pixel now covers 3 by 3 output pixels, so at 16 frames the readout's N/s² falls from 4.00 to 1.78.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><span class="lab">Scale</span><div class="seg" id="seg1" role="group" aria-label="Upscale ratio"><button data-v="1.5">1.5×</button><button data-v="2" aria-pressed="true">2×</button><button data-v="3">3×</button></div></div>
+          <div class="ctl"><label for="n1">Frames accumulated <span class="val" id="n1v">16</span></label><input type="range" id="n1" min="1" max="32" step="1" value="16"></div>
+          <div class="ctl"><label class="chk" for="anim1"><input type="checkbox" id="anim1"> advance frames</label></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Scale <code>s</code> is output resolution over input resolution. At 2× one input pixel covers 2 by 2 output pixels, so a single frame gives each output pixel a quarter of a sample on average. Sixteen frames give four. The counter in each cell is that coverage, computed from the offsets in use.</p>
+        <p>The offsets come from a Halton sequence, a fixed list of points that spreads evenly over a square without forming a repeating pattern, base 2 for x and base 3 for y. FSR 2 sizes the sequence at <code>8·s²</code> phases, 32 at 2×, so each output sub-cell sees several distinct offsets before the pattern repeats.</p>
+        <p>The offset goes into the projection matrix, the maths that maps 3D points onto the screen, not into the camera's position. The whole scene shifts by less than one input pixel, depth and motion vectors stay consistent, and the upscaler subtracts the same offset when it places the samples.</p>
+        <p class="words">In words: the shift for frame k is the next point in the Halton sequence, centred on zero; after N frames each output pixel has about N/s² samples.</p>
+        <div class="math">s = r_out / r_in                          1.5, 2 or 3
+j_k = (Halton₂(k) − 0.5, Halton₃(k) − 0.5)   in input pixels, k = 1..phases
+samples per output pixel after N frames ≈ N / s² = N·(r_in / r_out)²
+phases = 8·s²                              32 at 2×, 72 at 3×</div>
+        <p>s is the scale, r_out and r_in the output and input resolutions, j_k the jitter for frame k in input pixels, and N the number of frames accumulated so far.</p>
+        <p class="words">What this code does: picks this frame's offset from the sequence, nudges the projection matrix by that much, and hands the same offset to the upscaler so it can undo it.</p>
+<pre class="code"><span class="c">// once per frame, before building the view-projection matrix</span>
+<span class="k">int</span>  phase  = frameIndex % phaseCount;                <span class="c">// phaseCount = 8 * s * s</span>
+<span class="k">vec2</span> jitter = vec2(halton(phase + 1, 2), halton(phase + 1, 3)) - 0.5;
+<span class="k">mat4</span> proj   = perspective(fovY, aspect, zNear, zFar);
+<span class="c">// one input pixel is 2/renderWidth wide in NDC; the sign follows your convention</span>
+proj[2][0] += 2.0 * jitter.x / renderWidth;
+proj[2][1] -= 2.0 * jitter.y / renderHeight;
+viewProj = proj * view;
+<span class="c">// hand the same offset to the upscaler, in pixels, so it can undo it</span>
+upscaler.jitterPixels = jitter;</pre>
+        <p class="tldr">Jitter turns a stream of coarse frames into a full set of real samples; the upscaler only has to know the offsets.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="reproject">
+    <h2>Reuse last frame, or throw it away</h2>
+    <p class="sub">A box slides over a still background; each output pixel looks back along its motion arrow for its own history, and drops it when that history belongs to something else.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c2" class="r169" width="640" height="360" aria-label="A moving box reprojected from history with rejected pixels marked"></canvas>
+        <div class="cap"><span id="c2-read"></span><span>40×20 output · 20×10 input · 2×</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">To reuse last frame, each pixel has to know <b>where it was last frame</b>. A motion vector, how far the pixel moved since then, points the way. But when something moves it <b>uncovers background that was hidden</b>, and that background has no history of its own, only the box's. So each pixel <b>compares depths</b>, and if the old pixel sat at a different distance from the camera, it <b>throws the history away and starts fresh</b>.</p>
+
+        <h3>What you're seeing</h3>
+        <p>A 40 by 20 output built from a 20 by 10 input, so 2×. The amber box slides right over a checkered floor. White arrows on the box point back to where each box pixel was last frame; that is its motion vector. Red cells are pixels that fetched history, found the depth did not match, and threw it away. They sit just behind the box, on the floor it uncovered this frame.</p>
+        <p>The View buttons switch to the history buffer, which is last frame's finished picture, and to the raw input frame, where you can see the coarse samples and the jitter shift.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Untick "reject on depth mismatch". The red cells disappear and a faint amber trail follows the box, fading over about ten frames.</li>
+          <li>Push Box speed to 3 px per frame. The box uncovers more floor each step, so the "px rejected" count in the readout goes up.</li>
+          <li>Switch View to input (low-res). Each amber dot is one drawn sample, and the grid shifts a little every frame.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><span class="lab">View</span><div class="seg" id="seg2" role="group" aria-label="Which buffer to show"><button data-v="out" aria-pressed="true">resolved output</button><button data-v="hist">history (t−1)</button><button data-v="in">input (low-res)</button></div></div>
+          <div class="ctl"><label for="v2">Box speed <span class="val" id="v2v">1.5 px / frame</span></label><input type="range" id="v2" min="0.5" max="3" step="0.25" value="1.5"></div>
+          <div class="ctl"><label class="chk" for="rej2"><input type="checkbox" id="rej2" checked> reject on depth mismatch</label></div>
+          <div class="ctl"><label class="chk" for="play2"><input type="checkbox" id="play2" checked> play</label></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The white arrows are motion vectors: the box's pixels read history one step back, which is where the box was. The background has zero motion, so the pixels the box just left read history at their own position, and that history holds the box's colour and its depth.</p>
+        <p>That depth does not match the background depth rendered this frame, so the history is rejected and those pixels start over from the current frame's samples. This is disocclusion handling: a disocclusion is a spot that was hidden last frame and is visible now.</p>
+        <p>Turn rejection off and the same pixels blend stale box colour into the background: a ghost trail that fades over about ten frames. The cheaper test is a neighbourhood clamp, which clips the history colour to the min and max of the 3 by 3 current samples around it. It needs no depth, but it also erases thin features the current frame missed, which the failures section shows.</p>
+        <p class="words">In words: step back along the motion vector, read the old depth there, and if it disagrees with this frame's depth, use only this frame's samples.</p>
+        <div class="math">uv_prev  = uv − mv(uv)                    mv in output pixels
+z_reproj = z_hist(uv_prev)
+reject if |z_reproj − z_cur| &gt; ε            ε = 0.05 of the depth range here
+or clamp: c_hist = clamp(c_hist, min₃ₓ₃(c_in), max₃ₓ₃(c_in))
+c = lerp(c_hist, c_in, α)                  α = 1 when rejected</div>
+        <p>uv is the pixel's position, mv its motion vector, z_hist and z_cur the old and new depths, ε the tolerance, c_hist and c_in the old and new colours, and α the share of new colour in the blend.</p>
+        <p class="words">What this code does: finds where the pixel was last frame, checks that spot is still on screen, compares the two depths in real distance units, and sets the history count to zero when they disagree.</p>
+<pre class="code"><span class="c">// disocclusion test, one output pixel; ip = nearest input pixel</span>
+<span class="k">vec2</span>  mv       = texelFetch(motionTex, ip, 0).xy;         <span class="c">// output pixels, this frame → last</span>
+<span class="k">vec2</span>  uvPrev   = uv - mv * invOutputSize;
+<span class="k">bool</span>  onScreen = all(greaterThanEqual(uvPrev, vec2(0.0))) &amp;&amp; all(lessThan(uvPrev, vec2(1.0)));
+<span class="k">float</span> zHist    = textureLod(historyDepth, uvPrev, 0.0).x;
+<span class="k">float</span> zNow     = texelFetch(depthTex, ip, 0).x;
+<span class="c">// compare linear depth; a fixed NDC epsilon fails at distance</span>
+<span class="k">bool</span>  disoccluded = abs(linearize(zHist) - linearize(zNow)) &gt; 0.01 * zFar;
+<span class="k">float</span> historyLen  = (onScreen &amp;&amp; !disoccluded) ? textureLod(historyLen, uvPrev, 0.0).x : 0.0;
+<span class="c">// historyLen 0 means: use only this frame's samples and start accumulating again</span></pre>
+        <p class="tldr">Motion vectors say where a pixel came from; the depth test says whether that history is still the same surface.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="accumulate">
+    <h2>Add the frames up, then sharpen</h2>
+    <p class="sub">The same still scene three ways, with the error against a high-quality reference measured live.</p>
+    <div class="cols wide">
+      <div class="vp">
+        <canvas id="c3" class="r169" width="640" height="360" aria-label="Native reference, bilinear upscale and temporal reconstruction side by side with an RMSE graph"></canvas>
+        <div class="cap"><span id="c3-read"></span><span>RMSE in 0–255 units, lower is better</span></div>
+      </div>
+    </div>
+    <div class="prose" style="margin-top:22px">
+      <p class="plain">Each output pixel keeps a <b>running average</b> of every sample that has landed near it, plus a count of how much it has seen. New samples <b>count more when they land close to the pixel centre</b>. The count is <b>capped at 32</b>, so old samples keep fading and the picture can still change. The result is a touch soft, so a <b>sharpen pass</b> runs at the end.</p>
+
+      <h3>What you're seeing</h3>
+      <p>Three 100 by 100 panels. Left is the reference, drawn at full size with 16 samples per pixel. Middle is one 50 by 50 frame stretched to 100 by 100 by blending neighbours; that is all a spatial upscaler has to work with. Right is the temporal result, built from the last few jittered 50 by 50 frames and then sharpened.</p>
+      <p>The number under each panel is RMSE, the average error against the reference on a 0 to 255 scale; lower is better. The graph tracks both numbers over the last 80 frames, blue for the stretched frame and amber for the temporal result.</p>
+
+      <h3>Try this</h3>
+      <ul class="try">
+        <li>Press camera cut. The amber line jumps up to meet the blue one, then falls over the next frames as samples pile up again.</li>
+        <li>Drag RCAS sharpness to 0. The right panel goes softer; watch the temporal RMSE tile.</li>
+        <li>Click 3×. The input drops to 33 by 33, both upscales get worse, and the temporal one takes longer to settle.</li>
+      </ul>
+    </div>
+    <div class="controls">
+      <div class="ctl"><span class="lab">Scale</span><div class="seg" id="seg3" role="group" aria-label="Upscale ratio"><button data-v="1.5">1.5×</button><button data-v="2" aria-pressed="true">2×</button><button data-v="3">3×</button></div></div>
+      <div class="ctl"><label for="sh3">RCAS sharpness <span class="val" id="sh3v">0.40</span></label><input type="range" id="sh3" min="0" max="1" step="0.05" value="0.4"></div>
+      <div class="ctl"><span class="lab">History</span><button class="btn" id="cut3" type="button">camera cut (reset)</button></div>
+      <div class="ctl"><label class="chk" for="play3"><input type="checkbox" id="play3" checked> play</label></div>
+    </div>
+    <div class="tiles">
+      <div class="tile"><div class="n" id="t3-bil">—</div><div class="l">RMSE, bilinear</div></div>
+      <div class="tile on"><div class="n" id="t3-tmp">—</div><div class="l">RMSE, temporal</div></div>
+      <div class="tile"><div class="n" id="t3-n">—</div><div class="l">frames since cut</div></div>
+    </div>
+    <div class="cols" style="margin-top:22px">
+      <div class="prose">
+        <h3>The real version</h3>
+        <p>The blend is a running average weighted by confidence. Each output pixel keeps a colour and a count <code>n</code> of how much sample weight it has absorbed. This frame's samples arrive with weight <code>w</code>, a Gaussian (a bell curve) of the distance from the output pixel centre to the jittered input sample, half an output pixel wide.</p>
+        <p>The kernel, the weighting shape used to gather samples, is sized for the output grid, not the input grid. The jitter is what makes that legal: over several frames, samples land close to every output pixel centre. The count is capped, 32 here, so old samples keep fading and the image stays responsive.</p>
+        <p>After a camera cut the count is zero everywhere and the first frame is exactly the bilinear result. The graph shows the RMSE falling as samples accumulate, and a floor it never crosses: the converged image is the scene blurred by the kernel, a touch softer than the box-filtered reference.</p>
+        <p>That floor is what the sharpen pass is for. RCAS is a 3 by 3 cross-shaped kernel that subtracts a little of the four neighbours. The amount is limited by the local min and max, so it sharpens edges without adding bright or dark halos on them.</p>
+      </div>
+      <div class="prose">
+        <p class="words" style="margin-top:0">In words: weight each new sample by how close it landed, fold it into the running average, and raise the count. RCAS then pushes each pixel away from the average of its four neighbours, within a limit.</p>
+        <div class="math">w_i  = exp(−2·d_i²)              d_i = |p_out − p_sample| in output pixels, σ = 0.5 px
+c    = (n·c_hist + Σ w_i·c_i) / (n + Σ w_i)
+n'   = min(n + Σ w_i, n_max)     n_max = 32
+α    = Σ w_i / (n + Σ w_i)       the same blend as lerp(c_hist, c_in, α)
+RCAS: c' = (e + lobe·(b+d+f+h)) / (1 + 4·lobe),  lobe ∈ [−0.1875, 0]</div>
+        <p style="margin-top:14px">w_i is the weight of sample i, d_i its distance from the pixel centre, n the accumulated count, c_hist the old colour, c_i the new sample colours, n_max the cap, and α the equivalent blend factor. In the RCAS line e is the centre pixel and b, d, f, h its four neighbours.</p>
+        <p class="words">What this code does: finds the 3 by 3 input samples around the pixel, weights each by distance, reads the history at the reprojected spot, clamps or rejects it, then averages history and new samples by their weights.</p>
+<pre class="code"><span class="c">// resolve kernel for output pixel p (output px); j = this frame's jitter (input px)</span>
+<span class="k">vec2</span>  q = p / s - 0.5 - j;                     <span class="c">// position in input sample space</span>
+<span class="k">ivec2</span> c = ivec2(round(q));
+<span class="k">vec3</span> sum = vec3(0); <span class="k">float</span> wsum = 0.0; <span class="k">vec3</span> boxMin = vec3(1e9), boxMax = vec3(-1e9);
+<span class="k">for</span> (<span class="k">int</span> dy = -1; dy &lt;= 1; dy++) <span class="k">for</span> (<span class="k">int</span> dx = -1; dx &lt;= 1; dx++) {
+  <span class="k">ivec2</span> t  = c + ivec2(dx, dy);
+  <span class="k">vec3</span>  ci = texelFetch(inputColor, t, 0).rgb;
+  <span class="k">vec2</span>  dp = (q - vec2(t)) * s;                  <span class="c">// offset to that sample, output px</span>
+  <span class="k">float</span> w  = exp(-2.0 * dot(dp, dp));            <span class="c">// jitter-aware weight, sigma 0.5 px</span>
+  sum += w * ci; wsum += w; boxMin = min(boxMin, ci); boxMax = max(boxMax, ci);
+}
+<span class="k">vec4</span> h = sampleCatmullRom(history, uvPrev);     <span class="c">// rgb + accumulated weight n; bicubic, not bilinear, or the history blurs</span>
+h.rgb = clamp(h.rgb, boxMin, boxMax);           <span class="c">// or the depth test from section 2</span>
+<span class="k">float</span> n = disoccluded ? 0.0 : h.a;
+<span class="k">vec3</span> outColor = (n * h.rgb + sum) / max(n + wsum, 1e-4);
+historyOut = vec4(outColor, min(n + wsum, N_MAX));</pre>
+      </div>
+    </div>
+    <div class="prose">
+      <p class="tldr">The output is a running average of jittered samples, capped so it can still change, then sharpened to make up for the blur.</p>
+    </div>
+  </section>
+
+  <section id="failures">
+    <h2>Where it breaks</h2>
+    <p class="sub">A camera pans over thin posts, a striped floor, a drifting glow and a HUD; each toggle fixes one artifact, and all four start off.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c4" class="r169" width="640" height="360" aria-label="Scene showing thin line flicker, particle smearing, blurred UI and soft textures"></canvas>
+        <div class="cap"><span id="c4-read"></span><span>160×90 output · 80×45 input · 2×</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">The upscaler only knows what the engine tells it, so <b>every artifact is a missing input</b>. Thin things fall between samples and <b>flicker</b>. A glow that writes no motion vector <b>smears</b> along its path. A HUD drawn before the upscale comes out <b>soft</b>. Textures come out <b>blurry</b> because the GPU picked a smaller copy to suit the smaller frame. Each one has a one-line fix on the engine side.</p>
+
+        <h3>What you're seeing</h3>
+        <p>A 160 by 90 output built from 80 by 45, panning right at 1 pixel per frame. The white posts are half an output pixel wide. The blue stripes at the bottom are a texture that repeats every 4 texels, where a texel is one pixel of the texture image. The amber glow is a translucent particle drifting across. The white bars and crosshair are the HUD.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Tick "posts ≥ 1 input px wide". The posts stop flickering and stay solid while the camera pans.</li>
+          <li>Tick "particle writes motion vectors". The amber trail behind the glow goes away.</li>
+          <li>Tick the last two boxes. The HUD bars get crisp edges, and the stripes at the bottom separate into lines instead of a soft blue band.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><label class="chk" for="minw4"><input type="checkbox" id="minw4"> posts ≥ 1 input px wide</label></div>
+          <div class="ctl"><label class="chk" for="pmv4"><input type="checkbox" id="pmv4"> particle writes motion vectors</label></div>
+          <div class="ctl"><label class="chk" for="ui4"><input type="checkbox" id="ui4"> HUD drawn after upscale</label></div>
+          <div class="ctl"><label class="chk" for="mip4"><input type="checkbox" id="mip4"> mip bias = log2(r_in / r_out)</label></div>
+          <div class="ctl"><label for="cv4">Camera pan <span class="val" id="cv4v">1.00 px / frame</span></label><input type="range" id="cv4" min="0" max="2" step="0.25" value="1"></div>
+          <div class="ctl"><label class="chk" for="play4"><input type="checkbox" id="play4" checked> play</label></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The posts are half an output pixel wide. On many frames no input sample lands on one, so the current frame says background there while the history says post, the depth test rejects, and the post flickers. Engines keep wires and railings at least one input pixel wide, or draw them after the upscaler.</p>
+        <p>The particle is translucent, so it writes neither depth nor motion vectors. Its pixels carry the background's motion, the history is fetched from the wrong place, and the particle smears along its own path. FSR 2 takes a reactive mask, a per-pixel flag, for exactly these pixels; Unreal has a "responsive AA" material flag that does the same job.</p>
+        <p>The HUD is static on screen, so it accumulates cleanly, but it was rendered at input resolution and rebuilt through the kernel, so its edges are soft. Anything drawn in screen space belongs after the upscaler.</p>
+        <p>The stripe texture is soft because the GPU picks mip levels from how fast the texture coordinates change per input pixel, which at 2× is one level coarser than at native. A negative LOD bias on every material sampler, a fixed nudge toward the sharper mip, puts it back.</p>
+        <p class="words">In words: the smaller frame makes the GPU pick a blurrier texture copy; biasing by log2 of the scale picks the copy that native rendering would have used.</p>
+        <div class="math">mip  = log2(texels per input pixel) = mip_native + log2(s)
+bias = log2(r_in / r_out) = −log2(s)        −0.58 at 1.5×, −1 at 2×, −1.58 at 3×
+footprint after bias = 2^(mip + bias) texels = the native footprint</div>
+        <p>mip is the texture level the GPU picks, s the scale, r_in and r_out the two resolutions, and the footprint is how many texels one pixel covers.</p>
+        <p class="words">What this code does: shifts every texture lookup toward the sharper mip by the scale, flags translucent particles for the upscaler, and leaves screen-space overlays for after it.</p>
+<pre class="code"><span class="c">// material shader, internal-resolution pass</span>
+<span class="k">float</span> mipBias = log2(renderWidth / outputWidth);          <span class="c">// -1.0 at 2×; or set it on the sampler</span>
+<span class="k">vec4</span>  albedo  = texture(albedoTex, uv, mipBias);
+<span class="c">// translucent particles: no depth, no motion vectors, so flag them for the resolve</span>
+<span class="k">if</span> (material.responsive) reactiveMask = max(reactiveMask, albedo.a);
+<span class="c">// HUD, film grain, vignette, letterbox: draw at output resolution, after the upscaler</span></pre>
+        <p class="tldr">Ghost trails, flicker, blur and soft HUDs are all inputs the engine forgot to hand the upscaler.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="cost">
+    <h2>What it costs</h2>
+    <p class="sub">Pick an output size and a mode, and see an estimated frame time split into the part that shrinks and the parts that do not.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5" class="r169" width="640" height="360" aria-label="Bar chart of estimated frame time per upscaling mode"></canvas>
+        <div class="cap"><span id="c5-read"></span><span>estimates, not measurements</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">The upscaler <b>costs a fixed slice</b> of GPU time, about 1 to 2 ms at 4K, and in return you <b>skip shading most of the pixels</b>. But only the part of the frame that scales with pixel count gets cheaper. <b>Shadow maps, culling, simulation and the HUD cost the same</b> at any input size, so the saving depends on how much of your frame was pixel work to begin with.</p>
+
+        <h3>What you're seeing</h3>
+        <p>One bar per mode. Grey is the fixed part of the frame that does not care about resolution. Blue is the part that scales with pixel count, divided by s². Amber is the upscaler itself. The dashed green lines mark 16.7 ms (60 Hz) and 8.3 ms (120 Hz). The white outline is the selected mode, and the tiles below give its numbers.</p>
+        <p>These are estimates from a simple model, not measurements.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Click Performance. The blue part drops to a quarter and the "saved vs native" tile jumps.</li>
+          <li>Drag Resolution-dependent share down to 40 %. Most of each bar turns grey and the saving shrinks; the upscaler can only help with pixel work.</li>
+          <li>Set Native frame time to 40 ms and find the first mode whose bar dips under the 60 Hz line.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><span class="lab">Output</span><div class="seg" id="seg5r" role="group" aria-label="Output resolution"><button data-v="1080">1080p</button><button data-v="1440">1440p</button><button data-v="2160" aria-pressed="true">4K</button></div></div>
+          <div class="ctl"><span class="lab">Mode</span><div class="seg" id="seg5m" role="group" aria-label="Upscaling mode"><button data-v="1">Quality</button><button data-v="2" aria-pressed="true">Balanced</button><button data-v="3">Performance</button><button data-v="4">Ultra perf.</button></div></div>
+          <div class="ctl"><label for="tn5">Native frame time <span class="val" id="tn5v">24.0 ms</span></label><input type="range" id="tn5" min="8" max="40" step="0.5" value="24"></div>
+          <div class="ctl"><label for="dep5">Resolution-dependent share <span class="val" id="dep5v">75 %</span></label><input type="range" id="dep5" min="40" max="95" step="5" value="75"></div>
+          <div class="ctl"><label for="up5">Upscaler cost at 4K <span class="val" id="up5v">1.2 ms</span></label><input type="range" id="up5" min="0.2" max="4" step="0.1" value="1.2"></div>
+        </div>
+        <div class="tiles four">
+          <div class="tile"><div class="n" id="t5-res">—</div><div class="l">internal resolution</div></div>
+          <div class="tile"><div class="n" id="t5-px">—</div><div class="l">pixels shaded per frame</div></div>
+          <div class="tile on"><div class="n" id="t5-ms">—</div><div class="l">frame time, est.</div></div>
+          <div class="tile"><div class="n" id="t5-save">—</div><div class="l">saved vs native</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The mode names are the DLSS and FSR 2 presets: Quality renders at 1/1.5 of the output on each axis, Balanced at about 1/1.7, Performance at 1/2, Ultra Performance at 1/3. 4K Performance shades 1920×1080 pixels, a quarter of the output. 4K Quality shades 2560×1440, 44 %.</p>
+        <p>Shadow maps, culling, simulation and the HUD do not get cheaper, so the saving is the resolution-dependent share divided by <code>s²</code>, minus the upscaler itself. Published figures put a temporal upscaler at roughly 1 to 2 ms at 4K output on 2022-era GPUs; the slider is that number, scaled by output pixel count for the smaller targets. The bars are the model, not a benchmark.</p>
+        <p>Dynamic resolution takes this one step further: the engine measures last frame's GPU time and picks the scale for the next frame so the total lands on budget.</p>
+        <p class="words">In words: frame time is the fixed part, plus the pixel part divided by s², plus the upscaler; the upscaler's cost follows the output size, not the input size.</p>
+        <div class="math">t_frame ≈ t_fixed + t_scaled / s² + t_upscale
+pixels shaded = (w_out / s) · (h_out / s)     3840×2160 at 2× → 2.07 M
+t_upscale ∝ output pixels, not input pixels</div>
+        <p>t_frame is the whole frame, t_fixed the part that ignores resolution, t_scaled the part that follows pixel count, t_upscale the upscaler, s the scale, and w_out and h_out the output width and height.</p>
+        <p class="words">What this code does: reads how long the last frame took, nudges the scale a little toward the budget, and rounds the new input size to even numbers.</p>
+<pre class="code"><span class="c">// dynamic resolution: choose s each frame so GPU time lands on budget</span>
+<span class="k">float</span> gpuMs = readTimestampQuery(previousFrame);
+<span class="k">float</span> ratio = clamp(budgetMs / gpuMs, 0.85, 1.15);          <span class="c">// damp it; never chase one spike</span>
+scale = clamp(scale * sqrt(ratio), 1.0 / 3.0, 1.0);           <span class="c">// area scales with scale², hence sqrt</span>
+renderWidth  = roundToEven(outputWidth  * scale);
+renderHeight = roundToEven(outputHeight * scale);
+<span class="c">// the upscaler must accept a varying input size; jitter length and mip bias follow scale</span></pre>
+        <p class="tldr">Temporal upscaling only shrinks the pixel-bound part of the frame, so measure that share before you count on a saving.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">Four families that all end at a full-size picture. What each one needs from the engine is the real difference; quality follows from that.</p>
+    <p class="plain">Read the rows top to bottom as rising effort and rising payoff. A <b>spatial</b> upscaler is a day of work and gives a soft picture. A <b>temporal</b> one is weeks of engine plumbing and gives back real detail. The <b>ML</b> versions swap the hand-tuned rules for a trained network on the same inputs. <b>Frame generation</b> sits on top of a temporal upscaler and invents whole frames. The cost column is an estimate for 4K on a 2022-class GPU.</p>
+    <div class="tbl-wrap">
+    <table class="uses trade">
+      <thead><tr><th>Kind</th><th>Needs from the engine</th><th>How it looks when it fails</th><th>Added delay</th><th>Runs on</th><th>Cost, est.</th></tr></thead>
+      <tbody>
+        <tr><td>Spatial (FSR 1, NIS)</td><td>One anti-aliased colour frame. Drop-in, a day of work.</td><td>No new detail: edges stay as soft as the input, thin lines are gone, sharpening adds halos.</td><td>None</td><td>Any GPU</td><td>0.3–0.6 ms at 4K</td></tr>
+        <tr><td>Temporal (TAAU, FSR 2, TSR)</td><td>Depth, motion vectors, jitter, mip bias, reactive masks, HUD after upscale. Weeks of engine work.</td><td>Ghost trails and smears where motion vectors are missing; flicker on thin geometry; blur on fast motion.</td><td>None</td><td>Any GPU</td><td>1–2 ms at 4K</td></tr>
+        <tr><td>ML temporal (DLSS 2+, XeSS)</td><td>Same inputs as temporal; a trained network replaces the hand-tuned rejection and blend rules.</td><td>Fewer rules to break, but the same missing-vector artifacts, plus the odd made-up texture detail.</td><td>None</td><td>Tensor or XMX cores for the full model; XeSS has a DP4a path</td><td>1–2 ms at 4K</td></tr>
+        <tr><td>Frame generation (DLSS 3, FSR 3)</td><td>A working temporal upscaler, plus optical flow and a pacing layer; HUD handled separately again.</td><td>Warped HUD and text, garbage where things get uncovered, uneven pacing; a generated frame cannot react to input.</td><td>Adds about one rendered frame</td><td>DLSS 3: RTX 40; FSR 3: any GPU</td><td>2–3 ms per generated frame</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">Every figure in the cost column is an estimate for a 4K output on a 2022-class GPU. Vendors publish per-GPU tables. Measure on your own hardware before you plan a budget around it.</p>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">The same idea under several names; the data column gives it away, since anything that needs motion vectors and depth is temporal.</p>
+    <p class="plain">Each row is one way the idea has shipped. The second column says <b>what happens each frame</b>, the third <b>what the engine has to hand over</b>, and the last where it appeared and when. If the data column lists motion vectors and depth, it is a temporal method, whatever the marketing name.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Use</th><th>What happens each frame</th><th>Data it needs</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>Temporal super resolution</td><td>Look up last frame along the motion vectors, drop history that fails the depth test or clamp it, then blend the jittered low-res samples into a full-res image.</td><td>Colour, depth, motion vectors, jitter offset, exposure, reactive mask</td><td>DLSS 2.0 (2020), FSR 2.0 (2022), XeSS (2022), Unreal Engine 5 TSR (2022)</td></tr>
+        <tr><td>TAA with upsampling</td><td>The engine's own temporal anti-aliasing writing to a larger target; the ancestor of the vendor SDKs.</td><td>Same as above, without the mask</td><td>Unreal Engine 4 TAAU, Unity HDRP TAA Upscale, many engines</td></tr>
+        <tr><td>Checkerboard rendering</td><td>Shade half the pixels each frame in a checker pattern, fill the rest from neighbours and the previous frame.</td><td>Colour, depth, motion vectors, object IDs</td><td>PS4 Pro titles from 2016; Horizon Zero Dawn (GDC 2017); Frostbite's Battlefield 1 (GDC 2017)</td></tr>
+        <tr><td>Dynamic resolution</td><td>Pick the input size each frame from last frame's GPU time and hand a varying input to the upscaler.</td><td>GPU timestamps, a frame-time target</td><td>Halo Infinite, Call of Duty, most console titles</td></tr>
+        <tr><td>Frame generation</td><td>Make up a whole frame between two rendered ones from motion vectors and optical flow.</td><td>Two frames, motion vectors, optical flow, HUD-less colour</td><td>DLSS 3 (2022), FSR 3 (2023)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">The trap: the upscaler only sees what was rendered. It cannot know that a texture scrolls, an animated character bends, a portal shows another room, or a particle drifts, unless the engine writes a correct motion vector for every one of those pixels, animated UVs included. Nearly every ghosting or smearing report traces back to a missing or wrong motion vector, not to the upscaler.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const GROUND = "#0b0e13", AMBER = "#f2a341", BLUE = "#4aa3ff", WHITE = "#ffffff", RED = "#ef5d5d", GREEN = "#5ad48a", GRID = "rgba(255,255,255,0.12)";
+  const MONO = "IBM Plex Mono, Menlo, Consolas, monospace";
+
+  function halton(i, b) { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; }
+  function jitterOf(k, phases) { const i = (k % phases) + 1; return [halton(i, 2) - 0.5, halton(i, 3) - 0.5]; }
+  function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
+  function onSeg(id, fn) { const el = $(id); el.addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; segOn(el, b.dataset.v); fn(b.dataset.v); }); }
+  function onRange(id, valId, fmt, fn) { const el = $(id); const upd = () => { $(valId).textContent = fmt(+el.value); }; el.addEventListener("input", () => { upd(); fn(+el.value); }); upd(); return el; }
+  function onCheck(id, fn) { const el = $(id); el.addEventListener("change", () => fn(el.checked)); return el; }
+  function canvasPt(cv, ev) { const r = cv.getBoundingClientRect(); return [(ev.clientX - r.left) * cv.width / r.width, (ev.clientY - r.top) * cv.height / r.height]; }
+  function fmtN(n) { return Math.round(n).toLocaleString("en-US"); }
+  function sgn(v, d = 2) { return (v < 0 ? "−" : "+") + Math.abs(v).toFixed(d); }
+  function clampI(v, a, b) { return v < a ? a : v > b ? b : v; }
+  function text(ctx, s, x, y, col, size = 11, align = "left") { ctx.font = `${size}px ${MONO}`; ctx.fillStyle = col; ctx.textAlign = align; ctx.textBaseline = "alphabetic"; ctx.fillText(s, x, y); }
+
+  // float RGB buffer → ImageData → canvas, nearest-neighbour scaled
+  function makeBlit(W, H) {
+    const off = document.createElement("canvas"); off.width = W; off.height = H;
+    const octx = off.getContext("2d"); const img = octx.createImageData(W, H);
+    return {
+      draw(ctx, buf, dx, dy, dw, dh) {
+        const p = img.data, n = W * H;
+        for (let i = 0; i < n; i++) {
+          p[i * 4] = Math.max(0, Math.min(255, buf[i * 3] * 255 + 0.5)) | 0;
+          p[i * 4 + 1] = Math.max(0, Math.min(255, buf[i * 3 + 1] * 255 + 0.5)) | 0;
+          p[i * 4 + 2] = Math.max(0, Math.min(255, buf[i * 3 + 2] * 255 + 0.5)) | 0;
+          p[i * 4 + 3] = 255;
+        }
+        octx.putImageData(img, 0, 0);
+        ctx.imageSmoothingEnabled = false; ctx.drawImage(off, dx, dy, dw, dh);
+      }
+    };
+  }
+
+  // ---------- the upscaler used by sections 2, 3 and 4 ----------
+  // Renders a low-res frame from an analytic scene(px, py, out) where px, py are output-pixel coordinates
+  // and out = [r, g, b, depth, mvx, mvy] (motion in output pixels, this frame → last frame).
+  function makeUpscaler(Wo, Ho, s) {
+    const Wi = Math.max(2, Math.round(Wo / s)), Hi = Math.max(2, Math.round(Ho / s));
+    const No = Wo * Ho, Ni = Wi * Hi;
+    const U = {
+      Wo, Ho, Wi, Hi, s, k: 0, jx: 0, jy: 0, phases: Math.round(8 * s * s), nMax: 32, eps: 0.05,
+      inC: new Float32Array(Ni * 3), inZ: new Float32Array(Ni), inM: new Float32Array(Ni * 2),
+      hC: new Float32Array(No * 3), hZ: new Float32Array(No), hN: new Float32Array(No),
+      oC: new Float32Array(No * 3), oZ: new Float32Array(No), oN: new Float32Array(No),
+      rej: new Uint8Array(No), rejected: 0, valid: false
+    };
+    const tmp = new Float32Array(6);
+    U.reset = () => { U.hN.fill(0); U.oN.fill(0); U.valid = false; };
+    U.render = scene => {
+      const [jx, jy] = jitterOf(U.k, U.phases); U.jx = jx; U.jy = jy;
+      const { inC, inZ, inM } = U;
+      for (let j = 0; j < Hi; j++) for (let i = 0; i < Wi; i++) {
+        scene((i + 0.5 + jx) * s, (j + 0.5 + jy) * s, tmp);
+        const o = j * Wi + i;
+        inC[o * 3] = tmp[0]; inC[o * 3 + 1] = tmp[1]; inC[o * 3 + 2] = tmp[2];
+        inZ[o] = tmp[3]; inM[o * 2] = tmp[4]; inM[o * 2 + 1] = tmp[5];
+      }
+    };
+    U.resolve = (reject, clamp) => {
+      const { inC, inZ, inM, hC, hZ, hN, oC, oZ, oN, rej, jx, jy } = U;
+      let rejected = 0;
+      for (let y = 0; y < Ho; y++) for (let x = 0; x < Wo; x++) {
+        const cx = x + 0.5, cy = y + 0.5;
+        const u = cx / s - 0.5 - jx, v = cy / s - 0.5 - jy;
+        const i0 = Math.round(u), j0 = Math.round(v);
+        let sr = 0, sg = 0, sb = 0, sw = 0, mnr = 2, mng = 2, mnb = 2, mxr = -1, mxg = -1, mxb = -1;
+        for (let dj = -1; dj <= 1; dj++) {
+          const jj = clampI(j0 + dj, 0, Hi - 1), ddy = v - (j0 + dj);
+          for (let di = -1; di <= 1; di++) {
+            const ii = clampI(i0 + di, 0, Wi - 1), ddx = u - (i0 + di);
+            const w = Math.exp(-2 * s * s * (ddx * ddx + ddy * ddy)); if (w < 1e-4) continue;   // Gaussian, sigma = 0.5 output px
+            const o = (jj * Wi + ii) * 3; const r = inC[o], g = inC[o + 1], b = inC[o + 2];
+            sr += w * r; sg += w * g; sb += w * b; sw += w;
+            if (r < mnr) mnr = r; if (r > mxr) mxr = r; if (g < mng) mng = g; if (g > mxg) mxg = g; if (b < mnb) mnb = b; if (b > mxb) mxb = b;
+          }
+        }
+        const oi = clampI(j0, 0, Hi - 1) * Wi + clampI(i0, 0, Wi - 1);
+        const zc = inZ[oi], mx = inM[oi * 2], my = inM[oi * 2 + 1];
+        const hx = cx - mx - 0.5, hy = cy - my - 0.5;
+        let n = 0, hr = 0, hg = 0, hb = 0, hz = 0, flag = 0;
+        if (U.valid && hx >= 0 && hy >= 0 && hx <= Wo - 1 && hy <= Ho - 1) {
+          const x0 = Math.floor(hx), y0 = Math.floor(hy), fx = hx - x0, fy = hy - y0;
+          const x1 = Math.min(x0 + 1, Wo - 1), y1 = Math.min(y0 + 1, Ho - 1);
+          const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+          const a = y0 * Wo + x0, b2 = y0 * Wo + x1, c = y1 * Wo + x0, d = y1 * Wo + x1;
+          n = hN[a] * w00 + hN[b2] * w10 + hN[c] * w01 + hN[d] * w11;
+          hz = hZ[a] * w00 + hZ[b2] * w10 + hZ[c] * w01 + hZ[d] * w11;
+          hr = hC[a * 3] * w00 + hC[b2 * 3] * w10 + hC[c * 3] * w01 + hC[d * 3] * w11;
+          hg = hC[a * 3 + 1] * w00 + hC[b2 * 3 + 1] * w10 + hC[c * 3 + 1] * w01 + hC[d * 3 + 1] * w11;
+          hb = hC[a * 3 + 2] * w00 + hC[b2 * 3 + 2] * w10 + hC[c * 3 + 2] * w01 + hC[d * 3 + 2] * w11;
+          if (reject && n > 0 && Math.abs(hz - zc) > U.eps) { n = 0; flag = 1; }
+          if (clamp && n > 0) { hr = Math.min(Math.max(hr, mnr), mxr); hg = Math.min(Math.max(hg, mng), mxg); hb = Math.min(Math.max(hb, mnb), mxb); }
+        }
+        const tot = n + sw, p = y * Wo + x;
+        if (tot < 1e-5) { oC[p * 3] = inC[oi * 3]; oC[p * 3 + 1] = inC[oi * 3 + 1]; oC[p * 3 + 2] = inC[oi * 3 + 2]; }
+        else { oC[p * 3] = (n * hr + sr) / tot; oC[p * 3 + 1] = (n * hg + sg) / tot; oC[p * 3 + 2] = (n * hb + sb) / tot; }
+        oZ[p] = zc; oN[p] = Math.min(tot, U.nMax); rej[p] = flag; rejected += flag;
+      }
+      U.hC = oC; U.oC = hC; U.hZ = oZ; U.oZ = hZ; U.hN = oN; U.oN = hN;
+      U.rejected = rejected; U.valid = true; U.k++;
+    };
+    U.cur = () => U.hC;   // latest resolved frame (next frame's history)
+    U.prev = () => U.oC;  // the history that was read this frame
+    return U;
+  }
+
+  // jitter-aware bilinear upscale of the current input frame (a spatial upscaler that knows the offset)
+  function bilinearUp(U, out) {
+    const { Wo, Ho, Wi, Hi, s, jx, jy, inC } = U;
+    for (let y = 0; y < Ho; y++) for (let x = 0; x < Wo; x++) {
+      const u = Math.min(Math.max((x + 0.5) / s - 0.5 - jx, 0), Wi - 1), v = Math.min(Math.max((y + 0.5) / s - 0.5 - jy, 0), Hi - 1);
+      const x0 = Math.floor(u), y0 = Math.floor(v), fx = u - x0, fy = v - y0, x1 = Math.min(x0 + 1, Wi - 1), y1 = Math.min(y0 + 1, Hi - 1);
+      const a = (y0 * Wi + x0) * 3, b = (y0 * Wi + x1) * 3, c = (y1 * Wi + x0) * 3, d = (y1 * Wi + x1) * 3, p = (y * Wo + x) * 3;
+      for (let ch = 0; ch < 3; ch++) out[p + ch] = (inC[a + ch] * (1 - fx) + inC[b + ch] * fx) * (1 - fy) + (inC[c + ch] * (1 - fx) + inC[d + ch] * fx) * fy;
+    }
+  }
+
+  // RCAS-style adaptive sharpen: 3×3 cross, negative lobe limited by the local min/max
+  function rcas(src, dst, W, H, sharp) {
+    if (sharp <= 0) { dst.set(src); return; }
+    const LIMIT = 0.1875;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const p = (y * W + x) * 3;
+      const pb = (Math.max(y - 1, 0) * W + x) * 3, ph = (Math.min(y + 1, H - 1) * W + x) * 3;
+      const pd = (y * W + Math.max(x - 1, 0)) * 3, pf = (y * W + Math.min(x + 1, W - 1)) * 3;
+      let lobeMax = -1e9;
+      for (let c = 0; c < 3; c++) {
+        const b = src[pb + c], d = src[pd + c], f = src[pf + c], h = src[ph + c];
+        const mn = Math.min(b, d, f, h), mx = Math.max(b, d, f, h);
+        const hitMin = mn / (4 * mx + 1e-4);
+        const hitMax = (1 - mx) / (4 * mn - 4 - 1e-4);
+        const l = Math.max(-hitMin, hitMax);
+        if (l > lobeMax) lobeMax = l;
+      }
+      const lobe = Math.max(-LIMIT, Math.min(lobeMax, 0)) * sharp;
+      const rcpL = 1 / (4 * lobe + 1);
+      for (let c = 0; c < 3; c++) dst[p + c] = ((src[pb + c] + src[pd + c] + src[pf + c] + src[ph + c]) * lobe + src[p + c]) * rcpL;
+    }
+  }
+
+  // ---------- 1. sub-pixel jitter ----------
+  const c1 = $("c1"), x1 = c1.getContext("2d");
+  const d1 = { s: 2, N: 16, k: 15, anim: false, hover: -1 };
+  const G1 = 8, P1 = 42, OX = 16, OY = 16, GW = G1 * P1, IX = 372, IY = 16, IW = 124;
+  function draw1() {
+    const { s, N } = d1, Q = s * P1, phases = Math.round(8 * s * s);
+    x1.fillStyle = GROUND; x1.fillRect(0, 0, 512, 512);
+    const frames = [];
+    for (let f = 0; f < N; f++) { const k = d1.k - f; if (k < 0) break; const [jx, jy] = jitterOf(k, phases); frames.push([jx, jy, f, k]); }
+    const counts = new Uint16Array(G1 * G1);
+    const na = Math.ceil(GW / Q) + 2;
+    for (const [jx, jy] of frames) for (let b = -1; b < na; b++) for (let a = -1; a < na; a++) {
+      const sx = (a + 0.5 + jx) * Q, sy = (b + 0.5 + jy) * Q; if (sx < 0 || sy < 0 || sx >= GW || sy >= GW) continue;
+      counts[Math.floor(sy / P1) * G1 + Math.floor(sx / P1)]++;
+    }
+    let mn = 1e9, mx = 0, sum = 0; for (const c of counts) { if (c < mn) mn = c; if (c > mx) mx = c; sum += c; }
+    // output cells shaded by coverage
+    for (let j = 0; j < G1; j++) for (let i = 0; i < G1; i++) {
+      const c = counts[j * G1 + i], t = mx ? c / mx : 0;
+      x1.fillStyle = c === 0 ? "rgba(239,93,93,0.28)" : `rgba(242,163,65,${(0.06 + 0.42 * t).toFixed(3)})`;
+      x1.fillRect(OX + i * P1, OY + j * P1, P1, P1);
+      text(x1, String(c), OX + i * P1 + 4, OY + j * P1 + 12, "rgba(255,255,255,0.75)", 10);
+    }
+    if (d1.hover >= 0) { const i = d1.hover % G1, j = Math.floor(d1.hover / G1); x1.strokeStyle = WHITE; x1.lineWidth = 2; x1.strokeRect(OX + i * P1 + 1, OY + j * P1 + 1, P1 - 2, P1 - 2); }
+    // output grid
+    x1.strokeStyle = GRID; x1.lineWidth = 1; x1.beginPath();
+    for (let i = 0; i <= G1; i++) { const p = OX + i * P1 + 0.5; x1.moveTo(p, OY); x1.lineTo(p, OY + GW); x1.moveTo(OX, p); x1.lineTo(OX + GW, p); }
+    x1.stroke();
+    // input grid for the current frame, jittered
+    const cur = frames[0];
+    x1.save(); x1.beginPath(); x1.rect(OX, OY, GW, GW); x1.clip();
+    x1.strokeStyle = "rgba(74,163,255,0.55)"; x1.setLineDash([4, 3]); x1.beginPath();
+    for (let a = -1; a < na; a++) { const p = OX + (a + cur[0]) * Q; x1.moveTo(p, OY); x1.lineTo(p, OY + GW); const q = OY + (a + cur[1]) * Q; x1.moveTo(OX, q); x1.lineTo(OX + GW, q); }
+    x1.stroke(); x1.setLineDash([]);
+    // samples, oldest first
+    for (let f = frames.length - 1; f >= 0; f--) {
+      const [jx, jy, age] = frames[f]; const al = age === 0 ? 1 : 0.25 + 0.6 * (1 - age / Math.max(1, N - 1));
+      x1.fillStyle = age === 0 ? AMBER : `rgba(74,163,255,${al.toFixed(3)})`;
+      for (let b = -1; b < na; b++) for (let a = -1; a < na; a++) {
+        const sx = (a + 0.5 + jx) * Q, sy = (b + 0.5 + jy) * Q; if (sx < 0 || sy < 0 || sx >= GW || sy >= GW) continue;
+        x1.beginPath(); x1.arc(OX + sx, OY + sy, age === 0 ? 3.5 : 2.5, 0, Math.PI * 2); x1.fill();
+      }
+    }
+    x1.restore();
+    text(x1, `${G1}×${G1} output px · input px = ${s}× wider`, OX, OY + GW + 16, "rgba(255,255,255,0.6)");
+    // inset: one input pixel with the sequence
+    x1.fillStyle = "rgba(255,255,255,0.05)"; x1.fillRect(IX, IY, IW, IW);
+    x1.strokeStyle = GRID; x1.beginPath();
+    for (let m = 0; m * (IW / s) <= IW + 0.01; m++) { const p = IX + Math.round(m * IW / s) + 0.5; x1.moveTo(p, IY); x1.lineTo(p, IY + IW); const q = IY + Math.round(m * IW / s) + 0.5; x1.moveTo(IX, q); x1.lineTo(IX + IW, q); }
+    x1.stroke();
+    x1.strokeStyle = "rgba(74,163,255,0.8)"; x1.strokeRect(IX + 0.5, IY + 0.5, IW - 1, IW - 1);
+    for (let f = frames.length - 1; f >= 0; f--) {
+      const [jx, jy, age, k] = frames[f]; const px = IX + (0.5 + jx) * IW, py = IY + (0.5 + jy) * IW;
+      x1.fillStyle = age === 0 ? AMBER : "rgba(74,163,255,0.85)"; x1.beginPath(); x1.arc(px, py, age === 0 ? 4 : 3, 0, Math.PI * 2); x1.fill();
+      if (N <= 16) text(x1, String((k % phases) + 1), px + 5, py + 3, "rgba(255,255,255,0.7)", 9);
+    }
+    text(x1, "one input pixel", IX, IY + IW + 16, "rgba(255,255,255,0.6)");
+    text(x1, `= ${s}×${s} output px`, IX, IY + IW + 30, "rgba(255,255,255,0.6)");
+    text(x1, `phase ${(cur[3] % phases) + 1} / ${phases}`, IX, IY + IW + 44, "rgba(255,255,255,0.6)");
+    text(x1, `j = (${sgn(cur[0])}, ${sgn(cur[1])})`, IX, IY + IW + 58, AMBER);
+    text(x1, `last ${frames.length} frames shown`, IX, IY + IW + 72, "rgba(74,163,255,0.85)");
+    // histogram: output pixels by sample count
+    const HY = 392, HH = 96, HX = 16, HWd = 480;
+    text(x1, "output pixels by sample count", HX, HY - 8, "rgba(255,255,255,0.6)");
+    const bins = new Uint16Array(mx + 1); for (const c of counts) bins[c]++;
+    let bmax = 1; for (const b of bins) if (b > bmax) bmax = b;
+    const bw = Math.min(40, HWd / (mx + 1));
+    for (let c = 0; c <= mx; c++) {
+      const h = bins[c] / bmax * (HH - 16), bx = HX + c * bw;
+      x1.fillStyle = c === 0 ? RED : AMBER; x1.fillRect(bx + 2, HY + HH - 14 - h, bw - 4, h);
+      if (bins[c]) text(x1, String(bins[c]), bx + bw / 2, HY + HH - 18 - h, "rgba(255,255,255,0.8)", 10, "center");
+      text(x1, String(c), bx + bw / 2, HY + HH, "rgba(255,255,255,0.55)", 10, "center");
+    }
+    x1.strokeStyle = GRID; x1.beginPath(); x1.moveTo(HX, HY + HH - 13.5); x1.lineTo(HX + HWd, HY + HH - 13.5); x1.stroke();
+    const mean = sum / (G1 * G1);
+    $("c1-read").innerHTML = `<strong>${mean.toFixed(2)} samples per output px</strong> after ${frames.length} frames · N/s² = ${(frames.length / (s * s)).toFixed(2)} · min ${mn} · max ${mx}`;
+  }
+  onSeg("seg1", v => { d1.s = +v; draw1(); });
+  onRange("n1", "n1v", v => String(v), v => { d1.N = v; if (!d1.anim) d1.k = v - 1; draw1(); });
+  onCheck("anim1", v => { d1.anim = v; if (!v) { d1.k = d1.N - 1; draw1(); } });
+  let pend1 = false;
+  c1.addEventListener("pointermove", ev => {
+    const [x, y] = canvasPt(c1, ev); const i = Math.floor((x - OX) / P1), j = Math.floor((y - OY) / P1);
+    const h = (i >= 0 && i < G1 && j >= 0 && j < G1) ? j * G1 + i : -1;
+    if (h === d1.hover) return; d1.hover = h;
+    if (!pend1) { pend1 = true; requestAnimationFrame(() => { pend1 = false; draw1(); $("c1-hover").textContent = d1.hover >= 0 ? `output px (${d1.hover % G1}, ${Math.floor(d1.hover / G1)}) highlighted` : "hover an output pixel"; }); }
+  });
+  c1.addEventListener("pointerleave", () => { d1.hover = -1; draw1(); $("c1-hover").textContent = "hover an output pixel"; });
+  draw1();
+
+  // ---------- 2. reprojection ----------
+  const c2 = $("c2"), x2 = c2.getContext("2d");
+  const W2 = 40, H2 = 20, CS = 16;
+  const d2 = { view: "out", v: 1.5, reject: true, play: true, bx: 4 };
+  const U2 = makeUpscaler(W2, H2, 2);
+  const blit2o = makeBlit(W2, H2), blit2i = makeBlit(U2.Wi, U2.Hi);
+  function scene2(px, py, o) {
+    const ch = (Math.floor(px / 4) + Math.floor(py / 4)) & 1;
+    o[0] = ch ? 0.13 : 0.07; o[1] = ch ? 0.16 : 0.09; o[2] = ch ? 0.22 : 0.13; o[3] = 1.0; o[4] = 0; o[5] = 0;
+    const rx = ((px - d2.bx) % 50 + 50) % 50;
+    if (rx < 10 && py >= 7 && py < 13) { o[0] = 0.95; o[1] = 0.64; o[2] = 0.25; o[3] = 0.3; o[4] = d2.v; o[5] = 0; }
+  }
+  function step2() { d2.bx = (d2.bx + d2.v) % 50; U2.render(scene2); U2.resolve(d2.reject, false); draw2(); }
+  function draw2() {
+    x2.fillStyle = GROUND; x2.fillRect(0, 0, 640, 360);
+    const GH = H2 * CS;
+    if (d2.view === "in") {
+      const Q = CS * 2, ox = U2.jx * Q, oy = U2.jy * Q;
+      x2.save(); x2.beginPath(); x2.rect(0, 0, 640, GH); x2.clip();
+      blit2i.draw(x2, U2.inC, ox, oy, U2.Wi * Q, U2.Hi * Q);
+      x2.strokeStyle = "rgba(74,163,255,0.5)"; x2.lineWidth = 1; x2.beginPath();
+      for (let i = 0; i <= U2.Wi; i++) { const p = Math.round(i * Q + ox) + 0.5; x2.moveTo(p, 0); x2.lineTo(p, GH); }
+      for (let j = 0; j <= U2.Hi; j++) { const p = Math.round(j * Q + oy) + 0.5; x2.moveTo(0, p); x2.lineTo(640, p); }
+      x2.stroke();
+      x2.fillStyle = AMBER;
+      for (let j = 0; j < U2.Hi; j++) for (let i = 0; i < U2.Wi; i++) { x2.beginPath(); x2.arc((i + 0.5) * Q + ox, (j + 0.5) * Q + oy, 2, 0, Math.PI * 2); x2.fill(); }
+      x2.restore();
+    } else {
+      blit2o.draw(x2, d2.view === "out" ? U2.cur() : U2.prev(), 0, 0, W2 * CS, GH);
+      x2.strokeStyle = GRID; x2.lineWidth = 1; x2.beginPath();
+      for (let i = 0; i <= W2; i++) { const p = i * CS + 0.5; x2.moveTo(p, 0); x2.lineTo(p, GH); }
+      for (let j = 0; j <= H2; j++) { const p = j * CS + 0.5; x2.moveTo(0, p); x2.lineTo(640, p); }
+      x2.stroke();
+      if (d2.view === "out") {
+        // rejected history
+        x2.fillStyle = "rgba(239,93,93,0.55)";
+        for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) if (U2.rej[y * W2 + x]) x2.fillRect(x * CS + 1, y * CS + 1, CS - 2, CS - 2);
+        // motion vectors, every other cell of the box
+        x2.strokeStyle = WHITE; x2.fillStyle = WHITE; x2.lineWidth = 1.5;
+        for (let y = 0; y < H2; y += 2) for (let x = 0; x < W2; x += 2) {
+          const u = Math.round((x + 0.5) / 2 - 0.5 - U2.jx), v = Math.round((y + 0.5) / 2 - 0.5 - U2.jy);
+          const oi = clampI(v, 0, U2.Hi - 1) * U2.Wi + clampI(u, 0, U2.Wi - 1);
+          const mx = U2.inM[oi * 2], my = U2.inM[oi * 2 + 1]; if (Math.abs(mx) + Math.abs(my) < 0.01) continue;
+          const ax = (x + 0.5) * CS, ay = (y + 0.5) * CS, bx = ax - mx * CS, by = ay - my * CS;
+          x2.beginPath(); x2.moveTo(ax, ay); x2.lineTo(bx, by); x2.stroke();
+          x2.beginPath(); x2.arc(ax, ay, 2, 0, Math.PI * 2); x2.fill();
+          const ang = Math.atan2(by - ay, bx - ax);
+          x2.beginPath(); x2.moveTo(bx, by); x2.lineTo(bx - 6 * Math.cos(ang - 0.4), by - 6 * Math.sin(ang - 0.4)); x2.lineTo(bx - 6 * Math.cos(ang + 0.4), by - 6 * Math.sin(ang + 0.4)); x2.closePath(); x2.fill();
+        }
+      }
+    }
+    // caption strip
+    x2.fillStyle = GROUND; x2.fillRect(0, GH, 640, 40);
+    const lab = { out: "resolved output, frame t", hist: "history buffer, frame t−1, before reprojection", in: "input frame t at 20×10, grid shifted by the jitter" }[d2.view];
+    text(x2, lab, 10, GH + 16, "rgba(255,255,255,0.7)");
+    if (d2.view === "out") { x2.fillStyle = "rgba(239,93,93,0.7)"; x2.fillRect(10, GH + 25, 10, 8); text(x2, "history rejected on depth", 26, GH + 33, "rgba(255,255,255,0.55)", 10); x2.fillStyle = WHITE; x2.fillRect(210, GH + 28, 14, 2); text(x2, "motion vector, points to uv − mv", 230, GH + 33, "rgba(255,255,255,0.55)", 10); }
+    $("c2-read").innerHTML = `frame <strong>${U2.k}</strong> · jitter (${sgn(U2.jx)}, ${sgn(U2.jy)}) input px · mv (${d2.v.toFixed(2)}, 0) px · <strong>${U2.rejected}</strong> px rejected${d2.reject ? "" : " (rejection off)"}`;
+  }
+  onSeg("seg2", v => { d2.view = v; draw2(); });
+  onRange("v2", "v2v", v => v.toFixed(2) + " px / frame", v => { d2.v = v; });
+  onCheck("rej2", v => { d2.reject = v; });
+  onCheck("play2", v => { d2.play = v; });
+  c2.addEventListener("pointerdown", () => { if (!d2.play) step2(); });
+  for (let i = 0; i < 12; i++) step2();
+
+  // ---------- 3. accumulation and sharpness ----------
+  const c3 = $("c3"), x3 = c3.getContext("2d");
+  const R3 = 100, PS = 200, PX = [10, 220, 430], PY = 22;
+  const d3 = { s: 2, sharp: 0.4, play: true, U: null, hist: [], cuts: [], frames: 0 };
+  function scene3(px, py, o) {
+    let r = 0.043, g = 0.055, b = 0.075;
+    if (px < 34 + 0.3 * py) { r = 0.95; g = 0.64; b = 0.25; }
+    if (px >= 48 && px < 96 && py >= 8 && py < 48 && ((Math.floor(px / 2) + Math.floor(py / 2)) & 1)) { r = 0.29; g = 0.64; b = 1; }
+    if (px >= 48 && px < 96 && py >= 50 && py < 62 && ((Math.floor(px) + Math.floor(py)) & 1)) { r = 0.29; g = 0.64; b = 1; }
+    if (px >= 44 && px < 96 && (Math.abs(py - 70) < 0.25 || Math.abs(py - 78) < 0.5 || Math.abs(py - 87) < 1.0)) { r = g = b = 1; }
+    const lx = px - 8, ly = py - 60, t = Math.max(0, Math.min(1, (lx * 30 + ly * 35) / (30 * 30 + 35 * 35)));
+    if (px >= 8 && Math.hypot(lx - 30 * t, ly - 35 * t) < 0.3) { r = g = b = 1; }
+    o[0] = r; o[1] = g; o[2] = b; o[3] = 0.5; o[4] = 0; o[5] = 0;
+  }
+  const ref3 = new Float32Array(R3 * R3 * 3), bil3 = new Float32Array(R3 * R3 * 3), sh3 = new Float32Array(R3 * R3 * 3);
+  (() => { const t = new Float32Array(6); for (let y = 0; y < R3; y++) for (let x = 0; x < R3; x++) { const p = (y * R3 + x) * 3; for (let sy = 0; sy < 4; sy++) for (let sx = 0; sx < 4; sx++) { scene3(x + (sx + 0.5) / 4, y + (sy + 0.5) / 4, t); ref3[p] += t[0] / 16; ref3[p + 1] += t[1] / 16; ref3[p + 2] += t[2] / 16; } } })();
+  const blit3 = makeBlit(R3, R3);
+  function rmse(a, b) { let e = 0; for (let i = 0; i < a.length; i++) { const d = a[i] - b[i]; e += d * d; } return Math.sqrt(e / a.length) * 255; }
+  function setup3() { d3.U = makeUpscaler(R3, R3, d3.s); d3.hist = []; d3.cuts = []; d3.frames = 0; }
+  function eval3() { const U = d3.U; bilinearUp(U, bil3); rcas(U.cur(), sh3, R3, R3, d3.sharp); return [rmse(bil3, ref3), rmse(sh3, ref3)]; }
+  function step3() {
+    const U = d3.U; U.render(scene3); U.resolve(false, false);
+    d3.hist.push(eval3()); d3.frames++;
+    if (d3.hist.length > 80) { d3.hist.shift(); d3.cuts = d3.cuts.map(c => c - 1).filter(c => c >= 0); }
+    draw3();
+  }
+  function draw3() {
+    x3.fillStyle = GROUND; x3.fillRect(0, 0, 640, 360);
+    const U = d3.U, last = d3.hist[d3.hist.length - 1] || [0, 0];
+    blit3.draw(x3, ref3, PX[0], PY, PS, PS); blit3.draw(x3, bil3, PX[1], PY, PS, PS); blit3.draw(x3, sh3, PX[2], PY, PS, PS);
+    x3.strokeStyle = GRID; x3.lineWidth = 1; for (const px of PX) x3.strokeRect(px + 0.5, PY + 0.5, PS - 1, PS - 1);
+    text(x3, "native, 16 spp reference", PX[0], 14, "rgba(255,255,255,0.7)");
+    text(x3, `bilinear from ${U.Wi}×${U.Hi}`, PX[1], 14, BLUE);
+    text(x3, `temporal ${d3.s}× + RCAS ${d3.sharp.toFixed(2)}`, PX[2], 14, AMBER);
+    text(x3, "RMSE " + last[0].toFixed(1), PX[1] + PS, PY + PS + 14, BLUE, 11, "right");
+    text(x3, "RMSE " + last[1].toFixed(1), PX[2] + PS, PY + PS + 14, AMBER, 11, "right");
+    // graph
+    const GX = 10, GY = 252, GWd = 620, GH = 92;
+    let ymax = 20; for (const [a, b] of d3.hist) ymax = Math.max(ymax, a, b); ymax = Math.ceil(ymax / 10) * 10;
+    x3.strokeStyle = GRID; x3.beginPath();
+    for (let i = 0; i <= 2; i++) { const y = GY + GH - (i / 2) * GH + 0.5; x3.moveTo(GX, y); x3.lineTo(GX + GWd, y); }
+    x3.stroke();
+    text(x3, String(ymax), GX + GWd, GY - 4, "rgba(255,255,255,0.5)", 10, "right"); text(x3, "0", GX + GWd, GY + GH - 2, "rgba(255,255,255,0.5)", 10, "right");
+    text(x3, "RMSE vs reference, last 80 frames", GX, GY - 4, "rgba(255,255,255,0.6)");
+    const n = d3.hist.length, dx = GWd / 79;
+    for (const c of d3.cuts) { const x = GX + c * dx + 0.5; x3.strokeStyle = "rgba(255,255,255,0.5)"; x3.setLineDash([3, 3]); x3.beginPath(); x3.moveTo(x, GY); x3.lineTo(x, GY + GH); x3.stroke(); x3.setLineDash([]); text(x3, "cut", x + 3, GY + 10, "rgba(255,255,255,0.6)", 10); }
+    for (const [idx, col] of [[0, BLUE], [1, AMBER]]) {
+      x3.strokeStyle = col; x3.lineWidth = 1.5; x3.beginPath();
+      for (let i = 0; i < n; i++) { const x = GX + i * dx, y = GY + GH - d3.hist[i][idx] / ymax * GH; if (i) x3.lineTo(x, y); else x3.moveTo(x, y); }
+      x3.stroke();
+    }
+    let nAcc = 0; { const hN = U.hN; for (let i = 0; i < hN.length; i++) if (hN[i] > nAcc) nAcc = hN[i]; }
+    $("t3-bil").textContent = last[0].toFixed(1); $("t3-tmp").textContent = last[1].toFixed(1); $("t3-n").textContent = String(d3.frames);
+    $("c3-read").innerHTML = `frame <strong>${U.k}</strong> · ${R3}×${R3} from ${U.Wi}×${U.Hi} · history weight up to <strong>${nAcc.toFixed(1)}</strong> of ${U.nMax} · ${U.phases} jitter phases`;
+  }
+  setup3();
+  onSeg("seg3", v => { d3.s = +v; setup3(); step3(); });
+  onRange("sh3", "sh3v", v => v.toFixed(2), v => { d3.sharp = v; if (d3.hist.length) { d3.hist[d3.hist.length - 1] = eval3(); draw3(); } });
+  $("cut3").addEventListener("click", () => { d3.U.reset(); d3.frames = 0; d3.cuts.push(d3.hist.length); if (!d3.play) step3(); });
+  onCheck("play3", v => { d3.play = v; });
+  c3.addEventListener("pointerdown", () => { if (!d3.play) step3(); });
+  for (let i = 0; i < 24; i++) step3();
+
+  // ---------- 4. failure modes ----------
+  const c4 = $("c4"), x4 = c4.getContext("2d");
+  const W4 = 160, H4 = 90, S4 = 2, C4 = 4;
+  const d4 = { cam: 0, camV: 1, pmv: false, uiAfter: false, mipBias: false, minWidth: false, play: true, px: 30, py: 22, pvx: 0.7, pvy: 0.3 };
+  const U4 = makeUpscaler(W4, H4, S4);
+  const blit4 = makeBlit(W4, H4);
+  function stripeBox(x, w) { const S = t => Math.floor(t / 4) * 2 + Math.min(Math.max(t - Math.floor(t / 4) * 4, 0), 2); return (S(x + w / 2) - S(x - w / 2)) / w; }
+  function uiHit(px, py) {
+    if (Math.abs(px - 80) < 6 && Math.abs(py - 45) < 0.5) return true;
+    if (Math.abs(py - 45) < 6 && Math.abs(px - 80) < 0.5) return true;
+    if (px >= 6 && px < 40 && py >= 6 && py < 9) return true;
+    if (px >= 6 && px < 30 && py >= 11 && py < 12) return true;
+    return false;
+  }
+  function scene4(px, py, o) {
+    const wx = px + d4.cam; let r, g, b, z, mx = -d4.camV, my = 0;
+    if (py < 56) { r = 0.06; g = 0.075; b = 0.11; z = 1.0; } else { r = 0.13; g = 0.15; b = 0.2; z = 0.6; }
+    if (py >= 64 && py < 88) { const fp = d4.mipBias ? 1 : S4; const v = stripeBox(wx, fp); r += (0.29 - r) * v; g += (0.64 - g) * v; b += (1 - b) * v; }
+    if (py >= 24 && py < 60) { const lw = d4.minWidth ? S4 : 0.5; let fx = ((wx - 3) % 12 + 12) % 12; if (fx > 6) fx -= 12; if (Math.abs(fx) < lw / 2) { r = g = b = 0.92; z = 0.3; } }
+    const dx = px - d4.px, dy = py - d4.py, dd = (dx * dx + dy * dy) / 81;
+    if (dd < 1) { const a = 0.85 * (1 - dd) * (1 - dd); r += (0.95 - r) * a; g += (0.64 - g) * a; b += (0.25 - b) * a; if (d4.pmv && a > 0.15) { mx = d4.pvx; my = d4.pvy; } }
+    if (!d4.uiAfter && uiHit(px, py)) { r = g = b = 1; z = 0; mx = 0; my = 0; }
+    o[0] = r; o[1] = g; o[2] = b; o[3] = z; o[4] = mx; o[5] = my;
+  }
+  function step4() {
+    d4.cam += d4.camV; d4.px += d4.pvx; d4.py += d4.pvy;
+    if (d4.px > 172) d4.px = -12; if (d4.py < 6 || d4.py > 48) { d4.pvy = -d4.pvy; d4.py += d4.pvy; }
+    U4.render(scene4); U4.resolve(true, false); draw4();
+  }
+  function draw4() {
+    x4.fillStyle = GROUND; x4.fillRect(0, 0, 640, 360);
+    blit4.draw(x4, U4.cur(), 0, 0, W4 * C4, H4 * C4);
+    if (d4.uiAfter) {
+      x4.fillStyle = WHITE; x4.fillRect(6 * C4, 6 * C4, 34 * C4, 3 * C4); x4.fillRect(6 * C4, 11 * C4, 24 * C4, 1 * C4);
+      x4.fillRect((80 - 6) * C4, (45 - 0.5) * C4, 12 * C4, C4); x4.fillRect((80 - 0.5) * C4, (45 - 6) * C4, C4, 12 * C4);
+    }
+    text(x4, "posts, 0.5 px", 4, 350, "rgba(255,255,255,0.55)", 10);
+    text(x4, "stripe texture, 4-texel period", 636, 350, "rgba(255,255,255,0.55)", 10, "right");
+    text(x4, d4.uiAfter ? "HUD after upscale" : "HUD before upscale", 4, 66, "rgba(255,255,255,0.55)", 10);
+    const mip = Math.log2(S4) + (d4.mipBias ? -Math.log2(S4) : 0);
+    $("c4-read").innerHTML = `frame <strong>${U4.k}</strong> · camera x ${d4.cam.toFixed(1)} px · texture mip <strong>${mip.toFixed(1)}</strong> (${Math.pow(2, mip)}-texel footprint) · particle mv ${d4.pmv ? "written" : "<strong>missing</strong>"} · ${U4.rejected} px rejected`;
+  }
+  onCheck("minw4", v => { d4.minWidth = v; if (!d4.play) step4(); });
+  onCheck("pmv4", v => { d4.pmv = v; if (!d4.play) step4(); });
+  onCheck("ui4", v => { d4.uiAfter = v; if (!d4.play) step4(); });
+  onCheck("mip4", v => { d4.mipBias = v; if (!d4.play) step4(); });
+  onRange("cv4", "cv4v", v => v.toFixed(2) + " px / frame", v => { d4.camV = v; });
+  onCheck("play4", v => { d4.play = v; });
+  c4.addEventListener("pointerdown", () => { if (!d4.play) step4(); });
+  for (let i = 0; i < 24; i++) step4();
+
+  // ---------- 5. cost and budget ----------
+  const c5 = $("c5"), x5 = c5.getContext("2d");
+  const RES = { 1080: [1920, 1080], 1440: [2560, 1440], 2160: [3840, 2160] };
+  const MODES = [{ n: "Native", s: 1 }, { n: "Quality", s: 1.5 }, { n: "Balanced", s: 1.7 }, { n: "Performance", s: 2 }, { n: "Ultra perf.", s: 3 }];
+  const d5 = { res: 2160, mode: 2, tn: 24, dep: 0.75, up: 1.2 };
+  function draw5() {
+    const [ow, oh] = RES[d5.res], outPx = ow * oh, upHere = d5.up * outPx / (3840 * 2160);
+    const rows = MODES.map((m, i) => {
+      const iw = Math.round(ow / m.s), ih = Math.round(oh / m.s);
+      const fixed = d5.tn * (1 - d5.dep), scaled = d5.tn * d5.dep / (m.s * m.s), up = i === 0 ? 0 : upHere;
+      return { ...m, iw, ih, px: iw * ih, fixed, scaled, up, total: fixed + scaled + up };
+    });
+    x5.fillStyle = GROUND; x5.fillRect(0, 0, 640, 360);
+    const GX = 52, GY = 30, GWd = 536, GH = 250, tmax = Math.max(d5.tn * 1.1, 20);
+    const yOf = t => GY + GH - t / tmax * GH;
+    x5.strokeStyle = GRID; x5.lineWidth = 1; x5.beginPath();
+    for (let t = 0; t <= tmax; t += 5) { const y = Math.round(yOf(t)) + 0.5; x5.moveTo(GX, y); x5.lineTo(GX + GWd, y); text(x5, t + " ms", GX - 6, y + 4, "rgba(255,255,255,0.5)", 10, "right"); }
+    x5.stroke();
+    for (const [ms, lab] of [[16.7, "60 Hz"], [8.3, "120 Hz"]]) { if (ms > tmax) continue; const y = Math.round(yOf(ms)) + 0.5; x5.strokeStyle = "rgba(90,212,138,0.7)"; x5.setLineDash([4, 4]); x5.beginPath(); x5.moveTo(GX, y); x5.lineTo(GX + GWd, y); x5.stroke(); x5.setLineDash([]); text(x5, lab, GX + GWd + 5, y + 4, GREEN, 10, "left"); }
+    const bw = GWd / rows.length, barW = bw * 0.56;
+    rows.forEach((r, i) => {
+      const x = GX + i * bw + (bw - barW) / 2, sel = i === d5.mode;
+      let y = yOf(0);
+      const parts = [[r.fixed, "rgba(255,255,255,0.22)"], [r.scaled, sel ? BLUE : "rgba(74,163,255,0.55)"], [r.up, sel ? AMBER : "rgba(242,163,65,0.6)"]];
+      for (const [v, col] of parts) { const h = v / tmax * GH; x5.fillStyle = col; x5.fillRect(x, y - h, barW, h); y -= h; }
+      if (sel) { x5.strokeStyle = WHITE; x5.lineWidth = 1.5; x5.strokeRect(x - 2.5, y - 2.5, barW + 5, yOf(0) - y + 5); }
+      text(x5, r.total.toFixed(1) + " ms", x + barW / 2, y - 6, sel ? WHITE : "rgba(255,255,255,0.7)", 11, "center");
+      text(x5, r.n, x + barW / 2, GY + GH + 16, sel ? WHITE : "rgba(255,255,255,0.6)", 11, "center");
+      text(x5, `${r.iw}×${r.ih}`, x + barW / 2, GY + GH + 30, "rgba(255,255,255,0.5)", 10, "center");
+    });
+    x5.fillStyle = "rgba(255,255,255,0.22)"; x5.fillRect(GX, 346, 10, 8); text(x5, "fixed", GX + 14, 353, "rgba(255,255,255,0.55)", 10);
+    x5.fillStyle = BLUE; x5.fillRect(GX + 60, 346, 10, 8); text(x5, "scales with pixels", GX + 74, 353, "rgba(255,255,255,0.55)", 10);
+    x5.fillStyle = AMBER; x5.fillRect(GX + 200, 346, 10, 8); text(x5, "upscaler", GX + 214, 353, "rgba(255,255,255,0.55)", 10);
+    const r = rows[d5.mode], nat = rows[0];
+    $("t5-res").textContent = `${r.iw}×${r.ih}`; $("t5-px").textContent = (r.px / 1e6).toFixed(2) + " M";
+    $("t5-ms").textContent = r.total.toFixed(1) + " ms"; $("t5-save").textContent = (nat.total - r.total).toFixed(1) + " ms";
+    $("c5-read").innerHTML = `${ow}×${oh} output · <strong>${r.n} ${r.s}×</strong> shades ${(100 * r.px / outPx).toFixed(0)} % of the pixels · upscaler ${upHere.toFixed(2)} ms here`;
+  }
+  onSeg("seg5r", v => { d5.res = +v; draw5(); });
+  onSeg("seg5m", v => { d5.mode = +v; draw5(); });
+  onRange("tn5", "tn5v", v => v.toFixed(1) + " ms", v => { d5.tn = v; draw5(); });
+  onRange("dep5", "dep5v", v => v + " %", v => { d5.dep = v / 100; draw5(); });
+  onRange("up5", "up5v", v => v.toFixed(1) + " ms", v => { d5.up = v; draw5(); });
+  draw5();
+
+  // ---------- shared clock: 12 simulated frames per second ----------
+  let last = 0;
+  function loop(t) {
+    if (t - last >= 83) {
+      last = t;
+      if (d1.anim) { d1.k++; draw1(); }
+      if (d2.play) step2();
+      if (d3.play) step3();
+      if (d4.play) step4();
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>

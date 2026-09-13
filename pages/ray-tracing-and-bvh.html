@@ -1,0 +1,1108 @@
+<title>Ray Tracing &amp; the BVH</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas { aspect-ratio: 1; }
+.stackview { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; min-height: 30px; font-family: var(--font-mono); font-size: 12px; }
+.stackview .lbl { color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; font-size: 11px; margin-right: 4px; }
+.stackview .chip { border: 1px solid var(--line); border-radius: 3px; padding: 3px 8px; background: var(--chip); color: var(--ink); }
+.stackview .chip.top { border-color: var(--accent); color: var(--accent); }
+.stackview .empty { color: var(--muted); }
+.btn { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 6px 12px; background: var(--chip); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chk { display: flex; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+.uses.wide6 td:nth-child(2) { max-width: 26ch; }
+.uses.wide6 td { min-width: 12ch; }
+.uses.wide6 td:first-child { white-space: normal; min-width: 11ch; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">10 m × 10 m slice · 300 segments in 6 objects · drag the white handles</p>
+    <h1>Ray Tracing &amp; the BVH</h1>
+    <p class="lead">Ray tracing asks one question per pixel: <b>which surface does this line hit first</b>. Checking every triangle to answer it is far too slow, so the scene gets wrapped in a <b>tree of boxes</b> called a bounding volume hierarchy, and a ray only opens the boxes it touches. That turns millions of tests into a few dozen. <b>The part people get wrong</b>: the ray tracing hardware in a GPU only walks the tree, and building it, then keeping it current as things move, is still your frame time.</p>
+    <div class="key">
+      <span style="--sw:#9aa3b2">the scene's line segments</span>
+      <span style="--sw:#4aa3ff">box the ray opened</span>
+      <span style="--sw:#f2a341">box whose segments were tested, and the hit point</span>
+      <span style="--sw:#ffffff">the ray and its drag handles</span>
+      <span style="--sw:#5ad48a">box test passed</span>
+      <span style="--sw:#ef5d5d">box test failed, or skipped as too far</span>
+    </div>
+    <dl class="terms">
+      <dt>ray</dt><dd>a line fired from a point in one direction; we want the first thing it hits</dd>
+      <dt>segment</dt><dd>one straight piece of geometry; this 2D demo's stand-in for a triangle</dd>
+      <dt>bounding box</dt><dd>the smallest upright rectangle around some geometry; cheap to test</dd>
+      <dt>BVH</dt><dd>bounding volume hierarchy: boxes inside boxes, with a few segments in each bottom box</dd>
+      <dt>node, leaf</dt><dd>one box in the tree; a leaf is a bottom box that holds segments instead of children</dd>
+      <dt>t</dt><dd>how far along the ray a hit is; the smallest t is the closest hit</dd>
+      <dt>SAH</dt><dd>surface area heuristic: the rule for choosing where to cut a box in two</dd>
+      <dt>TLAS, BLAS</dt><dd>the small top tree over placed objects, and the bottom tree inside each mesh</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#brute"><span class="n">01</span>One ray, with and without the tree</a></li><li><a href="#build"><span class="n">02</span>How the tree gets built</a></li><li><a href="#traverse"><span class="n">03</span>Walking the tree, one step at a time</a></li><li><a href="#twolevel"><span class="n">04</span>Two trees</a></li><li><a href="#budget"><span class="n">05</span>The ray budget</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="brute">
+    <h2>One ray, with and without the tree</h2>
+    <p class="sub">Drag the ray's start or its aim point and watch both counters update for the same ray.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c1" width="512" height="512" class="grab" aria-label="One ray traced against the scene with and without a BVH"></canvas>
+        <div class="cap"><span id="c1-left">brute force</span><span id="c1-right">BVH</span></div>
+        <div class="cap"><span id="c1-build"></span><span>leaf size 4 · binned SAH</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">The slow way to find what a ray hits is to <b>test every segment in the scene</b>. The BVH wraps the scene in <b>boxes inside boxes</b>, and a ray that misses a box never looks inside it. Same ray, same answer, but <b>a few dozen box tests instead of hundreds of segment tests</b>.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The white line is the ray, running from one handle toward the other. Grey lines are the scene's segments. Blue boxes are the ones the ray opened, amber boxes are the bottom boxes whose segments were tested, and red boxes were tested and thrown out. The hit point is the amber dot.</p>
+        <p>The three tiles count the work for this one ray: segment tests without the tree, boxes visited with it, and segment tests with it.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Push the Segments slider to 5,000. The brute-force number follows it; the two BVH numbers barely move.</li>
+          <li>Drag the aim point so the ray passes through two objects. The hit stays on the nearer one, and boxes behind it are rejected without being opened.</li>
+          <li>Aim the ray at empty space. Brute force still tests every segment; the tree only opens the boxes along the line.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><label for="nseg">Segments <span class="val" id="nsegv">300</span></label><input type="range" id="nseg" min="50" max="5000" step="50" value="300"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t1-brute">—</div><div class="l">segment tests, brute force</div></div>
+          <div class="tile on"><div class="n" id="t1-nodes">—</div><div class="l">nodes visited, BVH</div></div>
+          <div class="tile on"><div class="n" id="t1-tests">—</div><div class="l">segment tests, BVH</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>A ray is a start point <code>o</code> plus a direction <code>d</code>, and every point on it is <code>o + t·d</code>, where <code>t</code> is the distance travelled. The closest hit is the smallest positive <code>t</code> over every surface. Brute force computes <code>t</code> for all N segments, so cost grows in step with N.</p>
+        <p>The BVH is a tree of axis-aligned boxes, meaning boxes whose sides line up with the x and y axes. Each interior node stores the box around both of its children; each leaf stores a few segments. Testing a ray against a box is the slab test, which treats each pair of opposite walls as a slab and asks where the ray is between them.</p>
+        <p class="words">In words: for each axis, find where the ray enters and leaves the two walls; keep the latest entry and the earliest exit. The ray hits the box if entry comes before exit.</p>
+        <div class="math">slab test, per axis a:
+  t0 = (bmin_a − o_a) / d_a,  t1 = (bmax_a − o_a) / d_a
+  t_near = max over a of min(t0, t1),  t_far = min over a of max(t0, t1)
+  hit  ⇔  t_near ≤ t_far  and  t_far ≥ 0  and  t_near ≤ t_max
+
+expected nodes visited per ray ≈ O(log N)   (SAH-built tree, ~1.5–2 × log₂ N in practice)</div>
+        <p><code>bmin</code> and <code>bmax</code> are the two corners of the box, <code>o</code> and <code>d</code> are the ray, <code>t_near</code> and <code>t_far</code> are where the ray enters and leaves, and <code>t_max</code> is the closest hit found so far. A tree built with the SAH, the split rule from the next section, visits about 1.5 to 2 times log₂ N boxes per ray, so a scene ten times bigger costs only a few more box tests.</p>
+        <p class="words">What this code does: runs the slab test with one multiply per wall, because 1/d was computed once per ray, and returns whether the ray passes through the box.</p>
+        <pre class="code"><span class="k">bool</span> slab(vec3 bmin, vec3 bmax, vec3 o, vec3 invD, <span class="k">float</span> tMax, <span class="k">out float</span> tNear) {
+  vec3 t0 = (bmin - o) * invD;   <span class="c">// invD = 1/d, computed once per ray: no divides here</span>
+  vec3 t1 = (bmax - o) * invD;
+  vec3 tmin = min(t0, t1), tmax = max(t0, t1);
+  tNear = max(max(tmin.x, tmin.y), max(tmin.z, 0.0));
+  <span class="k">float</span> tFar = min(min(tmax.x, tmax.y), min(tmax.z, tMax));
+  <span class="k">return</span> tNear &lt;= tFar;      <span class="c">// 6 mul, 6 min/max, 1 compare per box</span>
+}</pre>
+
+        <p class="tldr">A ray that misses a box never looks inside it, so cost grows with the depth of the tree instead of the size of the scene.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="build">
+    <h2>How the tree gets built</h2>
+    <p class="sub">Step through the tree one level at a time and hover a box to see how good each possible cut of it would be.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c2" width="512" height="512" aria-label="BVH construction levels and the SAH cost curve for one node"></canvas>
+        <div class="cap"><span id="c2-left"></span><span id="c2-right"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Building the tree means <b>cutting each box in two, over and over</b>, until each piece holds only a few segments. Where you cut matters. <b>Cutting at the middle</b> gives a tidy, balanced tree whose boxes overlap a lot. <b>Cutting where the geometry is</b> gives lopsided boxes that overlap less, so a ray opens fewer of them.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The boxes are one level of the tree: blue ones will be cut again, dashed amber ones are already leaves. The white box is the one under your pointer, with its cut drawn as a dashed line.</p>
+        <p>The strip at the bottom is the cost of every place that white box could be cut. The amber dot is the cheapest cut, the blue dot is where a plain middle cut would land.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Switch between median and SAH at level 3. Median boxes overlap each other; SAH boxes hug the objects.</li>
+          <li>Drop Leaf size to 1, then raise it to 8. Nodes and Tests / ray in the table pull in opposite directions.</li>
+          <li>Compare the Build and Nodes / ray columns for the two rules. You pay build time once to save time on every ray.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><span class="lab">Split rule</span><div class="seg" id="segBuild" role="group" aria-label="Split rule"><button data-v="median">median</button><button data-v="sah" aria-pressed="true">SAH</button></div></div>
+          <div class="ctl"><label for="lvl">Show level <span class="val" id="lvlv">3</span></label><input type="range" id="lvl" min="0" max="12" step="1" value="3"></div>
+          <div class="ctl"><label for="leaf">Leaf size <span class="val" id="leafv">4</span></label><input type="range" id="leaf" min="1" max="8" step="1" value="4"></div>
+        </div>
+        <div class="tbl-wrap">
+        <table class="stats">
+          <thead><tr><th>300 segments, 100 random rays</th><th>Nodes</th><th>Depth</th><th>Build</th><th>Nodes / ray</th><th>Tests / ray</th></tr></thead>
+          <tbody>
+            <tr><td>Median split</td><td id="s2-m-n"></td><td id="s2-m-d"></td><td id="s2-m-b"></td><td id="s2-m-v"></td><td id="s2-m-t"></td></tr>
+            <tr><td>Binned SAH</td><td id="s2-s-n"></td><td id="s2-s-d"></td><td id="s2-s-b"></td><td id="s2-s-v" class="hi"></td><td id="s2-s-t" class="hi"></td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Two choices define a build: where to split a node, and when to stop and make a leaf. Median split sorts the segments by their centre point along the box's longest axis and halves the list. The tree is balanced, but it ignores where the geometry is, so sibling boxes overlap and a ray often has to enter both.</p>
+        <p>The surface area heuristic (SAH) prices each candidate split by how likely a random ray is to enter each child, times the work waiting inside it. That likelihood is proportional to the child's surface area, which in this 2D demo is its perimeter. Production builders do not try every position. They sort segments into 12 to 32 bins per axis and only try the bin edges.</p>
+        <p class="words">In words: a split costs one box test, plus each child's share of the rays times the number of segments inside it.</p>
+        <div class="math">C(split) = C_t + (A_L / A) · N_L · C_i + (A_R / A) · N_R · C_i
+
+C_t  cost of one box test        A    area of this node
+C_i  cost of one primitive test  A_L, A_R  child areas
+leaf if C(best split) ≥ N · C_i, or N ≤ leaf size</div>
+        <p><code>C_t</code> is the cost of one box test and <code>C_i</code> the cost of one segment test. <code>A</code> is the area of the node being split, <code>A_L</code> and <code>A_R</code> the areas of the two children, and <code>N_L</code> and <code>N_R</code> the segment counts in each. If the best split costs more than testing all N segments directly, stop and make a leaf.</p>
+        <p class="words">What this code does: drops each segment into one of 12 bins along an axis, then sweeps the bin edges from both ends so each candidate cut costs 12 steps instead of one per segment.</p>
+        <pre class="code"><span class="c">// binned SAH split for prims[s..e), NB = 12 bins per axis</span>
+best.cost = INF;
+<span class="k">for</span> axis <span class="k">in</span> {x, y, z} {
+  <span class="k">for</span> p <span class="k">in</span> prims[s..e) {
+    k = clamp((centroid(p)[axis] - cmin) / (cmax - cmin) * NB, 0, NB - 1);
+    bins[k].count++;  bins[k].box |= bounds(p);
+  }
+  <span class="c">// suffix sweep right-to-left, then prefix left-to-right: each candidate costs O(NB), not O(N)</span>
+  <span class="k">for</span> k = NB-1 .. 1  { R[k] = R[k+1] | bins[k].box;  nR[k] = nR[k+1] + bins[k].count; }
+  L = empty; nL = 0;
+  <span class="k">for</span> k = 0 .. NB-2 {
+    L |= bins[k].box;  nL += bins[k].count;
+    cost = C_t + (area(L) * nL + area(R[k+1]) * nR[k+1]) / area(node) * C_i;
+    <span class="k">if</span> (cost &lt; best.cost) best = { cost, axis, plane: k + 1 };
+  }
+}
+<span class="k">if</span> (best.cost &gt;= count * C_i) makeLeaf();      <span class="c">// splitting would cost more than testing everything</span>
+<span class="k">else</span> { partition(prims, best); recurse(left); recurse(right); }</pre>
+
+        <p class="tldr">Cut where the geometry is, not at the middle: you pay once at build time and save on every ray after.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="traverse">
+    <h2>Walking the tree, one step at a time</h2>
+    <p class="sub">Scrub through one ray's walk down the tree and watch the list of boxes still waiting to be checked.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c3" width="512" height="512" class="grab" aria-label="Stack-based BVH traversal for one ray, step by step"></canvas>
+        <div class="cap"><span id="c3-left"></span><span id="c3-right"></span></div>
+        <div class="stackview" id="stack3"><span class="lbl">stack</span></div>
+        <div class="controls" style="margin-top:12px">
+          <div class="ctl"><label for="step3">Step <span class="val" id="step3v"></span></label><input type="range" id="step3" min="1" max="10" step="1" value="1"></div>
+          <div class="ctl"><span class="lab">&nbsp;</span><div style="display:flex;gap:6px"><button class="btn" id="prev3" aria-label="Previous step">◀</button><button class="btn" id="next3" aria-label="Next step">▶</button></div></div>
+          <div class="ctl"><span class="lab">Ray type</span><div class="seg" id="segRay" role="group" aria-label="Ray type"><button data-v="closest" aria-pressed="true">closest hit</button><button data-v="any">any hit (shadow)</button></div></div>
+        </div>
+      </div>
+      <div class="prose">
+        <p class="plain">Walking the tree is a loop with a <b>to-do list of boxes</b>. Take the top box off the list, test it, and either <b>throw it away, test its segments, or add its two children</b> to the list. The child nearer the ray goes on top so it is checked first. <b>Once a hit is found, any box that starts beyond it is skipped</b> without being opened.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Each step takes one box off the list. Green boxes passed the box test. Red boxes failed it, or were skipped because they start beyond the hit found so far.</p>
+        <p>The chips under the picture are the to-do list, which programmers call the stack. The amber chip is the next box to be checked.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Step forward with ▶ and watch the chips. Each opened box adds two children; each leaf adds none.</li>
+          <li>Switch Ray type to any hit. The walk ends at the first segment it touches, so it takes fewer steps.</li>
+          <li>Drag the ray so it hits something close to its start. Boxes farther along turn red as they get skipped.</li>
+        </ul>
+
+        <h3>The real version</h3>
+        <p>Traversal is a loop over a small stack of node indices. Pop a node, run the slab test on its box, and either discard it, test its segments if it is a leaf, or push both children. The near child goes on top so it is popped first; near is decided by the sign of the ray direction along the node's split axis, the axis the box was cut along. Finding a hit early shrinks <code>t_max</code>, the distance to the closest hit so far, and every box that starts beyond <code>t_max</code> is then rejected without being opened.</p>
+        <p>A shadow ray only needs to know whether anything at all is in the way, not what is closest. In any-hit mode the loop returns on the first segment hit, so it visits fewer nodes and never bothers ordering the rest. DXR, the DirectX ray tracing API, exposes this as <code>RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH</code>.</p>
+        <p class="words">In words: find where the ray's line and the segment's line cross, then check that the crossing is ahead of the ray and between the segment's two ends. The 3D triangle version does the same with two edges.</p>
+        <div class="math">ray–segment (2D):  o + t·d = a + u·(b − a),  e = b − a
+  den = d × e   (2D cross)
+  t = ((a − o) × e) / den,   u = ((a − o) × d) / den
+  hit ⇔ den ≠ 0, t &gt; 0, 0 ≤ u ≤ 1
+
+Möller–Trumbore (3D triangle v0 v1 v2):
+  E1 = v1 − v0, E2 = v2 − v0, P = d × E2, det = E1 · P
+  T = o − v0, u = (T · P) / det, Q = T × E1
+  v = (d · Q) / det, t = (E2 · Q) / det
+  hit ⇔ u ≥ 0, v ≥ 0, u + v ≤ 1, t &gt; 0</div>
+        <p><code>o</code> and <code>d</code> are the ray, <code>a</code> and <code>b</code> the segment's ends, <code>t</code> the distance along the ray and <code>u</code> the position along the segment, 0 at <code>a</code> and 1 at <code>b</code>. In Möller–Trumbore, <code>v0 v1 v2</code> are the triangle corners, <code>E1</code> and <code>E2</code> two of its edges, and <code>u</code> and <code>v</code> say where inside the triangle the hit landed.</p>
+        <p class="words">What this code does: pops boxes off a 32-deep stack, skips the ones the ray misses, tests segments in leaves, and pushes the far child before the near one so the near one comes off first.</p>
+        <pre class="code">uint stack[32]; <span class="k">int</span> sp = 0; stack[sp++] = ROOT;
+<span class="k">float</span> tMax = ray.tMax; <span class="k">int</span> hit = NONE;
+<span class="k">while</span> (sp &gt; 0) {
+  Node n = nodes[stack[--sp]];
+  <span class="k">float</span> tNear;
+  <span class="k">if</span> (!slab(n.bmin, n.bmax, o, invD, tMax, tNear)) <span class="k">continue</span>;  <span class="c">// also culls boxes past the current hit</span>
+  <span class="k">if</span> (n.isLeaf) {
+    <span class="k">for</span> (uint i = n.first; i &lt; n.first + n.count; i++) {
+      <span class="k">float</span> t = intersect(prims[i], o, d);
+      <span class="k">if</span> (t &gt; 0.0 &amp;&amp; t &lt; tMax) { tMax = t; hit = i; <span class="k">if</span> (ANY_HIT) <span class="k">return</span> hit; }
+    }
+  } <span class="k">else</span> {
+    <span class="k">bool</span> leftFirst = d[n.axis] &gt;= 0.0;         <span class="c">// near child = the side the ray comes from</span>
+    stack[sp++] = leftFirst ? n.right : n.left;   <span class="c">// far, popped last</span>
+    stack[sp++] = leftFirst ? n.left  : n.right;  <span class="c">// near, popped next</span>
+  }
+}</pre>
+
+        <p class="tldr">Check the near child first, and every box beyond the current hit costs nothing.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="twolevel">
+    <h2>Two trees: objects and the scene</h2>
+    <p class="sub">Drag an object and only the small top tree is rebuilt; turn on deform and the tree mesh's own tree is refit every frame.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c4" width="512" height="512" class="grab" aria-label="Two-level acceleration structure with instances and a TLAS"></canvas>
+        <div class="cap"><span id="c4-left"></span><span id="c4-right"></span></div>
+        <div class="cap"><span id="c4-op"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">A game scene has <b>one tree per mesh</b>, built once, and <b>one small tree over all the placed copies</b> of those meshes. Moving an object only touches the small tree, which is cheap. <b>Bending or skinning a mesh changes its own tree</b>, and that is where the real cost hides.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Three meshes, seven placed copies. Each copy is an instance: the same mesh at a different position, angle and size. Amber outlines are the instances the ray entered; the boxes inside them belong to that mesh's own tree.</p>
+        <p>The inset at the lower right shows the ray inside the entered mesh's own space, where the mesh tree lives. The caption under the picture says what the last change rebuilt or refit, and how long it took.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag an instance by its handle. The caption reports a top-level rebuild of a few nodes; the mesh trees are untouched.</li>
+          <li>Turn on Deform. The tree mesh's own tree is now refit every frame, and the caption adds the refit time.</li>
+          <li>Drag two instances so they overlap. A ray through that spot has to enter both, because the top tree cannot separate them.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><span class="lab">Deform</span><label class="chk"><input type="checkbox" id="deform4"> animate the tree mesh (BLAS refit)</label></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>A bottom-level acceleration structure (BLAS) is the BVH built once per mesh, in the mesh's own coordinate space. The top-level acceleration structure (TLAS) is a small BVH over the instances' world-space boxes, and each of its leaves holds a transform and a pointer to a BLAS. A ray that reaches an instance leaf is transformed into that mesh's space and continues down the BLAS there. The direction is not renormalized, so <code>t</code> keeps meaning the same distance in both spaces and the closest hit across instances is a plain comparison.</p>
+        <p>This is why moving objects is cheap and deforming them is not. A moved instance changes one TLAS leaf and the TLAS is rebuilt from scratch, a few hundred nodes at most. A skinned or deforming mesh changes vertex positions, so its BLAS is refit: every box is recomputed from the bottom up, but the tree shape is kept. Refit is fast, and the tree gets worse as vertices drift from where it was built, so engines rebuild those BLASes every few frames.</p>
+        <p class="words">In words: push the ray through the inverse of the instance's transform and t comes out the same on both sides. Refit walks the tree from the leaves up, regrowing each box around whatever is under it.</p>
+        <div class="math">instance transform M = T · R · S
+  o' = M⁻¹ · o,   d' = M⁻¹ · d   (linear part only, do not normalize d')
+  o' + t·d' = M⁻¹ · (o + t·d)   so t is identical in object and world space
+
+refit: for node in reverse build order
+  leaf:     box = union of its primitives
+  interior: box = union of both child boxes</div>
+        <p><code>M</code> is the instance transform, built from a translation <code>T</code>, a rotation <code>R</code> and a scale <code>S</code>. <code>o'</code> and <code>d'</code> are the ray's start and direction once moved into the mesh's own space.</p>
+        <p class="words">What this code does: the DXR shader set for one frame. RayGen fires a ray per pixel, ClosestHit shades the nearest surface, AlphaTest lets rays pass through the cut-out parts of a texture, and Miss paints the sky.</p>
+        <pre class="code">RaytracingAccelerationStructure Scene : register(t0);   <span class="c">// the TLAS</span>
+<span class="k">struct</span> Payload { float3 color; <span class="k">float</span> t; };
+
+[shader(<span class="k">"raygeneration"</span>)]
+<span class="k">void</span> RayGen() {
+  uint2 px = DispatchRaysIndex().xy;
+  RayDesc ray = CameraRay(px, DispatchRaysDimensions().xy);   <span class="c">// Origin, Direction, TMin, TMax</span>
+  Payload p; p.color = 0; p.t = -1;
+  <span class="c">// hit group = instance offset + geometryIndex * stride + rayContribution; that is the shader table</span>
+  TraceRay(Scene, RAY_FLAG_NONE, 0xFF, <span class="c">/*rayContribution*/</span>0, <span class="c">/*stride*/</span>1, <span class="c">/*missIndex*/</span>0, ray, p);
+  Output[px] = float4(p.color, 1);
+}
+[shader(<span class="k">"closesthit"</span>)]
+<span class="k">void</span> ClosestHit(<span class="k">inout</span> Payload p, BuiltInTriangleIntersectionAttributes a) {
+  p.t = RayTCurrent();                          <span class="c">// world t, same value the BLAS found in object space</span>
+  p.color = Shade(InstanceID(), PrimitiveIndex(), a.barycentrics);
+}
+[shader(<span class="k">"anyhit"</span>)]
+<span class="k">void</span> AlphaTest(<span class="k">inout</span> Payload p, BuiltInTriangleIntersectionAttributes a) {
+  <span class="k">if</span> (SampleAlpha(PrimitiveIndex(), a.barycentrics) &lt; 0.5) IgnoreHit();   <span class="c">// keep traversing</span>
+}
+[shader(<span class="k">"miss"</span>)]
+<span class="k">void</span> Miss(<span class="k">inout</span> Payload p) { p.color = Sky(WorldRayDirection()); }</pre>
+
+        <p class="tldr">Moving an object is a cheap top-tree rebuild; deforming a mesh is a refit of its own tree, and refits go stale.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="budget">
+    <h2>The ray budget</h2>
+    <p class="sub">Drag the camera or its aim point and see why rays that travel together cost less than rays that scatter.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5" width="512" height="512" class="grab" aria-label="Coherent primary ray bundle versus incoherent diffuse bounce rays"></canvas>
+        <div class="cap"><span id="c5-left"></span><span id="c5-right"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">A 1080p frame is about <b>two million pixels</b>, so every ray you add per pixel is two million more rays. Rays that <b>travel together</b> through the same boxes are cheap. Rays that <b>scatter in all directions</b> each take a different path through the tree, and the quoted hardware rate assumes the cheap kind.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Blue rays are a bundle of 24 neighbouring camera rays, fanned out side by side. Amber rays start where the middle blue ray lands and bounce off in random directions, the way light leaves a matte surface.</p>
+        <p>Blue boxes are the leaves the camera bundle touched; amber boxes are the leaves the bounce bundle touched. The table counts them.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Aim the camera at one object. The blue bundle lands in a few leaves; the amber bounce still spreads across the scene.</li>
+          <li>Push Shadow, Reflection and GI rays to their maximums. The ms tile climbs, and so does the share of a 16.7 ms frame.</li>
+          <li>Switch Target to 3840×2160. Four times the pixels means four times the rays at the same rate.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><span class="lab">Target</span><div class="seg" id="segRes" role="group" aria-label="Render resolution"><button data-v="1080" aria-pressed="true">1920×1080</button><button data-v="1440">2560×1440</button><button data-v="2160">3840×2160</button></div></div>
+          <div class="ctl"><label for="sh5">Shadow rays / px <span class="val" id="sh5v">1</span></label><input type="range" id="sh5" min="0" max="4" step="1" value="1"></div>
+          <div class="ctl"><label for="rf5">Reflection rays / px <span class="val" id="rf5v">1</span></label><input type="range" id="rf5" min="0" max="2" step="1" value="1"></div>
+          <div class="ctl"><label for="gi5">GI rays / px <span class="val" id="gi5v">2</span></label><input type="range" id="gi5" min="0" max="8" step="1" value="2"></div>
+          <div class="ctl"><label for="rate5">Hardware rate <span class="val" id="rate5v">10 Grays/s</span></label><input type="range" id="rate5" min="1" max="40" step="1" value="10"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t5-rays">—</div><div class="l">rays per frame</div></div>
+          <div class="tile on"><div class="n" id="t5-ms">—</div><div class="l">ms per frame, tracing only</div></div>
+          <div class="tile"><div class="n" id="t5-share">—</div><div class="l">of a 16.7 ms frame</div></div>
+        </div>
+        <div class="tbl-wrap">
+        <table class="stats">
+          <thead><tr><th>Bundle of 24 rays</th><th>Distinct leaves</th><th>Nodes visited</th><th>Nodes / ray</th></tr></thead>
+          <tbody>
+            <tr><td>Primary, coherent</td><td id="s5-p-l"></td><td id="s5-p-n"></td><td id="s5-p-r"></td></tr>
+            <tr><td>Diffuse bounce, incoherent</td><td id="s5-g-l" class="hi"></td><td id="s5-g-n" class="hi"></td><td id="s5-g-r"></td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h3>The real version</h3>
+        <p>At 1920×1080 one ray per pixel is 2,073,600 rays. A frame at 60 Hz is 16.7 ms, so every ray per pixel you add costs <code>rays / rate</code> of that budget. The quoted hardware rate is a peak for coherent rays, meaning rays that follow near-identical paths through the tree. Incoherent rays run well below it, and denoising, hit shading and the BVH update come on top.</p>
+        <p>Coherence is the whole reason. Neighbouring primary rays, the ones fired from the camera, walk the same nodes and land in the same few leaves, so their box tests hit cache and their GPU lanes stay together. Diffuse bounce rays leave one point in every direction and scatter across the tree. Same number of rays, several times the memory traffic.</p>
+        <p class="words">In words: rays per frame is pixels times rays per pixel, and milliseconds is rays divided by the hardware rate.</p>
+        <div class="math">rays_per_frame = W · H · (shadow + reflection + gi rays per pixel)
+ms_per_frame   = rays_per_frame / rate         rate in rays per second
+1080p, 1 ray/px, 10 Grays/s  →  2,073,600 / 1e10 = 0.21 ms   (peak, coherent; estimate)</div>
+        <p><code>W</code> and <code>H</code> are the target width and height in pixels, <code>rate</code> is rays per second, and 10 Grays/s is ten billion rays per second.</p>
+        <p class="words">What this code does: fires one shadow ray per pixel toward the light, tells the hardware to stop at the first hit and skip shading, and turns the result into a 0 or 1 visibility.</p>
+        <pre class="code"><span class="c">// one shadow ray per pixel: any hit ends the search and no closest-hit shader runs</span>
+RayDesc r; r.Origin = P + N * 0.01; r.Direction = L; r.TMin = 0; r.TMax = distToLight;
+ShadowPayload sp; sp.occluded = <span class="k">true</span>;          <span class="c">// the miss shader sets it false</span>
+TraceRay(Scene,
+  RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
+  0xFF, 0, 1, <span class="c">/*shadow miss*/</span>1, r, sp);
+visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a temporal denoiser, because 1 ray is noisy</span></pre>
+
+        <p class="tldr">Count rays per frame, not rays per pixel, and expect scattered rays to run well below the quoted rate.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">Every structure trades build time against time per ray and the cost of keeping up with moving geometry.</p>
+    <p class="plain">Read this table left to right as a life cycle: how long the structure takes to <b>build</b>, how fast one ray <b>walks</b> it, what happens when <b>things move</b>, and what it <b>costs in memory</b>. Numbers marked as estimates are order-of-magnitude, measured on nothing in particular.</p>
+    <div class="tbl-wrap">
+    <table class="uses wide6">
+      <thead><tr><th>Structure</th><th>Build time</th><th>Cost per ray</th><th>When things move</th><th>Memory</th><th>Pick it when</th></tr></thead>
+      <tbody>
+        <tr><td>Binary BVH, SAH</td><td>O(N log N), roughly N times the tree depth. Binned SAH on 1 M triangles is tens of ms on one CPU core, about 1 ms with a GPU builder (estimates).</td><td>About 1.5–2 × log₂N box tests plus a few triangle tests; 20–60 node visits is typical (estimate).</td><td>Refit in O(N) keeps the tree shape; rebuild when quality drops.</td><td>32 B per node (two float3 bounds, two indices). Leaf size 1 gives ~2N nodes, so ~64 B per triangle; leaf size 4 cuts that to ~16 B.</td><td>The default for triangles, and what DXR builds underneath.</td></tr>
+        <tr><td>kd-tree, which cuts space with flat planes</td><td>O(N log N) with SAH; slower in practice because a triangle that straddles a cut plane gets listed on both sides.</td><td>Fastest per ray on static scenes: one plane compare per node, and children never overlap.</td><td>No refit. Any change means a full rebuild.</td><td>8 B nodes, but 2–3 × as many primitive references as a BVH.</td><td>Offline renderers and scenes that never move.</td></tr>
+        <tr><td>Uniform grid</td><td>O(N), and easy to run in parallel on the GPU.</td><td>3D DDA, a march through the grid one cell per step. Falls apart on uneven density: a detailed object in a big empty room lands in a few cells.</td><td>Cheap enough to rebuild every frame.</td><td>cells³ × 4 B plus reference lists; 128³ is 8 MB before references.</td><td>Evenly spread data: particles, voxels, hair segments.</td></tr>
+        <tr><td>Signed distance field</td><td>Voxelize the mesh, O(volume), per mesh.</td><td>Sphere tracing, 20–100 steps; no exact triangle hit and no per-triangle data at the hit.</td><td>Rigid instances only. A deforming mesh must be re-voxelized.</td><td>64³ × fp16 = 512 KB per mesh; sparse bricks keep only the shell.</td><td>Soft shadows, AO and GI without RT hardware (Lumen software path, Godot SDFGI).</td></tr>
+        <tr><td>Hardware BVH (DXR, Vulkan RT)</td><td>Built by the driver on the GPU. <code>FAST_BUILD</code> or <code>FAST_TRACE</code> flag; <code>ALLOW_UPDATE</code> if you plan to refit.</td><td>Box and triangle tests in fixed-function units; the tree walk runs in hardware on NVIDIA RTX and in shader code on AMD RDNA 2.</td><td><code>PERFORM_UPDATE</code> refits in place; rebuild otherwise. Skinned meshes need one BLAS per instance.</td><td>Opaque, so you cannot inspect it. Ask <code>GetRaytracingAccelerationStructurePrebuildInfo</code>; a few times the size of the vertex data is common (estimate).</td><td>Whenever the hardware exists.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="plain" style="margin-top:28px">When a mesh changes shape you have two choices: <b>refit</b> the tree you already have, or <b>rebuild</b> it from scratch. Refit is cheap and gets worse over time; rebuild is expensive and always fresh. Most engines do both.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Update strategy</th><th>Cost</th><th>What you keep</th><th>Where it breaks</th></tr></thead>
+      <tbody>
+        <tr><td>Refit (update)</td><td>O(N), bottom-up. Roughly 1/5 to 1/10 of a build (estimate).</td><td>Tree shape and node count.</td><td>Vertices drift far from the original layout: boxes balloon and overlap, and every frame's traversal gets slower.</td></tr>
+        <tr><td>Rebuild</td><td>O(N log N).</td><td>Nothing.</td><td>The budget: rebuilding every skinned character every frame eats milliseconds.</td></tr>
+        <tr><td>Refit, with a rebuild now and then</td><td>Refit each frame; rebuild every few frames or when the SAH cost ratio passes a threshold.</td><td>Quality within a bound.</td><td>Rebuild spikes land on the same frame, so engines stagger them across objects.</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">The tree and the walk are the same in every row; what differs is what the rays are for.</p>
+    <p class="plain">Each row is one thing a game uses rays for. Read across to see <b>what the ray asks</b>, <b>what has to be built</b> for it to work, and <b>who shipped it</b>. The tree and the walk are identical in every row. What changes is how many rays, which flags, and what runs after the hit.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Use</th><th>What the ray asks</th><th>What it needs built</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>Hybrid reflections</td><td>One reflection ray per pixel for glossy surfaces, fired from the surfaces the rasterizer already drew (the G-buffer). The closest hit is shaded, then denoised.</td><td>TLAS and BLASes for the visible scene, plus a material lookup per hit.</td><td>Battlefield V (Frostbite, 2018), the first DXR title</td></tr>
+        <tr><td>Shadows and contact shadows</td><td>A ray toward the light that stops at the first thing it touches.</td><td>Same BVH; most geometry flagged opaque, an any-hit shader only for cut-out foliage.</td><td>Control (Remedy, 2019); many engines since</td></tr>
+        <tr><td>Fully ray-traced lighting</td><td>Direct light and one bounce of indirect light traced per pixel, then denoised.</td><td>BVH of the whole scene, glowing surfaces included.</td><td>Metro Exodus Enhanced Edition (4A Games, 2021)</td></tr>
+        <tr><td>Path tracing</td><td>One or two full light paths per pixel with ReSTIR resampling, then an AI denoiser.</td><td>Full BVH plus a structure for choosing among many lights.</td><td>Cyberpunk 2077 RT Overdrive (2023), Alan Wake 2 (2023)</td></tr>
+        <tr><td>Console ray tracing</td><td>Reflections, shadows or GI with fewer rays and at lower resolution.</td><td>RDNA 2 ray accelerators: box and triangle tests in hardware, the tree walk in shader code.</td><td>PS5 and Xbox Series X|S (2020); Spider-Man: Miles Morales reflections (Insomniac, 2020)</td></tr>
+        <tr><td>Software and hardware GI</td><td>Screen-space probes trace against the BVH when RT hardware is present, and against distance fields when it is not.</td><td>Simplified Nanite fallback meshes in the BVH; a surface cache for shading the hits.</td><td>Unreal Engine 5 Lumen (2022)</td></tr>
+        <tr><td>CPU ray tracing</td><td>Light baking and offline rendering, walking several rays at once with SIMD.</td><td>4-wide and 8-wide BVHs built for the CPU.</td><td>Intel Embree (Wald et al., 2014); Blender Cycles</td></tr>
+        <tr><td>The API</td><td><code>TraceRay</code> called from ray generation shaders; hit and miss shaders bound through a shader table.</td><td>Driver-built acceleration structures.</td><td>DXR (Microsoft, 2018), Vulkan KHR ray tracing (2020), Metal ray tracing (2020)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">In a game, "ray traced" almost never means path traced: it means one or two rays per pixel per effect, then a denoiser and an upscaler, so the result is a filtered estimate rather than a converged image. The other surprise is where the time goes. Tracing two million shadow rays is often cheaper than refitting the trees of every animated character that frame, so the BVH update is frequently the real cost of turning ray tracing on.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  const W = 512, M = 10;
+  const COL = { ground: '#0b0e13', amber: '#f2a341', blue: '#4aa3ff', white: '#ffffff', green: '#5ad48a', red: '#ef5d5d', grid: 'rgba(255,255,255,0.12)', geo: 'rgba(214,219,227,0.5)' };
+  const FONT = '12px "IBM Plex Mono", Menlo, Consolas, monospace';
+
+  function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  const fmtN = n => n.toLocaleString('en-US');
+  const fmtMs = ms => ms < 0.01 ? '<0.01 ms' : ms.toFixed(2) + ' ms';
+
+  // ---------- scene: 10 m × 10 m, world coords 0..1, six objects, N segments ----------
+  const OBJS = [
+    { cx: 0.24, cy: 0.27, r: 0.13, k: 3, amp: 0.22, w: 1 },
+    { cx: 0.66, cy: 0.22, r: 0.10, k: 5, amp: 0.38, w: 1 },
+    { cx: 0.80, cy: 0.60, r: 0.12, k: 2, amp: 0.16, w: 1 },
+    { cx: 0.28, cy: 0.70, r: 0.11, k: 4, amp: 0.30, w: 1 },
+    { cx: 0.52, cy: 0.48, r: 0.06, k: 6, amp: 0.40, w: 0.6 },
+    { cx: 0.58, cy: 0.84, r: 0.13, scatter: true, w: 1.6 }
+  ];
+  function makeScene(N, seed = 7) {
+    const R = rng(seed), segs = [], tw = OBJS.reduce((s, o) => s + o.w, 0);
+    OBJS.forEach((o, oi) => {
+      const n = Math.max(3, Math.round(N * o.w / tw));
+      if (o.scatter) {
+        for (let i = 0; i < n; i++) {
+          const a = R() * Math.PI * 2, rr = o.r * Math.sqrt(R()), cx = o.cx + rr * Math.cos(a), cy = o.cy + rr * Math.sin(a);
+          const th = R() * Math.PI * 2, L = 0.006 + 0.012 * R();
+          segs.push([cx - Math.cos(th) * L, cy - Math.sin(th) * L, cx + Math.cos(th) * L, cy + Math.sin(th) * L]);
+        }
+      } else {
+        const p1 = R() * 6.283, p2 = R() * 6.283, v = [];
+        for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; const rad = o.r * (1 + o.amp * (0.6 * Math.sin(o.k * a + p1) + 0.4 * Math.sin((2 * o.k + 1) * a + p2))); v.push([o.cx + rad * Math.cos(a), o.cy + rad * Math.sin(a)]); }
+        for (let i = 0; i < n; i++) { const a = v[i], b = v[(i + 1) % n]; segs.push([a[0], a[1], b[0], b[1]]); }
+      }
+    });
+    return segs;
+  }
+  const segBounds = s => [Math.min(s[0], s[2]), Math.min(s[1], s[3]), Math.max(s[0], s[2]), Math.max(s[1], s[3])];
+  const grow = (B, b) => { if (b[0] < B[0]) B[0] = b[0]; if (b[1] < B[1]) B[1] = b[1]; if (b[2] > B[2]) B[2] = b[2]; if (b[3] > B[3]) B[3] = b[3]; };
+  const half = B => Math.max(0, B[2] - B[0]) + Math.max(0, B[3] - B[1]);   // 2D stand-in for surface area
+  const emptyB = () => [Infinity, Infinity, -Infinity, -Infinity];
+
+  // ---------- BVH build: median split or binned SAH ----------
+  function buildBVH(prims, method, leafSize) {
+    const n = prims.length, idx = new Int32Array(n); for (let i = 0; i < n; i++) idx[i] = i;
+    const cx = new Float64Array(n), cy = new Float64Array(n);
+    for (let i = 0; i < n; i++) { const b = prims[i]; cx[i] = (b[0] + b[2]) / 2; cy[i] = (b[1] + b[3]) / 2; }
+    const nodes = [], NB = 12;
+    const bounds = (s, e) => { const B = emptyB(); for (let i = s; i < e; i++) grow(B, prims[idx[i]]); return B; };
+    const sortRange = (s, e, C) => { const sub = Array.from(idx.subarray(s, e)).sort((a, b) => C[a] - C[b]); idx.set(sub, s); };
+    function rec(s, e, depth, parent) {
+      const id = nodes.length, count = e - s;
+      const nd = { id, b: bounds(s, e), left: -1, right: -1, start: s, count, axis: 0, depth, parent, pos: 0 };
+      nodes.push(nd);
+      if (count <= leafSize) return id;
+      let c0x = Infinity, c0y = Infinity, c1x = -Infinity, c1y = -Infinity;
+      for (let i = s; i < e; i++) { const j = idx[i]; if (cx[j] < c0x) c0x = cx[j]; if (cx[j] > c1x) c1x = cx[j]; if (cy[j] < c0y) c0y = cy[j]; if (cy[j] > c1y) c1y = cy[j]; }
+      let axis = (c1x - c0x) >= (c1y - c0y) ? 0 : 1, mid = -1;
+      if (method === 'sah') {
+        let best = Infinity, bAxis = 0, bPos = 0;
+        const A = half(nd.b);
+        for (let ax = 0; ax < 2; ax++) {
+          const C = ax ? cy : cx, lo = ax ? c0y : c0x, hi = ax ? c1y : c1x; if (hi - lo < 1e-9) continue;
+          const bn = new Int32Array(NB), bb = []; for (let k = 0; k < NB; k++) bb.push(emptyB());
+          for (let i = s; i < e; i++) { const j = idx[i]; const k = Math.min(NB - 1, ((C[j] - lo) / (hi - lo) * NB) | 0); bn[k]++; grow(bb[k], prims[j]); }
+          const rc = new Float64Array(NB), rn = new Int32Array(NB); const RB = emptyB(); let rcount = 0;
+          for (let k = NB - 1; k > 0; k--) { grow(RB, bb[k]); rcount += bn[k]; rc[k] = half(RB) * rcount; rn[k] = rcount; }
+          const LB = emptyB(); let lcount = 0;
+          for (let k = 0; k < NB - 1; k++) { grow(LB, bb[k]); lcount += bn[k]; if (!lcount || !rn[k + 1]) continue; const cost = 1 + (half(LB) * lcount + rc[k + 1]) / A; if (cost < best) { best = cost; bAxis = ax; bPos = lo + (k + 1) / NB * (hi - lo); } }
+        }
+        if (best < Infinity) {
+          axis = bAxis; const C = axis ? cy : cx; let i = s, j = e - 1;
+          while (i <= j) { if (C[idx[i]] < bPos) i++; else { const t = idx[i]; idx[i] = idx[j]; idx[j] = t; j--; } }
+          mid = i; nd.pos = bPos;
+          if (mid === s || mid === e) mid = -1;
+        }
+      }
+      if (mid < 0) { const C = axis ? cy : cx; sortRange(s, e, C); mid = (s + e) >> 1; nd.pos = (C[idx[mid - 1]] + C[idx[mid]]) / 2; }
+      nd.axis = axis;
+      nd.left = rec(s, mid, depth + 1, id); nd.right = rec(mid, e, depth + 1, id);
+      return id;
+    }
+    rec(0, n, 0, -1);
+    let maxDepth = 0; for (const nd of nodes) if (nd.depth > maxDepth) maxDepth = nd.depth;
+    return { nodes, idx, prims, leafSize, method, maxDepth };
+  }
+  function refit(bvh) {
+    const { nodes, idx, prims } = bvh;
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const nd = nodes[i], B = emptyB();
+      if (nd.left < 0) { for (let k = nd.start; k < nd.start + nd.count; k++) grow(B, prims[idx[k]]); }
+      else { grow(B, nodes[nd.left].b); grow(B, nodes[nd.right].b); }
+      nd.b = B;
+    }
+  }
+  // exact SAH sweep over one node along one axis, for the plot
+  function sahSweep(bvh, nd, axis) {
+    const n = nd.count; if (n < 2) return null;
+    const ids = Array.from(bvh.idx.subarray(nd.start, nd.start + n));
+    const C = i => (bvh.prims[i][axis] + bvh.prims[i][axis + 2]) / 2;
+    ids.sort((a, b) => C(a) - C(b));
+    const L = new Float64Array(n), R = new Float64Array(n); const LB = emptyB(), RB = emptyB();
+    for (let k = 0; k < n; k++) { grow(LB, bvh.prims[ids[k]]); L[k] = half(LB); }
+    for (let k = n - 1; k >= 0; k--) { grow(RB, bvh.prims[ids[k]]); R[k] = half(RB); }
+    const A = half(nd.b), pos = [], cost = []; let best = 0;
+    for (let k = 1; k < n; k++) { pos.push((C(ids[k - 1]) + C(ids[k])) / 2); const c = 1 + (L[k - 1] * k + R[k] * (n - k)) / A; cost.push(c); if (c < cost[best]) best = k - 1; }
+    const medK = (n >> 1) - 1;
+    return { pos, cost, best, median: Math.max(0, medK), leaf: n, n };
+  }
+
+  // ---------- intersection and traversal ----------
+  function slab(B, o, inv) {
+    let t0 = (B[0] - o[0]) * inv[0], t1 = (B[2] - o[0]) * inv[0]; if (t0 > t1) { const t = t0; t0 = t1; t1 = t; }
+    let s0 = (B[1] - o[1]) * inv[1], s1 = (B[3] - o[1]) * inv[1]; if (s0 > s1) { const t = s0; s0 = s1; s1 = t; }
+    return [Math.max(t0, s0, 0), Math.min(t1, s1)];
+  }
+  function raySeg(o, d, s) {
+    const ex = s[2] - s[0], ey = s[3] - s[1], den = d[0] * ey - d[1] * ex;
+    if (Math.abs(den) < 1e-12) return -1;
+    const ax = s[0] - o[0], ay = s[1] - o[1];
+    const t = (ax * ey - ay * ex) / den, u = (ax * d[1] - ay * d[0]) / den;
+    return (t > 1e-7 && u >= 0 && u <= 1) ? t : -1;
+  }
+  function traverse(bvh, o, d, leafFn, opts = {}) {
+    const inv = [1 / (d[0] || 1e-12), 1 / (d[1] || 1e-12)];
+    const st = { o, d, tMax: opts.tMax ?? Infinity, hit: null, visited: 0, tests: 0, maxStack: 1, anyHit: !!opts.anyHit, passed: [], failed: [], leaves: [], trace: opts.trace ? [] : null };
+    const stack = [0];
+    while (stack.length) {
+      const id = stack.pop(), nd = bvh.nodes[id]; st.visited++;
+      const [tn, tf] = slab(nd.b, o, inv);
+      const pass = tn <= tf && tn <= st.tMax;
+      const ev = st.trace ? { id, tn, tf, pass, culled: tn <= tf && !pass, tMaxBefore: st.tMax, tested: [], hitSeg: -1, leaf: nd.left < 0, near: -1, far: -1 } : null;
+      if (pass) {
+        st.passed.push(id);
+        if (nd.left < 0) { st.leaves.push(id); leafFn(nd, st, bvh, ev); }
+        else {
+          const near = d[nd.axis] >= 0 ? nd.left : nd.right, far = near === nd.left ? nd.right : nd.left;
+          stack.push(far, near); if (stack.length > st.maxStack) st.maxStack = stack.length;
+          if (ev) { ev.near = near; ev.far = far; }
+        }
+      } else st.failed.push(id);
+      if (ev) { ev.tMaxAfter = st.tMax; ev.stack = stack.slice(); ev.visited = st.visited; ev.tests = st.tests; ev.hit = st.hit; st.trace.push(ev); }
+      if (st.anyHit && st.hit) break;
+    }
+    return st;
+  }
+  function segLeaf(segs) {
+    return (nd, st, bvh, ev) => {
+      for (let k = nd.start; k < nd.start + nd.count; k++) {
+        const si = bvh.idx[k]; st.tests++; if (ev) ev.tested.push(si);
+        const t = raySeg(st.o, st.d, segs[si]);
+        if (t > 0 && t < st.tMax) { st.tMax = t; st.hit = { t, seg: si }; if (ev) ev.hitSeg = si; if (st.anyHit) return; }
+      }
+    };
+  }
+  function ray(o, a) { let dx = a[0] - o[0], dy = a[1] - o[1]; const L = Math.hypot(dx, dy) || 1; return [o, [dx / L, dy / L]]; }
+  function exitT(o, d) { const [, tf] = slab([-0.02, -0.02, 1.02, 1.02], o, [1 / (d[0] || 1e-12), 1 / (d[1] || 1e-12)]); return Math.max(tf, 0); }
+
+  // ---------- drawing ----------
+  const P = v => v * W;
+  function clear(ctx) {
+    ctx.fillStyle = COL.ground; ctx.fillRect(0, 0, W, W);
+    ctx.strokeStyle = COL.grid; ctx.lineWidth = 1; ctx.beginPath();
+    for (let i = 1; i < M; i++) { const p = Math.round(i * W / M) + 0.5; ctx.moveTo(p, 0); ctx.lineTo(p, W); ctx.moveTo(0, p); ctx.lineTo(W, p); }
+    ctx.stroke();
+  }
+  function drawSegs(ctx, segs, style, lw = 1.2, list = null) {
+    ctx.strokeStyle = style; ctx.lineWidth = lw; ctx.beginPath();
+    if (list) for (const i of list) { const s = segs[i]; ctx.moveTo(P(s[0]), P(s[1])); ctx.lineTo(P(s[2]), P(s[3])); }
+    else for (const s of segs) { ctx.moveTo(P(s[0]), P(s[1])); ctx.lineTo(P(s[2]), P(s[3])); }
+    ctx.stroke();
+  }
+  function box(ctx, B, stroke, fill, lw = 1, dash = null) {
+    ctx.beginPath(); ctx.rect(P(B[0]), P(B[1]), P(B[2] - B[0]), P(B[3] - B[1]));
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; if (dash) ctx.setLineDash(dash); ctx.stroke(); if (dash) ctx.setLineDash([]); }
+  }
+  function line(ctx, a, b, style, lw = 1, dash = null) {
+    ctx.strokeStyle = style; ctx.lineWidth = lw; if (dash) ctx.setLineDash(dash);
+    ctx.beginPath(); ctx.moveTo(P(a[0]), P(a[1])); ctx.lineTo(P(b[0]), P(b[1])); ctx.stroke(); if (dash) ctx.setLineDash([]);
+  }
+  function dot(ctx, p, r, fill) { ctx.beginPath(); ctx.arc(P(p[0]), P(p[1]), r, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill(); }
+  function handle(ctx, p, r = 7) { ctx.beginPath(); ctx.arc(P(p[0]), P(p[1]), r, 0, Math.PI * 2); ctx.fillStyle = COL.white; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = COL.ground; ctx.stroke(); }
+  function label(ctx, x, y, text, color = 'rgba(255,255,255,0.85)', align = 'left') { ctx.font = FONT; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'top'; ctx.fillText(text, x, y); ctx.textAlign = 'left'; }
+  function drawRay(ctx, o, d, tHit, tEnd) {
+    const t1 = tHit != null && isFinite(tHit) ? tHit : tEnd;
+    line(ctx, o, [o[0] + d[0] * t1, o[1] + d[1] * t1], COL.white, 2);
+    if (t1 < tEnd) line(ctx, [o[0] + d[0] * t1, o[1] + d[1] * t1], [o[0] + d[0] * tEnd, o[1] + d[1] * tEnd], 'rgba(255,255,255,0.28)', 1, [4, 5]);
+  }
+  function worldOf(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height]; }
+  function drag(canvas, getHandles, onMove, onHover) {
+    let active = -1;
+    canvas.addEventListener('pointerdown', ev => {
+      const [x, y] = worldOf(canvas, ev); const hs = getHandles(); let best = -1, bd = 0.045;
+      hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
+      if (best >= 0) { active = best; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); }
+    });
+    canvas.addEventListener('pointermove', ev => {
+      const [x, y] = worldOf(canvas, ev);
+      if (active >= 0) onMove(active, Math.max(0.01, Math.min(0.99, x)), Math.max(0.01, Math.min(0.99, y)));
+      else if (onHover) onHover(x, y);
+    });
+    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
+    canvas.addEventListener('pointerleave', () => { if (onHover) onHover(-1, -1); });
+  }
+  function throttle(fn) { let pending = false; return () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; fn(); }); }; }
+  function segOn(seg, v) { seg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === String(v)))); }
+  const $ = id => document.getElementById(id);
+
+  // ================= 1. brute force vs BVH =================
+  const c1 = $('c1'), x1 = c1.getContext('2d');
+  const s1 = { N: 300, o: [0.05, 0.56], a: [0.93, 0.30], segs: null, bvh: null, buildMs: 0 };
+  function rebuild1() {
+    s1.segs = makeScene(s1.N);
+    const t0 = performance.now(); s1.bvh = buildBVH(s1.segs.map(segBounds), 'sah', 4); s1.buildMs = performance.now() - t0;
+  }
+  function draw1() {
+    clear(x1); drawSegs(x1, s1.segs, COL.geo);
+    const [o, d] = ray(s1.o, s1.a);
+    const st = traverse(s1.bvh, o, d, segLeaf(s1.segs));
+    let bruteT = Infinity; for (const s of s1.segs) { const t = raySeg(o, d, s); if (t > 0 && t < bruteT) bruteT = t; }
+    for (const id of st.failed) box(x1, s1.bvh.nodes[id].b, 'rgba(239,93,93,0.35)');
+    for (const id of st.passed) { const nd = s1.bvh.nodes[id]; if (nd.left >= 0) box(x1, nd.b, 'rgba(74,163,255,0.55)', 'rgba(74,163,255,0.05)'); }
+    const tested = []; for (const id of st.leaves) { const nd = s1.bvh.nodes[id]; box(x1, nd.b, COL.amber, 'rgba(242,163,65,0.10)', 1.2); for (let k = nd.start; k < nd.start + nd.count; k++) tested.push(s1.bvh.idx[k]); }
+    drawSegs(x1, s1.segs, COL.amber, 2, tested);
+    drawRay(x1, o, d, st.hit ? st.hit.t : null, exitT(o, d));
+    if (st.hit) dot(x1, [o[0] + d[0] * st.hit.t, o[1] + d[1] * st.hit.t], 5, COL.amber);
+    handle(x1, s1.o); handle(x1, s1.a, 5);
+    const n = s1.segs.length;
+    $('c1-left').innerHTML = `brute force: <strong>${fmtN(n)} segment tests</strong>`;
+    $('c1-right').innerHTML = `BVH: <strong>${st.visited} nodes · ${st.leaves.length} leaves · ${st.tests} tests</strong>${st.hit ? ` · hit at ${(st.hit.t * M).toFixed(2)} m` : ' · miss'}`;
+    $('c1-build').textContent = `${fmtN(s1.bvh.nodes.length)} nodes, depth ${s1.bvh.maxDepth} · built in ${fmtMs(s1.buildMs)} (JS, this tab)`;
+    $('t1-brute').textContent = fmtN(n); $('t1-nodes').textContent = st.visited; $('t1-tests').textContent = st.tests;
+    if (isFinite(bruteT) !== !!st.hit || (st.hit && Math.abs(bruteT - st.hit.t) > 1e-9)) $('c1-right').innerHTML += ' · mismatch';
+  }
+  rebuild1(); draw1();
+  const draw1T = throttle(draw1);
+  drag(c1, () => [s1.o, s1.a], (i, x, y) => { const h = i === 0 ? s1.o : s1.a; h[0] = x; h[1] = y; draw1T(); });
+  $('nseg').addEventListener('input', () => { s1.N = +$('nseg').value; $('nsegv').textContent = fmtN(s1.N); rebuild1(); draw1T(); });
+
+  // ================= 2. building it =================
+  const c2 = $('c2'), x2 = c2.getContext('2d');
+  const scene2 = makeScene(300), prims2 = scene2.map(segBounds);
+  const rays100 = (() => { const R = rng(23), out = []; for (let i = 0; i < 100; i++) { const side = (R() * 4) | 0, u = R(); const o = side === 0 ? [u, 0.001] : side === 1 ? [0.999, u] : side === 2 ? [u, 0.999] : [0.001, u]; out.push(ray(o, [0.2 + 0.6 * R(), 0.2 + 0.6 * R()])); } return out; })();
+  const s2 = { method: 'sah', leaf: 4, level: 3, hover: null, trees: {}, stats: {} };
+  function rebuild2() {
+    for (const m of ['median', 'sah']) {
+      const t0 = performance.now(); const bvh = buildBVH(prims2, m, s2.leaf); const ms = performance.now() - t0;
+      let v = 0, t = 0; for (const [o, d] of rays100) { const st = traverse(bvh, o, d, segLeaf(scene2)); v += st.visited; t += st.tests; }
+      s2.trees[m] = bvh; s2.stats[m] = { ms, v: v / 100, t: t / 100 };
+    }
+    const maxD = Math.max(s2.trees.median.maxDepth, s2.trees.sah.maxDepth);
+    $('lvl').max = maxD; if (s2.level > maxD) { s2.level = maxD; $('lvl').value = maxD; $('lvlv').textContent = maxD; }
+    for (const [m, k] of [['median', 'm'], ['sah', 's']]) {
+      const b = s2.trees[m], st = s2.stats[m];
+      $(`s2-${k}-n`).textContent = b.nodes.length; $(`s2-${k}-d`).textContent = b.maxDepth; $(`s2-${k}-b`).textContent = fmtMs(st.ms);
+      $(`s2-${k}-v`).textContent = st.v.toFixed(1); $(`s2-${k}-t`).textContent = st.t.toFixed(1);
+    }
+  }
+  function nodesAtLevel(bvh, L) { return bvh.nodes.filter(nd => nd.depth === L || (nd.left < 0 && nd.depth < L)); }
+  function pickNode2(x, y) {
+    const bvh = s2.trees[s2.method]; let best = null, bh = Infinity;
+    for (const nd of nodesAtLevel(bvh, s2.level)) { const b = nd.b; if (x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3] && half(b) < bh) { bh = half(b); best = nd; } }
+    return best;
+  }
+  function plotSAH(ctx, bvh, nd) {
+    const py = 372, ph = W - py;
+    ctx.fillStyle = 'rgba(11,14,19,0.9)'; ctx.fillRect(0, py, W, ph);
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, py + 0.5); ctx.lineTo(W, py + 0.5); ctx.stroke();
+    const axName = nd.axis ? 'y' : 'x';
+    label(ctx, 12, py + 8, `node #${nd.id} · depth ${nd.depth} · ${nd.count} segments · SAH cost vs split along ${axName}`, 'rgba(255,255,255,0.7)');
+    const sw = sahSweep(bvh, nd, nd.axis);
+    if (!sw) { label(ctx, 12, py + 30, 'leaf with one segment: nothing to split', 'rgba(255,255,255,0.5)'); return; }
+    const x0 = 44, x1 = W - 20, y0 = py + 34, y1 = W - 30;
+    const lo = nd.b[nd.axis], hi = nd.b[nd.axis + 2];
+    let cmin = Infinity, cmax = -Infinity; for (const c of sw.cost) { if (c < cmin) cmin = c; if (c > cmax) cmax = c; }
+    cmax = Math.max(cmax, sw.leaf); cmin = Math.min(cmin, sw.leaf); if (cmax - cmin < 1e-9) cmax = cmin + 1;
+    const X = p => x0 + (p - lo) / (hi - lo || 1) * (x1 - x0), Y = c => y1 - (c - cmin) / (cmax - cmin) * (y1 - y0);
+    // leaf cost line
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(x0, Y(sw.leaf) + 0.5); ctx.lineTo(x1, Y(sw.leaf) + 0.5); ctx.stroke(); ctx.setLineDash([]);
+    label(ctx, x1, Y(sw.leaf) - 14, `no split: ${sw.leaf} tests`, 'rgba(255,255,255,0.5)', 'right');
+    // curve
+    ctx.strokeStyle = COL.white; ctx.lineWidth = 1.5; ctx.beginPath();
+    for (let i = 0; i < sw.pos.length; i++) { const x = X(sw.pos[i]), y = Y(sw.cost[i]); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
+    ctx.stroke();
+    // median and best
+    const mx = X(sw.pos[sw.median]), my = Y(sw.cost[sw.median]);
+    ctx.strokeStyle = COL.blue; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mx + 0.5, y0 - 4); ctx.lineTo(mx + 0.5, y1); ctx.stroke();
+    ctx.beginPath(); ctx.arc(mx, my, 3.5, 0, Math.PI * 2); ctx.fillStyle = COL.blue; ctx.fill();
+    const bx = X(sw.pos[sw.best]), by = Y(sw.cost[sw.best]);
+    ctx.beginPath(); ctx.arc(bx, by, 4, 0, Math.PI * 2); ctx.fillStyle = COL.amber; ctx.fill();
+    const bestRight = bx > W / 2;
+    label(ctx, bx + (bestRight ? -8 : 8), by - 16, `SAH ${sw.cost[sw.best].toFixed(1)}`, COL.amber, bestRight ? 'right' : 'left');
+    const medRight = mx > W / 2;
+    label(ctx, mx + (medRight ? -6 : 6), y0 - 4, `median ${sw.cost[sw.median].toFixed(1)}`, COL.blue, medRight ? 'right' : 'left');
+    label(ctx, x0, y1 + 8, `${(lo * M).toFixed(1)} m`, 'rgba(255,255,255,0.5)');
+    label(ctx, x1, y1 + 8, `${(hi * M).toFixed(1)} m`, 'rgba(255,255,255,0.5)', 'right');
+    label(ctx, 8, y0 - 4, 'cost', 'rgba(255,255,255,0.5)');
+  }
+  const SC2 = 372 / W, OX2 = (W - 372) / 2;
+  function draw2() {
+    const bvh = s2.trees[s2.method];
+    x2.fillStyle = COL.ground; x2.fillRect(0, 0, W, W);
+    x2.save(); x2.translate(OX2, 0); x2.scale(SC2, SC2);
+    clear(x2); drawSegs(x2, scene2, COL.geo);
+    const shown = nodesAtLevel(bvh, s2.level);
+    let leaves = 0;
+    for (const nd of shown) {
+      if (nd.left < 0) { leaves++; box(x2, nd.b, 'rgba(242,163,65,0.8)', 'rgba(242,163,65,0.06)', 1, [3, 3]); }
+      else box(x2, nd.b, 'rgba(74,163,255,0.8)', 'rgba(74,163,255,0.07)', 1);
+    }
+    const hv = s2.hover || bvh.nodes[0];
+    box(x2, hv.b, COL.white, null, 1.5);
+    if (hv.left >= 0) {
+      const b = hv.b;
+      if (hv.axis === 0) line(x2, [hv.pos, b[1]], [hv.pos, b[3]], COL.white, 1, [4, 3]); else line(x2, [b[0], hv.pos], [b[2], hv.pos], COL.white, 1, [4, 3]);
+    }
+    x2.restore();
+    plotSAH(x2, bvh, hv);
+    $('c2-left').innerHTML = `level ${s2.level}: <strong>${shown.length} boxes</strong> (${leaves} already leaves)`;
+    $('c2-right').innerHTML = `${s2.method === 'sah' ? 'SAH' : 'median'} tree · <strong>${bvh.nodes.length} nodes</strong> · depth ${bvh.maxDepth}`;
+  }
+  rebuild2(); draw2();
+  const draw2T = throttle(draw2);
+  drag(c2, () => [], () => {}, (x, y) => { s2.hover = x < 0 ? null : pickNode2((x * W - OX2) / (SC2 * W), y / SC2); draw2T(); });
+  $('segBuild').addEventListener('click', ev => { const b = ev.target.closest('button'); if (!b) return; s2.method = b.dataset.v; segOn(ev.currentTarget, s2.method); s2.hover = null; draw2(); });
+  $('lvl').addEventListener('input', () => { s2.level = +$('lvl').value; $('lvlv').textContent = s2.level; s2.hover = null; draw2T(); });
+  $('leaf').addEventListener('input', () => { s2.leaf = +$('leaf').value; $('leafv').textContent = s2.leaf; s2.hover = null; rebuild2(); draw2T(); });
+
+  // ================= 3. traversal step by step =================
+  const c3 = $('c3'), x3 = c3.getContext('2d');
+  const bvh3 = buildBVH(prims2, 'sah', 4);
+  const s3 = { o: [0.06, 0.62], a: [0.95, 0.28], anyHit: false, step: 1, st: null };
+  function retrace3(keepStep) {
+    const [o, d] = ray(s3.o, s3.a);
+    const st = traverse(bvh3, o, d, segLeaf(scene2), { trace: true, anyHit: s3.anyHit });
+    const len = st.trace.length; const el = $('step3'); el.max = len;
+    if (!keepStep) { let firstHit = st.trace.findIndex(e => e.hitSeg >= 0); s3.step = firstHit >= 0 ? Math.min(len, firstHit + 1) : Math.min(len, 6); }
+    s3.step = Math.max(1, Math.min(len, s3.step)); el.value = s3.step;
+    s3.st = st; s3.o = o; s3.d = d;
+  }
+  function draw3() {
+    const st = s3.st, o = s3.o, d = s3.d, k = s3.step, ev = st.trace[k - 1];
+    clear(x3); drawSegs(x3, scene2, COL.geo);
+    for (let i = 0; i < k - 1; i++) { const e = st.trace[i]; const nd = bvh3.nodes[e.id]; if (e.pass) box(x3, nd.b, 'rgba(90,212,138,0.4)', e.leaf ? 'rgba(242,163,65,0.06)' : null); else box(x3, nd.b, 'rgba(239,93,93,0.4)', null, 1, e.culled ? [3, 3] : null); }
+    const tested = []; for (let i = 0; i < k; i++) for (const s of st.trace[i].tested) tested.push(s);
+    drawSegs(x3, scene2, COL.amber, 2, tested);
+    // current node
+    const nd = bvh3.nodes[ev.id];
+    box(x3, nd.b, ev.pass ? COL.green : COL.red, ev.pass ? 'rgba(90,212,138,0.10)' : 'rgba(239,93,93,0.10)', 2.5, ev.culled ? [4, 3] : null);
+    if (ev.pass && !ev.leaf) {
+      const nb = bvh3.nodes[ev.near].b, fb = bvh3.nodes[ev.far].b;
+      box(x3, nb, COL.blue, null, 1.5); box(x3, fb, 'rgba(74,163,255,0.5)', null, 1.5, [4, 3]);
+      label(x3, P(nb[0]) + 4, P(nb[1]) + 3, 'near', COL.blue); label(x3, P(fb[0]) + 4, P(fb[1]) + 3, 'far', 'rgba(74,163,255,0.8)');
+    }
+    // ray with t_max
+    const tEnd = exitT(o, d), tMax = ev.tMaxAfter;
+    drawRay(x3, o, d, isFinite(tMax) ? tMax : null, tEnd);
+    if (isFinite(tMax)) { const h = [o[0] + d[0] * tMax, o[1] + d[1] * tMax]; dot(x3, h, 5, COL.amber); label(x3, P(h[0]) + 8, P(h[1]) - 16, `t_max = ${(tMax * M).toFixed(2)} m`, COL.amber); }
+    if (ev.tn <= ev.tf) { const p = [o[0] + d[0] * ev.tn, o[1] + d[1] * ev.tn]; dot(x3, p, 3, ev.pass ? COL.green : COL.red); }
+    handle(x3, s3.o); handle(x3, s3.a, 5);
+    // readouts
+    const what = ev.leaf ? `leaf, ${ev.tested.length} segment tests${ev.hitSeg >= 0 ? ', new closest hit' : ''}` : (ev.pass ? 'interior: push far, then near' : 'interior');
+    const slabTxt = ev.culled ? `t_near ${(ev.tn * M).toFixed(2)} m > t_max ${(ev.tMaxBefore * M).toFixed(2)} m: culled` : ev.pass ? `t_near ${(ev.tn * M).toFixed(2)} m: pass` : 'slab miss';
+    $('c3-left').innerHTML = `pop ${k}/${st.trace.length}: <strong>node #${ev.id}</strong> · ${slabTxt} · ${what}`;
+    $('c3-right').innerHTML = `<strong>${ev.visited} nodes · ${ev.tests} tests · stack ${ev.stack.length} (max ${st.maxStack})</strong>`;
+    $('step3v').textContent = `${k} / ${st.trace.length}`;
+    const sv = $('stack3'); sv.innerHTML = '<span class="lbl">stack</span>';
+    if (!ev.stack.length) { const e = document.createElement('span'); e.className = 'empty'; e.textContent = k === st.trace.length ? (s3.anyHit && st.hit ? 'empty (any hit found, stopped early)' : 'empty (done)') : 'empty'; sv.appendChild(e); }
+    ev.stack.forEach((id, i) => { const e = document.createElement('span'); e.className = 'chip' + (i === ev.stack.length - 1 ? ' top' : ''); e.textContent = '#' + id + (i === ev.stack.length - 1 ? ' ← top' : ''); sv.appendChild(e); });
+  }
+  retrace3(false); draw3();
+  const draw3T = throttle(draw3);
+  drag(c3, () => [s3.o, s3.a], (i, x, y) => { const h = i === 0 ? s3.o : s3.a; h[0] = x; h[1] = y; retrace3(false); draw3T(); });
+  $('step3').addEventListener('input', () => { s3.step = +$('step3').value; draw3T(); });
+  $('prev3').addEventListener('click', () => { s3.step = Math.max(1, s3.step - 1); $('step3').value = s3.step; draw3(); });
+  $('next3').addEventListener('click', () => { s3.step = Math.min(s3.st.trace.length, s3.step + 1); $('step3').value = s3.step; draw3(); });
+  $('segRay').addEventListener('click', ev => { const b = ev.target.closest('button'); if (!b) return; s3.anyHit = b.dataset.v === 'any'; segOn(ev.currentTarget, b.dataset.v); retrace3(false); draw3(); });
+
+  // ================= 4. two-level: BLAS + TLAS =================
+  const c4 = $('c4'), x4 = c4.getContext('2d');
+  function loopMesh(n, fn) { const v = []; for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; const r = fn(a); v.push([r * Math.cos(a), r * Math.sin(a)]); } return v; }
+  const MESH = {
+    rock:  { verts0: loopMesh(40, a => 1 + 0.18 * Math.sin(3 * a + 0.4) + 0.08 * Math.sin(7 * a)) },
+    tree:  { verts0: loopMesh(56, a => 0.6 + 0.4 * Math.pow((Math.sin(9 * a) + 1) / 2, 0.6)) },
+    crate: { verts0: loopMesh(24, a => 0.9 / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a)))) }
+  };
+  for (const m of Object.values(MESH)) {
+    m.verts = m.verts0.map(p => p.slice());
+    m.segs = m.verts.map((p, i) => { const q = m.verts[(i + 1) % m.verts.length]; return [p[0], p[1], q[0], q[1]]; });
+    m.prims = m.segs.map(segBounds);
+    m.bvh = buildBVH(m.prims, 'sah', 4);
+  }
+  const INST = [
+    { mesh: 'rock', x: 0.22, y: 0.30, rot: 0.4, s: 0.12 },
+    { mesh: 'tree', x: 0.62, y: 0.24, rot: 0.0, s: 0.10 },
+    { mesh: 'crate', x: 0.82, y: 0.50, rot: 0.5, s: 0.09 },
+    { mesh: 'rock', x: 0.30, y: 0.72, rot: 2.1, s: 0.10 },
+    { mesh: 'tree', x: 0.56, y: 0.60, rot: 1.2, s: 0.08 },
+    { mesh: 'crate', x: 0.14, y: 0.53, rot: 0.2, s: 0.06 },
+    { mesh: 'rock', x: 0.48, y: 0.86, rot: 3.5, s: 0.08 }
+  ];
+  const NAMES = ['rock', 'tree', 'crate'];
+  function xfPoint(inst, p) { const c = Math.cos(inst.rot), s = Math.sin(inst.rot); return [inst.x + inst.s * (c * p[0] - s * p[1]), inst.y + inst.s * (s * p[0] + c * p[1])]; }
+  function invPoint(inst, p) { const c = Math.cos(inst.rot), s = Math.sin(inst.rot), dx = (p[0] - inst.x) / inst.s, dy = (p[1] - inst.y) / inst.s; return [c * dx + s * dy, -s * dx + c * dy]; }
+  function invDir(inst, d) { const c = Math.cos(inst.rot), s = Math.sin(inst.rot), dx = d[0] / inst.s, dy = d[1] / inst.s; return [c * dx + s * dy, -s * dx + c * dy]; }
+  function instBox(inst) { const b = MESH[inst.mesh].bvh.nodes[0].b, B = emptyB(); for (const c of [[b[0], b[1]], [b[2], b[1]], [b[0], b[3]], [b[2], b[3]]]) { const w = xfPoint(inst, c); grow(B, [w[0], w[1], w[0], w[1]]); } return B; }
+  const s4 = { o: [0.05, 0.40], a: [0.95, 0.72], tlas: null, tlasMs: 0, op: 'TLAS built', opMs: 0, deform: false, t: 0, refitMs: 0 };
+  function rebuildTLAS() { const t0 = performance.now(); s4.tlas = buildBVH(INST.map(instBox), 'sah', 1); s4.tlasMs = performance.now() - t0; }
+  function tlasLeaf(nd, st, tlas) {
+    st.entered = st.entered || []; st.blasVisited = st.blasVisited || 0; st.segTests = st.segTests || 0;
+    for (let k = nd.start; k < nd.start + nd.count; k++) {
+      const ii = tlas.idx[k], inst = INST[ii], mesh = MESH[inst.mesh];
+      const o2 = invPoint(inst, st.o), d2 = invDir(inst, st.d);
+      const sub = traverse(mesh.bvh, o2, d2, segLeaf(mesh.segs), { tMax: st.tMax });
+      st.blasVisited += sub.visited; st.segTests += sub.tests; st.entered.push({ i: ii, sub, o2, d2 });
+      if (sub.hit && sub.hit.t < st.tMax) { st.tMax = sub.hit.t; st.hit = { t: sub.hit.t, inst: ii, seg: sub.hit.seg }; }
+    }
+  }
+  function quad(ctx, inst, b, stroke, lw = 1, dash = null) {
+    const c = [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]].map(p => xfPoint(inst, p));
+    ctx.strokeStyle = stroke; ctx.lineWidth = lw; if (dash) ctx.setLineDash(dash); ctx.beginPath();
+    c.forEach((p, i) => i ? ctx.lineTo(P(p[0]), P(p[1])) : ctx.moveTo(P(p[0]), P(p[1]))); ctx.closePath(); ctx.stroke(); if (dash) ctx.setLineDash([]);
+  }
+  function draw4() {
+    clear(x4);
+    const [o, d] = ray(s4.o, s4.a);
+    const st = traverse(s4.tlas, o, d, tlasLeaf);
+    const entered = st.entered || [];
+    // instances
+    INST.forEach((inst, i) => {
+      const mesh = MESH[inst.mesh]; const ws = mesh.segs.map(s => { const a = xfPoint(inst, [s[0], s[1]]), b = xfPoint(inst, [s[2], s[3]]); return [a[0], a[1], b[0], b[1]]; });
+      inst._ws = ws; drawSegs(x4, ws, COL.geo);
+      box(x4, instBox(inst), 'rgba(255,255,255,0.18)', null, 1, [2, 3]);
+      label(x4, P(inst.x) + 10, P(inst.y) - 6, `${i} ${inst.mesh}`, 'rgba(255,255,255,0.4)');
+    });
+    for (const id of st.failed) { const nd = s4.tlas.nodes[id]; box(x4, nd.b, 'rgba(239,93,93,0.35)'); }
+    for (const id of st.passed) { const nd = s4.tlas.nodes[id]; if (nd.left >= 0) box(x4, nd.b, 'rgba(74,163,255,0.55)', 'rgba(74,163,255,0.04)'); }
+    for (const e of entered) {
+      const inst = INST[e.i], mesh = MESH[inst.mesh];
+      box(x4, instBox(inst), COL.amber, null, 1.2);
+      for (const id of e.sub.passed) { const nd = mesh.bvh.nodes[id]; quad(x4, inst, nd.b, nd.left < 0 ? 'rgba(242,163,65,0.7)' : 'rgba(74,163,255,0.5)'); }
+      const tested = []; for (const id of e.sub.leaves) { const nd = mesh.bvh.nodes[id]; for (let k = nd.start; k < nd.start + nd.count; k++) tested.push(mesh.bvh.idx[k]); }
+      drawSegs(x4, inst._ws, COL.amber, 2, tested);
+    }
+    drawRay(x4, o, d, st.hit ? st.hit.t : null, exitT(o, d));
+    if (st.hit) dot(x4, [o[0] + d[0] * st.hit.t, o[1] + d[1] * st.hit.t], 5, COL.amber);
+    INST.forEach(inst => handle(x4, [inst.x, inst.y], 5));
+    handle(x4, s4.o); handle(x4, s4.a, 5);
+    // object-space inset for the hit (or first entered) instance
+    const focus = st.hit ? entered.find(e => e.i === st.hit.inst) : entered[0];
+    const S = 176, ix = W - S - 8, iy = W - S - 8;
+    x4.fillStyle = 'rgba(11,14,19,0.92)'; x4.fillRect(ix, iy, S, S); x4.strokeStyle = 'rgba(255,255,255,0.25)'; x4.lineWidth = 1; x4.strokeRect(ix + 0.5, iy + 0.5, S - 1, S - 1);
+    if (focus) {
+      const inst = INST[focus.i], mesh = MESH[inst.mesh], sc = 56, cx = ix + S / 2, cy = iy + S / 2 + 8;
+      const T = p => [cx + p[0] * sc, cy + p[1] * sc];
+      x4.save(); x4.beginPath(); x4.rect(ix, iy, S, S); x4.clip();
+      x4.strokeStyle = COL.geo; x4.lineWidth = 1; x4.beginPath(); for (const s of mesh.segs) { const a = T([s[0], s[1]]), b = T([s[2], s[3]]); x4.moveTo(a[0], a[1]); x4.lineTo(b[0], b[1]); } x4.stroke();
+      for (const id of focus.sub.passed) { const b = mesh.bvh.nodes[id].b, a = T([b[0], b[1]]), c = T([b[2], b[3]]); x4.strokeStyle = mesh.bvh.nodes[id].left < 0 ? 'rgba(242,163,65,0.8)' : 'rgba(74,163,255,0.6)'; x4.strokeRect(a[0], a[1], c[0] - a[0], c[1] - a[1]); }
+      const o2 = focus.o2, d2 = focus.d2, tEnd = focus.sub.hit ? focus.sub.hit.t : 20 * inst.s;
+      const a = T(o2), b = T([o2[0] + d2[0] * tEnd, o2[1] + d2[1] * tEnd]);
+      x4.strokeStyle = COL.white; x4.lineWidth = 1.5; x4.beginPath(); x4.moveTo(a[0], a[1]); x4.lineTo(b[0], b[1]); x4.stroke();
+      if (focus.sub.hit) { x4.beginPath(); x4.arc(b[0], b[1], 4, 0, Math.PI * 2); x4.fillStyle = COL.amber; x4.fill(); }
+      x4.restore();
+      label(x4, ix + 8, iy + 6, `object space · inst ${focus.i} ${inst.mesh}`, 'rgba(255,255,255,0.75)');
+      label(x4, ix + 8, iy + 20, `|d'| = ${Math.hypot(d2[0], d2[1]).toFixed(1)} = 1/scale · t unchanged`, 'rgba(255,255,255,0.45)');
+    } else label(x4, ix + 8, iy + 6, 'object space: no instance entered', 'rgba(255,255,255,0.5)');
+    $('c4-left').innerHTML = `TLAS: <strong>${st.visited} nodes</strong> · <strong>${entered.length} instance${entered.length === 1 ? '' : 's'} entered</strong>`;
+    $('c4-right').innerHTML = `BLAS: <strong>${st.blasVisited || 0} nodes · ${st.segTests || 0} tests</strong>${st.hit ? ` · hit instance ${st.hit.inst} at ${(st.hit.t * M).toFixed(2)} m` : ' · miss'}`;
+    $('c4-op').innerHTML = `last update: <strong>${s4.op}</strong> · TLAS ${s4.tlas.nodes.length} nodes rebuilt in ${fmtMs(s4.tlasMs)}${s4.deform ? ` · tree BLAS ${MESH.tree.bvh.nodes.length} nodes refit in ${fmtMs(s4.refitMs)}` : ''} (JS, this tab)`;
+  }
+  rebuildTLAS(); draw4();
+  const draw4T = throttle(draw4);
+  drag(c4, () => [s4.o, s4.a, ...INST.map(i => [i.x, i.y])], (i, x, y) => {
+    if (i === 0) { s4.o = [x, y]; } else if (i === 1) { s4.a = [x, y]; }
+    else { const inst = INST[i - 2]; inst.x = x; inst.y = y; rebuildTLAS(); s4.op = `moved instance ${i - 2}, TLAS rebuild only`; }
+    draw4T();
+  });
+  function deformFrame() {
+    if (!s4.deform) return;
+    s4.t += 1 / 60; const m = MESH.tree;
+    for (let i = 0; i < m.verts.length; i++) { const k = 1 + 0.16 * Math.sin(3 * s4.t + i * 0.45); m.verts[i][0] = m.verts0[i][0] * k; m.verts[i][1] = m.verts0[i][1] * k; }
+    const t0 = performance.now();
+    for (let i = 0; i < m.segs.length; i++) { const p = m.verts[i], q = m.verts[(i + 1) % m.verts.length]; const s = m.segs[i]; s[0] = p[0]; s[1] = p[1]; s[2] = q[0]; s[3] = q[1]; const b = segBounds(s), pb = m.prims[i]; pb[0] = b[0]; pb[1] = b[1]; pb[2] = b[2]; pb[3] = b[3]; }
+    refit(m.bvh); s4.refitMs = performance.now() - t0;
+    rebuildTLAS(); s4.op = 'tree mesh deformed: BLAS refit, then TLAS rebuild';
+    draw4(); requestAnimationFrame(deformFrame);
+  }
+  $('deform4').addEventListener('change', () => { s4.deform = $('deform4').checked; if (s4.deform) requestAnimationFrame(deformFrame); else { const m = MESH.tree; for (let i = 0; i < m.verts.length; i++) { m.verts[i][0] = m.verts0[i][0]; m.verts[i][1] = m.verts0[i][1]; } for (let i = 0; i < m.segs.length; i++) { const p = m.verts[i], q = m.verts[(i + 1) % m.verts.length]; const s = m.segs[i]; s[0] = p[0]; s[1] = p[1]; s[2] = q[0]; s[3] = q[1]; const b = segBounds(s), pb = m.prims[i]; pb[0] = b[0]; pb[1] = b[1]; pb[2] = b[2]; pb[3] = b[3]; } refit(m.bvh); rebuildTLAS(); s4.op = 'deform off: BLAS refit back to rest pose'; draw4(); } });
+
+  // ================= 5. ray budget =================
+  const c5 = $('c5'), x5 = c5.getContext('2d');
+  const bvh5 = buildBVH(prims2, 'sah', 4);
+  const s5 = { cam: [0.06, 0.50], aim: [0.62, 0.44], res: 1080, sh: 1, rf: 1, gi: 2, rate: 10 };
+  const RESO = { 1080: [1920, 1080], 1440: [2560, 1440], 2160: [3840, 2160] };
+  const NB5 = 24, giRand = (() => { const R = rng(41); return Array.from({ length: NB5 }, () => R()); })();
+  function bundle(origins, dirs) {
+    const leaves = new Set(); let nodes = 0; const out = [];
+    for (let i = 0; i < origins.length; i++) { const st = traverse(bvh5, origins[i], dirs[i], segLeaf(scene2)); nodes += st.visited; for (const l of st.leaves) leaves.add(l); out.push({ o: origins[i], d: dirs[i], t: st.hit ? st.hit.t : exitT(origins[i], dirs[i]), hit: st.hit }); }
+    return { rays: out, leaves, nodes };
+  }
+  function draw5() {
+    clear(x5); drawSegs(x5, scene2, COL.geo);
+    const [o, d0] = ray(s5.cam, s5.aim); const base = Math.atan2(d0[1], d0[0]), spread = 8 * Math.PI / 180;
+    const po = [], pd = [];
+    for (let i = 0; i < NB5; i++) { const a = base + (i / (NB5 - 1) - 0.5) * spread; po.push(o); pd.push([Math.cos(a), Math.sin(a)]); }
+    const prim = bundle(po, pd);
+    const mid = prim.rays[NB5 >> 1];
+    let gi = null, hp = null, nrm = null;
+    if (mid.hit) {
+      const s = scene2[mid.hit.seg]; let nx = -(s[3] - s[1]), ny = s[2] - s[0]; const L = Math.hypot(nx, ny) || 1; nx /= L; ny /= L;
+      if (nx * mid.d[0] + ny * mid.d[1] > 0) { nx = -nx; ny = -ny; }
+      hp = [mid.o[0] + mid.d[0] * mid.t + nx * 0.003, mid.o[1] + mid.d[1] * mid.t + ny * 0.003]; nrm = [nx, ny];
+      const na = Math.atan2(ny, nx), go = [], gd = [];
+      for (let i = 0; i < NB5; i++) { const a = na + (giRand[i] - 0.5) * Math.PI * 0.94; go.push(hp); gd.push([Math.cos(a), Math.sin(a)]); }
+      gi = bundle(go, gd);
+    }
+    for (const l of prim.leaves) box(x5, bvh5.nodes[l].b, 'rgba(74,163,255,0.85)', 'rgba(74,163,255,0.10)');
+    if (gi) for (const l of gi.leaves) box(x5, bvh5.nodes[l].b, 'rgba(242,163,65,0.85)', 'rgba(242,163,65,0.10)');
+    for (const r of prim.rays) line(x5, r.o, [r.o[0] + r.d[0] * r.t, r.o[1] + r.d[1] * r.t], 'rgba(74,163,255,0.55)', 1);
+    if (gi) for (const r of gi.rays) line(x5, r.o, [r.o[0] + r.d[0] * r.t, r.o[1] + r.d[1] * r.t], 'rgba(242,163,65,0.55)', 1);
+    if (hp) { dot(x5, hp, 4, COL.amber); line(x5, hp, [hp[0] + nrm[0] * 0.04, hp[1] + nrm[1] * 0.04], COL.white, 1); }
+    handle(x5, s5.cam); handle(x5, s5.aim, 5);
+    label(x5, P(s5.cam[0]) + 10, P(s5.cam[1]) + 8, 'camera', 'rgba(255,255,255,0.6)');
+    $('c5-left').innerHTML = `primary bundle: <strong>${prim.leaves.size} distinct leaves</strong>`;
+    $('c5-right').innerHTML = gi ? `bounce bundle: <strong>${gi.leaves.size} distinct leaves</strong>` : 'bounce bundle: middle ray missed, drag the aim onto geometry';
+    $('s5-p-l').textContent = prim.leaves.size; $('s5-p-n').textContent = prim.nodes; $('s5-p-r').textContent = (prim.nodes / NB5).toFixed(1);
+    $('s5-g-l').textContent = gi ? gi.leaves.size : '—'; $('s5-g-n').textContent = gi ? gi.nodes : '—'; $('s5-g-r').textContent = gi ? (gi.nodes / NB5).toFixed(1) : '—';
+  }
+  function budget5() {
+    const [w, h] = RESO[s5.res], rpp = s5.sh + s5.rf + s5.gi, rays = w * h * rpp, ms = rays / (s5.rate * 1e9) * 1000;
+    $('t5-rays').textContent = (rays / 1e6).toFixed(2) + ' M';
+    $('t5-ms').textContent = ms.toFixed(2) + ' ms';
+    $('t5-share').textContent = (ms / 16.667 * 100).toFixed(1) + ' %';
+  }
+  draw5(); budget5();
+  const draw5T = throttle(draw5);
+  drag(c5, () => [s5.cam, s5.aim], (i, x, y) => { const h = i === 0 ? s5.cam : s5.aim; h[0] = x; h[1] = y; draw5T(); });
+  $('segRes').addEventListener('click', ev => { const b = ev.target.closest('button'); if (!b) return; s5.res = +b.dataset.v; segOn(ev.currentTarget, s5.res); budget5(); });
+  for (const [id, key, fmt] of [['sh5', 'sh', v => v], ['rf5', 'rf', v => v], ['gi5', 'gi', v => v], ['rate5', 'rate', v => v + ' Grays/s']]) {
+    $(id).addEventListener('input', () => { s5[key] = +$(id).value; $(id + 'v').textContent = fmt(s5[key]); budget5(); });
+  }
+})();
+</script>

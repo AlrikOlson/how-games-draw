@@ -1,0 +1,1065 @@
+<title>PBR &amp; the BRDF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas.sq { aspect-ratio: 1; }
+.vp canvas.r169 { aspect-ratio: 16 / 9; }
+.vp canvas.px { image-rendering: pixelated; }
+.key span[style*="#ffffff"]::before { outline: 1px solid var(--line); }
+.chk { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 13px; color: var(--ink); padding-bottom: 6px; }
+.chks { display: flex; gap: 16px; flex-wrap: wrap; }
+input[type=color] { width: 44px; height: 30px; padding: 2px; border: 1px solid var(--line); border-radius: 4px; background: var(--chip); cursor: pointer; }
+.btn { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 6px 12px; background: var(--chip); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cols.wide .prose { margin-top: 22px; }
+.cols.wide .prose p { max-width: 70ch; }
+.tile .n small { font-size: 13px; color: var(--muted); font-weight: 400; }
+.stats.txt th, .stats.txt td { white-space: normal; text-align: left; font-family: var(--font-display); font-size: 14px; vertical-align: top; }
+.stats.txt th:nth-child(2), .stats.txt td:nth-child(2) { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; }
+.stats.txt td:first-child { font-weight: 650; }
+.uses td:first-child { white-space: normal; min-width: 12ch; }
+.prose p.below { margin-top: 24px; }
+.warn { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-top: 6px; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">160×160 sphere · one point light · α = roughness² · drag the light</p>
+    <h1>PBR &amp; the BRDF</h1>
+    <p class="lead">A BRDF is the rule that says how much light bounces off a surface toward your eye, given where the light came from. Nearly every engine uses the same rule: a soft matte part plus a sharp highlight built from three terms called D, G and F, and it fixes the old problem of highlights that were as bright as an artist typed no matter how wide they were. <b>The thing people get wrong:</b> "PBR" is a set of rules about not inventing light, not one shader. Two engines can both be physically based and disagree on every constant; what they share is that a narrower highlight is a brighter one, and no surface gives back more light than it gets.</p>
+    <div class="key">
+      <span style="--sw:#f2a341">highlight lobe, D term</span>
+      <span style="--sw:#4aa3ff">matte lobe, G term</span>
+      <span style="--sw:#ffffff">F term, rays, handles</span>
+      <span style="--sw:#5ad48a">facet the light reaches</span>
+      <span style="--sw:#ef5d5d">facet in shade, ray blocked</span>
+    </div>
+    <dl class="terms">
+      <dt>BRDF</dt><dd>the rule for how much light leaving a point goes toward the eye, given where it came from</dd>
+      <dt>diffuse</dt><dd>the soft matte part of the light, spread evenly in every direction</dd>
+      <dt>specular</dt><dd>the shiny highlight, tight around the mirror direction</dd>
+      <dt>lobe</dt><dd>the shape you get by plotting how much light leaves in each direction</dd>
+      <dt>roughness</dt><dd>0 is a mirror, 1 is chalk; the one slider artists touch most</dd>
+      <dt>microfacet</dt><dd>one of the tiny mirrors a rough surface is modelled as</dd>
+      <dt>F0</dt><dd>how reflective a surface is when you look straight at it</dd>
+      <dt>metallic</dt><dd>0 for plastic, wood and skin, 1 for metals; almost nothing in between</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#lobe"><span class="n">01</span>The lobe</a></li><li><a href="#micro"><span class="n">02</span>Microfacets</a></li><li><a href="#fresnel"><span class="n">03</span>Fresnel</a></li><li><a href="#sphere"><span class="n">04</span>A lit sphere</a></li><li><a href="#ibl"><span class="n">05</span>Sky light, baked</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="lobe">
+    <h2>The lobe: where the light goes</h2>
+    <p class="sub">Drag the light and watch how much bounces off in each direction.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c1" width="512" height="512" class="grab sq" aria-label="Polar plot of the Cook-Torrance BRDF for a fixed light direction"></canvas>
+        <div class="cap"><span id="c1-read"></span><span id="c1-peak"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Light hits a point on a surface and leaves in many directions, but not evenly. <b>The lobe is the shape of that spread.</b> A matte surface sends light everywhere about the same; a shiny one sends most of it in one tight beam near the mirror direction. <b>Roughness sets how tight the beam is.</b></p>
+
+        <h3>What you're seeing</h3>
+        <p>A side-on cut through one point on a surface. The white handle is the light. The blue half-disc is the matte part, the same size in every direction. The amber shape is the total, with a bump near the mirror of the light's direction: that bump is the highlight.</p>
+        <p>The readout under the canvas gives the light angle, the alpha value (roughness squared) and F0, plus how tall the peak is and where it lands.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the light down toward the surface. The amber bump slides to the opposite side and grows tall and thin.</li>
+          <li>Push roughness to 1. The bump spreads out and gets shorter, until the lobe looks almost like the blue disc.</li>
+          <li>Click "1 metal". The blue disc vanishes; only the highlight is left.</li>
+          <li>Tick D, G and F to see the three terms drawn as dashed curves over the same angles.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><label for="r1">Roughness <span class="val" id="r1v">0.40</span></label><input type="range" id="r1" min="0.05" max="1" step="0.01" value="0.4"></div>
+          <div class="ctl"><span class="lab">Metallic</span><div class="seg" id="seg1m" role="group" aria-label="Metallic"><button data-v="0" aria-pressed="true">0 dielectric</button><button data-v="1">1 metal</button></div></div>
+          <div class="ctl"><label for="col1">Base colour</label><input type="color" id="col1" value="#c9803f"></div>
+          <div class="ctl"><span class="lab">Radius scale</span><div class="seg" id="seg1s" role="group" aria-label="Radius scale"><button data-v="lin" aria-pressed="true">linear</button><button data-v="log">log</button></div></div>
+        </div>
+        <div class="controls" style="margin-top:12px">
+          <div class="chks">
+            <label class="chk"><input type="checkbox" id="showD"> D(h)</label>
+            <label class="chk"><input type="checkbox" id="showG"> G(l,v)</label>
+            <label class="chk"><input type="checkbox" id="showF"> F(v·h)</label>
+          </div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The BRDF (bidirectional reflectance distribution function) answers one question: for light arriving from direction <code>l</code>, what fraction leaves toward the eye direction <code>v</code>, per unit of solid angle, which is a patch of directions the way an area is a patch of surface. The matte part is Lambert diffuse, <code>albedo / π</code>, the same in every direction. Albedo is the base colour: the share of light the surface does not soak up.</p>
+        <p>The highlight is the product of three terms, and each one is a probability rather than a colour. <code>D</code> is how many of the tiny mirrors (microfacets) point along the half vector <code>h</code>, the direction halfway between light and eye. <code>G</code> is how many of those are neither in a neighbour's shade nor hidden from view. <code>F</code> is the fraction of light a single facet mirrors instead of letting through. The <code>4 (n·l)(n·v)</code> underneath converts from one facet's frame to the whole surface.</p>
+        <p class="words">In words: light out is the matte part plus the highlight part, times how much light lands, which is n·l.</p>
+        <div class="math">L_o = ∫ f(l, v) · L_i · (n·l) dω          <span class="c">// one light: L_o = f · E · (n·l)</span>
+
+f(l, v) = k_d · albedo / π  +  D(h) · G(l, v) · F(v·h) / (4 (n·l)(n·v))
+h = normalize(l + v)      α = roughness²      F0 = mix(0.04, albedo, metallic)
+k_d = (1 − F) · (1 − metallic)</div>
+        <p><code>L_o</code> is the light leaving, <code>L_i</code> the light arriving, <code>n</code> the surface normal (the direction the surface faces), <code>α</code> the roughness squared, <code>F0</code> the head-on reflectance, and <code>k_d</code> the share left for the matte part after the highlight takes its cut.</p>
+        <p class="words">What this code does: builds h, computes the three terms, and returns matte plus highlight scaled by n·l.</p>
+<pre class="code"><span class="c">// Cook-Torrance specular + Lambert diffuse, one light, Unreal/Filament style</span>
+<span class="k">vec3</span> brdf(vec3 n, vec3 v, vec3 l, vec3 albedo, float rough, float metal) {
+  vec3  h   = normalize(l + v);
+  float NoL = max(dot(n, l), 0.0), NoV = max(dot(n, v), 1e-4);
+  float NoH = max(dot(n, h), 0.0), VoH = max(dot(v, h), 0.0);
+  float a   = rough * rough;                       <span class="c">// artist roughness -&gt; GGX alpha</span>
+  vec3  F0  = mix(vec3(0.04), albedo, metal);      <span class="c">// metal: F0 is the base colour</span>
+  float D   = D_GGX(NoH, a);
+  float G   = G_Smith(NoV, NoL, a);
+  vec3  F   = F_Schlick(VoH, F0);
+  vec3  spec = D * G * F / (4.0 * NoL * NoV + 1e-4);
+  vec3  kd   = (1.0 - F) * (1.0 - metal);          <span class="c">// metal: no matte part at all</span>
+  <span class="k">return</span> (kd * albedo / PI + spec) * NoL;          <span class="c">// caller multiplies by light radiance</span>
+}</pre>
+        <p class="tldr">A rougher surface spreads the highlight wider, and the wider it gets, the dimmer it must be.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="micro">
+    <h2>Microfacets: the tiny mirrors</h2>
+    <p class="sub">Bounce light rays off a 1 mm slice of bumpy surface and count which ones escape.</p>
+    <div class="cols wide">
+      <div class="vp">
+        <canvas id="c2" width="640" height="360" class="grab r169" aria-label="Rough surface cross-section with light rays and a histogram of facet normals"></canvas>
+        <div class="cap"><span id="c2-read"></span><span id="c2-hist"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Zoom far enough into any surface and it is bumpy. <b>Each bump acts like a tiny mirror</b> tilted its own way. A rough surface has bumps tilted every which way, so the reflection scatters. <b>Some bumps sit in the shade of their neighbours</b> and some are hidden from your eye, and that lost light is what the D and G terms count.</p>
+
+        <h3>What you're seeing</h3>
+        <p>A 1 mm strip of surface as 96 flat mirrors with random tilts. Rays come in from the light handle on the left and bounce off the first facet they hit. Green facets get light; red ones face the light but sit in a neighbour's shade. A red ray segment bounced back into the surface and got stuck.</p>
+        <p>The histogram on the right counts facet tilts. The smooth curve over it is what the GGX formula predicts for that roughness.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag roughness to 0.05. The facets flatten, every ray escapes, and the tiles read close to 100%.</li>
+          <li>Drag the light handle down near the surface. More facets go red as bumps shade each other, and the lit-area tile drops.</li>
+          <li>Press "regenerate facets". The bumps change, the measured numbers move, but the Smith prediction stays put.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:0">
+          <div class="ctl"><label for="r2">Roughness <span class="val" id="r2v">0.60</span></label><input type="range" id="r2" min="0.05" max="1" step="0.01" value="0.6"></div>
+          <div class="ctl"><span class="lab">Facets</span><div class="seg" id="seg2n" role="group" aria-label="Facet count"><button data-v="48">48</button><button data-v="96" aria-pressed="true">96</button><button data-v="192">192</button></div></div>
+          <div class="ctl"><span class="lab">Sample</span><button class="btn" id="seed2" type="button">regenerate facets</button></div>
+        </div>
+        <div class="tiles">
+          <div class="tile" id="t2-shadow"><div class="n">—</div><div class="l">lit area, measured vs Smith G1(l)</div></div>
+          <div class="tile" id="t2-mask"><div class="n">—</div><div class="l">visible area, measured vs Smith G1(v)</div></div>
+          <div class="tile" id="t2-rays"><div class="n">—</div><div class="l">reflected rays that escape</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p class="below">GGX is a statement about tilts, called slopes: most facets are nearly flat, but the tails are long, so a few facets point far off the average normal. That long tail is the soft halo around a highlight on a GGX surface. It is also why GGX replaced the older Beckmann and Blinn-Phong models, whose tails fall off like a bell curve and look clipped next to it.</p>
+        <p>Shadowing and masking are the same fact seen from two sides. Shadowing is a facet that faces the light while a neighbour blocks it. Masking is a facet that faces the eye while a bump hides it. Smith's <code>G1</code> predicts the visible fraction from <code>α</code> and the angle alone, without knowing where the bumps are; the tiles compare that prediction with what this particular surface measures.</p>
+        <p class="words">In words: D says how many facets point a given way; G1 says what share of them one direction can see; G multiplies the light's view by the eye's view.</p>
+        <div class="math">D_GGX(h)   = α² / (π ((n·h)² (α² − 1) + 1)²)               <span class="c">// integrates to 1 over projected area</span>
+p(slope)   = 1 / (2α (1 + m²/α²)^(3/2))                     <span class="c">// same distribution, 1D cross-section</span>
+
+G1_Smith(x) = 2 (n·x) / ((n·x) + sqrt(α² + (1 − α²)(n·x)²))  <span class="c">// exact for GGX</span>
+G1_Schlick(x) = (n·x) / ((n·x)(1 − k) + k)   k = α/2 (IBL) or (r+1)²/8 (analytic lights, UE4)
+G(l, v) = G1(l) · G1(v)                                      <span class="c">// separable, ignores height correlation</span></div>
+        <p><code>m</code> is one facet's slope, <code>x</code> stands for either <code>l</code> or <code>v</code>, <code>k</code> is the constant Schlick's cheaper version of G1 uses, and IBL means lighting from a surrounding image rather than a single lamp.</p>
+        <p class="words">What this code does: D_GGX is the tilt distribution; G_Smith is Filament's version with the 4 (n·l)(n·v) divider already folded in.</p>
+<pre class="code"><span class="k">float</span> D_GGX(float NoH, float a) {
+  float a2 = a * a;
+  float d  = NoH * NoH * (a2 - 1.0) + 1.0;
+  <span class="k">return</span> a2 / (PI * d * d);                <span class="c">// peak 1/(pi a^2): 0.32 at r=1, 3183 at r=0.1</span>
+}
+<span class="k">float</span> G_Smith(float NoV, float NoL, float a) {
+  float a2 = a * a;
+  float gv = NoL * sqrt(NoV * NoV * (1.0 - a2) + a2);
+  float gl = NoV * sqrt(NoL * NoL * (1.0 - a2) + a2);
+  <span class="k">return</span> 0.5 / (gv + gl);                  <span class="c">// Filament's form: G / (4 NoL NoV) folded in</span>
+}</pre>
+        <p class="tldr">D counts which way the bumps point; G counts how many of them the light and the eye can both reach.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="fresnel">
+    <h2>Fresnel: every surface mirrors at a slant</h2>
+    <p class="sub">Drag the eye lower and watch a plain floor turn into a mirror.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c3" width="512" height="512" class="grab sq" aria-label="Schlick Fresnel curves and a floor viewed from a draggable eye"></canvas>
+        <div class="cap"><span id="c3-read"></span><span>F(θ) = F0 + (1 − F0)(1 − cos θ)^5</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Look straight down at a puddle and you see the bottom. <b>Look at it from far away, at a low angle, and it turns into a mirror.</b> Every surface does this, plastic and metal alike; only the head-on amount differs. <b>That head-on amount is F0</b>, and it is the one number that separates metals from everything else.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Top: how reflective a surface is, from 0 to 1, against the angle you view it from, for three F0 values: plastic, iron and silver. Bottom: a flat floor seen from the eye you can drag. Each reflected ray is drawn at the brightness the formula gives for that angle, so they fade when you look straight down and brighten as you get low.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the eye down close to the floor. All three curves head to 1 and the reflected rays turn bright.</li>
+          <li>Drag it straight above the floor. The plastic tile drops to about 0.04, which is why a dry floor looks dull from above.</li>
+          <li>Compare iron and silver at any angle: metals start high and have less far to climb.</li>
+        </ul>
+
+        <div class="tiles">
+          <div class="tile" id="t3-a"><div class="n">—</div><div class="l">F0 = 0.04 plastic</div></div>
+          <div class="tile" id="t3-b"><div class="n">—</div><div class="l">F0 = 0.56 iron</div></div>
+          <div class="tile" id="t3-c"><div class="n">—</div><div class="l">F0 = 0.95 silver</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p><code>F0</code> is the reflectance looking straight down. For almost every dielectric, which is any non-metal such as plastic, wood or skin, it sits between 0.02 and 0.05, so engines hard-code 0.04 and give artists no control over it. Metals have a coloured <code>F0</code> of 0.5 to 0.98, and that colour is what the base colour texture stores in the metallic workflow.</p>
+        <p>The curve matters more than the constant. Every material, plastic or silver, reaches 100% reflectance as the view angle approaches 90°. A wet road at dusk mirrors the headlights ahead for this reason, and a shader that skips Fresnel makes floors look dry and dull at a distance. Schlick's formula is a cheap fit to the real Fresnel equations that costs one <code>pow</code>, and every engine in the table below uses it.</p>
+        <p class="words">In words: start at F0 and climb to 1 as the view goes flat; the fifth power keeps the value near F0 until the angle gets steep.</p>
+        <div class="math">F_Schlick(v·h) = F0 + (1 − F0) · (1 − v·h)^5
+F0 = ((n − 1) / (n + 1))²     <span class="c">// from the index of refraction: glass n=1.5 gives 0.04</span>
+F0 = mix(vec3(0.04), baseColor, metallic)</div>
+        <p><code>θ</code> in the caption is the angle between the view direction and the surface normal; <code>v·h</code> is its cosine. <code>n</code> on the second line is the index of refraction, how strongly the material bends light. The third line is how the metallic workflow picks <code>F0</code>.</p>
+        <p class="words">What this code does: one pow and one mix; the UE4 line gets the same curve from an exp2 for two fewer instructions.</p>
+<pre class="code"><span class="k">vec3</span> F_Schlick(float VoH, vec3 F0) {
+  float f = pow(1.0 - VoH, 5.0);
+  <span class="k">return</span> F0 + (1.0 - F0) * f;               <span class="c">// == mix(F0, vec3(1.0), f)</span>
+}
+<span class="c">// UE4 replaces pow with a spherical-gaussian fit, same shape, 2 fewer instructions:</span>
+<span class="k">float</span> f = exp2((-5.55473 * VoH - 6.98316) * VoH);</pre>
+        <p class="tldr">Everything reflects at a low angle; F0 only sets where the curve starts.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="sphere">
+    <h2>A lit sphere: new model next to old</h2>
+    <p class="sub">Slide roughness and metallic and compare the physically based sphere with the older Blinn-Phong one.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c4a" width="160" height="160" class="grab sq px" aria-label="Sphere shaded with the Cook-Torrance GGX BRDF"></canvas>
+        <div class="cap"><strong>GGX · Smith · Schlick</strong><span id="c4a-cap"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c4b" width="160" height="160" class="grab sq px" aria-label="Sphere shaded with Blinn-Phong"></canvas>
+        <div class="cap"><strong>Blinn-Phong</strong><span id="c4b-cap"></span></div>
+      </div>
+    </div>
+    <p class="warn" id="c4-mode"></p>
+    <div class="controls">
+      <div class="ctl"><label for="r4">Roughness <span class="val" id="r4v">0.30</span></label><input type="range" id="r4" min="0.05" max="1" step="0.01" value="0.3"></div>
+      <div class="ctl"><label for="m4">Metallic <span class="val" id="m4v">0.00</span></label><input type="range" id="m4" min="0" max="1" step="0.01" value="0"></div>
+      <div class="ctl"><label for="col4">Base colour</label><input type="color" id="col4" value="#c9803f"></div>
+      <div class="ctl"><label class="chk"><input type="checkbox" id="norm4"> normalise Phong by (p+8)/8π</label></div>
+    </div>
+    <div class="tiles">
+      <div class="tile" id="t4-pbr"><div class="n">—</div><div class="l">GGX peak specular</div></div>
+      <div class="tile" id="t4-ph"><div class="n">—</div><div class="l">Phong peak specular</div></div>
+      <div class="tile" id="t4-w"><div class="n">—</div><div class="l">highlight half-width, GGX vs Phong</div></div>
+    </div>
+    <div class="cols wide">
+      <div class="prose">
+        <p class="plain">This is the payoff. <b>The left sphere follows the energy rule: a wider highlight is a dimmer highlight.</b> The right sphere uses Blinn-Phong, the model most games used before 2013, where the highlight's brightness is whatever number an artist typed. <b>Slide roughness and the left one stays believable; the right one does not.</b></p>
+
+        <h3>What you're seeing</h3>
+        <p>Two 160×160 spheres with the same base colour, light and roughness. Left is the full GGX, Smith and Schlick model. Right is Blinn-Phong with its exponent picked to match the GGX highlight width. The tiles give each sphere's peak highlight value and how wide each highlight is, in degrees.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Slide roughness from 0.05 to 1. The left highlight spreads and dims together; the right one spreads and, at 1, the whole sphere glows.</li>
+          <li>Tick the normalise box. The right sphere now dims as it spreads too. This is the fix engines added around 2010.</li>
+          <li>Slide metallic to 1. The left sphere loses its matte shading and its highlight takes on the base colour.</li>
+        </ul>
+
+        <h3>The real version</h3>
+        <p>The area under the lobe is fixed because <code>D</code> integrates to one, so a wider lobe must be a lower one. Blinn-Phong has no such rule: its peak is whatever <code>ks</code> the artist typed, and at roughness 1 its exponent hits zero and the whole sphere glows. The normalisation checkbox adds the <code>(p+8)/8π</code> factor that fixes this, the first step most engines took toward PBR around 2010, before switching to GGX.</p>
+        <p>At metallic 1 the diffuse lobe disappears. The sphere is lit only by its highlight, and that highlight takes on the base colour, because for a metal <code>F0</code> is the base colour. This is the whole metal/roughness workflow: one RGB texture that means "albedo" for non-metals and "highlight colour" for metals, one channel to choose between them, one channel for roughness. The engine never stores a separate specular colour.</p>
+        <p class="words">In words: light out is matte plus highlight, times the light landing, times n·l, plus a flat ambient guess; the light landing falls off with distance squared.</p>
+        <div class="math">radiance = (kd · albedo/π + D·G·F / (4 (n·l)(n·v))) · E · (n·l) + ambient · albedo
+E = intensity / d²                     <span class="c">// point light, inverse square, d in metres</span>
+Blinn-Phong: spec = F0 · (n·h)^p,  p = 2/α² − 2        <span class="c">// exponent matching GGX width (Karis 2013)</span>
+normalised:  spec · (p + 8) / (8π)</div>
+        <p><code>E</code> is irradiance, the light power landing per square metre. <code>d</code> is the distance to the light in metres. <code>p</code> is the Blinn-Phong exponent, chosen so its highlight is as wide as the GGX one.</p>
+        <p class="words">What this code does: finds the light direction and distance, works out the light landing at P, calls the BRDF, adds ambient, then squashes the range to fit the screen.</p>
+<pre class="code"><span class="c">// one point light, metal/roughness inputs, as in a deferred lighting pass</span>
+vec3 L    = lightPos - P;
+float d2  = dot(L, L);  L /= sqrt(d2);
+vec3 E    = lightColor * lightIntensity / d2;          <span class="c">// irradiance at P, W/m^2</span>
+vec3 col  = brdf(N, V, L, baseColor, roughness, metallic) * E;
+col      += ambient * baseColor;                       <span class="c">// placeholder for the IBL below</span>
+col       = col / (col + 1.0);                         <span class="c">// tone map, then sRGB encode</span>
+fragColor = vec4(pow(col, vec3(1.0 / 2.2)), 1.0);</pre>
+        <p class="tldr">Physically based shading buys you one thing: move any slider and the surface still looks like a real material.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="ibl">
+    <h2>Sky light, baked: the split sum</h2>
+    <p class="sub">Hover the lookup table and slide roughness to see how two baked textures stand in for thousands of samples.</p>
+    <div class="cols wide">
+      <div class="vp">
+        <canvas id="c5" width="640" height="360" class="r169" aria-label="Prefiltered environment strips and the BRDF lookup table"></canvas>
+        <div class="cap"><span id="c5-read"></span><span id="c5-mip"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">A single lamp is easy: one direction, one bounce. <b>The real world lights a surface from every direction at once</b>, and adding all of them up per pixel would take thousands of samples. <b>The split sum trick bakes two tables ahead of time</b> so the shader does two texture reads instead.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Left: a one-line environment (sky, sun, ground) blurred at six roughness levels, one per mip, which is a smaller pre-blurred copy of a texture. A mirror surface reads the sharp top strip; a rough one reads a blurry lower strip.</p>
+        <p>Right: the 64×64 lookup table (LUT), computed here with 128 samples per texel. Red is the weight on F0, green is the constant that gets added on top.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Slide roughness to 1. The active strip on the left is the blurriest one; the sun spreads into a smear.</li>
+          <li>Slide N·V down to 0.02, which means looking along the surface. The green tile climbs: even black plastic shows the sky at that angle.</li>
+          <li>Hover the LUT. Both sliders follow the cursor and the tiles show scale, bias and the result for F0 = 0.04.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:0">
+          <div class="ctl"><label for="r5">Roughness <span class="val" id="r5v">0.40</span></label><input type="range" id="r5" min="0" max="1" step="0.01" value="0.4"></div>
+          <div class="ctl"><label for="nv5">N·V <span class="val" id="nv5v">0.70</span></label><input type="range" id="nv5" min="0.02" max="1" step="0.01" value="0.7"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile" id="t5-scale"><div class="n">—</div><div class="l">LUT scale (red)</div></div>
+          <div class="tile" id="t5-bias"><div class="n">—</div><div class="l">LUT bias (green)</div></div>
+          <div class="tile" id="t5-spec"><div class="n">—</div><div class="l">F0·scale + bias, F0 = 0.04</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p class="below">A point light is one term of the rendering integral, the sum over every incoming direction. An environment is all of the terms at once, and integrating the BRDF against a cubemap (six images that wrap around the scene) per pixel is thousands of samples. Karis's split sum pulls the integral apart into two factors that can each be baked.</p>
+        <p>The first factor is the environment blurred by the GGX lobe, stored once per roughness in the mip chain of a cubemap, so a lookup is one <code>textureLod</code>. The second is the BRDF integrated against a plain white environment. It depends only on <code>n·v</code> and roughness and is the same for every scene, so it ships with the engine as a 2D texture.</p>
+        <p>The LUT stores two numbers because <code>F0</code> factors out linearly: the red channel is the weight on <code>F0</code>, the green channel is the constant that remains. Green is the reason a black dielectric still shows a rim of sky at grazing angles. The blur step assumes <code>n = v = r</code>, so highlights from the environment come out round instead of stretched at grazing angles, the one visible artifact of the split sum.</p>
+        <p class="words">In words: the full sum is roughly the blurred environment in the mirror direction, times F0 × scale + bias.</p>
+        <div class="math">∫ L_i(l) f(l,v) (n·l) dl  ≈  [ ∫ L_i(l) D(h) (n·l) dl ]  ·  [ ∫ f(l,v) (n·l) dl ]
+                             prefiltered(R, roughness)   ·  (F0 · scale + bias)
+mip = roughness · (mipCount − 1)          <span class="c">// this page: 6 levels, r = 0, 0.2, ... 1</span></div>
+        <p><code>R</code> is the mirror direction of the eye, <code>scale</code> and <code>bias</code> are the LUT's red and green channels, and <code>mip</code> picks which blur level to read.</p>
+        <p class="words">What this code does: one read from the blurred cubemap, one from the LUT, then a matte term from a separate blurred map, all scaled by ambient occlusion.</p>
+<pre class="code"><span class="c">// ambient specular from a prefiltered cubemap + 2D LUT, 2 texture reads</span>
+vec3  R      = reflect(-V, N);
+float NoV    = max(dot(N, V), 0.0);
+vec3  pref   = textureLod(prefilteredEnv, R, roughness * MAX_MIP).rgb;
+vec2  ab     = texture(brdfLUT, vec2(NoV, roughness)).rg;   <span class="c">// scale, bias</span>
+vec3  spec   = pref * (F0 * ab.x + ab.y);
+vec3  diff   = texture(irradianceEnv, N).rgb * baseColor * (1.0 - metallic);
+vec3  ambient = (diff + spec) * ao;</pre>
+        <p class="tldr">Two texture reads stand in for thousands of samples, at the cost of round highlights at grazing angles.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs: which model, and what it costs</h2>
+    <p class="sub">Each row is one way to compute the matte part or the highlight.</p>
+    <p class="plain">Read across: <b>how many instructions it costs</b> per light per pixel, what the artist has to author, <b>how it looks wrong</b>, and when to choose it. The instruction counts are rough estimates for one light in a deferred pass, where lighting runs once per screen pixel after geometry is drawn. The shape of the tail and the number of inputs matter more than the exact count.</p>
+    <div class="tbl-wrap">
+    <table class="stats txt">
+      <thead><tr><th>Model</th><th>Instructions per light (est.)</th><th>What it needs</th><th>How it looks wrong</th><th>Pick it when</th></tr></thead>
+      <tbody>
+        <tr><td>Lambert diffuse</td><td>~3</td><td>albedo</td><td>Too dark at low angles on rough surfaces; no bounce-back toward the light</td><td>Almost always. The error is small and the cost is close to nothing.</td></tr>
+        <tr><td>Burley / Disney diffuse</td><td>~12</td><td>albedo, roughness</td><td>Can give back more light than it gets on its own; Frostbite rescales it</td><td>Rough non-metals like cloth and skin, where the brightening at low angles shows.</td></tr>
+        <tr><td>GGX + Smith + Schlick</td><td>~30</td><td>base colour, roughness, metallic</td><td>Long tail can read as haze on very smooth surfaces; loses light at roughness above 0.5 because it only counts one bounce</td><td>The default. glTF, Unreal, Unity, Frostbite and Filament all ship it.</td></tr>
+        <tr><td>Beckmann + Smith</td><td>~35 (exp)</td><td>same</td><td>Bell-curve tail, so highlights look clipped next to GGX</td><td>Matching older offline renders or measured data that was fit with it.</td></tr>
+        <tr><td>Normalised Blinn-Phong</td><td>~10 (pow)</td><td>colour, exponent</td><td>No Fresnel, no masking; too dark at low angles</td><td>Mobile budgets and pre-2013 content. Karis maps roughness to p = 2/α² − 2.</td></tr>
+        <tr><td>Anisotropic GGX</td><td>~40</td><td>+ tangent, anisotropy</td><td>Needs a clean tangent field (a consistent "grain" direction); breaks on seams</td><td>Brushed metal, hair, vinyl records.</td></tr>
+        <tr><td>Clearcoat</td><td>+~20 (second lobe)</td><td>+ coat strength, coat roughness</td><td>Doubles the Fresnel unless the base layer is dimmed by the coat</td><td>Car paint, lacquer, wet surfaces.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">At high roughness the standard model loses light. Single-bounce GGX with Smith throws away the light that bounces between facets, up to about 30% at roughness 1 for a white metal. Filament, Frostbite and Unreal each add a correction term that scales the highlight by 1 plus F0 times the LUT's missing energy.</p>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">Each row is one place the same three-term model is used.</p>
+    <p class="plain">The lobes are the same in every row. <b>What differs is which inputs the artist authors</b> and <b>how the ambient term is baked.</b> Read across for what gets computed, what data it needs, and who ships it.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Use</th><th>What gets computed</th><th>Data it needs</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>Deferred direct lighting</td><td>Run GGX, Smith and Schlick per light per pixel, reading base colour, roughness, metallic and normal from the G-buffer, the set of screen-sized textures the geometry pass wrote.</td><td>4 G-buffer channels plus normal; F0 rebuilt from metallic</td><td>Unreal Engine 4 (Karis, "Real Shading in Unreal Engine 4", SIGGRAPH 2013), Unity HDRP</td></tr>
+        <tr><td>Split-sum IBL</td><td>One read from the blurred cubemap at mip = roughness, one read from the LUT at (n·v, roughness).</td><td>Prefiltered cubemap chain, 2-channel 2D LUT</td><td>Unreal Engine 4, Frostbite (Lagarde and de Rousiers, "Moving Frostbite to PBR", 2014), Filament</td></tr>
+        <tr><td>Principled material</td><td>One BRDF with a dozen artist-facing sliders: base colour, metallic, roughness, specular, sheen, clearcoat, anisotropy.</td><td>Ten or so numbers, all in 0 to 1</td><td>Disney (Burley, "Physically Based Shading at Disney", 2012), Blender's Principled BSDF</td></tr>
+        <tr><td>Interchange format</td><td>Store base colour, metallic (blue channel) and roughness (green channel) in two textures so any engine can load the same asset.</td><td>Two RGBA textures plus normal and occlusion</td><td>glTF 2.0 metal-roughness (Khronos, 2017), the default for web and mobile pipelines</td></tr>
+        <tr><td>Mobile PBR</td><td>Same GGX lobe with a cheaper G, half-precision math and a precomputed DFG term folded into the LUT.</td><td>Same inputs, fewer bits</td><td>Filament (Google, open source, 2018), many mobile engines</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">Two names, same data. "Specular workflow" stores a matte colour and an RGB highlight colour (F0) as two textures; "metallic workflow" derives F0 from one base colour and a single metallic number. You can convert either way without loss for pure metals and pure non-metals; only the in-between values, which are almost always authoring mistakes, differ.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  // ---------- shared BRDF math (scalar, per channel where needed) ----------
+  const PI = Math.PI;
+  const AMBER = "#f2a341", BLUE = "#4aa3ff", WHITE = "#ffffff", GREEN = "#5ad48a", RED = "#ef5d5d", GROUND = "#0b0e13";
+  const GRID = "rgba(255,255,255,0.12)";
+  const MONO = "12px 'IBM Plex Mono', Menlo, monospace";
+  function dGGX(NoH, a) { const a2 = a * a, d = NoH * NoH * (a2 - 1) + 1; return a2 / (PI * d * d); }
+  function g1Smith(NoX, a) { const a2 = a * a; return 2 * NoX / (NoX + Math.sqrt(a2 + (1 - a2) * NoX * NoX)); }
+  function gSmith(NoL, NoV, a) { return g1Smith(NoL, a) * g1Smith(NoV, a); }
+  function fSchlick(VoH, F0) { const f = Math.pow(1 - VoH, 5); return F0 + (1 - F0) * f; }
+  function hexRgb(h) { return [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255]; }
+  function srgbToLin(c) { return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  function lum(c) { return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
+  function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function deg(r) { return r * 180 / PI; }
+
+  // ---------- canvas helpers ----------
+  function worldOf(canvas, ev) {
+    const r = canvas.getBoundingClientRect();
+    return [(ev.clientX - r.left) / r.width * canvas.width, (ev.clientY - r.top) / r.height * canvas.height];
+  }
+  function drag(canvas, getHandles, onMove, onHover, radius = 22) {
+    let active = -1;
+    canvas.addEventListener("pointerdown", ev => {
+      const [x, y] = worldOf(canvas, ev);
+      const hs = getHandles(); let best = -1, bd = radius;
+      hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
+      if (best >= 0) { active = best; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); ev.preventDefault(); }
+      else if (hs.length === 0 && onMove) { active = 0; canvas.setPointerCapture(ev.pointerId); onMove(0, x, y); }
+    });
+    canvas.addEventListener("pointermove", ev => {
+      const [x, y] = worldOf(canvas, ev);
+      if (active >= 0) onMove(active, x, y);
+      else if (onHover) onHover(x, y);
+    });
+    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    canvas.addEventListener("pointerup", end);
+    canvas.addEventListener("pointercancel", end);
+    canvas.addEventListener("pointerleave", () => { if (onHover) onHover(-1, -1); });
+  }
+  function handle(ctx, x, y, r = 7) {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, PI * 2);
+    ctx.fillStyle = WHITE; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = GROUND; ctx.stroke();
+  }
+  function label(ctx, text, x, y, color = "rgba(255,255,255,0.7)", align = "left") {
+    ctx.font = MONO; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "middle"; ctx.fillText(text, x, y);
+  }
+  function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
+  function onSeg(id, fn) { document.getElementById(id).addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; segOn(ev.currentTarget, b.dataset.v); fn(b.dataset.v); }); }
+  function raf(fn) { let pending = false; return () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; fn(); }); }; }
+
+  // ======================================================================
+  // 1. BRDF lobe
+  // ======================================================================
+  const c1 = document.getElementById("c1"), x1 = c1.getContext("2d");
+  const S1 = { thetaL: 45 * PI / 180, rough: 0.4, metal: 0, base: "#c9803f", scale: "lin" };
+  const W1 = 512, O1 = [256, 372], RMAX1 = 300;
+  function brdfEval(l, v, rough, metal, albedo) {
+    // 2D vectors, n = (0,1). returns { spec: rgb, diff: rgb, D, G, F: rgb }
+    const a = Math.max(rough * rough, 1e-3);
+    let hx = l[0] + v[0], hy = l[1] + v[1]; const hl = Math.hypot(hx, hy) || 1; hx /= hl; hy /= hl;
+    const NoL = Math.max(l[1], 0), NoV = Math.max(v[1], 1e-4), NoH = Math.max(hy, 0), VoH = Math.max(v[0] * hx + v[1] * hy, 0);
+    const D = dGGX(NoH, a), G = gSmith(Math.max(NoL, 1e-4), NoV, a);
+    const F = albedo.map(c => fSchlick(VoH, 0.04 * (1 - metal) + c * metal));
+    const spec = F.map(f => D * G * f / (4 * Math.max(NoL, 1e-4) * NoV));
+    const diff = albedo.map((c, i) => (1 - F[i]) * (1 - metal) * c / PI);
+    return { spec, diff, D, G, F, NoL };
+  }
+  function draw1() {
+    const ctx = x1; ctx.clearRect(0, 0, W1, W1); ctx.fillStyle = GROUND; ctx.fillRect(0, 0, W1, W1);
+    const albedo = hexRgb(S1.base).map(srgbToLin);
+    const l = [-Math.sin(S1.thetaL), Math.cos(S1.thetaL)];
+    const N = 179, tot = [], spec = [], diff = [], Dv = [], Gv = [], Fv = [];
+    let maxT = 0, maxD = 0;
+    for (let i = 0; i <= N; i++) {
+      const th = (-89.5 + i * 179 / N) * PI / 180, v = [Math.sin(th), Math.cos(th)];
+      const r = brdfEval(l, v, S1.rough, S1.metal, albedo);
+      const s = lum(r.spec) * r.NoL, d = lum(r.diff) * r.NoL;
+      tot.push(s + d); spec.push(s); diff.push(d); Dv.push(r.D); Gv.push(r.G); Fv.push(lum(r.F));
+      if (s + d > maxT) maxT = s + d; if (r.D > maxD) maxD = r.D;
+    }
+    const map = S1.scale === "log" ? (x => Math.log(1 + 100 * x) / Math.log(1 + 100 * maxT)) : (x => x / maxT);
+    const pt = (i, val) => { const th = (-89.5 + i * 179 / N) * PI / 180; return [O1[0] + Math.sin(th) * val * RMAX1, O1[1] - Math.cos(th) * val * RMAX1]; };
+    // reference rings
+    ctx.strokeStyle = GRID; ctx.lineWidth = 1;
+    for (const f of [0.25, 0.5, 0.75, 1]) { ctx.beginPath(); ctx.arc(O1[0], O1[1], RMAX1 * f, PI, 2 * PI); ctx.stroke(); }
+    for (const a of [-60, -30, 0, 30, 60]) { const t = a * PI / 180; ctx.beginPath(); ctx.moveTo(O1[0], O1[1]); ctx.lineTo(O1[0] + Math.sin(t) * RMAX1, O1[1] - Math.cos(t) * RMAX1); ctx.stroke(); label(ctx, a + "°", O1[0] + Math.sin(t) * (RMAX1 + 16), O1[1] - Math.cos(t) * (RMAX1 + 16), "rgba(255,255,255,0.45)", "center"); }
+    // diffuse lobe (blue)
+    ctx.beginPath(); ctx.moveTo(O1[0], O1[1]); for (let i = 0; i <= N; i++) { const p = pt(i, map(diff[i])); ctx.lineTo(p[0], p[1]); } ctx.closePath();
+    ctx.fillStyle = "rgba(74,163,255,0.28)"; ctx.fill(); ctx.strokeStyle = BLUE; ctx.lineWidth = 1.5; ctx.stroke();
+    // total lobe (amber)
+    ctx.beginPath(); ctx.moveTo(O1[0], O1[1]); for (let i = 0; i <= N; i++) { const p = pt(i, map(tot[i])); ctx.lineTo(p[0], p[1]); } ctx.closePath();
+    ctx.fillStyle = "rgba(242,163,65,0.22)"; ctx.fill(); ctx.strokeStyle = AMBER; ctx.lineWidth = 2; ctx.stroke();
+    // term overlays
+    const curve = (arr, norm, color, dash) => { ctx.beginPath(); for (let i = 0; i <= N; i++) { const p = pt(i, arr[i] / norm); if (i === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]); } ctx.setLineDash(dash); ctx.strokeStyle = color; ctx.lineWidth = 1.2; ctx.stroke(); ctx.setLineDash([]); };
+    if (document.getElementById("showD").checked) curve(Dv, maxD, AMBER, [2, 3]);
+    if (document.getElementById("showG").checked) curve(Gv, 1, BLUE, [6, 4]);
+    if (document.getElementById("showF").checked) curve(Fv, 1, WHITE, [1, 3]);
+    // surface, normal, light, mirror
+    ctx.fillStyle = "#1a1f27"; ctx.fillRect(0, O1[1], W1, W1 - O1[1]);
+    ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, O1[1]); ctx.lineTo(W1, O1[1]); ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 1; for (let x = 8; x < W1; x += 16) { ctx.beginPath(); ctx.moveTo(x, O1[1] + 4); ctx.lineTo(x - 8, O1[1] + 16); ctx.stroke(); }
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.beginPath(); ctx.moveTo(O1[0], O1[1]); ctx.lineTo(O1[0], O1[1] - RMAX1 - 30); ctx.stroke();
+    const mir = [Math.sin(S1.thetaL), Math.cos(S1.thetaL)];
+    ctx.beginPath(); ctx.moveTo(O1[0], O1[1]); ctx.lineTo(O1[0] + mir[0] * (RMAX1 + 30), O1[1] - mir[1] * (RMAX1 + 30)); ctx.stroke(); ctx.setLineDash([]);
+    const LH = [O1[0] + l[0] * (RMAX1 + 30), O1[1] - l[1] * (RMAX1 + 30)];
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(LH[0], LH[1]); ctx.lineTo(O1[0], O1[1]); ctx.stroke();
+    handle(ctx, LH[0], LH[1], 8);
+    label(ctx, "n", O1[0] - 12, O1[1] - RMAX1 - 22, "rgba(255,255,255,0.7)", "right"); label(ctx, "l  (drag)", LH[0] + (l[0] < 0 ? 12 : -12), LH[1] - 14, "rgba(255,255,255,0.85)", l[0] < 0 ? "left" : "right");
+    label(ctx, "mirror of l", O1[0] + mir[0] * (RMAX1 + 30) + (mir[0] > 0 ? -6 : 6), O1[1] - mir[1] * (RMAX1 + 30) - 14, "rgba(255,255,255,0.5)", mir[0] > 0 ? "right" : "left");
+    label(ctx, "lobe: f(l,v)·(n·l), " + (S1.scale === "log" ? "log radius" : "peak-normalised"), 12, 16, AMBER);
+    label(ctx, "diffuse: k_d·albedo/π·(n·l)", 12, 34, BLUE);
+    if (document.getElementById("showD").checked) label(ctx, "D(h) / D_max", 12, 52, AMBER);
+    if (document.getElementById("showG").checked) label(ctx, "G(l,v)", 12, 70, BLUE);
+    if (document.getElementById("showF").checked) label(ctx, "F(v·h)", 12, 88, WHITE);
+    // readouts
+    let pk = 0, pi = 0; for (let i = 0; i <= N; i++) if (tot[i] > pk) { pk = tot[i]; pi = i; }
+    const F0 = albedo.map(c => 0.04 * (1 - S1.metal) + c * S1.metal);
+    document.getElementById("c1-read").innerHTML = `θl = <strong>${deg(S1.thetaL).toFixed(0)}°</strong> · α = ${(S1.rough * S1.rough).toFixed(3)} · F0 = (${F0.map(c => c.toFixed(2)).join(", ")})`;
+    document.getElementById("c1-peak").innerHTML = `peak <strong>${pk.toFixed(pk > 10 ? 0 : 2)}</strong> at θv = ${(-89.5 + pi * 179 / N).toFixed(0)}° · diffuse ${(diff[Math.round(N / 2)]).toFixed(3)}`;
+  }
+  drag(c1, () => [[O1[0] - Math.sin(S1.thetaL) * (RMAX1 + 30), O1[1] - Math.cos(S1.thetaL) * (RMAX1 + 30)]], (i, x, y) => {
+    let t = Math.atan2(-(x - O1[0]), Math.max(1, O1[1] - y)); S1.thetaL = Math.max(-1.45, Math.min(1.45, t)); draw1();
+  });
+  const r1 = document.getElementById("r1");
+  r1.addEventListener("input", () => { S1.rough = +r1.value; document.getElementById("r1v").textContent = S1.rough.toFixed(2); draw1(); });
+  onSeg("seg1m", v => { S1.metal = +v; draw1(); });
+  onSeg("seg1s", v => { S1.scale = v; draw1(); });
+  document.getElementById("col1").addEventListener("input", ev => { S1.base = ev.target.value; draw1(); });
+  for (const id of ["showD", "showG", "showF"]) document.getElementById(id).addEventListener("change", draw1);
+  draw1();
+
+  // ======================================================================
+  // 2. microfacets
+  // ======================================================================
+  const c2 = document.getElementById("c2"), x2 = c2.getContext("2d");
+  const S2 = { rough: 0.6, N: 96, thetaL: 60 * PI / 180, thetaV: -30 * PI / 180, u: [] };
+  const X0 = 30, X1 = 370, BASE = 250, CX = 200, ARC = 170;
+  let rng = 12345;
+  function rand() { rng = (rng * 1664525 + 1013904223) >>> 0; return rng / 4294967296; }
+  function regen2() { S2.u = []; for (let i = 0; i < 256; i++) S2.u.push(rand()); }
+  regen2();
+  function buildFacets() {
+    const N = S2.N, a = Math.max(S2.rough * S2.rough, 0.005), dx = (X1 - X0) / N;
+    const m = new Float64Array(N); let mean = 0;
+    for (let i = 0; i < N; i++) { const c = 2 * S2.u[i] - 1; m[i] = Math.max(-4, Math.min(4, a * c / Math.sqrt(1 - c * c + 1e-9))); mean += m[i]; }
+    mean /= N; for (let i = 0; i < N; i++) m[i] -= mean;
+    // group the same slopes into 4 coherent hills so the relief is visible; the slope multiset (and histogram) is unchanged
+    const idx = Array.from({ length: N }, (_, i) => i).sort((p, q) => m[q] - m[p]), m0 = Float64Array.from(m); let w = 0;
+    for (let s = 0; s < 4; s++) for (let i = s; i < N; i += 4) m[w++] = m0[idx[i]];
+    const h = new Float64Array(N + 1); for (let i = 0; i < N; i++) h[i + 1] = h[i] + m[i] * dx;
+    let hm = 0; for (let i = 0; i <= N; i++) hm += h[i]; hm /= (N + 1);
+    const pts = []; for (let i = 0; i <= N; i++) pts.push([X0 + i * dx, BASE - (h[i] - hm)]);
+    return { m, pts, dx, a };
+  }
+  // ray vs polyline (y down in canvas): returns { t, i } of first hit with t > tmin
+  function hitPoly(pts, ox, oy, dx, dy, skip = -1, tmin = 1e-6) {
+    let bt = Infinity, bi = -1;
+    for (let i = 0; i < pts.length - 1; i++) {
+      if (i === skip) continue;
+      const ax = pts[i][0], ay = pts[i][1], bx = pts[i + 1][0] - ax, by = pts[i + 1][1] - ay;
+      const den = dx * by - dy * bx; if (Math.abs(den) < 1e-9) continue;
+      const t = ((ax - ox) * by - (ay - oy) * bx) / den, s = ((ax - ox) * dy - (ay - oy) * dx) / den;
+      if (t > tmin && s >= 0 && s <= 1 && t < bt) { bt = t; bi = i; }
+    }
+    return { t: bt, i: bi };
+  }
+  function draw2() {
+    const ctx = x2, Wc = 640, Hc = 360; ctx.fillStyle = GROUND; ctx.fillRect(0, 0, Wc, Hc);
+    const { m, pts, dx, a } = buildFacets(), N = S2.N;
+    // directions in canvas space (y down): angle from the up normal, positive = to the left for light
+    const l = [-Math.sin(S2.thetaL), -Math.cos(S2.thetaL)], v = [-Math.sin(S2.thetaV), -Math.cos(S2.thetaV)];
+    // per-facet visibility from l and from v, weighted by projected area
+    const vis = (dir) => {
+      let facing = 0, seen = 0; const flags = new Uint8Array(N);
+      for (let i = 0; i < N; i++) {
+        const nx = m[i] / Math.sqrt(1 + m[i] * m[i]), ny = -1 / Math.sqrt(1 + m[i] * m[i]); // upward normal, y down => ny negative
+        const w = (nx * dir[0] + ny * dir[1]) * dx * Math.sqrt(1 + m[i] * m[i]);           // n·dir times facet length = projected area
+        if (w <= 0) { flags[i] = 0; continue; }
+        facing += w;
+        const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2;
+        const h = hitPoly(pts, mx + nx * 0.01, my + ny * 0.01, dir[0], dir[1], i);
+        if (h.i < 0) { seen += w; flags[i] = 2; } else flags[i] = 1;
+      }
+      return { g1: facing > 0 ? seen / facing : 1, flags };
+    };
+    const VL = vis(l), VV = vis(v);
+    // arc, handles
+    ctx.strokeStyle = GRID; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(CX, BASE, ARC, PI, 2 * PI); ctx.stroke();
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.beginPath(); ctx.moveTo(CX, BASE); ctx.lineTo(CX, BASE - ARC - 10); ctx.stroke(); ctx.setLineDash([]);
+    // solid below the surface
+    ctx.beginPath(); ctx.moveTo(pts[0][0], Hc); for (const p of pts) ctx.lineTo(p[0], p[1]); ctx.lineTo(pts[N][0], Hc); ctx.closePath(); ctx.fillStyle = "#1a1f27"; ctx.fill();
+    // incoming rays and reflections
+    const K = 40; let masked = 0, hits = 0;
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 400, 360); ctx.clip();
+    ctx.lineWidth = 1;
+    for (let k = 0; k < K; k++) {
+      const bx = X0 + (k + 0.5) * (X1 - X0) / K, ox = bx + l[0] * 600, oy = BASE + l[1] * 600;
+      const h = hitPoly(pts, ox, oy, -l[0], -l[1]);
+      if (h.i < 0) continue;
+      hits++;
+      const px = ox - l[0] * h.t, py = oy - l[1] * h.t;
+      ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(px, py); ctx.stroke();
+      const mi = m[h.i], nl = Math.sqrt(1 + mi * mi), nx = mi / nl, ny = -1 / nl;
+      const dxr = -l[0], dyr = -l[1], dn = dxr * nx + dyr * ny;
+      const rx = dxr - 2 * dn * nx, ry = dyr - 2 * dn * ny;
+      const h2 = hitPoly(pts, px, py, rx, ry, h.i, 0.5);
+      if (h2.i >= 0) { masked++; ctx.strokeStyle = RED; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + rx * h2.t, py + ry * h2.t); ctx.stroke(); }
+      else { ctx.strokeStyle = "rgba(242,163,65,0.8)"; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + rx * 500, py + ry * 500); ctx.stroke(); }
+    }
+    ctx.restore();
+    // facets coloured by light visibility
+    ctx.lineWidth = 2.5;
+    for (let i = 0; i < N; i++) {
+      ctx.strokeStyle = VL.flags[i] === 2 ? GREEN : VL.flags[i] === 1 ? RED : "rgba(255,255,255,0.35)";
+      ctx.beginPath(); ctx.moveTo(pts[i][0], pts[i][1]); ctx.lineTo(pts[i + 1][0], pts[i + 1][1]); ctx.stroke();
+    }
+    // handles for l and v
+    const LH = [CX - Math.sin(S2.thetaL) * ARC, BASE - Math.cos(S2.thetaL) * ARC], VH = [CX - Math.sin(S2.thetaV) * ARC, BASE - Math.cos(S2.thetaV) * ARC];
+    ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(LH[0], LH[1]); ctx.lineTo(CX, BASE); ctx.stroke();
+    ctx.strokeStyle = "rgba(74,163,255,0.8)"; ctx.beginPath(); ctx.moveTo(VH[0], VH[1]); ctx.lineTo(CX, BASE); ctx.stroke();
+    handle(ctx, LH[0], LH[1], 8); handle(ctx, VH[0], VH[1], 8);
+    label(ctx, "light", LH[0], LH[1] - 16, "rgba(255,255,255,0.85)", "center"); label(ctx, "eye", VH[0], VH[1] - 16, BLUE, "center");
+    label(ctx, "n", CX + 8, BASE - ARC - 4);
+    // histogram panel
+    const HX = 420, HW = 200, HY = 56, HH = 230, B = 32;
+    ctx.fillStyle = "rgba(255,255,255,0.03)"; ctx.fillRect(HX, HY, HW, HH);
+    const bins = new Float64Array(B); for (let i = 0; i < N; i++) { const th = Math.atan(m[i]); const b = Math.floor((th / (PI / 2) * 0.5 + 0.5) * B); if (b >= 0 && b < B) bins[b]++; }
+    const dth = PI / B; const pdf = th => { const mm = Math.tan(th), c2 = Math.cos(th) * Math.cos(th); return 1 / (2 * a * Math.pow(1 + mm * mm / (a * a), 1.5)) / c2; };
+    let ymax = 0; for (let b = 0; b < B; b++) ymax = Math.max(ymax, bins[b]); ymax = Math.max(ymax, N * pdf(0) * dth) * 1.08;
+    ctx.fillStyle = "rgba(74,163,255,0.55)";
+    for (let b = 0; b < B; b++) { const hgt = bins[b] / ymax * HH; ctx.fillRect(HX + b * HW / B + 0.5, HY + HH - hgt, HW / B - 1, hgt); }
+    ctx.strokeStyle = AMBER; ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = 0; i <= 200; i++) { const th = -PI / 2 + i * PI / 200; const yv = N * pdf(th) * dth; const x = HX + i * HW / 200, y = HY + HH - Math.min(yv, ymax) / ymax * HH; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+    ctx.stroke();
+    ctx.strokeStyle = GRID; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(HX, HY + HH + 0.5); ctx.lineTo(HX + HW, HY + HH + 0.5); ctx.moveTo(HX + HW / 2 + 0.5, HY); ctx.lineTo(HX + HW / 2 + 0.5, HY + HH); ctx.stroke();
+    label(ctx, "−90°", HX, HY + HH + 12, "rgba(255,255,255,0.45)"); label(ctx, "0°", HX + HW / 2, HY + HH + 12, "rgba(255,255,255,0.45)", "center"); label(ctx, "+90°", HX + HW, HY + HH + 12, "rgba(255,255,255,0.45)", "right");
+    label(ctx, "facet normal angle", HX + HW / 2, HY + HH + 28, "rgba(255,255,255,0.45)", "center");
+    label(ctx, "facets per bin", HX, HY - 36, BLUE); label(ctx, "GGX slope pdf, α = " + a.toFixed(3), HX, HY - 18, AMBER);
+    // Smith comparisons
+    const NoL = Math.cos(S2.thetaL), NoV = Math.cos(S2.thetaV);
+    const sL = g1Smith(NoL, a), sV = g1Smith(NoV, a);
+    document.querySelector("#t2-shadow .n").innerHTML = `${VL.g1.toFixed(2)} <small>vs ${sL.toFixed(2)}</small>`;
+    document.querySelector("#t2-mask .n").innerHTML = `${VV.g1.toFixed(2)} <small>vs ${sV.toFixed(2)}</small>`;
+    document.querySelector("#t2-rays .n").innerHTML = `${hits - masked} <small>of ${hits} · ${masked} re-hit</small>`;
+    document.getElementById("c2-read").innerHTML = `θl = <strong>${deg(S2.thetaL).toFixed(0)}°</strong> · θv = <strong>${deg(-S2.thetaV).toFixed(0)}°</strong> · α = ${a.toFixed(3)} · G = ${(VL.g1 * VV.g1).toFixed(2)} measured, ${(sL * sV).toFixed(2)} Smith`;
+    document.getElementById("c2-hist").innerHTML = `1 mm · ${N} facets of ${(1000 / N).toFixed(1)} µm · ${B} bins`;
+  }
+  drag(c2, () => [[CX - Math.sin(S2.thetaL) * ARC, BASE - Math.cos(S2.thetaL) * ARC], [CX - Math.sin(S2.thetaV) * ARC, BASE - Math.cos(S2.thetaV) * ARC]], (i, x, y) => {
+    const t = Math.max(-1.45, Math.min(1.45, Math.atan2(-(x - CX), Math.max(1, BASE - y))));
+    if (i === 0) S2.thetaL = t; else S2.thetaV = t; draw2();
+  });
+  const r2 = document.getElementById("r2"); r2.value = S2.rough; document.getElementById("r2v").textContent = S2.rough.toFixed(2);
+  r2.addEventListener("input", () => { S2.rough = +r2.value; document.getElementById("r2v").textContent = S2.rough.toFixed(2); draw2(); });
+  onSeg("seg2n", v => { S2.N = +v; draw2(); });
+  document.getElementById("seed2").addEventListener("click", () => { regen2(); draw2(); });
+  draw2();
+
+  // ======================================================================
+  // 3. Fresnel
+  // ======================================================================
+  const c3 = document.getElementById("c3"), x3 = c3.getContext("2d");
+  const S3 = { theta: 60 * PI / 180 };
+  const F0S = [[0.04, AMBER, "0.04 plastic"], [0.56, BLUE, "0.56 iron"], [0.95, WHITE, "0.95 silver"]];
+  const PX = 64, PY = 28, PW = 420, PH = 200, FLOOR = 440, HIT = 256, EYE_R = 150;
+  function draw3() {
+    const ctx = x3; ctx.fillStyle = GROUND; ctx.fillRect(0, 0, 512, 512);
+    // plot frame
+    ctx.strokeStyle = GRID; ctx.lineWidth = 1;
+    for (const f of [0, 0.25, 0.5, 0.75, 1]) { const y = PY + PH - f * PH + 0.5; ctx.beginPath(); ctx.moveTo(PX, y); ctx.lineTo(PX + PW, y); ctx.stroke(); label(ctx, f.toFixed(2), PX - 8, y, "rgba(255,255,255,0.45)", "right"); }
+    for (const d of [0, 30, 60, 90]) { const x = PX + d / 90 * PW + 0.5; ctx.beginPath(); ctx.moveTo(x, PY); ctx.lineTo(x, PY + PH); ctx.stroke(); label(ctx, d + "°", x, PY + PH + 12, "rgba(255,255,255,0.45)", "center"); }
+    label(ctx, "F(θ), angle from the normal", PX + PW, PY - 12, "rgba(255,255,255,0.5)", "right");
+    for (const [f0, col] of F0S) {
+      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath();
+      for (let i = 0; i <= 180; i++) { const th = i / 180 * PI / 2, F = fSchlick(Math.cos(th), f0); const x = PX + i / 180 * PW, y = PY + PH - F * PH; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+      ctx.stroke();
+    }
+    const cx = PX + S3.theta / (PI / 2) * PW;
+    ctx.setLineDash([3, 4]); ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.beginPath(); ctx.moveTo(cx, PY); ctx.lineTo(cx, PY + PH); ctx.stroke(); ctx.setLineDash([]);
+    const vals = F0S.map(([f0]) => fSchlick(Math.cos(S3.theta), f0));
+    F0S.forEach(([f0, col], i) => { ctx.beginPath(); ctx.arc(cx, PY + PH - vals[i] * PH, 4, 0, PI * 2); ctx.fillStyle = col; ctx.fill(); });
+    // floor
+    ctx.fillStyle = "#1a1f27"; ctx.fillRect(0, FLOOR, 512, 72);
+    ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, FLOOR); ctx.lineTo(512, FLOOR); ctx.stroke();
+    ctx.strokeStyle = GRID; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(HIT, FLOOR, EYE_R, PI, 2 * PI); ctx.stroke();
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.beginPath(); ctx.moveTo(HIT, FLOOR); ctx.lineTo(HIT, FLOOR - EYE_R - 6); ctx.stroke(); ctx.setLineDash([]);
+    const ex = HIT + Math.sin(S3.theta) * EYE_R, ey = FLOOR - Math.cos(S3.theta) * EYE_R;
+    const lx = HIT - Math.sin(S3.theta) * EYE_R, ly = FLOOR - Math.cos(S3.theta) * EYE_R;
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(HIT, FLOOR); ctx.stroke();
+    // reflected rays, one per F0, alpha = F
+    const dxr = -Math.sin(S3.theta), dyr = -Math.cos(S3.theta), px = Math.cos(S3.theta), py = -Math.sin(S3.theta);
+    F0S.forEach(([f0, col], i) => {
+      const off = (i - 1) * 5;
+      ctx.globalAlpha = 0.12 + 0.88 * vals[i]; ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.beginPath();
+      ctx.moveTo(HIT + px * off, FLOOR + py * off); ctx.lineTo(HIT + px * off + dxr * EYE_R, FLOOR + py * off + dyr * EYE_R); ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(lx, ly, 10, 0, PI * 2); ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.fill();
+    label(ctx, "light", lx, ly - 18, "rgba(255,255,255,0.6)", "center");
+    handle(ctx, ex, ey, 8); label(ctx, "eye (drag)", ex, ey - 18, "rgba(255,255,255,0.85)", "center");
+    label(ctx, "θ = " + deg(S3.theta).toFixed(0) + "°", HIT + 10, FLOOR - EYE_R - 2);
+    label(ctx, "floor", 12, FLOOR + 16, "rgba(255,255,255,0.45)");
+    const els = ["t3-a", "t3-b", "t3-c"];
+    vals.forEach((F, i) => { document.querySelector("#" + els[i] + " .n").textContent = (F * 100).toFixed(1) + " %"; });
+    document.getElementById("c3-read").innerHTML = `θ = <strong>${deg(S3.theta).toFixed(0)}°</strong> · cos θ = ${Math.cos(S3.theta).toFixed(3)} · (1 − cos θ)^5 = ${Math.pow(1 - Math.cos(S3.theta), 5).toFixed(4)}`;
+  }
+  drag(c3, () => [[HIT + Math.sin(S3.theta) * EYE_R, FLOOR - Math.cos(S3.theta) * EYE_R]], (i, x, y) => {
+    S3.theta = Math.max(0, Math.min(89.5 * PI / 180, Math.atan2(x - HIT, Math.max(1, FLOOR - y)))); draw3();
+  });
+  draw3();
+
+  // ======================================================================
+  // 4. lit sphere, WebGL with a 2D fallback
+  // ======================================================================
+  const S4 = { rough: 0.3, metal: 0, base: "#c9803f", norm: false, dir: [-0.45, 0.5, 0.74] };
+  const LIGHT_DIST = 2.2, LIGHT_I = 5.0, AMBIENT = 0.06;
+  const VS = "attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }";
+  const FS = `precision highp float;
+uniform vec2 uRes; uniform vec3 uLightPos; uniform vec3 uBase; uniform float uRough, uMetal, uMode, uNorm;
+const float PI = 3.14159265;
+float D_GGX(float NoH, float a){ float a2 = a*a; float d = NoH*NoH*(a2-1.0)+1.0; return a2/(PI*d*d); }
+float G1(float NoX, float a){ float a2 = a*a; return 2.0*NoX/(NoX + sqrt(a2 + (1.0-a2)*NoX*NoX)); }
+vec3 F_Schlick(float VoH, vec3 F0){ return F0 + (1.0-F0)*pow(1.0-VoH, 5.0); }
+void main(){
+  vec2 p = (gl_FragCoord.xy / uRes) * 2.0 - 1.0;
+  float r2 = dot(p, p);
+  vec3 col = vec3(0.043, 0.055, 0.075);
+  if (r2 <= 1.0) {
+    vec3 n = vec3(p, sqrt(1.0 - r2)), v = vec3(0.0, 0.0, 1.0);
+    vec3 L = uLightPos - n; float d2 = dot(L, L); vec3 l = L / sqrt(d2);
+    vec3 h = normalize(l + v);
+    float NoL = max(dot(n, l), 0.0), NoV = max(n.z, 1e-4), NoH = max(dot(n, h), 0.0), VoH = max(dot(v, h), 0.0);
+    float a = max(uRough * uRough, 1e-3);
+    vec3 F0 = mix(vec3(0.04), uBase, uMetal);
+    float E = ${LIGHT_I.toFixed(1)} / d2;
+    vec3 spec, kd;
+    if (uMode < 0.5) {
+      float D = D_GGX(NoH, a), G = G1(max(NoL, 1e-4), a) * G1(NoV, a);
+      vec3 F = F_Schlick(VoH, F0);
+      spec = D * G * F / (4.0 * max(NoL, 1e-4) * NoV);
+      kd = (1.0 - F) * (1.0 - uMetal);
+    } else {
+      float pw = 2.0 / (a * a) - 2.0;
+      float nrm = uNorm > 0.5 ? (pw + 8.0) / (8.0 * PI) : 1.0;
+      spec = F0 * pow(NoH, pw) * nrm;
+      kd = vec3(1.0 - uMetal);
+    }
+    col = (kd * uBase / PI + spec) * E * NoL + ${AMBIENT.toFixed(2)} * uBase;
+    col = col / (col + 1.0);
+    col = pow(col, vec3(1.0 / 2.2));
+  }
+  vec2 lp = uLightPos.xy / ${LIGHT_DIST.toFixed(1)};
+  if (length(p - lp) < 0.035) col = vec3(1.0);
+  gl_FragColor = vec4(col, 1.0);
+}`;
+  function makeGL(canvas) {
+    const gl = canvas.getContext("webgl", { antialias: false, preserveDrawingBuffer: false });
+    if (!gl) return null;
+    const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) return null; return o; };
+    const vs = sh(gl.VERTEX_SHADER, VS), fs = sh(gl.FRAGMENT_SHADER, FS); if (!vs || !fs) return null;
+    const pr = gl.createProgram(); gl.attachShader(pr, vs); gl.attachShader(pr, fs); gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return null;
+    gl.useProgram(pr);
+    const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(pr, "p"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const u = {}; for (const n of ["uRes", "uLightPos", "uBase", "uRough", "uMetal", "uMode", "uNorm"]) u[n] = gl.getUniformLocation(pr, n);
+    return { gl, u };
+  }
+  const c4a = document.getElementById("c4a"), c4b = document.getElementById("c4b");
+  let gla = makeGL(c4a), glb = gla ? makeGL(c4b) : null;
+  const useGL = !!(gla && glb);
+  if (!useGL) { for (const c of [c4a, c4b]) { c.width = 128; c.height = 128; } }
+  document.getElementById("c4-mode").textContent = useGL ? "WebGL fragment shader, 160×160 pixels, the GLSL below runs per pixel" : "WebGL unavailable: per-pixel 2D canvas fallback at 128×128";
+  const ctx4a = useGL ? null : c4a.getContext("2d"), ctx4b = useGL ? null : c4b.getContext("2d");
+  function shadeJS(ctx, R, mode, base, lightPos) {
+    const img = new ImageData(R, R), p = img.data;
+    const a = Math.max(S4.rough * S4.rough, 1e-3), F0 = base.map(c => 0.04 * (1 - S4.metal) + c * S4.metal);
+    const pw = 2 / (a * a) - 2, nrm = S4.norm ? (pw + 8) / (8 * PI) : 1;
+    for (let j = 0; j < R; j++) for (let i = 0; i < R; i++) {
+      const x = (i + 0.5) / R * 2 - 1, y = 1 - (j + 0.5) / R * 2, r2 = x * x + y * y, o = (j * R + i) * 4;
+      let col = [0.043, 0.055, 0.075];
+      if (r2 <= 1) {
+        const nz = Math.sqrt(1 - r2);
+        let Lx = lightPos[0] - x, Ly = lightPos[1] - y, Lz = lightPos[2] - nz; const d2 = Lx * Lx + Ly * Ly + Lz * Lz, dl = Math.sqrt(d2); Lx /= dl; Ly /= dl; Lz /= dl;
+        let hx = Lx, hy = Ly, hz = Lz + 1; const hl = Math.hypot(hx, hy, hz); hx /= hl; hy /= hl; hz /= hl;
+        const NoL = Math.max(0, x * Lx + y * Ly + nz * Lz), NoV = Math.max(nz, 1e-4), NoH = Math.max(0, x * hx + y * hy + nz * hz), VoH = Math.max(0, hz);
+        const E = LIGHT_I / d2; col = [0, 0, 0];
+        for (let c = 0; c < 3; c++) {
+          let spec, kd;
+          if (mode === 0) { const D = dGGX(NoH, a), G = gSmith(Math.max(NoL, 1e-4), NoV, a), F = fSchlick(VoH, F0[c]); spec = D * G * F / (4 * Math.max(NoL, 1e-4) * NoV); kd = (1 - F) * (1 - S4.metal); }
+          else { spec = F0[c] * Math.pow(NoH, pw) * nrm; kd = 1 - S4.metal; }
+          let v = (kd * base[c] / PI + spec) * E * NoL + AMBIENT * base[c]; v = v / (v + 1); col[c] = Math.pow(v, 1 / 2.2);
+        }
+      }
+      if (Math.hypot(x - lightPos[0] / LIGHT_DIST, y - lightPos[1] / LIGHT_DIST) < 0.035) col = [1, 1, 1];
+      p[o] = col[0] * 255; p[o + 1] = col[1] * 255; p[o + 2] = col[2] * 255; p[o + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  function draw4() {
+    const base = hexRgb(S4.base).map(srgbToLin), lp = S4.dir.map(c => c * LIGHT_DIST);
+    if (useGL) {
+      for (const [g, mode] of [[gla, 0], [glb, 1]]) {
+        const { gl, u } = g; gl.viewport(0, 0, 160, 160);
+        gl.uniform2f(u.uRes, 160, 160); gl.uniform3f(u.uLightPos, lp[0], lp[1], lp[2]); gl.uniform3f(u.uBase, base[0], base[1], base[2]);
+        gl.uniform1f(u.uRough, S4.rough); gl.uniform1f(u.uMetal, S4.metal); gl.uniform1f(u.uMode, mode); gl.uniform1f(u.uNorm, S4.norm ? 1 : 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+    } else { shadeJS(ctx4a, 128, 0, base, lp); shadeJS(ctx4b, 128, 1, base, lp); }
+    // analytic peak: surface point whose normal is the half vector of the light direction and the view
+    const a = Math.max(S4.rough * S4.rough, 1e-3), F0 = base.map(c => 0.04 * (1 - S4.metal) + c * S4.metal);
+    const d = S4.dir, hl = Math.hypot(d[0], d[1], d[2] + 1), h = [d[0] / hl, d[1] / hl, (d[2] + 1) / hl];
+    const NoL = Math.max(1e-3, h[0] * d[0] + h[1] * d[1] + h[2] * d[2]), NoV = Math.max(1e-3, h[2]), VoH = NoV;
+    const dist2 = (LIGHT_DIST - 1) * (LIGHT_DIST - 1), E = LIGHT_I / dist2;
+    const D = dGGX(1, a), G = gSmith(NoL, NoV, a);
+    const pbrPeak = lum(F0.map(f => D * G * fSchlick(VoH, f) / (4 * NoL * NoV))) * NoL * E;
+    const pw = 2 / (a * a) - 2, nrm = S4.norm ? (pw + 8) / (8 * PI) : 1;
+    const phPeak = lum(F0) * nrm * NoL * E;
+    const q = (1 - Math.SQRT2 * a * a) / (1 - a * a);
+    const wG = q > 0 && a * a < 1 / Math.SQRT2 ? deg(Math.acos(Math.sqrt(q))) : 90;
+    const wP = pw > 0 ? deg(Math.acos(Math.pow(0.5, 1 / pw))) : 90;
+    document.querySelector("#t4-pbr .n").innerHTML = `${pbrPeak.toFixed(2)} <small>W/m²·sr</small>`;
+    document.querySelector("#t4-ph .n").innerHTML = `${phPeak.toFixed(2)} <small>W/m²·sr</small>`;
+    document.querySelector("#t4-w .n").innerHTML = `±${wG >= 90 ? "90+" : wG.toFixed(1)}° <small>vs ±${wP >= 90 ? "90+" : wP.toFixed(1)}°</small>`;
+    document.getElementById("c4a-cap").innerHTML = `α = ${a.toFixed(3)} · F0 = ${lum(F0).toFixed(2)} · kd = ${(1 - S4.metal).toFixed(2)}`;
+    document.getElementById("c4b-cap").innerHTML = `p = ${pw.toFixed(0)} · ${S4.norm ? "normalised" : "unnormalised"}`;
+  }
+  const req4 = raf(draw4);
+  function setLight(canvas, x, y) {
+    const R = canvas.width; let nx = x / R * 2 - 1, ny = 1 - y / R * 2; const r2 = nx * nx + ny * ny;
+    let nz;
+    if (r2 < 0.96) nz = Math.sqrt(1 - r2); else { const s = Math.sqrt(0.96 / r2); nx *= s; ny *= s; nz = 0.2; }
+    const l = Math.hypot(nx, ny, nz); S4.dir = [nx / l, ny / l, nz / l]; req4();
+  }
+  for (const c of [c4a, c4b]) drag(c, () => [], (i, x, y) => setLight(c, x, y));
+  const r4 = document.getElementById("r4"), m4 = document.getElementById("m4");
+  r4.addEventListener("input", () => { S4.rough = +r4.value; document.getElementById("r4v").textContent = S4.rough.toFixed(2); req4(); });
+  m4.addEventListener("input", () => { S4.metal = +m4.value; document.getElementById("m4v").textContent = S4.metal.toFixed(2); req4(); });
+  document.getElementById("col4").addEventListener("input", ev => { S4.base = ev.target.value; req4(); });
+  document.getElementById("norm4").addEventListener("change", ev => { S4.norm = ev.target.checked; req4(); });
+  draw4();
+
+  // ======================================================================
+  // 5. split sum: prefiltered 1D environment + BRDF LUT
+  // ======================================================================
+  const c5 = document.getElementById("c5"), x5 = c5.getContext("2d");
+  const ENV_N = 512, MIPS = 6, LUT_N = 64, LUT_S = 128;
+  // environment radiance around a circle, angle a in [-pi, pi), 0 = horizon right, +pi/2 = zenith
+  function envRadiance(ang) {
+    const up = Math.sin(ang);
+    if (up < 0) { const t = -up; return [0.16 + 0.05 * t, 0.12 + 0.04 * t, 0.08 + 0.02 * t]; }
+    const sky = [0.25 + 0.2 * up, 0.42 + 0.3 * up, 0.9 + 0.1 * up].map(c => c * (1.2 - 0.6 * up));
+    const dsun = ang - 60 * PI / 180, sun = 40 * Math.exp(-(dsun * dsun) / (2 * 0.02 * 0.02));
+    const glow = 1.5 * Math.exp(-(dsun * dsun) / (2 * 0.12 * 0.12));
+    return [sky[0] + sun + glow, sky[1] + sun * 0.95 + glow * 0.8, sky[2] + sun * 0.8 + glow * 0.5];
+  }
+  const env = new Float32Array(ENV_N * 3);
+  for (let i = 0; i < ENV_N; i++) { const c = envRadiance(-PI + (i + 0.5) / ENV_N * 2 * PI); env[i * 3] = c[0]; env[i * 3 + 1] = c[1]; env[i * 3 + 2] = c[2]; }
+  const mips = [];
+  for (let k = 0; k < MIPS; k++) {
+    const r = k / (MIPS - 1), a = Math.max(r * r, 0.004), out = new Float32Array(ENV_N * 3);
+    const wts = new Float32Array(ENV_N); // kernel over angular offset, R = N = V assumption
+    let wsum = 0;
+    for (let d = 0; d < ENV_N; d++) { let off = d / ENV_N * 2 * PI; if (off > PI) off -= 2 * PI; const NoL = Math.cos(off); const w = NoL > 0 ? dGGX(Math.cos(off / 2), a) * Math.cos(off / 2) * NoL : 0; wts[d] = w; wsum += w; }
+    for (let i = 0; i < ENV_N; i++) {
+      let r0 = 0, g0 = 0, b0 = 0;
+      for (let d = 0; d < ENV_N; d++) { const w = wts[d]; if (w < 1e-6) continue; const j = (i + d) % ENV_N; r0 += env[j * 3] * w; g0 += env[j * 3 + 1] * w; b0 += env[j * 3 + 2] * w; }
+      out[i * 3] = r0 / wsum; out[i * 3 + 1] = g0 / wsum; out[i * 3 + 2] = b0 / wsum;
+    }
+    mips.push(out);
+  }
+  const stripCanvases = mips.map(m => {
+    const oc = document.createElement("canvas"); oc.width = ENV_N; oc.height = 1; const img = new ImageData(ENV_N, 1);
+    for (let i = 0; i < ENV_N; i++) for (let c = 0; c < 3; c++) { const v = m[i * 3 + c]; img.data[i * 4 + c] = Math.pow(v / (1 + v), 1 / 2.2) * 255; img.data[i * 4 + 3] = 255; }
+    oc.getContext("2d").putImageData(img, 0, 0); return oc;
+  });
+  // BRDF LUT by GGX importance sampling, Hammersley sequence, Schlick-GGX G with k = a/2
+  function radicalInverse(i) { let b = i; b = ((b << 16) | (b >>> 16)) >>> 0; b = (((b & 0x55555555) << 1) | ((b & 0xAAAAAAAA) >>> 1)) >>> 0; b = (((b & 0x33333333) << 2) | ((b & 0xCCCCCCCC) >>> 2)) >>> 0; b = (((b & 0x0F0F0F0F) << 4) | ((b & 0xF0F0F0F0) >>> 4)) >>> 0; b = (((b & 0x00FF00FF) << 8) | ((b & 0xFF00FF00) >>> 8)) >>> 0; return b / 4294967296; }
+  const lut = new Float32Array(LUT_N * LUT_N * 2);
+  let S5time = 0;
+  {
+    const t0 = performance.now();
+    for (let j = 0; j < LUT_N; j++) for (let i = 0; i < LUT_N; i++) {
+      const NoV = (i + 0.5) / LUT_N, rough = (j + 0.5) / LUT_N, a = rough * rough, k = a / 2;
+      const Vx = Math.sqrt(1 - NoV * NoV), Vz = NoV; let A = 0, B = 0;
+      for (let s = 0; s < LUT_S; s++) {
+        const u1 = (s + 0.5) / LUT_S, u2 = radicalInverse(s);
+        const phi = 2 * PI * u1, cosT = Math.sqrt((1 - u2) / (1 + (a * a - 1) * u2)), sinT = Math.sqrt(1 - cosT * cosT);
+        const Hx = sinT * Math.cos(phi), Hy = sinT * Math.sin(phi), Hz = cosT;
+        const VoH = Vx * Hx + Vz * Hz;
+        const Lz = 2 * VoH * Hz - Vz;
+        if (Lz <= 0) continue;
+        const NoL = Lz, NoH = Hz;
+        const G = (NoV / (NoV * (1 - k) + k)) * (NoL / (NoL * (1 - k) + k));
+        const Gvis = G * VoH / (NoH * NoV), Fc = Math.pow(1 - VoH, 5);
+        A += (1 - Fc) * Gvis; B += Fc * Gvis;
+      }
+      lut[(j * LUT_N + i) * 2] = A / LUT_S; lut[(j * LUT_N + i) * 2 + 1] = B / LUT_S;
+    }
+    S5time = performance.now() - t0;
+  }
+  const lutCanvas = document.createElement("canvas"); lutCanvas.width = LUT_N; lutCanvas.height = LUT_N;
+  { const img = new ImageData(LUT_N, LUT_N); for (let j = 0; j < LUT_N; j++) for (let i = 0; i < LUT_N; i++) { const o = ((LUT_N - 1 - j) * LUT_N + i) * 4, k = (j * LUT_N + i) * 2; img.data[o] = lut[k] * 255; img.data[o + 1] = lut[k + 1] * 255; img.data[o + 2] = 0; img.data[o + 3] = 255; } lutCanvas.getContext("2d").putImageData(img, 0, 0); }
+  const S5 = { rough: 0.4, nv: 0.7 };
+  const LX = 340, LY = 30, LS = 300, SX = 20, SW = 300, SH = 28, SY0 = 30, SGAP = 48;
+  function draw5() {
+    const ctx = x5; ctx.fillStyle = GROUND; ctx.fillRect(0, 0, 640, 360);
+    const mipF = S5.rough * (MIPS - 1), mipI = Math.round(mipF);
+    ctx.imageSmoothingEnabled = true;
+    for (let k = 0; k < MIPS; k++) {
+      const y = SY0 + k * SGAP;
+      ctx.drawImage(stripCanvases[k], SX, y, SW, SH);
+      if (k === mipI) { ctx.strokeStyle = AMBER; ctx.lineWidth = 2; ctx.strokeRect(SX - 2, y - 2, SW + 4, SH + 4); }
+      label(ctx, `mip ${k} · roughness ${(k / (MIPS - 1)).toFixed(1)} · α ${Math.pow(k / (MIPS - 1), 2).toFixed(2)}`, SX, y - 9, k === mipI ? AMBER : "rgba(255,255,255,0.5)");
+    }
+    label(ctx, "ground", SX + SW * 0.25, 336, "rgba(255,255,255,0.45)", "center"); label(ctx, "horizon", SX + SW * 0.5, 336, "rgba(255,255,255,0.45)", "center"); label(ctx, "zenith, sun at 60°", SX + SW * 0.8, 336, "rgba(255,255,255,0.45)", "center");
+    // LUT
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(lutCanvas, LX, LY, LS, LS);
+    ctx.strokeStyle = GRID; ctx.lineWidth = 1; ctx.strokeRect(LX + 0.5, LY + 0.5, LS - 1, LS - 1);
+    const px = LX + S5.nv * LS, py = LY + LS - S5.rough * LS;
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, LY); ctx.lineTo(px, LY + LS); ctx.moveTo(LX, py); ctx.lineTo(LX + LS, py); ctx.stroke();
+    ctx.beginPath(); ctx.arc(px, py, 5, 0, PI * 2); ctx.strokeStyle = WHITE; ctx.lineWidth = 2; ctx.stroke();
+    label(ctx, "N·V → 1", LX + LS - 4, LY + LS + 14, "rgba(255,255,255,0.5)", "right"); label(ctx, "0", LX, LY + LS + 14, "rgba(255,255,255,0.5)");
+    label(ctx, "roughness ↑", LX, LY - 10, "rgba(255,255,255,0.5)"); label(ctx, "red = scale · green = bias", LX + LS, LY - 10, "rgba(255,255,255,0.5)", "right");
+    const i = Math.min(LUT_N - 1, Math.floor(S5.nv * LUT_N)), j = Math.min(LUT_N - 1, Math.floor(S5.rough * LUT_N)), k = (j * LUT_N + i) * 2;
+    const sc = lut[k], bi = lut[k + 1];
+    document.querySelector("#t5-scale .n").textContent = sc.toFixed(3);
+    document.querySelector("#t5-bias .n").textContent = bi.toFixed(3);
+    document.querySelector("#t5-spec .n").textContent = (0.04 * sc + bi).toFixed(3);
+    document.getElementById("c5-read").innerHTML = `texel (${i}, ${j}) · N·V = <strong>${S5.nv.toFixed(2)}</strong> · roughness <strong>${S5.rough.toFixed(2)}</strong> → scale ${sc.toFixed(3)}, bias ${bi.toFixed(3)}`;
+    document.getElementById("c5-mip").innerHTML = `mip ${mipF.toFixed(1)} of ${MIPS - 1} · LUT ${LUT_N}×${LUT_N}×${LUT_S} samples in ${S5time.toFixed(0)} ms`;
+  }
+  function hover5(x, y) {
+    if (x < LX || x > LX + LS || y < LY || y > LY + LS) return;
+    S5.nv = Math.max(0.02, Math.min(1, (x - LX) / LS)); S5.rough = Math.max(0, Math.min(1, 1 - (y - LY) / LS));
+    document.getElementById("r5").value = S5.rough; document.getElementById("nv5").value = S5.nv;
+    document.getElementById("r5v").textContent = S5.rough.toFixed(2); document.getElementById("nv5v").textContent = S5.nv.toFixed(2);
+    draw5();
+  }
+  drag(c5, () => [], (i, x, y) => hover5(x, y), (x, y) => { if (x >= 0) hover5(x, y); });
+  const r5 = document.getElementById("r5"), nv5 = document.getElementById("nv5");
+  r5.addEventListener("input", () => { S5.rough = +r5.value; document.getElementById("r5v").textContent = S5.rough.toFixed(2); draw5(); });
+  nv5.addEventListener("input", () => { S5.nv = +nv5.value; document.getElementById("nv5v").textContent = S5.nv.toFixed(2); draw5(); });
+  draw5();
+})();
+</script>

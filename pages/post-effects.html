@@ -1,0 +1,1232 @@
+<title>Bloom, Depth of Field &amp; Motion Blur</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas.r169 { aspect-ratio: 16 / 9; }
+.tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 820px) { .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .tiles.four { grid-template-columns: 1fr; } }
+.tile .n { font-size: 22px; }
+.tile .n small { font-size: 12px; color: var(--muted); font-weight: 400; }
+.chk { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 13px; color: var(--ink); padding-bottom: 6px; }
+.below { margin-top: 26px; }
+.stats.left th, .stats.left td { text-align: left; white-space: normal; font-family: var(--font-display); font-size: 14px; vertical-align: top; }
+.stats.left td:first-child { font-weight: 600; }
+.stats.left td.n, .stats.left th.n { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; }
+.stats.left thead th { font-family: var(--font-mono); font-size: 12px; }
+.uses td:first-child { white-space: normal; min-width: 12ch; }
+.key span[style*="#ffffff"]::before { outline: 1px solid var(--line); }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">256×144 HDR scene · lamps at 8–50× white · one ball in motion · 60 Hz</p>
+    <h1>Post Effects</h1>
+    <p class="lead">Bloom, depth of field and motion blur are the last passes that run over the finished picture, before it is squeezed down to the 8-bit colours a monitor can show. They are what makes a lamp glow, a background go soft and a fast ball leave a streak, and each one costs a fraction of a millisecond per million pixels. Each reads a different input: bloom reads raw brightness, depth of field reads how far away each pixel is, motion blur reads how far each pixel moved. The thing people get wrong is treating them as decoration painted on top; they are filters over real data, and fed the wrong data they turn into haze and smears.</p>
+    <div class="key">
+      <span style="--sw:#f2a341">brighter than the threshold · behind the focus · longest move in a tile</span>
+      <span style="--sw:#4aa3ff">in front of the focus · longest move nearby</span>
+      <span style="--sw:#ffffff">movement arrows, markers</span>
+      <span style="--sw:#5ad48a">fits in a 16.7 ms frame</span>
+      <span style="--sw:#ef5d5d">over budget</span>
+    </div>
+    <dl class="terms">
+      <dt>HDR</dt><dd>colour stored as real brightness with no ceiling; a lamp can be 50 times brighter than white paper</dd>
+      <dt>tone mapping</dt><dd>the curve that squeezes HDR brightness into the 0 to 1 range a screen can show</dd>
+      <dt>threshold</dt><dd>the brightness a pixel must beat before it is allowed to glow</dd>
+      <dt>mip chain</dt><dd>a stack of copies of an image, each half the size of the one before</dd>
+      <dt>circle of confusion</dt><dd>the blurry disc an out-of-focus point makes; its size in pixels is how much to blur</dd>
+      <dt>velocity buffer</dt><dd>a per-pixel record of how far that pixel moved since the last frame</dd>
+      <dt>tile max</dt><dd>the longest movement inside each 16 by 16 pixel block of the screen</dd>
+      <dt>render target</dt><dd>an image the GPU draws into; every pass here writes at least one</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#bloom"><span class="n">01</span>Bloom is a stack of shrinking blurs</a></li><li><a href="#order"><span class="n">02</span>Why bloom runs before tone mapping</a></li><li><a href="#dof"><span class="n">03</span>Depth of field</a></li><li><a href="#mblur"><span class="n">04</span>Motion blur</a></li><li><a href="#cost"><span class="n">05</span>What the whole stack costs</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="bloom">
+    <h2>Bloom is a stack of shrinking blurs</h2>
+    <p class="sub">Move the threshold and intensity, flick the firefly fix on and off, and watch every in-between image the bloom pass makes.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c1a" class="r169" width="640" height="360" aria-label="Scene composited with bloom"></canvas>
+        <div class="cap"><span id="c1a-read"></span><span>Reinhard display</span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c1b" class="r169" width="640" height="360" aria-label="Bloom downsample and upsample chain"></canvas>
+        <div class="cap"><span id="c1b-read"></span><span>display gain ×4</span></div>
+      </div>
+    </div>
+    <div class="prose below">
+      <p class="plain">Bloom is the <b>soft glow around bright things</b>. The cheap way to get a wide, soft glow is to <b>keep only the bright pixels</b>, shrink that image by half six times over, blur a little at each size, then <b>add all the sizes back together</b>. A small blur on a tiny image is a huge blur on the full one, so the whole thing costs about 16 texture reads per pixel instead of thousands.</p>
+
+      <h3>What you're seeing</h3>
+      <p>Left is the scene with bloom added. Right is every in-between image: the top row shrinks the bright pixels down step by step (amber label), the bottom row grows them back up and adds each level in (blue label). The brightness is boosted four times so you can see the small images.</p>
+      <p>The one white dot near the lamp is a firefly: a single pixel at 400 times white. It is there to show the flicker problem that the Karis tickbox fixes.</p>
+
+      <h3>Try this</h3>
+      <ul class="try">
+        <li>Drag Threshold T down to 0. Everything glows and the frame goes milky. Push it up to 3 and only the lamps survive.</li>
+        <li>Tick "animate the offset". The firefly's glow pulses as it slides between pixels. Tick "Karis average" and the pulse almost stops; compare the two flicker tiles.</li>
+        <li>Switch View to "prefilter" to see exactly which pixels are allowed to glow.</li>
+      </ul>
+    </div>
+    <div class="controls">
+      <div class="ctl"><label for="thr1">Threshold T <span class="val" id="thr1v">1.00</span></label><input type="range" id="thr1" min="0" max="3" step="0.05" value="1"></div>
+      <div class="ctl"><label for="knee1">Knee K <span class="val" id="knee1v">0.50</span></label><input type="range" id="knee1" min="0" max="1" step="0.05" value="0.5"></div>
+      <div class="ctl"><label for="int1">Intensity I <span class="val" id="int1v">0.20</span></label><input type="range" id="int1" min="0" max="1" step="0.01" value="0.2"></div>
+      <div class="ctl"><span class="lab">View</span><div class="seg" id="seg1v" role="group" aria-label="Bloom view"><button data-v="composite" aria-pressed="true">composite</button><button data-v="bloom">bloom only</button><button data-v="pre">prefilter</button></div></div>
+      <div class="ctl"><label class="chk"><input type="checkbox" id="ff1" checked> firefly, 400× white, 1 px</label></div>
+      <div class="ctl"><label class="chk"><input type="checkbox" id="karis1"> Karis average on mip 1</label></div>
+      <div class="ctl"><label for="off1">Firefly sub-pixel offset <span class="val" id="off1v">0.00 px</span></label><input type="range" id="off1" min="0" max="1" step="0.05" value="0"></div>
+      <div class="ctl"><label class="chk"><input type="checkbox" id="anim1"> animate the offset</label></div>
+    </div>
+    <div class="tiles four">
+      <div class="tile" id="t1-plain"><div class="n">—</div><div class="l">firefly flicker, plain (peak swing)</div></div>
+      <div class="tile" id="t1-karis"><div class="n">—</div><div class="l">flicker with Karis (peak swing)</div></div>
+      <div class="tile"><div class="n" id="t1-mem">—</div><div class="l">chain memory, RGBA16F</div></div>
+      <div class="tile"><div class="n" id="t1-reads">—</div><div class="l">texture reads per frame</div></div>
+    </div>
+    <div class="cols two below">
+      <div class="prose">
+        <h3>The real version</h3>
+        <p>The first step is the prefilter. It keeps only pixels brighter than the threshold T. A hard cut at exactly 1.0 flickers when a pixel hovers near it, so a knee K ramps the pixel in gently between T−K and T+K.</p>
+        <p>Next the chain halves the image six times. Each halving is a downsample, a pass that reads 13 taps, where a tap is one bilinear texture read that already averages a 2×2 block. Six halvings at 13 taps give a blur that reaches 6·2⁶ pixels wide for about 16 reads per full-res pixel.</p>
+        <p>Then the upsample walks back up. Each level applies a 3×3 tent filter (a small blur with a peak in the middle) to the smaller image and adds it to the image at this level. Adding at every step is what gives a bright core with a wide soft falloff, without ever computing a blur that wide.</p>
+        <p class="words">In words: fade a pixel in around the threshold, average 13 neighbouring reads to make each smaller image, and on the first shrink let dim pixels outvote one very bright one.</p>
+        <div class="math">br   = max(r, g, b)
+soft = clamp(br − T + K, 0, 2K)² / (4K + ε)
+c'   = c · max(soft, br − T) / max(br, ε)
+
+down = ½·avg(j,k,l,m) + ⅛·[avg(a,b,d,e) + avg(b,c,e,f)
+                          + avg(d,e,g,h) + avg(e,f,h,i)]
+per texel: e ⅛ · b,d,f,h 1/16 · a,c,g,i 1/32 · j,k,l,m ⅛  (Σ = 1)
+
+Karis, mip 1 only: inside each group of 4 taps
+g = Σ w_t·t / Σ w_t,   w_t = 1 / (1 + luma(t))</div>
+        <p style="margin-top:14px">Here br is the brightest of the three colour channels, c is the pixel's colour and c' is what survives the prefilter. The letters a to m are the 13 tap positions, and the fractions are how much each one counts. In the Karis line, luma is the perceived brightness of a tap and w_t is its vote.</p>
+        <p style="margin-top:14px">The firefly is one 400× white pixel. Depending on where it sits, a 2×2 read covers it with one pixel or two, so its energy doubles and halves as it slides. The tiles measure the bloom peak the firefly adds across eight positions and report the swing, max minus min, which is what flickers on screen. The Karis average weights each tap in its group of four by 1/(1+luma), so one 400× tap cannot outvote three dim ones, and the swing drops by more than ten times.</p>
+      </div>
+      <div class="prose">
+        <p class="words">What this code does: runs the soft threshold, then builds the first small image from five groups of four reads, with the Karis vote applied inside each group.</p>
+<pre class="code"><span class="c">// prefilter, full res: soft-knee threshold</span>
+<span class="k">vec3</span> c = texture(sceneHDR, uv).rgb;
+<span class="k">float</span> br = max(c.r, max(c.g, c.b));
+<span class="k">float</span> soft = clamp(br - T + K, 0.0, 2.0 * K);
+soft = soft * soft / (4.0 * K + 1e-5);
+c *= max(soft, br - T) / max(br, 1e-5);   <span class="c">// 0 below T-K, 1 above T+K</span>
+
+<span class="c">// mip 1: 13 bilinear taps = five 2x2 groups, partial Karis average</span>
+<span class="k">vec3</span> box(<span class="k">vec2</span> o) { <span class="k">return</span> texture(src, uv + o * texel).rgb; } <span class="c">// bilinear at a corner = 2x2 box</span>
+<span class="k">vec3</span> grp(<span class="k">vec3</span> a, <span class="k">vec3</span> b, <span class="k">vec3</span> c, <span class="k">vec3</span> d) {
+  <span class="k">if</span> (!firstMip) <span class="k">return</span> 0.25 * (a + b + c + d);
+  <span class="k">float</span> wa = 1.0 / (1.0 + luma(a)), wb = 1.0 / (1.0 + luma(b)), wc = 1.0 / (1.0 + luma(c)), wd = 1.0 / (1.0 + luma(d));
+  <span class="k">return</span> (a*wa + b*wb + c*wc + d*wd) / (wa + wb + wc + wd);   <span class="c">// one 400x tap cannot outvote three dim ones</span>
+}
+<span class="k">vec3</span> g0 = grp(box(<span class="k">vec2</span>(-1,-1)), box(<span class="k">vec2</span>(1,-1)), box(<span class="k">vec2</span>(-1,1)), box(<span class="k">vec2</span>(1,1)));
+<span class="k">vec3</span> g1 = grp(box(<span class="k">vec2</span>(-2,-2)), box(<span class="k">vec2</span>(0,-2)), box(<span class="k">vec2</span>(-2,0)), box(<span class="k">vec2</span>(0,0)));
+<span class="c">// g2, g3, g4: the other three outer corners</span>
+<span class="k">vec3</span> down = 0.5 * g0 + 0.125 * (g1 + g2 + g3 + g4);
+
+<span class="c">// upsample, one level: 3x3 tent of the smaller mip, added to this mip</span>
+<span class="k">vec3</span> up = mipHere + tent9(smallerMip, uv, radius);
+<span class="c">// composite: bilinear read of u1, the prefilter itself is never added back</span>
+color = sceneHDR + I * texture(bloomU1, uv).rgb;</pre>
+        <p class="tldr">Bloom is a threshold, six halvings and six add-backs; the shrinking is what makes a wide glow cheap.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="order">
+    <h2>Why bloom runs before tone mapping</h2>
+    <p class="sub">Compare the same bloom run on raw HDR brightness and on the already-squeezed image, and see which pixels feed it.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c2a" class="r169" width="640" height="360" aria-label="Bloom on HDR then tone map"></canvas>
+        <div class="cap"><strong>HDR → bloom → tone map</strong><span id="c2a-read"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c2b" class="r169" width="640" height="360" aria-label="Tone map then bloom on LDR"></canvas>
+        <div class="cap"><strong>tone map → bloom on LDR</strong><span id="c2b-read"></span></div>
+      </div>
+    </div>
+    <div class="prose below">
+      <p class="plain">Bloom stands in for <b>light scattering inside a lens and an eye</b>, and that happens to real light before any screen curve. So bloom must run on the <b>raw HDR brightness</b>, where "brighter than 1.0" means brighter than white paper. Run it after tone mapping, where nothing is above 1.0, and you have to lower the threshold until <b>ordinary crates glow too</b>. That is the foggy "too much bloom" look.</p>
+
+      <h3>What you're seeing</h3>
+      <p>Left: bloom on HDR data with the threshold at 1.0, then the tone curve. Right: tone curve first, then bloom on the squeezed image with a lower threshold. Same chain, same intensity 0.2. The readouts count how many pixels feed the bloom in each case.</p>
+
+      <h3>Try this</h3>
+      <ul class="try">
+        <li>Tick "show pixels above threshold". Left, only the lamps, the neon bar, the window and the ball's highlight light up. Right, whole crate faces do.</li>
+        <li>Drag the LDR threshold up toward 1.0. The right image loses its glow entirely, because no tone-mapped pixel ever reaches 1.0.</li>
+      </ul>
+    </div>
+    <div class="controls">
+      <div class="ctl"><label for="thr2">LDR threshold <span class="val" id="thr2v">0.30</span></label><input type="range" id="thr2" min="0.1" max="1" step="0.02" value="0.3"></div>
+      <div class="ctl"><label class="chk"><input type="checkbox" id="mask2"> show pixels above threshold</label></div>
+    </div>
+    <div class="cols two below">
+      <div class="prose">
+        <h3>The real version</h3>
+        <p>On HDR data the threshold at 1.0 is a physical statement: only things brighter than a white diffuse surface glow. In this scene that is the three lamps, the neon bar, the window and the ball's highlight, about 2 % of the pixels. Everything else contributes exactly zero.</p>
+        <p>After a tone curve every value sits between 0 and 1 and nothing passes a threshold of 1.0. To get any glow, the threshold has to move down to 0.3 or 0.4, and now the lit face of a beige crate contributes as much as a lamp. The result is a low-contrast fog over the whole frame. The bloom was fine; it ran on the wrong data.</p>
+        <p class="words">In words: add the glow to the raw brightness first and squeeze once at the end. Squeezing first caps every value below 1.0, so the threshold has to drop.</p>
+        <div class="math">right:  tonemap(hdr + I·blur(thr(hdr, 1.0)))
+wrong:  tonemap(hdr) + I·blur(thr(tonemap(hdr), t))
+
+tonemap(x) = x / (1 + x)  never reaches 1.0,
+so thr(tonemap(hdr), 1.0) = 0 everywhere and t must be &lt; 1</div>
+        <p style="margin-top:14px">Here hdr is the raw scene colour, thr is the threshold step, blur is the mip chain, I is the intensity slider, and t is the lowered threshold the wrong order is forced to use.</p>
+      </div>
+      <div class="prose">
+        <p class="words">What this code does: the top block keeps everything in raw brightness and applies one curve at the end; the bottom block is the haze version, with the curve first.</p>
+<pre class="code"><span class="c">// correct: everything in linear HDR, one curve at the end</span>
+<span class="k">vec3</span> hdr   = texture(sceneHDR, uv).rgb;   <span class="c">// ground 0.1, lamps 8..50</span>
+<span class="k">vec3</span> bloom = texture(bloomMip0, uv).rgb;  <span class="c">// chain fed by thr(hdr, 1.0)</span>
+<span class="k">vec3</span> ldr   = tonemap(hdr + I * bloom);
+outColor   = encodeSRGB(ldr);
+
+<span class="c">// the haze version, seen in LDR-era pipelines</span>
+<span class="k">vec3</span> ldr0  = tonemap(hdr);               <span class="c">// max value 0.98</span>
+<span class="k">vec3</span> glow  = blur(thr(ldr0, 0.3));        <span class="c">// crate faces now pass</span>
+outColor   = encodeSRGB(ldr0 + I * glow);  <span class="c">// low contrast everywhere</span></pre>
+        <p style="margin-top:14px">The same rule applies to depth of field and motion blur: averaging tone-mapped values gives the wrong average. A 50× lamp blurred in HDR still reads as a bright disc after the curve. Blurred after the curve it becomes a grey smudge, because 0.98 spread over 60 pixels is 0.016 each.</p>
+        <p class="tldr">Blur the raw brightness, then squeeze it to the screen; never the other way round.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="dof">
+    <h2>Depth of field: near and far blur</h2>
+    <p class="sub">Change the lens, pick a focus distance, and hover the render to read how blurry each pixel should be.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c3a" class="r169" width="640" height="360" aria-label="Circle of confusion against depth"></canvas>
+        <div class="cap"><span id="c3a-read"></span><span>dots: objects in the scene</span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c3b" class="r169" width="640" height="360" aria-label="Depth of field render"></canvas>
+        <div class="cap"><span id="c3b-read">hover for depth and CoC</span><span id="c3b-cost"></span></div>
+      </div>
+    </div>
+    <div class="prose below">
+      <p class="plain">A camera lens is sharp at <b>one distance only</b>. Anything closer or farther shows up as a small disc instead of a point, and the disc grows the farther you get from the focus. Depth of field copies that: each pixel gets a <b>disc size from its distance</b>, then a blur spreads it out. The catch is direction. <b>Blurry things in front spill over sharp things behind</b>, but blurry things behind must stay hidden by sharp things in front, and one plain blur cannot do both.</p>
+
+      <h3>What you're seeing</h3>
+      <p>Left is a graph of blur disc size against distance for the current lens: amber above the line means behind the focus (far field), blue below means in front of it (near field). The dots are the objects in the scene. Right is the rendered result; hover it to read each pixel's distance and disc size.</p>
+
+      <h3>Try this</h3>
+      <ul class="try">
+        <li>Switch Gather to "naive blur by own CoC". The blurry amber ball at 2.5 m gets a razor-sharp edge against the crate behind it, and the sharp crate grows a halo into the blurred lamps.</li>
+        <li>Drag the f-stop to f/16. The graph flattens and nearly everything is sharp; drag it back to f/1.4 and only a thin slice around 4 m stays sharp.</li>
+        <li>Pick "hexagon" and set Samples to 16. Each lamp becomes a six-sided iris, and at 16 samples it breaks into visible dots.</li>
+      </ul>
+    </div>
+    <div class="controls">
+      <div class="ctl"><label for="fl3">Focal length f <span class="val" id="fl3v">100 mm</span></label><input type="range" id="fl3" min="24" max="135" step="1" value="100"></div>
+      <div class="ctl"><label for="fs3">f-stop N <span class="val" id="fs3v">f/1.4</span></label><input type="range" id="fs3" min="1.4" max="16" step="0.1" value="1.4"></div>
+      <div class="ctl"><label for="fd3">Focus distance <span class="val" id="fd3v">4.0 m</span></label><input type="range" id="fd3" min="1" max="20" step="0.1" value="4"></div>
+      <div class="ctl"><span class="lab">Gather</span><div class="seg" id="seg3m" role="group" aria-label="DoF method"><button data-v="naive">naive blur by own CoC</button><button data-v="gather" aria-pressed="true">near / far with CoC compare</button></div></div>
+      <div class="ctl"><span class="lab">Bokeh</span><div class="seg" id="seg3s" role="group" aria-label="Bokeh shape"><button data-v="circle" aria-pressed="true">circle</button><button data-v="hex">hexagon</button></div></div>
+      <div class="ctl"><span class="lab">Samples</span><div class="seg" id="seg3n" role="group" aria-label="Sample count"><button data-v="16">16</button><button data-v="32" aria-pressed="true">32</button><button data-v="64">64</button></div></div>
+      <div class="ctl"><span class="lab">View</span><div class="seg" id="seg3v" role="group" aria-label="DoF view"><button data-v="image" aria-pressed="true">image</button><button data-v="coc">signed CoC</button></div></div>
+    </div>
+    <div class="cols two below">
+      <div class="prose">
+        <h3>The real version</h3>
+        <p>A thin lens focuses one distance exactly. A point at any other depth lands on the sensor as a disc, the circle of confusion (CoC), whose diameter grows with the aperture A = f/N and with the distance from the focus plane. The aperture is the hole light comes through: focal length f divided by the f-stop N.</p>
+        <p>The sign matters. Objects in front of the focus plane (near field, blue) blur over whatever is behind them, including sharp things. Objects behind it (far field, amber) are hidden by sharp things in front. A single blur cannot honour both rules, so engines split the two fields and composite near over far.</p>
+        <p>The naive method blurs every pixel by its own CoC. The ball's edge stays sharp against the crate because the crate's pixels have CoC 0 and never gather it, and the in-focus crate leaks a halo into the blurred lamps because those far pixels gather the crate. The gather with a CoC compare fixes both: a sample contributes only if its own disc reaches this pixel, and a farther sample can only leak onto a pixel that is itself blurry.</p>
+        <p class="words">In words: work out the disc size from the lens and the distance, then for each neighbour ask whether its disc reaches this pixel, and shrink its vote if it is farther away than a sharper pixel here.</p>
+        <div class="math">A      = f / N                              aperture diameter, mm
+CoC    = A · |f (d − d_f)| / (d (d_f − f))    on the sensor, mm
+px     = CoC / 36 mm · 256 px                this frame (×7.5 at 1920)
+signed: c = +px for d &gt; d_f (far), −px for d &lt; d_f (near)
+
+gather: w_q = clamp(|c_q| − ‖q − p‖ + 1)      does q's disc cover p?
+far:    if z_q &gt; z_p then w_q *= |c_p| / c_q   occlusion by sharper pixels
+near:   α = Σ w_q / N,  out = lerp(far, near, α)</div>
+        <p style="margin-top:14px">Here d is a pixel's distance, d_f is the focus distance, and 36 mm is the width of the sensor. p is the pixel being shaded, q is a neighbour, c is the signed CoC in pixels, z is depth, w_q is the neighbour's weight, and α is how much near field covers this pixel.</p>
+      </div>
+      <div class="prose">
+        <p class="words">What this code does: loops over N neighbours inside the widest nearby disc, keeps each one only if its own disc reaches this pixel, and cuts its weight when it is farther away than a sharper pixel here.</p>
+<pre class="code"><span class="c">// half-res far-field gather. coc is signed px, + behind the focus plane</span>
+<span class="k">float</span> cocP = texture(cocTex, uv).r;  <span class="k">float</span> zP = texture(depthHalf, uv).r;
+<span class="k">float</span> R = texture(tileNeighbourMax, uv).r;      <span class="c">// widest far CoC nearby, 8 px tiles</span>
+<span class="k">vec3</span> sum = <span class="k">vec3</span>(0); <span class="k">float</span> wsum = 0;
+<span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; N; i++) {
+  <span class="k">vec2</span> o = kernel[i] * R;                        <span class="c">// circle or hexagon pattern, norm &lt;= 1</span>
+  <span class="k">vec2</span> q = uv + o * texel;
+  <span class="k">float</span> cocQ = texture(cocTex, q).r;  <span class="k">float</span> zQ = texture(depthHalf, q).r;
+  <span class="k">float</span> w = saturate(cocQ - shapeNorm(kernel[i]) * R + 1.0);   <span class="c">// does q's disc reach us?</span>
+  <span class="k">if</span> (zQ &gt; zP) w *= saturate(abs(cocP) / max(cocQ, 1e-3));   <span class="c">// farther sample, sharper pixel: occluded</span>
+  sum += w * texture(colorHalf, q).rgb;  wsum += w;
+}
+<span class="k">vec3</span> far = sum / max(wsum, 1e-4);
+<span class="c">// near field: same loop over cocQ &lt; 0 with R = tile max of -coc,</span>
+<span class="c">// alpha = wsum / N, then full res: lerp(lerp(sharp, far, |coc|-0.5), near, alpha)</span></pre>
+        <p style="margin-top:14px">The sample pattern is the bokeh, the shape a blurred light takes. With a circular pattern every bright lamp becomes a disc; with a hexagonal pattern and a hexagonal distance rule it becomes a six-sided iris. At 16 samples and a 12 px radius the disc breaks into visible dots, which is why engines either take 64 samples or run the pass at half resolution, or both.</p>
+        <p class="tldr">Blur size comes from distance to the focus, and near things spill over far things, never the reverse.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="mblur">
+    <h2>Motion blur: smear along the movement</h2>
+    <p class="sub">Change the ball speed and the camera pan, then switch the weighting to see why a moving object has to smear past its own edge.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c4" class="r169" width="640" height="360" aria-label="Motion blur render and velocity views"></canvas>
+        <div class="cap"><span id="c4-read"></span><span id="c4-cost"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Motion blur smears each pixel <b>along the direction it moved</b> since the last frame. The trap is that a fast ball has to <b>smear past its own edge</b> onto the background, but the background pixels there did not move, so blurring each pixel by its own movement stops dead at the edge. The fix is to <b>blur along the longest movement nearby</b> and let depth decide who smears over whom.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The "velocity" view draws one arrow per 16 px tile showing how far pixels there moved. The "tile max" view shows the longest movement in each tile (amber) and the longest in the 3×3 tiles around it (blue). "blurred" is the result.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Switch Weighting to "own velocity". The ball's smear is clipped to a hard cut-out shape.</li>
+          <li>Set Camera pan to −8 and Ball speed to 8, then flip between "neighbour max" and "neighbour max + depth". Without the depth compare the moving background eats the ball's edge.</li>
+          <li>Drag Shutter to 0. No blur at all; at 1.0 the ball smears a full frame's travel.</li>
+        </ul>
+        <div class="controls" style="margin-top:6px">
+          <div class="ctl"><span class="lab">View</span><div class="seg" id="seg4v" role="group" aria-label="Motion blur view"><button data-v="vel">velocity</button><button data-v="tile">tile max</button><button data-v="result" aria-pressed="true">blurred</button></div></div>
+          <div class="ctl"><span class="lab">Weighting</span><div class="seg" id="seg4w" role="group" aria-label="Weighting"><button data-v="own">own velocity</button><button data-v="nmax">neighbour max</button><button data-v="depth" aria-pressed="true">neighbour max + depth</button></div></div>
+          <div class="ctl"><label for="sh4">Shutter <span class="val" id="sh4v">0.50 frame</span></label><input type="range" id="sh4" min="0" max="1" step="0.05" value="0.5"></div>
+          <div class="ctl"><span class="lab">Samples</span><div class="seg" id="seg4n" role="group" aria-label="Sample count"><button data-v="4">4</button><button data-v="8" aria-pressed="true">8</button><button data-v="16">16</button></div></div>
+          <div class="ctl"><label for="ov4">Ball speed <span class="val" id="ov4v">14 px/frame</span></label><input type="range" id="ov4" min="-16" max="16" step="1" value="14"></div>
+          <div class="ctl"><label for="pan4">Camera pan <span class="val" id="pan4v">−4 px/frame</span></label><input type="range" id="pan4" min="-16" max="16" step="1" value="-4"></div>
+        </div>
+      </div>
+    </div>
+    <div class="cols two below">
+      <div class="prose">
+        <h3>The real version</h3>
+        <p>The ball moves in the world; the camera pans. Both end up in the velocity buffer as pixels per frame, written by the geometry pass from where each pixel was this frame and last frame. The shutter is the fraction of the frame the blur covers: at 0.5 it covers half the distance moved in 16.7 ms.</p>
+        <p>Blurring each pixel along its own velocity stops at the silhouette, because the background behind the ball has a different velocity. McGuire's 2012 filter takes the longest velocity per 16 px tile, widens it to the 3×3 tiles around (that is the dilation), and samples along that instead. Each sample then gets a weight from whether its own velocity is long enough to reach this pixel, so the still background stays sharp while the ball's colour spreads over it.</p>
+        <p>The depth terms decide which way the smear goes. A moving background behind a still ball must not smear over the ball; the ball must smear over the background.</p>
+        <p class="words">In words: walk N steps along the longest nearby movement. A sample counts if it is in front and moving enough to reach us, or if we are in front and moving enough to reach it, or if both move together.</p>
+        <div class="math">v_max = neighbourMax(tileMax(v))          16 px tiles, 3×3 dilation
+p_i   = p + v_max · (i/N − ½) · shutter     N samples along the longest vector
+d_i   = ‖p_i − p‖
+
+cone(d, v) = clamp(1 − d / ‖v‖)             sample's blur reaches distance d
+cyl(d, v)  = 1 − smoothstep(0.95‖v‖, 1.05‖v‖, d)
+front(a, b) = clamp(1 − (a − b) / Δz)        1 when b is in front of a
+
+w_i = front(z_p, z_i)·cone(d_i, v_i)        blurry thing in front smears over us
+    + front(z_i, z_p)·cone(d_i, v_p)        we are in front and blurry ourselves
+    + 2·cyl(d_i, v_i)·cyl(d_i, v_p)         both moving together</div>
+        <p style="margin-top:14px">Here v is a pixel's velocity, p is the pixel being shaded, p_i is the i-th sample position and d_i how far away it is. z is depth and Δz the soft depth margin. cone says how far a moving pixel's blur reaches, cyl is a soft "about the same distance" test, and w_i is the sample's final weight.</p>
+      </div>
+      <div class="prose">
+        <p class="words">What this code does: reads the longest velocity around this pixel, steps along it N times with a small per-pixel jitter, and weights each sample by the depth and reach tests above.</p>
+<pre class="code"><span class="k">vec2</span> vN = texture(neighbourMax, tileUV).xy * shutter;  <span class="c">// longest velocity in 3x3 tiles</span>
+<span class="k">if</span> (length(vN) &lt; 0.5) <span class="k">return</span> colorX;
+<span class="k">float</span> wX = 1.0 / max(length(vX * shutter), 0.5);       <span class="c">// centre weight, McGuire 2012</span>
+<span class="k">vec3</span> sum = colorX * wX; <span class="k">float</span> wsum = wX;
+<span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; N; i++) {
+  <span class="k">float</span> t = (i + 0.5 + jitter) / N - 0.5;              <span class="c">// jitter per pixel breaks banding</span>
+  <span class="k">vec2</span> p = uv + vN * t * texel;
+  <span class="k">float</span> d = abs(t) * length(vN);                        <span class="c">// distance walked, px</span>
+  <span class="k">vec2</span> vY = texture(velocity, p).xy * shutter;  <span class="k">float</span> zY = texture(depth, p).r;
+  <span class="k">float</span> f = saturate(1.0 - (zX - zY) / SOFT_Z);         <span class="c">// Y in front of X</span>
+  <span class="k">float</span> b = saturate(1.0 - (zY - zX) / SOFT_Z);         <span class="c">// X in front of Y</span>
+  <span class="k">float</span> w = f * cone(d, vY) + b * cone(d, vX) + 2.0 * cylinder(d, vY) * cylinder(d, vX);
+  sum += w * texture(color, p).rgb;  wsum += w;
+}
+<span class="k">return</span> sum / wsum;</pre>
+        <p class="tldr">Blur along the longest movement in the neighbourhood, and let depth decide who smears over whom.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="cost">
+    <h2>What the whole stack costs</h2>
+    <p class="sub">Pick an output resolution and an anti-aliasing setup, and see how much of a 60 Hz frame the post passes eat.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5" class="r169" width="640" height="360" aria-label="Post stack timeline and render target sizes"></canvas>
+        <div class="cap"><span id="c5-read"></span><span>estimates, mid-range 2020 GPU</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Each post pass is cheap per pixel, a <b>few hundred picoseconds</b>, but there are <b>two to eight million pixels</b> and every pass touches all of them. Six passes add up to a real slice of the 16.7 ms you get at 60 Hz. The usual tricks are to <b>run depth of field at half resolution</b> and start bloom from a small image, which is why the stack fits in a few milliseconds.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The top bars are each pass's estimated time, in the order they run. The long bar below is the whole stack against one 16.7 ms frame: green if it fits, red if not. The rectangles at the bottom are the images each pass draws into, to scale.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Switch Output to 3840×2160. The stack roughly quadruples; watch the frame bar.</li>
+          <li>Untick "half-res depth of field". Its pass gets about four times longer, because it now touches four times the pixels.</li>
+          <li>Pick "upscaler, post before it at 67 %". Every pass before the upscaler runs on a smaller image.</li>
+        </ul>
+        <div class="controls" style="margin-top:6px">
+          <div class="ctl"><span class="lab">Output</span><div class="seg" id="seg5r" role="group" aria-label="Output resolution"><button data-v="1080p" aria-pressed="true">1920×1080</button><button data-v="1440p">2560×1440</button><button data-v="4K">3840×2160</button></div></div>
+          <div class="ctl"><span class="lab">Anti-aliasing</span><div class="seg" id="seg5a" role="group" aria-label="AA mode"><button data-v="taa" aria-pressed="true">TAA at output res</button><button data-v="upBefore">upscaler, post before it at 67 %</button><button data-v="upAfter">upscaler, post after it</button></div></div>
+          <div class="ctl"><label class="chk"><input type="checkbox" id="half5" checked> half-res depth of field</label></div>
+          <div class="ctl"><label class="chk"><input type="checkbox" id="quart5"> bloom from quarter res</label></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t5-ms">—</div><div class="l">post stack, est. ms</div></div>
+          <div class="tile"><div class="n" id="t5-pct">—</div><div class="l">of 16.7 ms</div></div>
+          <div class="tile"><div class="n" id="t5-mem">—</div><div class="l">post targets, memory</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="stats" id="tbl5">
+        <thead><tr><th>Pass</th><th>Runs at</th><th>Pixels</th><th>est. ms</th><th>Targets</th></tr></thead>
+        <tbody id="tbl5-body"></tbody>
+      </table>
+    </div>
+    <div class="prose below">
+      <h3>The real version</h3>
+      <p>The order in the bar is a common one: motion blur and depth of field want linear HDR and depth, bloom wants the result of those, tone mapping ends the HDR part, and anti-aliasing or the upscaler follows. Orders vary. Unreal runs its temporal AA before motion blur and bloom so that the blur hides temporal noise. DLSS, FSR and XeSS are built to sit where temporal AA sat, so everything after them runs at output resolution.</p>
+      <p>Depth of field at half resolution costs a quarter of the gather and needs one extra composite pass. Bloom starting from a half or quarter mip costs almost nothing.</p>
+      <p class="words">In words: a pass costs its pixel count times a fixed time per pixel, and a colour image costs 8 bytes per pixel.</p>
+      <div class="math">ms ≈ pixels · ns_per_pixel      motion blur 0.30 · DoF gather 1.6 · bloom 0.30 per start-res px
+                                   tone map 0.12 · TAA 0.35 · upscaler 0.28 per output px · UI 0.05
+bytes = pixels · 8 (RGBA16F) per colour target, · 4 for RG16F velocity or 32-bit depth</div>
+      <p style="margin-top:14px">ns_per_pixel is the per-pass cost in nanoseconds, listed on the right. RGBA16F is four 16-bit channels per pixel, so 8 bytes; RG16F velocity and 32-bit depth are 4 bytes each.</p>
+      <p class="tldr">Post passes are cheap per pixel and expensive per frame; shrink the image before you blur it.</p>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">Costs are estimates at 1920×1080 on a mid-range GPU. Memory counts only what the effect adds beyond the HDR colour buffer.</p>
+    <p class="plain">Each row is one way to build one of the three effects. You are choosing between <b>time per frame</b>, <b>memory</b>, and <b>the way it breaks</b>. The first row in each group is what nearly everyone ships; the others buy a specific look at a specific price.</p>
+    <div class="tbl-wrap">
+      <table class="stats left">
+        <thead><tr><th>Way to do it</th><th class="n">Time, est.</th><th class="n">Extra memory</th><th>How it breaks</th><th>Pick it when</th></tr></thead>
+        <tbody>
+          <tr><td>Bloom, mip chain</td><td class="n">0.2–0.4 ms</td><td class="n">≈ 5.5 MB from half res</td><td>Single bright pixels flicker unless you add Karis; the glow shape is fixed, so no streaks or lens shapes.</td><td>The default. Every real-time engine ships one.</td></tr>
+          <tr><td>Bloom, FFT convolution</td><td class="n">1–3 ms at half res</td><td class="n">≈ 20 MB, complex ping-pong buffers</td><td>Cost grows fast with resolution; a hard-edged kernel rings; the glow shape is an authored image, not a slider.</td><td>Cinematic starbursts and streaks from a photographed kernel.</td></tr>
+          <tr><td>DoF, gather (scatter-as-gather)</td><td class="n">0.8–1.2 ms at half res</td><td class="n">≈ 9 MB, two half-res fields + CoC</td><td>Big discs with few samples show dots; the near/far split still leaks where depth jumps.</td><td>The default for gameplay and cinematics alike.</td></tr>
+          <tr><td>DoF, scatter (bokeh sprites)</td><td class="n">0.5–6 ms, overdraw bound</td><td class="n">≈ 4 MB half-res accumulation</td><td>Fill rate explodes when many pixels are bright; needs a sort or additive blend.</td><td>A few bright highlights that must show an exact aperture shape.</td></tr>
+          <tr><td>DoF, ray traced</td><td class="n">tens of ms per sample set</td><td class="n">accumulation + denoiser history</td><td>Noisy unless built up over many frames or denoised.</td><td>Path-traced or offline modes; ground truth for tuning the gather.</td></tr>
+          <tr><td>Motion blur, camera only</td><td class="n">0.2–0.3 ms</td><td class="n">none beyond depth</td><td>Objects moving in the world get no blur; only the camera's motion counts.</td><td>Mobile, or a fixed-camera game.</td></tr>
+          <tr><td>Motion blur, per pixel along own velocity</td><td class="n">0.3–0.5 ms</td><td class="n">8.3 MB RG16F velocity</td><td>Blur stops at edges; fast objects look like sharp cut-outs with a smeared inside.</td><td>Rarely. It is the naive baseline.</td></tr>
+          <tr><td>Motion blur, tile-based (McGuire 2012)</td><td class="n">0.5–0.8 ms</td><td class="n">8.3 MB velocity + two tiny tile textures</td><td>Tile shapes leak where a fast object passes a still one; without the depth terms a moving background eats a still foreground.</td><td>The default in Unreal, Unity HDRP and most in-house engines.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">Three effects, three inputs. The table names only what the authors published.</p>
+    <p class="plain">Each row is one technique as a shipped engine or paper describes it. Read across: <b>what the pass computes</b>, <b>what data it has to read</b>, and <b>who published it</b>.</p>
+    <div class="tbl-wrap">
+      <table class="uses">
+        <thead><tr><th>Use</th><th>What the pass computes</th><th>Data it reads</th><th>Seen in</th></tr></thead>
+        <tbody>
+          <tr><td>HDR bloom, 13-tap chain</td><td>Soft-knee threshold, six 13-tap downsamples, tent upsample with add at each level.</td><td>Linear HDR colour, RGBA16F</td><td>Call of Duty: Advanced Warfare (Jimenez, "Next Generation Post Processing in Call of Duty: Advanced Warfare", SIGGRAPH 2014); Unity's post-processing stack; many engines</td></tr>
+          <tr><td>Firefly suppression</td><td>Weight each 4-tap group by 1/(1+luma) in the first downsample, so one very bright pixel cannot outvote its neighbours.</td><td>The mip 1 downsample only</td><td>Karis's luminance-weighted average (2013), used as the partial Karis average in Jimenez 2014</td></tr>
+          <tr><td>Convolution bloom</td><td>FFT the bright pass, multiply by a kernel image, inverse FFT.</td><td>HDR colour plus an authored kernel texture</td><td>Unreal Engine's Convolution Bloom, alongside its Standard mip-chain bloom</td></tr>
+          <tr><td>Physical camera DoF</td><td>CoC from focal length, f-stop and focus distance; half-res near/far gather composited over the sharp image.</td><td>Depth, HDR colour, camera parameters</td><td>Frostbite's physically based camera (Lagarde and de Rousiers, "Moving Frostbite to PBR", SIGGRAPH 2014); Unity HDRP physical camera; Unreal's cinematic camera</td></tr>
+          <tr><td>Tile-based motion blur</td><td>Tile max and neighbour max of velocity, cone/cylinder weights with a soft depth compare.</td><td>Velocity RG16F, depth</td><td>McGuire, Hennessy, Bukowski and Osman, "A Reconstruction Filter for Plausible Motion Blur" (I3D 2012); Guertin, McGuire and Nowrouzezahrai (HPG 2014); Jimenez 2014; Unreal and Unity</td></tr>
+          <tr><td>Camera-only motion blur</td><td>Work out where each pixel was last frame from the previous camera matrix and blur along the difference.</td><td>Depth and the two camera matrices</td><td>Many mobile and last-generation titles</td></tr>
+          <tr><td>Post effects around an upscaler</td><td>Motion vectors and jitter feed the upscaler; passes after it run at output resolution.</td><td>Velocity, depth, jitter offsets</td><td>DLSS, FSR 2, XeSS, Unreal's TSR; placement of each effect is per-engine</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">The budgeting trap is that post effects look free one at a time. Every one of them touches every pixel every frame, and at 4K that is 8.3 million pixels per pass, so six passes at a few hundred picoseconds each add up to 2–5 ms of a 16.7 ms frame. That is why depth of field runs at half resolution, bloom starts at a quarter, and motion blur is the first thing switched off on a performance preset.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const W = 256, H = 144, NPX = W * H;
+  const $ = id => document.getElementById(id);
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const sat = v => v < 0 ? 0 : v > 1 ? 1 : v;
+  const luma = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const fmtN = n => Math.round(n).toLocaleString("en-US");
+  const fmtB = b => b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : b >= 1024 ? (b / 1024).toFixed(0) + " KB" : b + " B";
+  const MONO = '11px "IBM Plex Mono", Menlo, Consolas, monospace';
+  const AMBER = "#f2a341", BLUE = "#4aa3ff", WHITE = "#ffffff", GREEN = "#5ad48a", RED = "#ef5d5d";
+
+  // ---------- scene: 256×144, HDR linear, depth in metres, velocity in px/frame ----------
+  const CAM = { fpx: 200, h: 1.5, hor: 60 };
+  const groundRow = d => CAM.hor + CAM.h * CAM.fpx / d;
+  const SKY0 = [0.012, 0.016, 0.03], SKY1 = [0.05, 0.06, 0.09];
+  const FF = { x: 172.5, y: 76.5, d: 12, I: 400 };
+  const OBJ_DEPTHS = [2.5, 4, 7, 9, 12, 14, 20, 30];
+  function renderScene(o) {
+    const col = new Float32Array(NPX * 3), dep = new Float32Array(NPX), vel = new Float32Array(NPX * 2);
+    for (let j = 0; j < H; j++) {
+      const below = j > CAM.hor, d = below ? CAM.h * CAM.fpx / (j - CAM.hor) : 1000;
+      for (let i = 0; i < W; i++) {
+        const k = j * W + i; let r, g, b;
+        if (!below) { const t = j / CAM.hor; r = SKY0[0] + (SKY1[0] - SKY0[0]) * t; g = SKY0[1] + (SKY1[1] - SKY0[1]) * t; b = SKY0[2] + (SKY1[2] - SKY0[2]) * t; }
+        else {
+          const wx = (i - W / 2) / CAM.fpx * d;
+          const chk = ((Math.floor(wx) + Math.floor(d)) & 1) ? 0.17 : 0.10;
+          const fog = 1 - Math.exp(-d / 30);
+          r = chk * 1.05 * (1 - fog) + SKY1[0] * fog; g = chk * (1 - fog) + SKY1[1] * fog; b = chk * 0.85 * (1 - fog) + SKY1[2] * fog;
+        }
+        col[k * 3] = r; col[k * 3 + 1] = g; col[k * 3 + 2] = b; dep[k] = d; vel[k * 2] = o.pan; vel[k * 2 + 1] = 0;
+      }
+    }
+    const put = (k, cov, r, g, b, d, vx) => {
+      col[k * 3] += (r - col[k * 3]) * cov; col[k * 3 + 1] += (g - col[k * 3 + 1]) * cov; col[k * 3 + 2] += (b - col[k * 3 + 2]) * cov;
+      if (cov > 0.5) { dep[k] = d; vel[k * 2] = vx; }
+    };
+    const rect = (x0, y0, x1, y1, d, c, vx, grad) => {
+      for (let j = Math.max(0, y0); j < Math.min(H, y1); j++) for (let i = Math.max(0, x0); i < Math.min(W, x1); i++) {
+        const k = j * W + i; if (d > dep[k] + 1e-3) continue;
+        const s = grad ? 1 - grad * (j - y0) / (y1 - y0) : 1;
+        put(k, 1, c[0] * s, c[1] * s, c[2] * s, d, vx);
+      }
+    };
+    const disc = (cx, cy, rad, d, c, vx, shade) => {
+      for (let j = Math.max(0, Math.floor(cy - rad - 1)); j <= Math.min(H - 1, Math.ceil(cy + rad + 1)); j++)
+        for (let i = Math.max(0, Math.floor(cx - rad - 1)); i <= Math.min(W - 1, Math.ceil(cx + rad + 1)); i++) {
+          const dx = i + 0.5 - cx, dy = j + 0.5 - cy, dist = Math.hypot(dx, dy);
+          const cov = sat(rad + 0.5 - dist); if (cov <= 0) continue;
+          const k = j * W + i; if (d > dep[k] + 1e-3) continue;
+          let s = 1, sp = 0;
+          if (shade) {
+            const nx = dx / rad, ny = dy / rad, nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
+            s = 0.12 + 0.88 * sat(-0.5 * nx - 0.6 * ny + 0.62 * nz);
+            sp = Math.pow(sat(-0.35 * nx - 0.5 * ny + 0.79 * nz), 60) * 6;
+          }
+          put(k, cov, c[0] * s + sp, c[1] * s + sp, c[2] * s + sp, d, vx);
+        }
+    };
+    const pan = o.pan;
+    const lamps = [[40, 50, 30, 3, [50, 42, 30]], [120, 47, 20, 4, [14, 17, 20]], [208, 54, 14, 5, [8, 4.8, 3.2]]];
+    for (const [x, y, d, r, c] of lamps) { rect(x - 1, y, x + 1, Math.round(groundRow(d)), d, [0.05, 0.05, 0.06], pan); disc(x, y, r, d, c, pan, false); }
+    rect(186, 70, 214, 72, 12, [0.42, 0.36, 0.42], pan); rect(186, 72, 214, 85, 12, [0.3, 0.26, 0.3], pan, 0.4);
+    rect(150, 40, 232, 44, 9, [2, 3.5, 5], pan);
+    rect(18, 69, 62, 72, 7, [0.4, 0.45, 0.4], pan); rect(18, 72, 62, 103, 7, [0.28, 0.33, 0.28], pan, 0.4);
+    rect(96, 72, 152, 78, 4, [0.66, 0.6, 0.5], pan); rect(96, 78, 152, 135, 4, [0.5, 0.44, 0.34], pan, 0.5);
+    rect(118, 92, 130, 104, 4, [3, 2, 1.2], pan);
+    if (o.firefly) {
+      const fx = FF.x + o.fOff, fy = FF.y;
+      for (let j = 74; j < 80; j++) for (let i = 170; i < 176; i++) if (Math.hypot(i + 0.5 - fx, j + 0.5 - fy) < 0.6) { const k = j * W + i; col[k * 3] += FF.I; col[k * 3 + 1] += FF.I; col[k * 3 + 2] += FF.I; }
+    }
+    disc(o.objX, 100, 22, 2.5, [0.85, 0.5, 0.22], pan + o.objVx, true);
+    return { col, dep, vel };
+  }
+
+  // ---------- display ----------
+  const GAM = new Float32Array(1025); for (let i = 0; i <= 1024; i++) GAM[i] = Math.pow(i / 1024, 1 / 2.2);
+  const enc = t => (GAM[(sat(t) * 1024) | 0] * 255) | 0;
+  const tmB = v => enc(v / (1 + v));
+  function imageHDR(buf, w, h, gain = 1) {
+    const img = new ImageData(w, h), p = img.data;
+    for (let k = 0; k < w * h; k++) { p[k * 4] = tmB(buf[k * 3] * gain); p[k * 4 + 1] = tmB(buf[k * 3 + 1] * gain); p[k * 4 + 2] = tmB(buf[k * 3 + 2] * gain); p[k * 4 + 3] = 255; }
+    return img;
+  }
+  function imageLDR(buf, w, h) {
+    const img = new ImageData(w, h), p = img.data;
+    for (let k = 0; k < w * h; k++) { p[k * 4] = enc(buf[k * 3]); p[k * 4 + 1] = enc(buf[k * 3 + 1]); p[k * 4 + 2] = enc(buf[k * 3 + 2]); p[k * 4 + 3] = 255; }
+    return img;
+  }
+  const OFF = document.createElement("canvas"), OFFX = OFF.getContext("2d");
+  function blit(ctx, img, dx, dy, dw, dh) {
+    if (OFF.width !== img.width || OFF.height !== img.height) { OFF.width = img.width; OFF.height = img.height; }
+    OFFX.putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(OFF, 0, 0, img.width, img.height, dx, dy, dw, dh);
+  }
+  function label(ctx, txt, x, y, c = "rgba(255,255,255,0.78)", align = "left") { ctx.font = MONO; ctx.fillStyle = c; ctx.textBaseline = "top"; ctx.textAlign = align; ctx.fillText(txt, x, y); ctx.textAlign = "left"; }
+  function clear(ctx, w, h) { ctx.fillStyle = "#0b0e13"; ctx.fillRect(0, 0, w, h); }
+  function arrow(ctx, x0, y0, x1, y1, c, lw = 1.5) {
+    ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    const a = Math.atan2(y1 - y0, x1 - x0), s = 5;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x1 - s * Math.cos(a - 0.5), y1 - s * Math.sin(a - 0.5)); ctx.lineTo(x1 - s * Math.cos(a + 0.5), y1 - s * Math.sin(a + 0.5)); ctx.closePath(); ctx.fill();
+  }
+  function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
+  function onSeg(id, fn) { $(id).addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; segOn(ev.currentTarget, b.dataset.v); fn(b.dataset.v); }); }
+  function rafOnce(fn) { let pending = false; return () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; fn(); }); }; }
+  function pixelOf(canvas, ev) { const r = canvas.getBoundingClientRect(); return [Math.floor((ev.clientX - r.left) / r.width * W), Math.floor((ev.clientY - r.top) / r.height * H)]; }
+
+  // ---------- bloom chain ----------
+  function thrOne(br, T, K) { let soft = clamp(br - T + K, 0, 2 * K); soft = soft * soft / (4 * K + 1e-5); return Math.max(soft, br - T) / Math.max(br, 1e-5); }
+  function thresholdBuf(src, n, T, K) {
+    const out = new Float32Array(n * 3);
+    for (let k = 0; k < n; k++) {
+      const r = src[k * 3], g = src[k * 3 + 1], b = src[k * 3 + 2], br = Math.max(r, g, b);
+      const c = thrOne(br, T, K); if (c <= 0) continue;
+      out[k * 3] = r * c; out[k * 3 + 1] = g * c; out[k * 3 + 2] = b * c;
+    }
+    return out;
+  }
+  const OX = [-1, 1, 3, -1, 1, 3, -1, 1, 3, 0, 2, 0, 2], OY = [-1, -1, -1, 1, 1, 1, 3, 3, 3, 0, 0, 2, 2];
+  const GRP = [[9, 10, 11, 12], [0, 1, 3, 4], [1, 2, 4, 5], [3, 4, 6, 7], [4, 5, 7, 8]], GW = [0.5, 0.125, 0.125, 0.125, 0.125];
+  function down13(s, sw, sh, dw, dh, karis) {
+    const out = new Float32Array(dw * dh * 3), T = new Float32Array(39);
+    for (let y = 0; y < dh; y++) for (let x = 0; x < dw; x++) {
+      for (let t = 0; t < 13; t++) {
+        const cx = 2 * x + OX[t], cy = 2 * y + OY[t];
+        const x0 = clamp(cx - 1, 0, sw - 1), x1 = clamp(cx, 0, sw - 1), y0 = clamp(cy - 1, 0, sh - 1), y1 = clamp(cy, 0, sh - 1);
+        const p00 = (y0 * sw + x0) * 3, p01 = (y0 * sw + x1) * 3, p10 = (y1 * sw + x0) * 3, p11 = (y1 * sw + x1) * 3;
+        T[t * 3] = (s[p00] + s[p01] + s[p10] + s[p11]) * 0.25;
+        T[t * 3 + 1] = (s[p00 + 1] + s[p01 + 1] + s[p10 + 1] + s[p11 + 1]) * 0.25;
+        T[t * 3 + 2] = (s[p00 + 2] + s[p01 + 2] + s[p10 + 2] + s[p11 + 2]) * 0.25;
+      }
+      let r = 0, g = 0, b = 0;
+      for (let gi = 0; gi < 5; gi++) {
+        // each group of 4 taps is averaged; with Karis, each tap is weighted by 1/(1+luma) inside its group
+        const idx = GRP[gi]; let gr = 0, gg = 0, gb = 0, ws = 0;
+        for (let q = 0; q < 4; q++) {
+          const t = idx[q], tr = T[t * 3], tg = T[t * 3 + 1], tb = T[t * 3 + 2];
+          const w = karis ? 1 / (1 + luma(tr, tg, tb)) : 1;
+          gr += tr * w; gg += tg * w; gb += tb * w; ws += w;
+        }
+        const W = GW[gi] / ws;
+        r += gr * W; g += gg * W; b += gb * W;
+      }
+      const o = (y * dw + x) * 3; out[o] = r; out[o + 1] = g; out[o + 2] = b;
+    }
+    return out;
+  }
+  function bil(s, sw, sh, u, v, out) {
+    u -= 0.5; v -= 0.5;
+    const fx0 = Math.floor(u), fy0 = Math.floor(v), fx = u - fx0, fy = v - fy0;
+    const x0 = clamp(fx0, 0, sw - 1), x1 = clamp(fx0 + 1, 0, sw - 1), y0 = clamp(fy0, 0, sh - 1), y1 = clamp(fy0 + 1, 0, sh - 1);
+    const p00 = (y0 * sw + x0) * 3, p01 = (y0 * sw + x1) * 3, p10 = (y1 * sw + x0) * 3, p11 = (y1 * sw + x1) * 3;
+    const w00 = (1 - fx) * (1 - fy), w01 = fx * (1 - fy), w10 = (1 - fx) * fy, w11 = fx * fy;
+    out[0] = s[p00] * w00 + s[p01] * w01 + s[p10] * w10 + s[p11] * w11;
+    out[1] = s[p00 + 1] * w00 + s[p01 + 1] * w01 + s[p10 + 1] * w10 + s[p11 + 1] * w11;
+    out[2] = s[p00 + 2] * w00 + s[p01 + 2] * w01 + s[p10 + 2] * w10 + s[p11 + 2] * w11;
+  }
+  const TW9 = [1, 2, 1, 2, 4, 2, 1, 2, 1];
+  function tentAdd(sm, sw, sh, big, bw, bh) {
+    const out = new Float32Array(bw * bh * 3), t = [0, 0, 0], sx = sw / bw, sy = sh / bh;
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+      const u = (x + 0.5) * sx, v = (y + 0.5) * sy; let r = 0, g = 0, b = 0, ti = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { bil(sm, sw, sh, u + dx, v + dy, t); const w = TW9[ti++] / 16; r += t[0] * w; g += t[1] * w; b += t[2] * w; }
+      const o = (y * bw + x) * 3; out[o] = big[o] + r; out[o + 1] = big[o + 1] + g; out[o + 2] = big[o + 2] + b;
+    }
+    return out;
+  }
+  function bloomChain(pre, w, h, karis) {
+    const mips = [{ d: pre, w, h }];
+    for (let l = 0; l < 6; l++) {
+      const s = mips[l], nw = Math.max(1, Math.ceil(s.w / 2)), nh = Math.max(1, Math.ceil(s.h / 2));
+      mips.push({ d: down13(s.d, s.w, s.h, nw, nh, karis && l === 0), w: nw, h: nh });
+    }
+    const ups = []; let cur = mips[6];
+    for (let l = 5; l >= 1; l--) { const t = mips[l]; cur = { d: tentAdd(cur.d, cur.w, cur.h, t.d, t.w, t.h), w: t.w, h: t.h }; ups.push(cur); }
+    // last step: tent-upsample u1 to full res without adding the sharp prefilter back
+    cur = { d: tentAdd(cur.d, cur.w, cur.h, new Float32Array(w * h * 3), w, h), w, h }; ups.push(cur);
+    return { mips, ups, bloom: cur.d };
+  }
+  function chainStats(mips) {
+    let mem = 0, down = 0, up = 0;
+    for (let l = 0; l <= 6; l++) { mem += mips[l].w * mips[l].h * 8; if (l >= 1) down += 13 * mips[l].w * mips[l].h; if (l <= 5) up += 9 * mips[l].w * mips[l].h; }
+    return { mem, reads: down + up };
+  }
+
+  // ---------- 1. bloom pipeline ----------
+  const S1 = { T: 1.0, K: 0.5, I: 0.2, karis: false, firefly: true, off: 0, view: "composite", anim: false };
+  const c1a = $("c1a"), x1a = c1a.getContext("2d"), c1b = $("c1b"), x1b = c1b.getContext("2d");
+  let scene1, pre1, chain1;
+  function compute1() {
+    scene1 = renderScene({ objX: 88, objVx: 0, pan: 0, firefly: S1.firefly, fOff: S1.off });
+    pre1 = thresholdBuf(scene1.col, NPX, S1.T, S1.K);
+    chain1 = bloomChain(pre1, W, H, S1.karis);
+  }
+  function draw1() {
+    const c = new Float32Array(NPX * 3), bl = chain1.bloom, sc = scene1.col;
+    let peak = 0;
+    for (let k = 0; k < NPX * 3; k += 3) {
+      const br = S1.I * bl[k], bg = S1.I * bl[k + 1], bb = S1.I * bl[k + 2];
+      const l = luma(br, bg, bb); if (l > peak) peak = l;
+      if (S1.view === "composite") { c[k] = sc[k] + br; c[k + 1] = sc[k + 1] + bg; c[k + 2] = sc[k + 2] + bb; }
+      else if (S1.view === "bloom") { c[k] = br; c[k + 1] = bg; c[k + 2] = bb; }
+      else { c[k] = pre1[k]; c[k + 1] = pre1[k + 1]; c[k + 2] = pre1[k + 2]; }
+    }
+    blit(x1a, imageHDR(c, W, H), 0, 0, 640, 360);
+    if (S1.firefly) {
+      x1a.strokeStyle = WHITE; x1a.lineWidth = 1; x1a.beginPath(); x1a.arc((FF.x + S1.off) * 2.5, FF.y * 2.5, 14, 0, Math.PI * 2); x1a.stroke();
+      label(x1a, "firefly", (FF.x + S1.off) * 2.5 + 18, FF.y * 2.5 - 6);
+    }
+    const kf = ((FF.y | 0) * W + (FF.x | 0)) * 3;
+    const ffPeak = S1.I * luma(bl[kf], bl[kf + 1], bl[kf + 2]);
+    $("c1a-read").innerHTML = `bloom peak <strong>${peak.toFixed(2)}</strong> · at the firefly <strong>${ffPeak.toFixed(2)}</strong> · T ${S1.T.toFixed(2)} K ${S1.K.toFixed(2)}`;
+    // chain view
+    clear(x1b, 640, 360);
+    const M = chain1.mips, U = chain1.ups;
+    label(x1b, "downsample: 13 taps per texel, half size each step", 4, 3, AMBER);
+    blit(x1b, imageHDR(M[0].d, M[0].w, M[0].h, 4), 4, 16, 256, 144);
+    let x = 268; const xs = [];
+    for (let l = 1; l <= 6; l++) { blit(x1b, imageHDR(M[l].d, M[l].w, M[l].h, 4), x, 16, M[l].w, M[l].h); xs.push(x); x += M[l].w + 8; }
+    label(x1b, `prefilter ${M[0].w}×${M[0].h}`, 4, 164);
+    label(x1b, `m1 ${M[1].w}×${M[1].h} · m2 ${M[2].w}×${M[2].h} · m3 ${M[3].w}×${M[3].h} · m4 ${M[4].w}×${M[4].h} · m5 ${M[5].w}×${M[5].h} · m6 ${M[6].w}×${M[6].h}`, 268, 164);
+    label(x1b, "upsample: 3×3 tent of the smaller mip, added to this level", 4, 177, BLUE);
+    // ups: [u5, u4, u3, u2, u1, u0]
+    blit(x1b, imageHDR(U[5].d, U[5].w, U[5].h, 4), 4, 190, 256, 144);
+    for (let l = 1; l <= 5; l++) { const u = U[5 - l]; blit(x1b, imageHDR(u.d, u.w, u.h, 4), xs[l - 1], 190, u.w, u.h); }
+    label(x1b, `bloom = tent(u1) at ${U[5].w}×${U[5].h}`, 4, 338);
+    label(x1b, `u1 = m1 + tent(u2) … u5 = m5 + tent(m6)`, 268, 338);
+    const st = chainStats(M);
+    $("c1b-read").innerHTML = `<strong>${fmtB(st.mem)}</strong> for 7 levels · <strong>${fmtN(st.reads)}</strong> bilinear reads`;
+    $("t1-mem").innerHTML = `${fmtB(st.mem)} <small>${fmtB(st.mem * 1920 * 1080 / (4 * NPX))} at 1080p from half res</small>`;
+    $("t1-reads").innerHTML = `${(st.reads / 1000).toFixed(0)} k <small>${(st.reads / NPX).toFixed(1)} per pixel</small>`;
+    $("t1-plain").classList.toggle("on", !S1.karis); $("t1-karis").classList.toggle("on", S1.karis);
+  }
+  // firefly flicker: 48×48 crop around the firefly, eight sub-pixel offsets, with and without Karis
+  function fireflySweep() {
+    const CW = 48, CX = 149, CY = 53;
+    const base = renderScene({ objX: 88, objVx: 0, pan: 0, firefly: false, fOff: 0 });
+    const crop = new Float32Array(CW * CW * 3);
+    for (let j = 0; j < CW; j++) for (let i = 0; i < CW; i++) { const s = ((CY + j) * W + CX + i) * 3, d = (j * CW + i) * 3; crop[d] = base.col[s]; crop[d + 1] = base.col[s + 1]; crop[d + 2] = base.col[s + 2]; }
+    const res = {};
+    for (const karis of [false, true]) {
+      const b0 = bloomChain(thresholdBuf(crop, CW * CW, S1.T, S1.K), CW, CW, karis).bloom;
+      let mn = Infinity, mx = 0;
+      for (let s = 0; s < 8; s++) {
+        const off = s / 8, c2 = new Float32Array(crop), fx = FF.x - CX + off, fy = FF.y - CY;
+        for (let j = 20; j < 28; j++) for (let i = 20; i < 28; i++) if (Math.hypot(i + 0.5 - fx, j + 0.5 - fy) < 0.6) { const k = (j * CW + i) * 3; c2[k] += FF.I; c2[k + 1] += FF.I; c2[k + 2] += FF.I; }
+        const b = bloomChain(thresholdBuf(c2, CW * CW, S1.T, S1.K), CW, CW, karis).bloom;
+        let peak = 0;
+        for (let k = 0; k < CW * CW * 3; k += 3) { const l = luma(b[k] - b0[k], b[k + 1] - b0[k + 1], b[k + 2] - b0[k + 2]); if (l > peak) peak = l; }
+        mn = Math.min(mn, peak); mx = Math.max(mx, peak);
+      }
+      res[karis ? "karis" : "plain"] = { mn, mx };
+    }
+    for (const key of ["plain", "karis"]) {
+      const r = res[key], el = $("t1-" + key).querySelector(".n");
+      el.innerHTML = `${((r.mx - r.mn) * S1.I).toFixed(2)} <small>peak ${(r.mn * S1.I).toFixed(2)}–${(r.mx * S1.I).toFixed(2)} over 8 offsets</small>`;
+    }
+  }
+  let sweepTimer = 0;
+  const scheduleSweep = () => { clearTimeout(sweepTimer); sweepTimer = setTimeout(fireflySweep, 120); };
+  const upd1 = rafOnce(() => { compute1(); draw1(); });
+  const bind = (id, vid, fmt, fn) => { const el = $(id); el.addEventListener("input", () => { $(vid).textContent = fmt(+el.value); fn(+el.value); }); };
+  bind("thr1", "thr1v", v => v.toFixed(2), v => { S1.T = v; upd1(); scheduleSweep(); });
+  bind("knee1", "knee1v", v => v.toFixed(2), v => { S1.K = v; upd1(); scheduleSweep(); });
+  bind("int1", "int1v", v => v.toFixed(2), v => { S1.I = v; upd1(); scheduleSweep(); });
+  bind("off1", "off1v", v => v.toFixed(2) + " px", v => { S1.off = v; upd1(); });
+  onSeg("seg1v", v => { S1.view = v; upd1(); });
+  $("ff1").addEventListener("change", ev => { S1.firefly = ev.target.checked; upd1(); });
+  $("karis1").addEventListener("change", ev => { S1.karis = ev.target.checked; upd1(); });
+  $("anim1").addEventListener("change", ev => { S1.anim = ev.target.checked; if (S1.anim) animate1(); });
+  function animate1() {
+    if (!S1.anim) return;
+    S1.off = (S1.off + 0.02) % 1.0001; $("off1").value = S1.off.toFixed(2); $("off1v").textContent = S1.off.toFixed(2) + " px";
+    compute1(); draw1(); requestAnimationFrame(animate1);
+  }
+  compute1(); draw1(); fireflySweep();
+
+  // ---------- 2. before vs after tone mapping ----------
+  const S2 = { t: 0.3, mask: false }, I2 = 0.2;
+  const c2a = $("c2a"), x2a = c2a.getContext("2d"), c2b = $("c2b"), x2b = c2b.getContext("2d");
+  const scene2 = renderScene({ objX: 88, objVx: 0, pan: 0, firefly: false, fOff: 0 });
+  const ldr2 = new Float32Array(NPX * 3); for (let k = 0; k < NPX * 3; k++) ldr2[k] = scene2.col[k] / (1 + scene2.col[k]);
+  const bloomH2 = bloomChain(thresholdBuf(scene2.col, NPX, 1.0, 0.5), W, H, false).bloom;
+  function countAbove(buf, T) { let n = 0; for (let k = 0; k < NPX * 3; k += 3) if (Math.max(buf[k], buf[k + 1], buf[k + 2]) > T) n++; return n; }
+  function maskOver(ctx, buf, T) {
+    const img = new ImageData(W, H), p = img.data;
+    for (let k = 0; k < NPX; k++) if (Math.max(buf[k * 3], buf[k * 3 + 1], buf[k * 3 + 2]) > T) { p[k * 4] = 242; p[k * 4 + 1] = 163; p[k * 4 + 2] = 65; p[k * 4 + 3] = 170; }
+    if (OFF.width !== W || OFF.height !== H) { OFF.width = W; OFF.height = H; }
+    OFFX.putImageData(img, 0, 0); ctx.imageSmoothingEnabled = false; ctx.drawImage(OFF, 0, 0, 640, 360);
+  }
+  function draw2() {
+    const comp = new Float32Array(NPX * 3);
+    for (let k = 0; k < NPX * 3; k++) comp[k] = scene2.col[k] + I2 * bloomH2[k];
+    blit(x2a, imageHDR(comp, W, H), 0, 0, 640, 360);
+    const nH = countAbove(scene2.col, 1.0);
+    if (S2.mask) maskOver(x2a, scene2.col, 1.0);
+    $("c2a-read").innerHTML = `threshold 1.0 · <strong>${nH} px</strong> contribute (${(100 * nH / NPX).toFixed(1)} %)`;
+    const bloomL = bloomChain(thresholdBuf(ldr2, NPX, S2.t, 0.1), W, H, false).bloom;
+    const compL = new Float32Array(NPX * 3);
+    for (let k = 0; k < NPX * 3; k++) compL[k] = ldr2[k] + I2 * bloomL[k];
+    blit(x2b, imageLDR(compL, W, H), 0, 0, 640, 360);
+    const nL = countAbove(ldr2, S2.t);
+    if (S2.mask) maskOver(x2b, ldr2, S2.t);
+    let mx = 0; for (let k = 0; k < NPX * 3; k++) if (ldr2[k] > mx) mx = ldr2[k];
+    $("c2b-read").innerHTML = `threshold ${S2.t.toFixed(2)} · <strong>${nL} px</strong> contribute (${(100 * nL / NPX).toFixed(1)} %) · max ${mx.toFixed(2)}`;
+  }
+  const upd2 = rafOnce(draw2);
+  bind("thr2", "thr2v", v => v.toFixed(2), v => { S2.t = v; upd2(); });
+  $("mask2").addEventListener("change", ev => { S2.mask = ev.target.checked; upd2(); });
+  draw2();
+
+  // ---------- 3. depth of field ----------
+  const S3 = { f: 100, N: 1.4, df: 4, mode: "gather", shape: "circle", n: 32, view: "image" };
+  const c3a = $("c3a"), x3a = c3a.getContext("2d"), c3b = $("c3b"), x3b = c3b.getContext("2d");
+  const SENSOR = 36, MAXC = 24;
+  function cocPx(d) {
+    const f = S3.f, df = S3.df * 1000, dm = d * 1000, A = f / S3.N;
+    const mm = A * f * (dm - df) / (dm * (df - f));
+    return clamp(mm / SENSOR * W, -MAXC, MAXC);
+  }
+  const hexR = th => { let a = th % (Math.PI / 3); if (a < 0) a += Math.PI / 3; return Math.cos(Math.PI / 6) / Math.cos(a - Math.PI / 6); };
+  const patCache = {};
+  function pattern(n, hex) {
+    const key = n + (hex ? "h" : "c"); if (patCache[key]) return patCache[key];
+    const p = new Float32Array(n * 3);
+    for (let k = 0; k < n; k++) {
+      const r = Math.sqrt((k + 0.5) / n), th = k * 2.399963; let x = r * Math.cos(th), y = r * Math.sin(th);
+      if (hex) { const s = hexR(th); x *= s; y *= s; }
+      p[k * 3] = x; p[k * 3 + 1] = y; p[k * 3 + 2] = r;
+    }
+    patCache[key] = p; return p;
+  }
+  const HW = 128, HH = 72, HN = HW * HH, TDW = 16, TDH = 9;
+  const scene3 = scene2;
+  const coc3 = new Float32Array(NPX);
+  function renderDoF() {
+    for (let k = 0; k < NPX; k++) coc3[k] = cocPx(scene3.dep[k]);
+    const hcol = new Float32Array(HN * 3), hdep = new Float32Array(HN), hcoc = new Float32Array(HN);
+    for (let y = 0; y < HH; y++) for (let x = 0; x < HW; x++) {
+      const k = y * HW + x, a = (2 * y) * W + 2 * x, b = a + 1, c = a + W, d = c + 1;
+      hcol[k * 3] = (scene3.col[a * 3] + scene3.col[b * 3] + scene3.col[c * 3] + scene3.col[d * 3]) * 0.25;
+      hcol[k * 3 + 1] = (scene3.col[a * 3 + 1] + scene3.col[b * 3 + 1] + scene3.col[c * 3 + 1] + scene3.col[d * 3 + 1]) * 0.25;
+      hcol[k * 3 + 2] = (scene3.col[a * 3 + 2] + scene3.col[b * 3 + 2] + scene3.col[c * 3 + 2] + scene3.col[d * 3 + 2]) * 0.25;
+      const dm = Math.min(scene3.dep[a], scene3.dep[b], scene3.dep[c], scene3.dep[d]);
+      hdep[k] = dm; hcoc[k] = cocPx(dm) * 0.5;
+    }
+    // tile max of far and near CoC (8 half-px tiles), then 3×3 neighbour max
+    const tFar = new Float32Array(TDW * TDH), tNear = new Float32Array(TDW * TDH);
+    for (let k = 0; k < HN; k++) { const t = ((k / HW | 0) >> 3) * TDW + ((k % HW) >> 3); const c = hcoc[k]; if (c > tFar[t]) tFar[t] = c; if (-c > tNear[t]) tNear[t] = -c; }
+    const nFar = new Float32Array(TDW * TDH), nNear = new Float32Array(TDW * TDH);
+    for (let ty = 0; ty < TDH; ty++) for (let tx = 0; tx < TDW; tx++) {
+      let f = 0, n = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const yy = ty + dy, xx = tx + dx; if (yy < 0 || yy >= TDH || xx < 0 || xx >= TDW) continue; f = Math.max(f, tFar[yy * TDW + xx]); n = Math.max(n, tNear[yy * TDW + xx]); }
+      nFar[ty * TDW + tx] = f; nNear[ty * TDW + tx] = n;
+    }
+    const pat = pattern(S3.n, S3.shape === "hex"), n = S3.n;
+    const far = new Float32Array(HN * 3), near = new Float32Array(HN * 3), alpha = new Float32Array(HN);
+    let reads = 0;
+    for (let y = 0; y < HH; y++) for (let x = 0; x < HW; x++) {
+      const k = y * HW + x, t = (y >> 3) * TDW + (x >> 3), cp = hcoc[k], zp = hdep[k];
+      if (S3.mode === "naive") {
+        const r = Math.abs(cp);
+        if (r < 0.5) { far[k * 3] = hcol[k * 3]; far[k * 3 + 1] = hcol[k * 3 + 1]; far[k * 3 + 2] = hcol[k * 3 + 2]; continue; }
+        let sr = 0, sg = 0, sb = 0;
+        for (let i = 0; i < n; i++) {
+          const qx = clamp(Math.round(x + pat[i * 3] * r), 0, HW - 1), qy = clamp(Math.round(y + pat[i * 3 + 1] * r), 0, HH - 1), q = (qy * HW + qx) * 3;
+          sr += hcol[q]; sg += hcol[q + 1]; sb += hcol[q + 2];
+        }
+        reads += n;
+        far[k * 3] = sr / n; far[k * 3 + 1] = sg / n; far[k * 3 + 2] = sb / n;
+        continue;
+      }
+      const Rf = nFar[t], Rn = nNear[t];
+      if (Rf < 0.5) { far[k * 3] = hcol[k * 3]; far[k * 3 + 1] = hcol[k * 3 + 1]; far[k * 3 + 2] = hcol[k * 3 + 2]; }
+      else {
+        let sr = 0, sg = 0, sb = 0, ws = 0;
+        for (let i = 0; i < n; i++) {
+          const qx = clamp(Math.round(x + pat[i * 3] * Rf), 0, HW - 1), qy = clamp(Math.round(y + pat[i * 3 + 1] * Rf), 0, HH - 1), qk = qy * HW + qx;
+          const cq = Math.max(hcoc[qk], 0);
+          let w = sat(cq - pat[i * 3 + 2] * Rf + 1);
+          if (hdep[qk] > zp + 0.05) w *= sat(Math.abs(cp) / Math.max(cq, 1e-3));
+          sr += w * hcol[qk * 3]; sg += w * hcol[qk * 3 + 1]; sb += w * hcol[qk * 3 + 2]; ws += w;
+        }
+        reads += n;
+        if (ws < 1e-4) { ws = 1; sr = hcol[k * 3]; sg = hcol[k * 3 + 1]; sb = hcol[k * 3 + 2]; }
+        far[k * 3] = sr / ws; far[k * 3 + 1] = sg / ws; far[k * 3 + 2] = sb / ws;
+      }
+      if (Rn >= 0.5) {
+        let sr = 0, sg = 0, sb = 0, ws = 0;
+        for (let i = 0; i < n; i++) {
+          const qx = clamp(Math.round(x + pat[i * 3] * Rn), 0, HW - 1), qy = clamp(Math.round(y + pat[i * 3 + 1] * Rn), 0, HH - 1), qk = qy * HW + qx;
+          const cq = hcoc[qk]; if (cq >= 0) continue;
+          const w = sat(-cq - pat[i * 3 + 2] * Rn + 1);
+          sr += w * hcol[qk * 3]; sg += w * hcol[qk * 3 + 1]; sb += w * hcol[qk * 3 + 2]; ws += w;
+        }
+        reads += n;
+        if (ws > 1e-4) { near[k * 3] = sr / ws; near[k * 3 + 1] = sg / ws; near[k * 3 + 2] = sb / ws; alpha[k] = sat(ws / n * 1.15); }
+      }
+    }
+    // full-res composite: sharp where |CoC| < 1 px, half-res far elsewhere, near field over both
+    const out = new Float32Array(NPX * 3), t = [0, 0, 0], tn = [0, 0, 0];
+    const alpha3 = new Float32Array(HN * 3); for (let k = 0; k < HN; k++) alpha3[k * 3] = alpha[k];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const k = y * W + x, u = (x + 0.5) * 0.5, v = (y + 0.5) * 0.5;
+      const b = sat(Math.abs(coc3[k]) - 0.5);
+      bil(far, HW, HH, u, v, t);
+      let r = scene3.col[k * 3] + (t[0] - scene3.col[k * 3]) * b, g = scene3.col[k * 3 + 1] + (t[1] - scene3.col[k * 3 + 1]) * b, bb = scene3.col[k * 3 + 2] + (t[2] - scene3.col[k * 3 + 2]) * b;
+      if (S3.mode !== "naive") {
+        bil(alpha3, HW, HH, u, v, tn); const a = tn[0];
+        if (a > 0) { bil(near, HW, HH, u, v, t); r += (t[0] - r) * a; g += (t[1] - g) * a; bb += (t[2] - bb) * a; }
+      }
+      out[k * 3] = r; out[k * 3 + 1] = g; out[k * 3 + 2] = bb;
+    }
+    return { out, reads, maxFar: Math.max(...nFar), maxNear: Math.max(...nNear) };
+  }
+  let dof3;
+  function draw3b() {
+    dof3 = renderDoF();
+    if (S3.view === "image") blit(x3b, imageHDR(dof3.out, W, H), 0, 0, 640, 360);
+    else {
+      const img = new ImageData(W, H), p = img.data;
+      for (let k = 0; k < NPX; k++) {
+        const c = coc3[k], a = Math.min(1, Math.abs(c) / MAXC), base = c > 0 ? [242, 163, 65] : [74, 163, 255];
+        const v = 0.08 + 0.92 * Math.sqrt(a);
+        p[k * 4] = 11 + (base[0] - 11) * v; p[k * 4 + 1] = 14 + (base[1] - 14) * v; p[k * 4 + 2] = 19 + (base[2] - 19) * v; p[k * 4 + 3] = 255;
+      }
+      blit(x3b, img, 0, 0, 640, 360);
+    }
+    $("c3b-cost").innerHTML = `${S3.n} samples · half res ${HW}×${HH} · <strong>${fmtN(dof3.reads)}</strong> reads`;
+  }
+  function draw3a() {
+    clear(x3a, 640, 360);
+    const L = 46, R = 620, T = 22, B = 322, DMAX = 24;
+    const xOf = d => L + (d / DMAX) * (R - L), yOf = c => (T + B) / 2 - c / MAXC * (B - T) / 2;
+    x3a.strokeStyle = "rgba(255,255,255,0.12)"; x3a.lineWidth = 1; x3a.beginPath();
+    for (let d = 0; d <= DMAX; d += 4) { x3a.moveTo(xOf(d), T); x3a.lineTo(xOf(d), B); }
+    for (let c = -MAXC; c <= MAXC; c += 8) { x3a.moveTo(L, yOf(c)); x3a.lineTo(R, yOf(c)); }
+    x3a.stroke();
+    // in-focus band ±1 px
+    x3a.fillStyle = "rgba(255,255,255,0.08)"; x3a.fillRect(L, yOf(1), R - L, yOf(-1) - yOf(1));
+    // curve with fills
+    const pts = [];
+    for (let i = 0; i <= 400; i++) { const d = 0.3 + (DMAX - 0.3) * i / 400; pts.push([xOf(d), yOf(cocPx(d)), cocPx(d), d]); }
+    for (const sign of [1, -1]) {
+      x3a.fillStyle = sign > 0 ? "rgba(242,163,65,0.22)" : "rgba(74,163,255,0.22)";
+      x3a.beginPath(); let started = false;
+      for (const [px, py, c] of pts) { const yy = (c * sign > 0) ? py : yOf(0); if (!started) { x3a.moveTo(px, yOf(0)); started = true; } x3a.lineTo(px, yy); }
+      x3a.lineTo(pts[pts.length - 1][0], yOf(0)); x3a.closePath(); x3a.fill();
+    }
+    x3a.strokeStyle = WHITE; x3a.lineWidth = 1.5; x3a.beginPath();
+    pts.forEach(([px, py], i) => i ? x3a.lineTo(px, py) : x3a.moveTo(px, py)); x3a.stroke();
+    // axes and labels
+    x3a.strokeStyle = "rgba(255,255,255,0.4)"; x3a.beginPath(); x3a.moveTo(L, yOf(0)); x3a.lineTo(R, yOf(0)); x3a.moveTo(L, T); x3a.lineTo(L, B); x3a.stroke();
+    for (let d = 0; d <= DMAX; d += 4) label(x3a, d + " m", xOf(d), B + 6, "rgba(255,255,255,0.6)", "center");
+    for (let c = -MAXC; c <= MAXC; c += 8) label(x3a, (c > 0 ? "+" : "") + c, L - 6, yOf(c) - 6, "rgba(255,255,255,0.6)", "right");
+    label(x3a, "far, +px", R - 4, T + 2, AMBER, "right"); label(x3a, "near, −px", R - 4, B - 16, BLUE, "right");
+    label(x3a, "CoC, px in the 256 px frame", L + 6, T + 2);
+    // focus line
+    x3a.strokeStyle = WHITE; x3a.setLineDash([3, 4]); x3a.beginPath(); x3a.moveTo(xOf(S3.df), T); x3a.lineTo(xOf(S3.df), B); x3a.stroke(); x3a.setLineDash([]);
+    label(x3a, `focus ${S3.df.toFixed(1)} m`, xOf(S3.df) + 5, B - 30);
+    // object dots
+    for (const d of OBJ_DEPTHS) { if (d > DMAX) continue; const c = cocPx(d); x3a.beginPath(); x3a.arc(xOf(d), yOf(c), 4, 0, Math.PI * 2); x3a.fillStyle = c > 0 ? AMBER : c < 0 ? BLUE : WHITE; x3a.fill(); }
+    // in-focus range: where |coc| < 1 px
+    let dn = null, dfar = null;
+    for (let i = 0; i < pts.length; i++) { if (Math.abs(pts[i][2]) < 1) { if (dn === null) dn = pts[i][3]; dfar = pts[i][3]; } }
+    const A = S3.f / S3.N, H0 = S3.f * S3.f / (S3.N * (SENSOR / W)) / 1000 + S3.f / 1000;
+    $("c3a-read").innerHTML = `A = f/N = <strong>${A.toFixed(1)} mm</strong> · sharp (|CoC| &lt; 1 px) from <strong>${dn === null ? "—" : dn.toFixed(2) + " m"}</strong> to <strong>${dfar === null ? "—" : (dfar >= DMAX - 0.1 ? "∞" : dfar.toFixed(2) + " m")}</strong> · hyperfocal ${H0.toFixed(1)} m`;
+  }
+  const upd3 = rafOnce(() => { draw3a(); draw3b(); });
+  bind("fl3", "fl3v", v => v + " mm", v => { S3.f = v; upd3(); });
+  bind("fs3", "fs3v", v => "f/" + v.toFixed(1), v => { S3.N = v; upd3(); });
+  bind("fd3", "fd3v", v => v.toFixed(1) + " m", v => { S3.df = v; upd3(); });
+  onSeg("seg3m", v => { S3.mode = v; upd3(); });
+  onSeg("seg3s", v => { S3.shape = v; upd3(); });
+  onSeg("seg3n", v => { S3.n = +v; upd3(); });
+  onSeg("seg3v", v => { S3.view = v; upd3(); });
+  c3b.addEventListener("pointermove", ev => {
+    const [i, j] = pixelOf(c3b, ev); if (i < 0 || j < 0 || i >= W || j >= H) return;
+    const k = j * W + i, d = scene3.dep[k], c = coc3[k];
+    $("c3b-read").innerHTML = `px (${i}, ${j}) · depth <strong>${d >= 999 ? "sky" : d.toFixed(2) + " m"}</strong> · CoC <strong>${c >= 0 ? "+" : "−"}${Math.abs(c).toFixed(1)} px</strong> (${(Math.abs(c) * 7.5).toFixed(0)} px at 1920) · ${Math.abs(c) < 1 ? "sharp" : c > 0 ? "far field" : "near field"}`;
+  });
+  c3b.addEventListener("pointerleave", () => { $("c3b-read").textContent = "hover for depth and CoC"; });
+  draw3a(); draw3b();
+
+  // ---------- 4. motion blur ----------
+  const S4 = { shutter: 0.5, n: 8, objVx: 14, pan: -4, weight: "depth", view: "result" };
+  const c4 = $("c4"), x4 = c4.getContext("2d");
+  const TS = 16, TX = W / TS, TY = H / TS, SOFT_Z = 1.0;
+  let scene4, tmax4, nmax4;
+  function velocityTiles() {
+    tmax4 = new Float32Array(TX * TY * 2); nmax4 = new Float32Array(TX * TY * 2);
+    const tl = new Float32Array(TX * TY).fill(-1);
+    const v = scene4.vel;
+    for (let k = 0; k < NPX; k++) {
+      const t = ((k / W | 0) >> 4) * TX + ((k % W) >> 4), l = Math.hypot(v[k * 2], v[k * 2 + 1]);
+      if (l > tl[t]) { tl[t] = l; tmax4[t * 2] = v[k * 2]; tmax4[t * 2 + 1] = v[k * 2 + 1]; }
+    }
+    for (let ty = 0; ty < TY; ty++) for (let tx = 0; tx < TX; tx++) {
+      let best = -1, bx = 0, by = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const yy = ty + dy, xx = tx + dx; if (yy < 0 || yy >= TY || xx < 0 || xx >= TX) continue; const q = yy * TX + xx; if (tl[q] > best) { best = tl[q]; bx = tmax4[q * 2]; by = tmax4[q * 2 + 1]; } }
+      nmax4[(ty * TX + tx) * 2] = bx; nmax4[(ty * TX + tx) * 2 + 1] = by;
+    }
+  }
+  const cone = (d, v) => v < 1e-3 ? 0 : sat(1 - d / v);
+  const cyl = (d, v) => { const a = 0.95 * v, b = 1.05 * v; if (d <= a) return 1; if (d >= b) return 0; const t = (d - a) / (b - a); return 1 - t * t * (3 - 2 * t); };
+  function motionBlur() {
+    const { col, dep, vel } = scene4, out = new Float32Array(NPX * 3), n = S4.n, sh = S4.shutter;
+    let reads = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const k = y * W + x, o = k * 3;
+      const vx = vel[k * 2] * sh, vy = vel[k * 2 + 1] * sh, vX = Math.hypot(vx, vy);
+      let dx, dy;
+      if (S4.weight === "own") { dx = vx; dy = vy; } else { const t = (y >> 4) * TX + (x >> 4); dx = nmax4[t * 2] * sh; dy = nmax4[t * 2 + 1] * sh; }
+      const L = Math.hypot(dx, dy);
+      if (L < 0.5) { out[o] = col[o]; out[o + 1] = col[o + 1]; out[o + 2] = col[o + 2]; continue; }
+      const jit = ((x + y) & 1) ? 0.25 : -0.25, zX = dep[k];
+      let sr, sg, sb, ws;
+      if (S4.weight === "own") { sr = sg = sb = ws = 0; } else { ws = 1 / Math.max(vX, 0.5); sr = col[o] * ws; sg = col[o + 1] * ws; sb = col[o + 2] * ws; }
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5 + jit) / n - 0.5;
+        const px = clamp(Math.round(x + dx * t), 0, W - 1), py = clamp(Math.round(y + dy * t), 0, H - 1), q = py * W + px;
+        let w = 1;
+        if (S4.weight !== "own") {
+          const d = Math.abs(t) * L, vY = Math.hypot(vel[q * 2], vel[q * 2 + 1]) * sh, zY = dep[q];
+          const f = S4.weight === "depth" ? sat(1 - (zX - zY) / SOFT_Z) : 1, b = S4.weight === "depth" ? sat(1 - (zY - zX) / SOFT_Z) : 1;
+          w = f * cone(d, vY) + b * cone(d, vX) + 2 * cyl(d, vY) * cyl(d, vX);
+        }
+        sr += w * col[q * 3]; sg += w * col[q * 3 + 1]; sb += w * col[q * 3 + 2]; ws += w;
+      }
+      reads += n;
+      if (ws < 1e-5) { out[o] = col[o]; out[o + 1] = col[o + 1]; out[o + 2] = col[o + 2]; }
+      else { out[o] = sr / ws; out[o + 1] = sg / ws; out[o + 2] = sb / ws; }
+    }
+    return { out, reads };
+  }
+  function draw4() {
+    scene4 = renderScene({ objX: 88, objVx: S4.objVx, pan: S4.pan, firefly: false, fOff: 0 });
+    velocityTiles();
+    const vmax = Math.max(Math.abs(S4.pan), Math.abs(S4.pan + S4.objVx), 1e-3);
+    if (S4.view === "result") {
+      const mb = motionBlur();
+      blit(x4, imageHDR(mb.out, W, H), 0, 0, 640, 360);
+      $("c4-cost").innerHTML = `${S4.n} samples · <strong>${fmtN(mb.reads)}</strong> reads`;
+    } else {
+      const img = new ImageData(W, H), p = img.data, v = scene4.vel;
+      for (let k = 0; k < NPX; k++) {
+        const l = Math.hypot(v[k * 2], v[k * 2 + 1]) / vmax * S4.shutter, s = S4.view === "vel" ? 0.1 + 0.9 * l : 0.05 + 0.2 * l;
+        const c = scene4.col;
+        p[k * 4] = tmB(c[k * 3]) * 0.35 + 242 * s * 0.65; p[k * 4 + 1] = tmB(c[k * 3 + 1]) * 0.35 + 163 * s * 0.65; p[k * 4 + 2] = tmB(c[k * 3 + 2]) * 0.35 + 65 * s * 0.65; p[k * 4 + 3] = 255;
+      }
+      blit(x4, img, 0, 0, 640, 360);
+      x4.strokeStyle = "rgba(255,255,255,0.12)"; x4.lineWidth = 1; x4.beginPath();
+      for (let t = 1; t < TX; t++) { x4.moveTo(t * TS * 2.5 + 0.5, 0); x4.lineTo(t * TS * 2.5 + 0.5, 360); }
+      for (let t = 1; t < TY; t++) { x4.moveTo(0, t * TS * 2.5 + 0.5); x4.lineTo(640, t * TS * 2.5 + 0.5); }
+      x4.stroke();
+      const scl = 2.5 * S4.shutter;
+      for (let ty = 0; ty < TY; ty++) for (let tx = 0; tx < TX; tx++) {
+        const cx = (tx + 0.5) * TS * 2.5, cy = (ty + 0.5) * TS * 2.5, t = ty * TX + tx;
+        if (S4.view === "vel") {
+          const k = ((ty * TS + 8) * W + tx * TS + 8); const vx = v[k * 2] * scl, vy = v[k * 2 + 1] * scl;
+          if (Math.hypot(vx, vy) >= 1) arrow(x4, cx - vx / 2, cy - vy / 2, cx + vx / 2, cy + vy / 2, WHITE, 1.2);
+        } else {
+          const ax = tmax4[t * 2] * scl, ay = tmax4[t * 2 + 1] * scl, bx = nmax4[t * 2] * scl, by = nmax4[t * 2 + 1] * scl;
+          if (Math.hypot(bx, by) >= 1) arrow(x4, cx - bx / 2, cy - by / 2 + 5, cx + bx / 2, cy + by / 2 + 5, BLUE, 1.2);
+          if (Math.hypot(ax, ay) >= 1) arrow(x4, cx - ax / 2, cy - ay / 2 - 5, cx + ax / 2, cy + ay / 2 - 5, AMBER, 1.5);
+        }
+      }
+      if (S4.view === "tile") { label(x4, "amber: tile max · blue: neighbour max, 3×3 tiles", 6, 344, "rgba(255,255,255,0.85)"); }
+      else label(x4, "per-pixel velocity × shutter, one arrow per 16 px tile", 6, 344, "rgba(255,255,255,0.85)");
+      $("c4-cost").innerHTML = `${TX}×${TY} tiles of ${TS} px`;
+    }
+    const ball = S4.pan + S4.objVx;
+    $("c4-read").innerHTML = `ball <strong>${ball > 0 ? "+" : ""}${ball} px/frame</strong> · background <strong>${S4.pan > 0 ? "+" : ""}${S4.pan}</strong> · blur length <strong>${(Math.abs(ball) * S4.shutter).toFixed(1)} px</strong> · shutter ${(S4.shutter * 16.7).toFixed(1)} ms`;
+  }
+  const upd4 = rafOnce(draw4);
+  onSeg("seg4v", v => { S4.view = v; upd4(); });
+  onSeg("seg4w", v => { S4.weight = v; upd4(); });
+  onSeg("seg4n", v => { S4.n = +v; upd4(); });
+  bind("sh4", "sh4v", v => v.toFixed(2) + " frame", v => { S4.shutter = v; upd4(); });
+  bind("ov4", "ov4v", v => (v < 0 ? "−" : "") + Math.abs(v) + " px/frame", v => { S4.objVx = v; upd4(); });
+  bind("pan4", "pan4v", v => (v < 0 ? "−" : "") + Math.abs(v) + " px/frame", v => { S4.pan = v; upd4(); });
+  draw4();
+
+  // ---------- 5. cost and ordering ----------
+  const S5 = { res: "1080p", aa: "taa", half: true, quarter: false };
+  const c5 = $("c5"), x5 = c5.getContext("2d");
+  const RESO = { "1080p": [1920, 1080], "1440p": [2560, 1440], "4K": [3840, 2160] };
+  const NS = { mb: 0.30, dof: 1.6, dofComp: 0.10, bloom: 0.30, bloomComp: 0.03, tm: 0.12, taa: 0.35, up: 0.28, ui: 0.05 };
+  function stack5() {
+    const [ow, oh] = RESO[S5.res], outPx = ow * oh;
+    const internal = S5.aa === "upBefore" ? 0.6667 : 1;
+    const pw = Math.round(ow * internal), ph = Math.round(oh * internal), px = pw * ph;
+    const dofPx = S5.half ? px / 4 : px, bloomPx = S5.quarter ? px / 16 : px / 4;
+    const post = [
+      { name: "Motion blur", res: `${pw}×${ph}`, px, ms: px * NS.mb * 1e-6, mem: px * 4 + px * 8, targets: "velocity RG16F, tile max, out RGBA16F" },
+      { name: "Depth of field", res: S5.half ? `${pw / 2 | 0}×${ph / 2 | 0} + composite` : `${pw}×${ph}`, px: dofPx, ms: dofPx * NS.dof * 1e-6 + (S5.half ? px * NS.dofComp * 1e-6 : 0), mem: dofPx * 8 * 2 + dofPx * 2 + px * 8, targets: "near + far RGBA16F, CoC R16F, out" },
+      { name: "Bloom", res: `${Math.round(Math.sqrt(bloomPx * pw / ph))}×${Math.round(Math.sqrt(bloomPx * ph / pw))} chain`, px: bloomPx, ms: bloomPx * 1.33 * NS.bloom * 1e-6 + px * NS.bloomComp * 1e-6, mem: bloomPx * 8 * 1.33, targets: "6 mips RGBA16F" },
+      { name: "Tone map + grade", res: `${pw}×${ph}`, px, ms: px * NS.tm * 1e-6, mem: px * 4, targets: "LUT 32³, out RGBA8 or RGB10A2" },
+    ];
+    const aa = S5.aa === "taa"
+      ? { name: "TAA", res: `${ow}×${oh}`, px: outPx, ms: outPx * NS.taa * 1e-6, mem: outPx * 8 * 2, targets: "history RGBA16F ×2" }
+      : { name: "Upscaler (DLSS / FSR / XeSS)", res: `${pw}×${ph} → ${ow}×${oh}`, px: outPx, ms: outPx * NS.up * 1e-6, mem: outPx * 8 * 2 + px * 4, targets: "history, velocity, depth" };
+    const ui = { name: "UI", res: `${ow}×${oh}`, px: outPx, ms: outPx * NS.ui * 1e-6, mem: 0, targets: "swapchain" };
+    const list = S5.aa === "upAfter" ? [aa, ...post, ui] : [...post, aa, ui];
+    return { list, ow, oh, pw, ph, internal };
+  }
+  function draw5() {
+    const { list, ow, oh, pw, ph, internal } = stack5();
+    const total = list.reduce((a, p) => a + p.ms, 0), mem = list.reduce((a, p) => a + p.mem, 0);
+    clear(x5, 640, 360);
+    label(x5, `post stack at ${ow}×${oh} · estimated ms per pass, in order`, 16, 6);
+    // one row per pass, bars on a shared scale
+    const bx0 = 140, bw = 168, maxMs = Math.max(...list.map(p => p.ms), 0.01), rowH = 24;
+    list.forEach((p, i) => {
+      const y = 28 + i * rowH, isAA = p.name.startsWith("TAA") || p.name.startsWith("Upscaler");
+      label(x5, p.name.split(" (")[0], 16, y + 5, "rgba(255,255,255,0.85)");
+      x5.fillStyle = "rgba(255,255,255,0.06)"; x5.fillRect(bx0, y, bw, rowH - 6);
+      x5.fillStyle = isAA ? BLUE : p.name === "UI" ? "#9aa3b2" : AMBER;
+      x5.fillRect(bx0, y, Math.max(2, bw * p.ms / maxMs), rowH - 6);
+      label(x5, p.ms.toFixed(2) + " ms", bx0 + bw + 6, y + 5, WHITE);
+    });
+    // the frame: 16.7 ms, post stack share filled in
+    const fy = 28 + list.length * rowH + 14, fw = 360;
+    label(x5, "60 Hz frame, 16.7 ms · post stack share", 16, fy);
+    x5.fillStyle = "rgba(255,255,255,0.06)"; x5.fillRect(16, fy + 16, fw, 16);
+    x5.fillStyle = total > 16.7 ? RED : GREEN; x5.fillRect(16, fy + 16, Math.min(fw, fw * total / 16.7), 16);
+    label(x5, `${total.toFixed(2)} ms · ${(100 * total / 16.7).toFixed(0)} %`, 16 + Math.min(fw, fw * total / 16.7) + 6, fy + 18, total > 16.7 ? RED : GREEN);
+    // render targets to scale, right column
+    const s = 224 / 3840, ox = 400, oy = 44;
+    label(x5, "render targets to scale", ox, oy - 18);
+    const box = (w, h, c) => { x5.strokeStyle = c; x5.lineWidth = 1.5; x5.strokeRect(ox + 0.5, oy + 0.5, w * s, h * s); };
+    box(ow, oh, WHITE); if (internal < 1) box(pw, ph, BLUE); box(pw / 2, ph / 2, AMBER); box(pw / 4, ph / 4, "#c98a3a");
+    let ly = oy + oh * s + 8;
+    label(x5, `output ${ow}×${oh} · ${fmtN(ow * oh)} px`, ox, ly, WHITE); ly += 14;
+    if (internal < 1) { label(x5, `internal ${pw}×${ph} · ${fmtN(pw * ph)} px`, ox, ly, BLUE); ly += 14; }
+    label(x5, `half ${pw / 2 | 0}×${ph / 2 | 0} · ${fmtN(pw * ph / 4)} px · DoF`, ox, ly, AMBER); ly += 14;
+    label(x5, `quarter ${pw / 4 | 0}×${ph / 4 | 0} · ${fmtN(pw * ph / 16)} px`, ox, ly, "#c98a3a"); ly += 14;
+    label(x5, `RGBA16F at output: ${fmtB(ow * oh * 8)}`, ox, ly, "rgba(255,255,255,0.6)");
+    label(x5, "order: " + list.map(p => p.name.split(" (")[0].toLowerCase()).join(" → "), 16, 322, "rgba(255,255,255,0.6)");
+    label(x5, `post targets ${fmtB(mem)} · velocity ${fmtB(pw * ph * 4)} · depth ${fmtB(pw * ph * 4)}`, 16, 338, "rgba(255,255,255,0.6)");
+    $("t5-ms").textContent = total.toFixed(2) + " ms";
+    $("t5-pct").innerHTML = `${(100 * total / 16.7).toFixed(0)} % <small>${total > 16.7 ? "over" : (16.7 - total).toFixed(1) + " ms left"}</small>`;
+    $("t5-mem").textContent = fmtB(mem);
+    $("c5-read").innerHTML = `<strong>${list.length} passes</strong> · ${fmtN(list.reduce((a, p) => a + p.px, 0))} pixel-passes`;
+    $("tbl5-body").innerHTML = list.map(p => `<tr><td>${p.name}</td><td>${p.res}</td><td>${fmtN(p.px)}</td><td class="hi">${p.ms.toFixed(2)}</td><td>${p.targets}</td></tr>`).join("") + `<tr><td>Total</td><td></td><td></td><td class="hi">${total.toFixed(2)}</td><td>${fmtB(mem)}</td></tr>`;
+  }
+  onSeg("seg5r", v => { S5.res = v; draw5(); });
+  onSeg("seg5a", v => { S5.aa = v; draw5(); });
+  $("half5").addEventListener("change", ev => { S5.half = ev.target.checked; draw5(); });
+  $("quart5").addEventListener("change", ev => { S5.quarter = ev.target.checked; draw5(); });
+  draw5();
+})();
+</script>

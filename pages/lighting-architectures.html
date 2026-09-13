@@ -1,0 +1,977 @@
+<title>Forward, Deferred &amp; Clustered</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas.sq { aspect-ratio: 1; }
+.vp canvas.r169 { aspect-ratio: 16 / 9; }
+.below { margin-top: 26px; }
+.cols.below { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 820px) { .cols.below { grid-template-columns: minmax(0, 1fr); } }
+.tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.tiles.four .tile .n { font-size: 21px; }
+@media (max-width: 820px) { .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .tiles.four { grid-template-columns: 1fr; } }
+.tile .n small { font-size: 12px; color: var(--muted); font-weight: 400; }
+.chk { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 13px; color: var(--ink); padding-bottom: 6px; }
+.stats th:last-child, .stats td:last-child { text-align: left; }
+.stats select { font: inherit; font-family: var(--font-mono); font-size: 12px; background: var(--chip); color: var(--ink); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; }
+.stats td.sel { text-align: left; }
+.bars { margin-top: 18px; display: grid; gap: 8px; font-family: var(--font-mono); font-size: 12px; }
+.bar { display: grid; grid-template-columns: 9ch minmax(0, 1fr) minmax(0, 17ch); gap: 10px; align-items: center; }
+.bar .lab { color: var(--muted); }
+.bar .trk { height: 14px; background: var(--chip); border-radius: 2px; overflow: hidden; }
+.bar .fill { height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+.bar .v { color: var(--ink); text-align: right; line-height: 1.3; }
+.bar.off .fill { background: var(--line); }
+.bar.off .v { color: var(--muted); }
+@media (max-width: 480px) { .bar { grid-template-columns: 8ch minmax(0, 1fr) minmax(0, 12ch); } }
+.uses.wide td { font-size: 14px; }
+.uses.wide td:first-child { white-space: normal; min-width: 11ch; }
+.uses.wide td:nth-child(2) { max-width: none; }
+.key span[style*="#ffffff"]::before { outline: 1px solid var(--line); }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">1920×1080 target as a 64×36 grid · 12 point lights · 5 boxes · 50° fov · drag the amber lights</p>
+    <h1>Forward, Deferred &amp; Clustered</h1>
+    <p class="lead">A renderer lights a picture by doing one job over and over: for each spot on a surface, add up every light that reaches it. <b>Forward</b>, <b>deferred</b> and <b>clustered</b> are three places to put that job, and the choice decides how much memory traffic you pay and how many lights you can afford. Deferred does not make lighting cheaper on its own. It only pays off once many lights overlap the same pixels, and that is the part people get backwards.</p>
+    <div class="key">
+      <span style="--sw:#f2a341">point light, and heat for cost</span>
+      <span style="--sw:#4aa3ff">box, and G-buffer data</span>
+      <span style="--sw:#ffffff">camera, view wedge, drag handles</span>
+      <span style="--sw:#5ad48a">light the cull kept</span>
+      <span style="--sw:#ef5d5d">tile that spans a depth gap</span>
+    </div>
+    <dl class="terms">
+      <dt>fragment</dt><dd>one candidate pixel that a draw produces; the depth test decides if it survives</dd>
+      <dt>overdraw</dt><dd>how many fragments land on one pixel; 2× means each pixel was shaded twice</dd>
+      <dt>light loop</dt><dd>the code that adds up every light for one point on a surface</dd>
+      <dt>G-buffer</dt><dd>a set of full-screen images that store what the surface looks like at each pixel</dd>
+      <dt>depth prepass</dt><dd>a cheap first pass that writes only distance, so the colour pass shades one winner per pixel</dd>
+      <dt>tile</dt><dd>a small square of screen pixels that shares one list of lights</dd>
+      <dt>cluster</dt><dd>a tile cut into depth slices, so each piece of the view gets its own list</dd>
+      <dt>bandwidth</dt><dd>bytes moved to and from memory each frame; the bill that deferred pays</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#forward"><span class="n">01</span>Forward</a></li><li><a href="#deferred"><span class="n">02</span>Deferred</a></li><li><a href="#tiled"><span class="n">03</span>Tiled culling</a></li><li><a href="#clustered"><span class="n">04</span>Clustered</a></li><li><a href="#compare"><span class="n">05</span>What one pixel keeps between passes</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="forward">
+    <h2>Forward: light it while you draw</h2>
+    <p class="sub">Drag a light or a box on the left and watch the per-pixel cost change on the right.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c1t" width="512" height="512" class="sq grab" aria-label="Top-down scene with camera frustum, boxes and point lights"></canvas>
+        <div class="cap"><span id="c1t-read">scene</span><span>26 m × 26 m · near 0.5 m · far 24 m</span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c1s" width="640" height="360" class="r169" aria-label="Fragment invocations per pixel on the 64 by 36 grid"></canvas>
+        <div class="cap"><span id="c1s-read">hover a pixel</span><span>heat = fragments × lights</span></div>
+      </div>
+    </div>
+    <div class="cols below">
+      <div class="prose">
+        <p class="plain">A forward renderer draws objects one after another, and <b>every fragment runs the whole light loop</b> the moment it is drawn. A fragment is one candidate pixel that a draw produces. If a nearer object covers that pixel later, the earlier work is thrown away, but <b>you already paid for it</b>. So the bill is <b>overdraw times lights</b>.</p>
+        <h3>What you're seeing</h3>
+        <p>Left is the scene from above, camera at the bottom, boxes in blue, lights in amber with a ring for each light's reach. Right is the 1920×1080 screen shrunk to a 64×36 grid. Brighter cells had more fragments land on them, and each of those fragments ran the full loop over every light.</p>
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag a box over another box. The cells where they overlap turn brighter, because two fragments now land there.</li>
+          <li>Push Lights to 64. The evaluations tile jumps, even though most lights are nowhere near most pixels.</li>
+          <li>Tick depth prepass. Overdraw drops to 1.00× and the picture flattens, but the light count still multiplies every cell.</li>
+        </ul>
+        <div class="controls">
+          <div class="ctl"><label for="nl">Lights <span class="val" id="nlv">12</span></label><input type="range" id="nl" min="1" max="64" step="1" value="12"></div>
+          <div class="ctl"><label for="nobj">Boxes <span class="val" id="nobjv">5</span></label><input type="range" id="nobj" min="1" max="8" step="1" value="5"></div>
+          <div class="ctl"><label class="chk"><input type="checkbox" id="prepass"> depth prepass</label></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t1-frag">·</div><div class="l">fragments shaded, 1080p</div></div>
+          <div class="tile on"><div class="n" id="t1-eval">·</div><div class="l">light evaluations / frame</div></div>
+          <div class="tile"><div class="n" id="t1-od">·</div><div class="l">overdraw, fragments ÷ pixels</div></div>
+        </div>
+      </div>
+      <div class="prose">
+        <h3>The real version</h3>
+        <p>Each draw binds its own list of lights. For every pixel the draw covers, the fragment shader (the small program that computes one pixel's colour) loops over that list and adds each light's contribution. The depth test, which keeps only the nearest fragment per pixel, runs after the shading, so a losing fragment costs the same as a winner.</p>
+        <p>A depth prepass fixes the overdraw factor. It draws the scene once with a shader that writes only distance, so the colour pass can skip any fragment that is not the winner. It does nothing about the light factor: with 64 lights each surviving fragment still runs 64 iterations, even if no light is anywhere near it.</p>
+        <p class="words">In words: the cost is every covered pixel of every object, times the number of lights.</p>
+        <div class="math">cost_forward ≈ Σ_objects  pixels_covered(o) × N_lights
+fragments    = visible pixels × overdraw          <span class="c">// no prepass</span>
+grid → 1080p = ×900 (each cell is a 30×30 px block)</div>
+        <p style="margin-top:14px">pixels_covered(o) is how many fragments object o produces, N_lights is the length of the light list, and ×900 converts one cell of this 64×36 grid into a 30×30 block of real 1080p pixels.</p>
+        <p class="words">What this code does: for one fragment, it walks every light bound to the draw, skips the ones out of reach, and adds the rest. The depth test may throw the result away afterwards.</p>
+<pre class="code"><span class="c">// forward fragment shader: runs once per covered pixel, per draw</span>
+<span class="k">uniform</span> Light lights[MAX_LIGHTS];  <span class="k">uniform</span> <span class="k">int</span> numLights;   <span class="c">// bound per draw</span>
+vec3 N = normalize(vNormal), V = normalize(-vPos);
+vec3 color = albedo * ambient;
+<span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; numLights; i++) {        <span class="c">// every light, every fragment</span>
+  vec3  L = lights[i].pos - vPos;
+  <span class="k">float</span> d2 = dot(L, L);
+  <span class="k">if</span> (d2 &gt; lights[i].radius * lights[i].radius) <span class="k">continue</span>;  <span class="c">// still costs the fetch and the branch</span>
+  L *= inversesqrt(d2);
+  color += brdf(N, V, L, albedo, rough, metal) * lights[i].color * falloff(d2, lights[i].radius);
+}
+outColor = vec4(color, 1.0);   <span class="c">// depth test may throw this away after all that</span></pre>
+        <p class="tldr">Forward pays fragments times lights, and overdraw makes you pay for pixels you never see.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="deferred">
+    <h2>Deferred: save the surface, light it once</h2>
+    <p class="sub">Hover the four layers to read what one pixel stores, and change the formats in the table to see the memory bill.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c2s" width="640" height="360" class="r169" aria-label="The four G-buffer layers: albedo, octahedral normal, roughness and metalness, depth"></canvas>
+        <div class="cap"><span id="c2s-read">hover a pixel</span><span>albedo · normal · rough/metal · depth</span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c2t" width="512" height="512" class="sq grab" aria-label="Top-down scene with light volumes"></canvas>
+        <div class="cap"><span id="c2t-read">light volumes</span><span>ring = light radius</span></div>
+      </div>
+    </div>
+    <div class="cols below">
+      <div class="prose">
+        <p class="plain">Deferred splits the work in two. First pass: draw everything and <b>write down what the surface looks like at each pixel</b>, no lighting yet. Second pass: <b>light each pixel exactly once</b> from those notes. Overdraw and object count drop out of the light loop, but <b>writing and reading the notes costs memory traffic every frame</b>, with one light or a hundred.</p>
+        <h3>What you're seeing</h3>
+        <p>Left is the G-buffer, the set of full-screen images the notes live in: colour, surface direction (the normal), roughness and metalness, and depth, which is distance from the camera. Right is the scene from above with each light's reach drawn as a ring. In the lighting pass, only the pixels inside a ring get that light.</p>
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Hover a pixel on the left. The readout lists everything the lighting pass knows about it, plus how many lights reach it.</li>
+          <li>Push the Lights slider in the section above to 64. The forward tile grows with every light; the deferred tile grows only with lights that reach a surface.</li>
+          <li>Switch Normal to RGBA16F in the table. Bytes per pixel and the GB/s line at 60 Hz both climb.</li>
+        </ul>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t2-fwd">·</div><div class="l">forward evaluations</div></div>
+          <div class="tile on"><div class="n" id="t2-def">·</div><div class="l">deferred, sphere volumes</div></div>
+          <div class="tile"><div class="n" id="t2-rect">·</div><div class="l">deferred, screen-rect volumes</div></div>
+        </div>
+        <div class="tbl-wrap">
+        <table class="stats" id="gbuf">
+          <thead><tr><th>Layer</th><th>Format</th><th>Bytes</th><th>1080p</th><th>4K</th></tr></thead>
+          <tbody>
+            <tr><td>Albedo</td><td class="sel"><select id="fAlb"><option value="4">RGBA8</option><option value="4">RGB10A2</option><option value="8">RGBA16F</option></select></td><td id="bAlb"></td><td id="mAlb"></td><td id="kAlb"></td></tr>
+            <tr><td>Normal</td><td class="sel"><select id="fNrm"><option value="4">RG16 octahedral</option><option value="4">RGB10A2</option><option value="8">RGBA16F</option><option value="2">RG8 octahedral</option></select></td><td id="bNrm"></td><td id="mNrm"></td><td id="kNrm"></td></tr>
+            <tr><td>Rough / metal / AO / flags</td><td class="sel"><select id="fMat"><option value="4">RGBA8</option><option value="2">RG8</option><option value="8">RGBA16F</option></select></td><td id="bMat"></td><td id="mMat"></td><td id="kMat"></td></tr>
+            <tr><td>Depth</td><td class="sel"><select id="fDep"><option value="4">D32F</option><option value="4">D24S8</option><option value="2">D16</option></select></td><td id="bDep"></td><td id="mDep"></td><td id="kDep"></td></tr>
+            <tr><td>Total per pixel</td><td></td><td id="bTot" class="hi"></td><td id="mTot" class="hi"></td><td id="kTot" class="hi"></td></tr>
+            <tr><td>Traffic per frame, write + read</td><td></td><td></td><td id="mBw"></td><td id="kBw"></td></tr>
+            <tr><td>At 60 Hz</td><td></td><td></td><td id="mBws"></td><td id="kBws"></td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="prose">
+        <h3>The real version</h3>
+        <p>The geometry pass writes the G-buffer: colour, an encoded normal, roughness, metalness and depth. Depth plus the pixel position is enough to rebuild where the point sits in the world, so nothing else about the geometry needs to survive. The lighting pass then draws each light as a volume, a sphere mesh or a screen rectangle, and shades only the pixels the volume covers. The loop runs once per pixel, so overdraw and object count no longer multiply it.</p>
+        <p>The price is bandwidth, the bytes moved to and from memory. The G-buffer is written for every fragment that passes the depth test and read for every pixel that gets lit, and that traffic is the same at one light or a hundred. With eight lights that is more traffic than forward would ever generate; with 64 overlapping lights it is the only sane option.</p>
+        <p class="words">In words: pay to write the G-buffer (more with overdraw), pay to read it, then pay only for the lights that touch each pixel.</p>
+        <div class="math">cost_deferred ≈ pixels × bytes_gbuffer (write, × overdraw)
+              + pixels × bytes_gbuffer (read)
+              + Σ_pixels lights_touching(p)
+G-buffer bytes = Σ layer formats  (RGBA8 + RG16 + RGBA8 + D32 = 16 B)</div>
+        <p style="margin-top:14px">pixels is the target size, bytes_gbuffer is the total from the table, and lights_touching(p) is how many light volumes cover pixel p. The default layout adds up to 16 B.</p>
+        <p class="words">What this code does: the first block writes three layers and no lighting; the second reads them back for one pixel, rebuilds its position from depth, and adds one light's contribution.</p>
+<pre class="code"><span class="c">// geometry pass: no lights here, just describe the surface</span>
+<span class="k">layout</span>(location=0) <span class="k">out</span> vec4 gAlbedo;    <span class="c">// RGBA8, .a spare</span>
+<span class="k">layout</span>(location=1) <span class="k">out</span> vec2 gNormal;    <span class="c">// RG16, octahedral</span>
+<span class="k">layout</span>(location=2) <span class="k">out</span> vec4 gMaterial;  <span class="c">// rough, metal, ao, shadingModelId</span>
+gAlbedo = vec4(albedo, 0); gNormal = octEncode(N); gMaterial = vec4(rough, metal, ao, model);
+
+<span class="c">// lighting pass: one fragment per pixel inside the light volume</span>
+<span class="k">float</span> z   = texelFetch(gDepth, px, 0).r;
+vec3  P   = reconstructViewPos(px, z, invProj);     <span class="c">// depth + pixel is enough</span>
+vec3  N   = octDecode(texelFetch(gNormal, px, 0).rg);
+vec4  M   = texelFetch(gMaterial, px, 0);
+<span class="k">if</span> (M.a != MODEL_STANDARD) <span class="k">discard</span>;                 <span class="c">// one lighting model per pass, branch per model</span>
+outColor += brdf(N, normalize(-P), normalize(light.pos - P), ...) * falloff(...);   <span class="c">// additive blend</span></pre>
+        <p style="margin-top:14px">Three things a G-buffer cannot do. MSAA, the hardware anti-aliasing that keeps several samples per pixel, would need every layer at 4× samples and a per-sample lighting pass, so nobody does it and deferred renderers use TAA instead. The lighting model is baked into the pass, so a cloth or skin BRDF (the formula for how a material reflects light) costs a branch or a stencil bit per pixel. And a transparent surface has no single depth, so glass, particles and hair go through a forward pass afterwards regardless.</p>
+        <p class="tldr">Deferred trades a fixed memory bill for a light loop that runs once per pixel, and that only wins when many lights overlap.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tiled">
+    <h2>Tiled culling: a short light list per tile</h2>
+    <p class="sub">Hover a tile on the left to see its wedge of space and which lights it keeps.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c3s" width="640" height="360" class="r169" aria-label="Light count per tile heatmap"></canvas>
+        <div class="cap"><span id="c3s-read">hover a tile</span><span>heat = lights in the tile list</span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c3t" width="512" height="512" class="sq grab" aria-label="Top-down view of the hovered tile frustum and the lights it keeps"></canvas>
+        <div class="cap"><span id="c3t-read">tile frustum</span><span>green = kept, dim = culled</span></div>
+      </div>
+    </div>
+    <div class="cols below">
+      <div class="prose">
+        <p class="plain">Most lights are nowhere near most pixels, so <b>cut the screen into small squares called tiles</b> and give each one a list of only the lights that can reach it. Neighbouring pixels want almost the same lights, so <b>one list serves a whole tile</b>. It is like sorting mail by postcode before delivering. The trick fails on <b>tiles where a near object meets a far one</b>, because their list has to cover everything in between.</p>
+        <h3>What you're seeing</h3>
+        <p>Left is the screen cut into tiles, each coloured and numbered by how many lights its list holds. The red outline marks the tile with the widest depth gap. Right is the top view: the hovered tile becomes a wedge from the nearest thing in it to the farthest, green lights are kept and dim ones are culled.</p>
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Hover the red tile. On the right its wedge stretches across most of the scene and catches lights the whole way.</li>
+          <li>Hover a tile in the middle of the floor. The wedge is short and only a couple of lights stay green.</li>
+          <li>Switch to 2×2 tiles. The average per tile drops and the tile count climbs: more lists to build, shorter lists to walk.</li>
+        </ul>
+        <div class="controls">
+          <div class="ctl"><span class="lab">Tile size, grid cells</span><div class="seg" id="segTile" role="group" aria-label="Tile size"><button data-v="2">2×2</button><button data-v="4" aria-pressed="true">4×4</button><button data-v="8">8×8</button></div></div>
+          <div class="ctl"><label for="nl3">Lights <span class="val" id="nl3v">12</span></label><input type="range" id="nl3" min="1" max="64" step="1" value="12"></div>
+        </div>
+        <div class="tiles four">
+          <div class="tile"><div class="n" id="t3-tiles">·</div><div class="l">tiles · px each at 1080p</div></div>
+          <div class="tile on"><div class="n" id="t3-avg">·</div><div class="l">avg lights per tile</div></div>
+          <div class="tile"><div class="n" id="t3-worst">·</div><div class="l">worst depth gap tile</div></div>
+          <div class="tile"><div class="n" id="t3-eval">·</div><div class="l">evaluations, Forward+</div></div>
+        </div>
+      </div>
+      <div class="prose">
+        <h3>The real version</h3>
+        <p>One compute shader thread group per tile reads the depth buffer, finds the nearest and farthest depth in the tile, and builds a small frustum: four side planes through the eye plus those two depth bounds. Each light is a sphere, and it is kept if it pokes inside all four planes and the depth range. The list is a few dozen indices, written once and read by every pixel in the tile. The same list works in front of a forward shader (Forward+) or a deferred lighting pass (tiled deferred).</p>
+        <p>The failure is the red tile. Where a near box meets the far floor, the depth range spans most of the scene and the little frustum becomes a long wedge that every light along the view direction touches. Every pixel in that tile, near or far, then walks the whole list. Silhouette edges are exactly where this happens, and a scene is mostly silhouette edges.</p>
+        <p class="words">In words: build four tilted planes for the tile, then keep a light if its sphere is not fully outside any plane and its depth overlaps the tile's depth range.</p>
+        <div class="math">tile planes through the eye:   n_left = norm(1, 0, −x_a·tanH)   n_right = norm(−1, 0, x_b·tanH)
+                               n_bot  = norm(0, 1, −y_a·tanV)   n_top   = norm(0, −1, y_b·tanV)
+keep light (c, r)  ⇔  n_i·c ≥ −r  for all four   and   z_min − r ≤ c.z ≤ z_max + r</div>
+        <p style="margin-top:14px">x_a, x_b, y_a, y_b are the tile's edges on screen from −1 to 1, tanH and tanV are the tangents of the view's half-angles, c and r are the light's centre and radius, and z_min, z_max are the tile's depth bounds.</p>
+        <p class="words">What this code does: every thread reads one depth, the group agrees on the min and max, then the 256 threads split the lights between them and each appends the ones that pass to a shared list.</p>
+<pre class="code"><span class="c">// compute shader, one 16×16 thread group per tile</span>
+<span class="k">groupshared</span> <span class="k">uint</span> gMinZ, gMaxZ, gCount;  <span class="k">groupshared</span> <span class="k">uint</span> gList[MAX_PER_TILE];
+<span class="k">float</span> z = depthTex[pixel];                 <span class="c">// linearize first if depth is nonlinear</span>
+<span class="k">if</span> (z &lt; farPlane) { InterlockedMin(gMinZ, asuint(z)); InterlockedMax(gMaxZ, asuint(z)); }
+GroupMemoryBarrierWithGroupSync();
+<span class="k">float</span>4 planes[4] = tileFrustum(tileId, invProj);   <span class="c">// four side planes, eye at origin</span>
+<span class="k">for</span> (<span class="k">uint</span> i = threadIndex; i &lt; numLights; i += 256) {   <span class="c">// 256 threads share the lights</span>
+  Light L = lights[i];
+  <span class="k">bool</span> inside = L.pos.z + L.radius &gt;= asfloat(gMinZ) &amp;&amp; L.pos.z - L.radius &lt;= asfloat(gMaxZ);
+  <span class="k">for</span> (<span class="k">int</span> p = 0; p &lt; 4 &amp;&amp; inside; p++) inside = dot(planes[p].xyz, L.pos) &gt;= -L.radius;
+  <span class="k">if</span> (inside) { <span class="k">uint</span> slot; InterlockedAdd(gCount, 1, slot); <span class="k">if</span> (slot &lt; MAX_PER_TILE) gList[slot] = i; }
+}
+GroupMemoryBarrierWithGroupSync();
+<span class="k">if</span> (threadIndex &lt; gCount) tileLightIndices[tileId * MAX_PER_TILE + threadIndex] = gList[threadIndex];</pre>
+        <p class="tldr">Tiles shrink the light loop to the lights near each screen square, except where a tile spans a big depth gap.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="clustered">
+    <h2>Clustered: slice the tiles by distance</h2>
+    <p class="sub">Hover a pixel on the left to pick which tile row appears on the right, and drag the slider to cut finer slices.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c4s" width="640" height="360" class="r169" aria-label="Lights per pixel from the clustered light lists"></canvas>
+        <div class="cap"><span id="c4s-read">hover a pixel</span><span>heat = lights in the pixel's cluster</span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c4t" width="512" height="512" class="sq grab" aria-label="Top-down view of the cluster grid for one tile row"></canvas>
+        <div class="cap"><span id="c4t-read">cluster grid</span><span>one tile row, all slices</span></div>
+      </div>
+    </div>
+    <div class="cols below">
+      <div class="prose">
+        <p class="plain">Take each tile and <b>cut it into slices by distance</b> from the camera. Now a near box and the far floor sit in <b>different clusters with different light lists</b>, so the depth-gap problem goes away. The slices are <b>fixed in advance</b>, so the lists never touch the depth buffer and <b>work for glass and particles too</b>.</p>
+        <h3>What you're seeing</h3>
+        <p>Left is the screen coloured by how many lights are in each pixel's cluster list. The white outline is the tile row your hover picked. Right shows that row from above as a grid of wedges: tiles across, depth slices going away from the camera, each wedge coloured by its list length.</p>
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Hover the spot where a near box meets the floor. The cluster count for that pixel is well below its tile count.</li>
+          <li>Drag Depth slices to 32. Each wedge gets thinner, the per-pixel average drops a little, and the memory tile climbs.</li>
+          <li>Drag a light on the right. Only the wedges its ring touches change colour.</li>
+        </ul>
+        <div class="controls">
+          <div class="ctl"><label for="nsl">Depth slices <span class="val" id="nslv">16</span></label><input type="range" id="nsl" min="8" max="32" step="1" value="16"></div>
+        </div>
+        <div class="tiles four">
+          <div class="tile"><div class="n" id="t4-tile">·</div><div class="l">avg lights per pixel, tiled</div></div>
+          <div class="tile on"><div class="n" id="t4-clu">·</div><div class="l">avg lights per pixel, clustered</div></div>
+          <div class="tile"><div class="n" id="t4-n">·</div><div class="l">clusters · avg list length</div></div>
+          <div class="tile"><div class="n" id="t4-mem">·</div><div class="l">light list memory</div></div>
+        </div>
+      </div>
+      <div class="prose">
+        <h3>The real version</h3>
+        <p>A cluster is one tile times one depth slice, small enough to bound with a box in view space. A sphere-versus-box test is tighter than the four-plane test a tile uses, which over-includes lights near the corners of a long wedge. The slice planes are chosen once, spaced so that each slice is the same fraction deeper than the last, which matches how perspective compresses distance. Because the grid is fixed, the light lists can be built before the geometry is drawn, or even on the CPU, and they serve transparent surfaces too since no depth read was involved.</p>
+        <p>The cost is the list count. Sixteen tile columns by nine rows by 24 slices is 3,456 lists for this grid, and at 1080p with 16-pixel tiles it would be 120×68×24, close to 200,000. Most of them are empty or hold one or two lights, so the storage is a small header per cluster plus a packed index list, and the average list a pixel walks is what drops.</p>
+        <p class="words">In words: turn a depth into a slice number with a logarithm, find the cluster, then keep a light if the nearest point of the cluster's box is inside its sphere.</p>
+        <div class="math">slice(z)  = floor( log(z / near) / log(far / near) · N )
+z_k       = near · (far / near)^(k / N)          <span class="c">// slice k starts here</span>
+cluster   = (tile.x, tile.y, slice)     list memory = clusters × 8 B + entries × 2 B
+keep light ⇔ |clamp(c, aabb_min, aabb_max) − c|² &lt; r²      <span class="c">// sphere vs cluster box</span></div>
+        <p style="margin-top:14px">z is the view depth, near and far are the camera's near and far planes, N is the slice count, k is a slice index, c and r are the light's centre and radius, and aabb_min, aabb_max are the corners of the cluster's box.</p>
+        <p class="words">What this code does: works out which cluster the fragment sits in, reads that cluster's header, and loops over only the lights in its list.</p>
+<pre class="code"><span class="c">// clustered lighting in the fragment shader (forward or deferred, same code)</span>
+<span class="k">float</span> zView  = -vPos.z;
+<span class="k">uint</span>  slice  = <span class="k">uint</span>(log(zView / near) * sliceScale);       <span class="c">// sliceScale = N / log(far/near)</span>
+<span class="k">uint</span>3 c      = <span class="k">uint</span>3(gl_FragCoord.xy / TILE_PX, slice);
+<span class="k">uint</span>  id     = c.x + tilesX * (c.y + tilesY * c.z);
+<span class="k">uint</span>2 hdr    = clusterHeaders[id];                    <span class="c">// .x = offset into index list, .y = count</span>
+vec3 color = albedo * ambient;
+<span class="k">for</span> (<span class="k">uint</span> i = 0; i &lt; hdr.y; i++) {                  <span class="c">// only the lights near this cluster</span>
+  Light L = lights[lightIndices[hdr.x + i]];
+  color += shade(L, vPos, N, V, albedo, rough, metal);
+}
+<span class="c">// transparent surfaces run the same loop: no depth buffer was read to build the lists</span></pre>
+        <p class="tldr">Clusters give each small piece of the view its own light list, fixed ahead of time, so near and far stop sharing a bill.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="compare">
+    <h2>What one pixel keeps between passes</h2>
+    <p class="sub">Hover any panel to read how many bytes that pixel holds in each of the three renderers.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5s" width="640" height="360" class="r169" aria-label="Per-pixel storage for Forward+, deferred and visibility buffer renderers"></canvas>
+        <div class="cap"><span id="c5s-read">hover a pixel</span><span>shaded · G-buffer · triangle id</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Three renderers, same frame, different memory. <b>Forward+ keeps only depth and the final colour</b>. <b>Deferred keeps the whole surface</b> and forgets the triangle. <b>A visibility buffer keeps only which triangle</b> landed on the pixel, one 32-bit number, and rebuilds everything else later.</p>
+        <h3>What you're seeing</h3>
+        <p>Top row, left to right: the shaded Forward+ result, the colour layer of the deferred G-buffer, and the visibility buffer with each triangle in its own colour. Bottom row is what each one has at shading time: stored depth, stored normal and material, and barycentrics, the three weights that say where inside the triangle the pixel sits, worked out on the fly.</p>
+        <p>The bars are bytes per pixel and the total for a 3840×2160 target, HDR colour included.</p>
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Hover a box in the visibility panel. The readout gives the triangle id and its three barycentric weights.</li>
+          <li>Tick 4× MSAA. Forward+ and V-buffer grow with the sample count; deferred greys out because it cannot do it at all.</li>
+          <li>Change a G-buffer format in the deferred section. Only the deferred bar moves.</li>
+        </ul>
+        <div class="controls">
+          <div class="ctl"><label class="chk"><input type="checkbox" id="msaa"> 4× MSAA where possible</label></div>
+        </div>
+        <div class="bars" id="bars">
+          <div class="bar" id="bar-f"><span class="lab">Forward+</span><div class="trk"><div class="fill"></div></div><span class="v">·</span></div>
+          <div class="bar" id="bar-d"><span class="lab">Deferred</span><div class="trk"><div class="fill"></div></div><span class="v">·</span></div>
+          <div class="bar" id="bar-v"><span class="lab">V-buffer</span><div class="trk"><div class="fill"></div></div><span class="v">·</span></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t5-f">·</div><div class="l">shading invocations, Forward+</div></div>
+          <div class="tile"><div class="n" id="t5-d">·</div><div class="l">deferred</div></div>
+          <div class="tile"><div class="n" id="t5-v">·</div><div class="l">visibility buffer</div></div>
+        </div>
+        <h3>The real version</h3>
+        <p>The visibility buffer stores one 32-bit id per pixel, instance plus triangle index, and nothing else. The material pass then fetches the three vertices again, recomputes the barycentrics from the pixel position, interpolates the attributes and shades, all in one full-screen pass with no geometry overdraw at all.</p>
+        <p>That makes it the smallest footprint and the cheapest geometry pass, which is why Nanite uses it for micro-triangle meshes where rasterising is the bottleneck. It also brings back MSAA and material variety, since the id is a per-sample integer and the material pass can branch or sort by material id. The cost moves to the resolve: three vertex fetches and a derivative computation per pixel.</p>
+        <p class="words">In words: pack which object and which triangle into one integer, then solve for the three weights that place the pixel inside that triangle.</p>
+        <div class="math">visibility id = (instanceId &lt;&lt; 8) | triangleIndex     <span class="c">// 32 bits, 24 + 8 in Nanite's case is 32 + 32 with depth</span>
+barycentrics: solve  p_screen = λ0·s0 + λ1·s1 + λ2·s2,  Σλ = 1   (perspective-correct via 1/w)</div>
+        <p style="margin-top:14px">instanceId and triangleIndex name the triangle, s0, s1, s2 are its three vertices on screen, λ0, λ1, λ2 are the barycentric weights, and 1/w is the perspective correction.</p>
+        <p class="words">What this code does: reads the id, looks up the triangle's three vertices, works out where the pixel sits inside the triangle, then evaluates the material and lights it.</p>
+<pre class="code"><span class="c">// visibility buffer material pass, full-screen, one invocation per pixel</span>
+<span class="k">uint</span> id = visBuf[px];  <span class="k">if</span> (id == 0) <span class="k">return</span>;             <span class="c">// sky</span>
+Instance inst = instances[id &gt;&gt; 8];
+<span class="k">uint</span>3 tri = indexBuffer[inst.indexBase + (id &amp; 0xFF) * 3];
+Vertex v0 = fetch(inst, tri.x), v1 = fetch(inst, tri.y), v2 = fetch(inst, tri.z);  <span class="c">// 3 fetches per pixel</span>
+Bary b = computeBarycentrics(v0.clip, v1.clip, v2.clip, px);   <span class="c">// also gives ddx/ddy for texture LOD</span>
+vec2 uv = b.l0 * v0.uv + b.l1 * v1.uv + b.l2 * v2.uv;
+Material m = evalMaterial(inst.materialId, uv, b);             <span class="c">// branch by material id, or one pass per material</span>
+outColor = shadeClustered(m, P, N);</pre>
+        <p class="tldr">Store the surface (deferred), or store the triangle and rebuild the surface (visibility buffer); the second is smaller and gets MSAA back.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">Memory and bandwidth are at 1080p with the layout chosen above, no MSAA. Light scaling is how the per-frame cost grows as lights are added.</p>
+    <p class="plain">Read this as a checklist. You are choosing between <b>anti-aliasing and free choice of materials</b> on one side and <b>cheap handling of many lights</b> on the other. The memory column follows the G-buffer table above, and the scaling column says what multiplies the bill as you add lights.</p>
+    <div class="tbl-wrap">
+    <table class="uses wide">
+      <thead><tr><th>Architecture</th><th>Hardware anti-aliasing (MSAA)</th><th>Material freedom</th><th>Extra memory</th><th>Memory traffic</th><th>How cost grows with lights</th><th>Transparent surfaces</th><th>Pick it when</th></tr></thead>
+      <tbody>
+        <tr><td>Forward</td><td>Yes, in hardware</td><td>Any shader per draw</td><td>None beyond depth and colour</td><td>Lowest</td><td>fragments × N, overdraw included</td><td>Same path as opaque</td><td>Few lights, VR, mobile, anything that wants MSAA</td></tr>
+        <tr><td>Forward+ (tiled or clustered forward)</td><td>Yes</td><td>Any shader per draw</td><td>Light lists, tens of KB to a few MB</td><td>Low, plus a depth prepass</td><td>fragments × lights per tile or cluster</td><td>Same loop, using the cluster lists</td><td>Many lights with MSAA or varied materials</td></tr>
+        <tr><td>Tiled deferred</td><td>No</td><td>One model per pass, flags for a few more</td><td id="tr-gb1">G-buffer 16 B/px</td><td>High, G-buffer written and read each frame</td><td>pixels × lights per tile</td><td>Needs a separate forward pass</td><td>Many lights, decals, screen-space effects that read the G-buffer</td></tr>
+        <tr><td>Clustered deferred</td><td>No</td><td>Same as tiled deferred</td><td id="tr-gb2">G-buffer plus cluster lists</td><td>High</td><td>pixels × lights per cluster, no depth-gap spikes</td><td>Forward pass using the same clusters</td><td>Deferred pipelines with many overlapping lights</td></tr>
+        <tr><td>Visibility buffer</td><td>Yes, one id per sample</td><td>Any, branched or sorted by material id</td><td>4 to 8 B/px plus an optional G-buffer</td><td>Lowest for geometry, then a heavy resolve pass</td><td>pixels × lights per cluster</td><td>Needs a separate forward pass</td><td>Very high triangle counts, GPU-driven pipelines</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note" id="tr-note"></p>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">The loop is the same in every row. What differs is what is stored between drawing the geometry and lighting it.</p>
+    <p class="plain">Each row is one way to run the same light loop. The <b>middle two columns</b> say how the lights get to the pixels and what has to sit in memory to make that work, and that is the whole difference between the rows.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Use</th><th>How it works</th><th>What it stores</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>Classic deferred</td><td>Draw each light as a volume, read the G-buffer under it, add the result.</td><td>Full G-buffer, plus a stencil mask to clip the volume</td><td>Killzone 2 (Guerrilla, 2009), Unreal Engine 4 and 5 default pipeline</td></tr>
+        <tr><td>Tiled deferred</td><td>A compute shader per tile culls the lights, then lights every pixel in the tile in one pass.</td><td>G-buffer, plus min and max depth per tile</td><td>Frostbite, Battlefield 3 (DICE, 2011)</td></tr>
+        <tr><td>Clustered forward</td><td>A fixed 3D grid of light lists; the fragment shader walks its cluster's list.</td><td>Cluster headers and index list, plus a depth prepass</td><td>Doom 2016 (id Tech 6), Unity HDRP, Unity URP Forward+</td></tr>
+        <tr><td>Visibility buffer</td><td>The rasteriser writes a triangle id; a full-screen pass rebuilds the surface and shades it.</td><td>A 32 or 64-bit id per pixel, and vertex data the shader can read</td><td>Nanite in Unreal Engine 5, some mobile and tile-based GPU pipelines</td></tr>
+        <tr><td>Plain forward with MSAA</td><td>A light loop per draw, with hardware multisampling.</td><td>Only depth and colour</td><td>Most VR titles and mobile renderers, Unity URP Forward</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">The trap is the phrase "deferred is faster". It holds only when many lights overlap the same pixels; with a handful of lights the G-buffer traffic costs more than the loop it saves, and forward keeps MSAA and any material you like. Count the overlapping lights per pixel first, then pick the loop.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  // ---------- scene: camera at origin, y up, +z forward; 64×36 grid stands in for 1920×1080 ----------
+  const GW = 64, GH = 36, NPX = GW * GH, SCALE = (1920 * 1080) / NPX; // 900 real pixels per cell
+  const NEAR = 0.5, FAR = 24, TANV = Math.tan(25 * Math.PI / 180), TANH = TANV * 16 / 9, CAMY = 1.5;
+  const AMBER = [242, 163, 65], BLUE = [74, 163, 255], GROUND = [11, 14, 19], WHITE = [255, 255, 255], GREEN = [90, 212, 138], RED = [239, 93, 93];
+  const OBJ_ALL = [
+    { x: -1.6, z: 3.8, w: 2.0, d: 1.4, h: 2.2, alb: [214, 210, 200], rough: 0.7, metal: 0 },
+    { x: 2.2, z: 6.6, w: 2.4, d: 1.4, h: 1.5, alb: [242, 163, 65], rough: 0.35, metal: 0 },
+    { x: -4.6, z: 10, w: 3.0, d: 2.0, h: 3.0, alb: [74, 163, 255], rough: 0.5, metal: 0 },
+    { x: 3.6, z: 3.0, w: 1.5, d: 1.0, h: 1.0, alb: [180, 184, 192], rough: 0.15, metal: 1 },
+    { x: 0.4, z: 15, w: 3.6, d: 2.0, h: 4.0, alb: [150, 150, 150], rough: 0.9, metal: 0 },
+    { x: 7.0, z: 12.5, w: 4.0, d: 1.0, h: 2.5, alb: [230, 200, 150], rough: 0.6, metal: 0 },
+    { x: -7.2, z: 16.5, w: 1.5, d: 3.0, h: 3.5, alb: [120, 160, 220], rough: 0.4, metal: 0.5 },
+    { x: 1.0, z: 2.1, w: 1.0, d: 0.6, h: 0.8, alb: [240, 240, 240], rough: 0.2, metal: 0 },
+  ];
+  const FLOOR = { alb: [96, 100, 108], rough: 0.8, metal: 0 };
+  // deterministic lights inside the frustum
+  let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  const LIGHTS = [];
+  for (let i = 0; i < 64; i++) {
+    const z = 1.5 + rnd() * 20, x = (rnd() * 2 - 1) * z * TANH * 0.92;
+    LIGHTS.push({ x, z, y: -CAMY + 0.3 + rnd() * 1.6, r: 1.5 + rnd() * 3.0 });
+  }
+  const st = { nl: 12, nobj: 5, prepass: false, tile: 4, slices: 16, msaa: false, hoverPx: -1, hoverTile: -1, hoverRow: 4 };
+
+  // ---------- rasterize the grid: ray per pixel centre, boxes + floor ----------
+  const depth = new Float32Array(NPX), frags = new Uint8Array(NPX), objId = new Int16Array(NPX), triId = new Int32Array(NPX);
+  const px = new Float32Array(NPX), py = new Float32Array(NPX), pz = new Float32Array(NPX);
+  const nx = new Float32Array(NPX), ny = new Float32Array(NPX), nz = new Float32Array(NPX), fu = new Float32Array(NPX), fv = new Float32Array(NPX);
+  function raster() {
+    const M = st.nobj;
+    for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {
+      const k = j * GW + i;
+      const dx = ((i + 0.5) / GW * 2 - 1) * TANH, dy = (1 - (j + 0.5) / GH * 2) * TANV; // per unit z
+      let best = Infinity, bo = -1, bn = [0, 0, 0], bt = 0, count = 0, bu = 0, bv = 0;
+      for (let o = 0; o < M; o++) {
+        const b = OBJ_ALL[o];
+        const x0 = b.x - b.w / 2, x1 = b.x + b.w / 2, z0 = b.z - b.d / 2, z1 = b.z + b.d / 2, y0 = -CAMY, y1 = -CAMY + b.h;
+        let tmin = z0, tmax = z1, ax = 2, sg = -1; // z slab: t is view z directly
+        let ta = dx > 0 ? x0 / dx : x1 / dx, tb = dx > 0 ? x1 / dx : x0 / dx;
+        if (dx === 0) { if (x0 > 0 || x1 < 0) continue; ta = -Infinity; tb = Infinity; }
+        if (ta > tmin) { tmin = ta; ax = 0; sg = dx > 0 ? -1 : 1; }
+        if (tb < tmax) tmax = tb;
+        ta = dy > 0 ? y0 / dy : y1 / dy; tb = dy > 0 ? y1 / dy : y0 / dy;
+        if (dy === 0) { if (y0 > 0 || y1 < 0) continue; ta = -Infinity; tb = Infinity; }
+        if (ta > tmin) { tmin = ta; ax = 1; sg = dy > 0 ? -1 : 1; }
+        if (tb < tmax) tmax = tb;
+        if (tmax < Math.max(tmin, NEAR) || tmin > FAR || tmin < NEAR) continue;
+        count++;
+        if (tmin < best) {
+          best = tmin; bo = o; bn = ax === 0 ? [sg, 0, 0] : ax === 1 ? [0, sg, 0] : [0, 0, sg];
+          const hx = dx * tmin, hy = dy * tmin, hz = tmin; // triangle: 2 per face, split on the face diagonal
+          const u = ax === 0 ? (hz - z0) / b.d : (hx - x0) / b.w, v = ax === 1 ? (hz - z0) / b.d : (hy - y0) / b.h;
+          bt = o * 12 + (ax * 2 + (sg > 0 ? 1 : 0)) * 2 + (u + v > 1 ? 1 : 0); bu = u; bv = v;
+        }
+      }
+      if (dy < 0) { const t = -CAMY / dy; if (t >= NEAR && t <= FAR) { count++; if (t < best) { best = t; bo = 99; bn = [0, 1, 0]; const fx = dx * t + 12, fz = t; bu = fx - Math.floor(fx); bv = fz - Math.floor(fz); bt = 9000 + Math.floor(fx) * 2 + Math.floor(fz) * 64 + (bu + bv > 1 ? 1 : 0); } } }
+      depth[k] = best; frags[k] = count; objId[k] = bo; triId[k] = bt;
+      px[k] = dx * best; py[k] = dy * best; pz[k] = best; nx[k] = bn[0]; ny[k] = bn[1]; nz[k] = bn[2]; fu[k] = bu; fv[k] = bv;
+    }
+  }
+  const matOf = k => objId[k] === 99 ? FLOOR : OBJ_ALL[objId[k]];
+
+  // ---------- light queries ----------
+  const lightsAt = new Uint8Array(NPX); // lights whose sphere contains the pixel's surface point
+  function lightCounts() {
+    const N = st.nl;
+    for (let k = 0; k < NPX; k++) {
+      if (depth[k] === Infinity) { lightsAt[k] = 0; continue; }
+      let c = 0;
+      for (let l = 0; l < N; l++) { const L = LIGHTS[l], ddx = px[k] - L.x, ddy = py[k] - L.y, ddz = pz[k] - L.z; if (ddx * ddx + ddy * ddy + ddz * ddz < L.r * L.r) c++; }
+      lightsAt[k] = c;
+    }
+  }
+  function shade(k) { // simple Lambert + falloff for the shaded panel
+    const m = matOf(k); let r = 0.10, g = 0.10, b = 0.12;
+    for (let l = 0; l < st.nl; l++) {
+      const L = LIGHTS[l]; let ddx = L.x - px[k], ddy = L.y - py[k], ddz = L.z - pz[k]; const d2 = ddx * ddx + ddy * ddy + ddz * ddz; if (d2 > L.r * L.r) continue;
+      const d = Math.sqrt(d2); ddx /= d; ddy /= d; ddz /= d;
+      const nd = Math.max(0, ddx * nx[k] + ddy * ny[k] + ddz * nz[k]); const f = nd * (1 - d / L.r) * (1 - d / L.r) * 1.6;
+      r += f; g += f * 0.9; b += f * 0.7;
+    }
+    return [Math.min(255, m.alb[0] * r), Math.min(255, m.alb[1] * g), Math.min(255, m.alb[2] * b)];
+  }
+  // screen-rect light volumes: pixels with geometry inside the projected bounding rect of each sphere
+  function rectVolumePixels() {
+    let total = 0;
+    for (let l = 0; l < st.nl; l++) {
+      const L = LIGHTS[l]; const zn = Math.max(NEAR, L.z - L.r), zf = L.z + L.r; if (zf < NEAR) continue;
+      const x0 = ((L.x - L.r) / zn / TANH + 1) / 2, x1 = ((L.x + L.r) / zn / TANH + 1) / 2;
+      const y0 = (1 - (L.y + L.r) / zn / TANV) / 2, y1 = (1 - (L.y - L.r) / zn / TANV) / 2;
+      const i0 = Math.max(0, Math.floor(Math.min(x0, x1) * GW)), i1 = Math.min(GW - 1, Math.ceil(Math.max(x0, x1) * GW)), j0 = Math.max(0, Math.floor(y0 * GH)), j1 = Math.min(GH - 1, Math.ceil(y1 * GH));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * GW + i; if (depth[k] !== Infinity && depth[k] >= zn - 0.01 && depth[k] <= zf + 0.01) total++; }
+    }
+    return total;
+  }
+
+  // tile / cluster culling: sub-frustum planes through the eye, sphere vs planes
+  const tiles = { tx: 0, ty: 0, minZ: null, maxZ: null, count: null, planes: null, keep: null };
+  const clus = { n: 0, count: null, total: 0, zs: null };
+  function tilePlanes(ti, tj, ts) {
+    const xa = (ti * ts) / GW * 2 - 1, xb = Math.min(GW, (ti + 1) * ts) / GW * 2 - 1;
+    const yb = 1 - (tj * ts) / GH * 2, ya = 1 - Math.min(GH, (tj + 1) * ts) / GH * 2;
+    const nrm = (a, b, c) => { const l = Math.hypot(a, b, c); return [a / l, b / l, c / l]; };
+    const pl = [nrm(1, 0, -xa * TANH), nrm(-1, 0, xb * TANH), nrm(0, 1, -ya * TANV), nrm(0, -1, yb * TANV)];
+    pl.ndc = [xa * TANH, xb * TANH, ya * TANV, yb * TANV]; // slopes, for the cluster AABB
+    return pl;
+  }
+  // cluster: view-space AABB of the frustum piece between z0 and z1, then sphere vs box
+  function sphereInCluster(pl, L, z0, z1) {
+    const [xa, xb, ya, yb] = pl.ndc;
+    const x0 = Math.min(xa * z0, xa * z1), x1 = Math.max(xb * z0, xb * z1), y0 = Math.min(ya * z0, ya * z1), y1 = Math.max(yb * z0, yb * z1);
+    const cx = Math.max(x0, Math.min(x1, L.x)) - L.x, cy = Math.max(y0, Math.min(y1, L.y)) - L.y, cz = Math.max(z0, Math.min(z1, L.z)) - L.z;
+    return cx * cx + cy * cy + cz * cz < L.r * L.r;
+  }
+  function sphereInFrustum(pl, L, z0, z1) {
+    if (L.z + L.r < z0 || L.z - L.r > z1) return false;
+    for (let p = 0; p < 4; p++) if (pl[p][0] * L.x + pl[p][1] * L.y + pl[p][2] * L.z < -L.r) return false;
+    return true;
+  }
+  function buildTiles() {
+    const ts = st.tile, tx = Math.ceil(GW / ts), ty = Math.ceil(GH / ts), nt = tx * ty;
+    tiles.tx = tx; tiles.ty = ty; tiles.minZ = new Float32Array(nt); tiles.maxZ = new Float32Array(nt); tiles.count = new Uint8Array(nt); tiles.planes = []; tiles.keep = [];
+    for (let tj = 0; tj < ty; tj++) for (let ti = 0; ti < tx; ti++) {
+      const t = tj * tx + ti; let mn = Infinity, mx = -Infinity;
+      for (let j = tj * ts; j < Math.min(GH, (tj + 1) * ts); j++) for (let i = ti * ts; i < Math.min(GW, (ti + 1) * ts); i++) { const z = depth[j * GW + i]; if (z !== Infinity) { if (z < mn) mn = z; if (z > mx) mx = z; } }
+      tiles.minZ[t] = mn; tiles.maxZ[t] = mx;
+      const pl = tilePlanes(ti, tj, ts); tiles.planes.push(pl); const keep = [];
+      if (mn !== Infinity) for (let l = 0; l < st.nl; l++) if (sphereInFrustum(pl, LIGHTS[l], mn, mx)) keep.push(l);
+      tiles.keep.push(keep); tiles.count[t] = keep.length;
+    }
+  }
+  const sliceOf = z => Math.min(st.slices - 1, Math.max(0, Math.floor(Math.log(z / NEAR) / Math.log(FAR / NEAR) * st.slices)));
+  function buildClusters() {
+    const N = st.slices, nt = tiles.tx * tiles.ty; clus.n = nt * N; clus.count = new Uint8Array(clus.n); clus.total = 0; clus.zs = [];
+    for (let s = 0; s <= N; s++) clus.zs.push(NEAR * Math.pow(FAR / NEAR, s / N));
+    for (let t = 0; t < nt; t++) { const pl = tiles.planes[t]; for (let s = 0; s < N; s++) { let c = 0; for (let l = 0; l < st.nl; l++) if (sphereInCluster(pl, LIGHTS[l], clus.zs[s], clus.zs[s + 1])) c++; clus.count[t * N + s] = c; clus.total += c; } }
+  }
+  const tileOf = k => Math.floor((k % GW) / st.tile) + tiles.tx * Math.floor(Math.floor(k / GW) / st.tile);
+  const clusterOf = k => tileOf(k) * st.slices + sliceOf(depth[k]);
+
+  // ---------- formatting ----------
+  const fmtN = n => Math.round(n).toLocaleString("en-US");
+  const fmtM = n => n >= 1e9 ? (n / 1e9).toFixed(2) + " G" : n >= 1e6 ? (n / 1e6).toFixed(1) + " M" : n >= 1e3 ? (n / 1e3).toFixed(1) + " k" : String(Math.round(n));
+  const fmtB = b => b >= 1 << 30 ? (b / (1 << 30)).toFixed(2) + " GB" : b >= 1 << 20 ? (b / (1 << 20)).toFixed(1) + " MB" : b >= 1024 ? (b / 1024).toFixed(1) + " KB" : b + " B";
+  const heat = v => { v = Math.max(0, Math.min(1, v)); if (v < 0.65) { const t = v / 0.65; return [GROUND[0] + (AMBER[0] - GROUND[0]) * t, GROUND[1] + (AMBER[1] - GROUND[1]) * t, GROUND[2] + (AMBER[2] - GROUND[2]) * t]; } const t = (v - 0.65) / 0.35; return [AMBER[0] + (255 - AMBER[0]) * t, AMBER[1] + (255 - AMBER[1]) * t, AMBER[2] + (255 - AMBER[2]) * t]; };
+  const rgb = c => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+
+  // ---------- top-down view: 24 m × 24 m, camera at bottom centre ----------
+  const TW = 512, PPM = TW / 26; // px per metre, 26 m × 26 m in view
+  const wx = x => 256 + x * PPM, wz = z => TW - (z + 1) * PPM;
+  function tdDraw(ctx, opt = {}) {
+    ctx.fillStyle = "#0b0e13"; ctx.fillRect(0, 0, TW, TW);
+    ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath();
+    for (let m = -12; m <= 12; m += 2) { ctx.moveTo(wx(m) + 0.5, 0); ctx.lineTo(wx(m) + 0.5, TW); }
+    for (let m = 0; m <= 24; m += 2) { ctx.moveTo(0, wz(m) + 0.5); ctx.lineTo(TW, wz(m) + 0.5); }
+    ctx.stroke();
+    // frustum wedge, near and far
+    ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.setLineDash([4, 4]); ctx.beginPath();
+    ctx.moveTo(wx(0), wz(0)); ctx.lineTo(wx(-FAR * TANH), wz(FAR)); ctx.moveTo(wx(0), wz(0)); ctx.lineTo(wx(FAR * TANH), wz(FAR));
+    ctx.moveTo(wx(-NEAR * TANH), wz(NEAR)); ctx.lineTo(wx(NEAR * TANH), wz(NEAR)); ctx.moveTo(wx(-FAR * TANH), wz(FAR)); ctx.lineTo(wx(FAR * TANH), wz(FAR));
+    ctx.stroke(); ctx.setLineDash([]);
+    if (opt.before) opt.before(ctx);
+    // boxes
+    for (let o = 0; o < st.nobj; o++) {
+      const b = OBJ_ALL[o];
+      ctx.fillStyle = "rgba(74,163,255,0.30)"; ctx.strokeStyle = "#4aa3ff"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.rect(wx(b.x - b.w / 2), wz(b.z + b.d / 2), b.w * PPM, b.d * PPM); ctx.fill(); ctx.stroke();
+      if (opt.objHandles) { ctx.beginPath(); ctx.arc(wx(b.x), wz(b.z), 4, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); }
+    }
+    // lights: ring = radius, disc = handle
+    for (let l = 0; l < st.nl; l++) {
+      const L = LIGHTS[l]; const kept = opt.keep ? opt.keep.has(l) : null;
+      const col = kept === null ? "242,163,65" : kept ? "90,212,138" : "242,163,65"; const a = kept === false ? 0.25 : 1;
+      ctx.strokeStyle = `rgba(${col},${0.35 * a})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(wx(L.x), wz(L.z), L.r * PPM, 0, Math.PI * 2); ctx.stroke();
+      if (opt.fillRings) { ctx.fillStyle = `rgba(${col},${0.07 * a})`; ctx.fill(); }
+      ctx.fillStyle = `rgba(${col},${a})`; ctx.beginPath(); ctx.arc(wx(L.x), wz(L.z), 5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#0b0e13"; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+    if (opt.after) opt.after(ctx);
+    // camera
+    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.moveTo(wx(0), wz(0) + 6); ctx.lineTo(wx(0) - 6, wz(0) + 14); ctx.lineTo(wx(0) + 6, wz(0) + 14); ctx.closePath(); ctx.fill();
+    ctx.font = "11px IBM Plex Mono, monospace"; ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.textAlign = "left";
+    ctx.fillText("far 24 m", wx(-12.6), wz(FAR) - 5); ctx.fillText("near 0.5 m", wx(1.2), wz(NEAR) + 4);
+  }
+  // wedge of a tile column in the top-down view (x extent only; y is out of the plane)
+  function wedge(ctx, ti, z0, z1, fill, stroke) {
+    const ts = st.tile, xa = (ti * ts) / GW * 2 - 1, xb = Math.min(GW, (ti + 1) * ts) / GW * 2 - 1;
+    ctx.beginPath(); ctx.moveTo(wx(xa * TANH * z0), wz(z0)); ctx.lineTo(wx(xb * TANH * z0), wz(z0)); ctx.lineTo(wx(xb * TANH * z1), wz(z1)); ctx.lineTo(wx(xa * TANH * z1), wz(z1)); ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); } if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); }
+  }
+
+  // ---------- screen grid blit ----------
+  const off = document.createElement("canvas"); off.width = GW; off.height = GH; const offx = off.getContext("2d");
+  function blitGrid(ctx, img, x, y, w, h) { offx.putImageData(img, 0, 0); ctx.imageSmoothingEnabled = false; ctx.drawImage(off, x, y, w, h); }
+  function gridImage(fn) { const img = new ImageData(GW, GH), p = img.data; for (let k = 0; k < NPX; k++) { const c = fn(k); p[k * 4] = c[0]; p[k * 4 + 1] = c[1]; p[k * 4 + 2] = c[2]; p[k * 4 + 3] = 255; } return img; }
+  function gridLines(ctx, x, y, w, h, step, alpha) {
+    ctx.strokeStyle = `rgba(255,255,255,${alpha})`; ctx.lineWidth = 1; ctx.beginPath();
+    for (let i = step; i < GW; i += step) { const q = x + Math.round(i * w / GW) + 0.5; ctx.moveTo(q, y); ctx.lineTo(q, y + h); }
+    for (let j = step; j < GH; j += step) { const q = y + Math.round(j * h / GH) + 0.5; ctx.moveTo(x, q); ctx.lineTo(x + w, q); }
+    ctx.stroke();
+  }
+  function cellRect(ctx, k, x, y, w, h, stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.strokeRect(x + (k % GW) * w / GW + 1, y + Math.floor(k / GW) * h / GH + 1, w / GW - 2, h / GH - 2); }
+
+  // ---------- pointer plumbing ----------
+  let pending = false, needRaster = true;
+  function redraw() { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; drawAll(); }); }
+  function local(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width * canvas.width, (ev.clientY - r.top) / r.height * canvas.height]; }
+  function bindTopDown(canvas) {
+    let drag = null;
+    canvas.addEventListener("pointerdown", ev => {
+      const [mx, my] = local(canvas, ev); let best = null, bd = 12;
+      for (let l = 0; l < st.nl; l++) { const d = Math.hypot(wx(LIGHTS[l].x) - mx, wz(LIGHTS[l].z) - my); if (d < bd) { bd = d; best = { kind: "L", i: l }; } }
+      if (!best) for (let o = 0; o < st.nobj; o++) { const b = OBJ_ALL[o]; if (Math.abs(mx - wx(b.x)) < b.w * PPM / 2 && Math.abs(my - wz(b.z)) < b.d * PPM / 2) best = { kind: "O", i: o, ox: b.x - (mx - 256) / PPM, oz: b.z - (TW - my) / PPM + 1 }; }
+      if (best) { drag = best; canvas.setPointerCapture(ev.pointerId); }
+    });
+    canvas.addEventListener("pointermove", ev => {
+      if (!drag) return; const [mx, my] = local(canvas, ev); const x = (mx - 256) / PPM, z = (TW - my) / PPM - 1;
+      if (drag.kind === "L") { LIGHTS[drag.i].x = Math.max(-12.5, Math.min(12.5, x)); LIGHTS[drag.i].z = Math.max(0.6, Math.min(24.5, z)); }
+      else { OBJ_ALL[drag.i].x = Math.max(-11, Math.min(11, x + drag.ox)); OBJ_ALL[drag.i].z = Math.max(1, Math.min(22, z + drag.oz)); needRaster = true; }
+      redraw();
+    });
+    const end = ev => { if (drag) { drag = null; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
+  }
+  function bindHover(canvas, toCell, onCell) {
+    const h = ev => { const [mx, my] = local(canvas, ev); onCell(toCell(mx, my)); redraw(); };
+    canvas.addEventListener("pointermove", h); canvas.addEventListener("pointerdown", h);
+    canvas.addEventListener("pointerleave", () => { onCell(-1); redraw(); });
+  }
+  const fullCell = (mx, my) => (mx < 0 || my < 0 || mx >= 640 || my >= 360) ? -1 : Math.floor(my / 10) * GW + Math.floor(mx / 10);
+
+  // ---------- 1. forward ----------
+  const c1t = document.getElementById("c1t"), x1t = c1t.getContext("2d"), c1s = document.getElementById("c1s"), x1s = c1s.getContext("2d");
+  const r1s = document.getElementById("c1s-read"), r1t = document.getElementById("c1t-read");
+  function draw1() {
+    const N = st.nl; let fragTotal = 0, covered = 0, maxF = 1;
+    for (let k = 0; k < NPX; k++) { if (frags[k]) { covered++; fragTotal += st.prepass ? 1 : frags[k]; if (frags[k] > maxF) maxF = frags[k]; } }
+    const img = gridImage(k => frags[k] ? heat((st.prepass ? 1 : frags[k]) / 4) : GROUND);
+    blitGrid(x1s, img, 0, 0, 640, 360); gridLines(x1s, 0, 0, 640, 360, 1, 0.08);
+    if (st.hoverPx >= 0) {
+      const k = st.hoverPx; cellRect(x1s, k, 0, 0, 640, 360, "#fff");
+      const f = st.prepass ? (frags[k] ? 1 : 0) : frags[k];
+      r1s.innerHTML = frags[k] ? `pixel ${k % GW},${Math.floor(k / GW)}: <strong>${f} fragment${f > 1 ? "s" : ""} × ${N} lights = ${f * N} evaluations</strong>${frags[k] > 1 && !st.prepass ? ` · ${frags[k] - 1} occluded, still paid` : ""} · ${lightsAt[k]} lights actually reach it` : `pixel ${k % GW},${Math.floor(k / GW)}: sky, nothing drawn`;
+    } else r1s.textContent = "hover a pixel";
+    tdDraw(x1t, { objHandles: true, fillRings: true });
+    r1t.innerHTML = `<strong>${N} lights · ${st.nobj} boxes</strong>`;
+    document.getElementById("t1-frag").innerHTML = `${fmtM(fragTotal * SCALE)}<small> (${fmtN(fragTotal)} cells)</small>`;
+    document.getElementById("t1-eval").innerHTML = `${fmtM(fragTotal * N * SCALE)}<small> × ${N}</small>`;
+    document.getElementById("t1-od").textContent = covered ? (fragTotal / covered).toFixed(2) + "×" : "0";
+    return fragTotal * N * SCALE;
+  }
+
+  // ---------- 2. deferred ----------
+  const c2s = document.getElementById("c2s"), x2s = c2s.getContext("2d"), c2t = document.getElementById("c2t"), x2t = c2t.getContext("2d");
+  const r2s = document.getElementById("c2s-read"), r2t = document.getElementById("c2t-read");
+  function octEncode(x, y, z) { const s = Math.abs(x) + Math.abs(y) + Math.abs(z); let u = x / s, v = y / s; if (z < 0) { const ou = u; u = (1 - Math.abs(v)) * (ou >= 0 ? 1 : -1); v = (1 - Math.abs(ou)) * (v >= 0 ? 1 : -1); } return [u * 0.5 + 0.5, v * 0.5 + 0.5]; }
+  const layerName = ["albedo RGBA8", "normal RG16 oct", "rough / metal", "depth D32"];
+  function draw2(fwdEval) {
+    const N = st.nl; x2s.fillStyle = "#0b0e13"; x2s.fillRect(0, 0, 640, 360);
+    const imgs = [
+      gridImage(k => depth[k] === Infinity ? GROUND : matOf(k).alb),
+      gridImage(k => { if (depth[k] === Infinity) return GROUND; const [u, v] = octEncode(nx[k], ny[k], nz[k]); return [30 + AMBER[0] * u * 0.55 + BLUE[0] * v * 0.45, 30 + AMBER[1] * u * 0.55 + BLUE[1] * v * 0.45, 30 + AMBER[2] * u * 0.55 + BLUE[2] * v * 0.45]; }),
+      gridImage(k => { if (depth[k] === Infinity) return GROUND; const m = matOf(k); return [30 + AMBER[0] * m.rough * 0.7 + BLUE[0] * m.metal * 0.3, 30 + AMBER[1] * m.rough * 0.7 + BLUE[1] * m.metal * 0.3, 30 + AMBER[2] * m.rough * 0.7 + BLUE[2] * m.metal * 0.3]; }),
+      gridImage(k => { if (depth[k] === Infinity) return GROUND; const zb = (FAR / depth[k] - 1) / (FAR / NEAR - 1); const v = 40 + 215 * zb; return [v, v, v]; }), // nonlinear stored depth, bright = near
+    ];
+    const pos = [[2, 2], [322, 2], [2, 182], [322, 182]];
+    imgs.forEach((img, i) => { blitGrid(x2s, img, pos[i][0], pos[i][1], 316, 176); x2s.font = "11px IBM Plex Mono, monospace"; x2s.fillStyle = "rgba(255,255,255,0.75)"; x2s.textAlign = "left"; x2s.fillText(layerName[i], pos[i][0] + 6, pos[i][1] + 14); });
+    if (st.hoverPx >= 0) {
+      const k = st.hoverPx; pos.forEach(p => cellRect(x2s, k, p[0], p[1], 316, 176, "#fff"));
+      if (depth[k] === Infinity) r2s.textContent = "sky: depth = far, nothing to light";
+      else { const m = matOf(k), [u, v] = octEncode(nx[k], ny[k], nz[k]); r2s.innerHTML = `albedo (${m.alb.join(",")}) · oct (${u.toFixed(2)}, ${v.toFixed(2)}) · rough ${m.rough} metal ${m.metal} · z <strong>${depth[k].toFixed(2)} m</strong> · <strong>${lightsAt[k]} lights</strong> reach it`; }
+    } else r2s.textContent = "hover a pixel";
+    tdDraw(x2t, { fillRings: true });
+    let defEval = 0, visible = 0; for (let k = 0; k < NPX; k++) if (depth[k] !== Infinity) { visible++; defEval += lightsAt[k]; }
+    const rectEval = rectVolumePixels();
+    r2t.innerHTML = `<strong>${fmtN(visible)} lit cells</strong> · ${(defEval / Math.max(1, visible)).toFixed(2)} lights per cell`;
+    document.getElementById("t2-fwd").innerHTML = `${fmtM(fwdEval)}<small> × ${N} every fragment</small>`;
+    document.getElementById("t2-def").innerHTML = `${fmtM(defEval * SCALE)}<small> ${(100 * defEval * SCALE / Math.max(1, fwdEval)).toFixed(0)}% of forward</small>`;
+    document.getElementById("t2-rect").innerHTML = `${fmtM(rectEval * SCALE)}<small> no depth bounds</small>`;
+    // G-buffer memory table
+    const b = { Alb: +document.getElementById("fAlb").value, Nrm: +document.getElementById("fNrm").value, Mat: +document.getElementById("fMat").value, Dep: +document.getElementById("fDep").value };
+    const P1 = 1920 * 1080, P4 = 3840 * 2160; let tot = 0;
+    for (const key of ["Alb", "Nrm", "Mat", "Dep"]) { tot += b[key]; document.getElementById("b" + key).textContent = b[key] + " B"; document.getElementById("m" + key).textContent = fmtB(b[key] * P1); document.getElementById("k" + key).textContent = fmtB(b[key] * P4); }
+    document.getElementById("bTot").textContent = tot + " B"; document.getElementById("mTot").textContent = fmtB(tot * P1); document.getElementById("kTot").textContent = fmtB(tot * P4);
+    let fragTotal = 0; for (let k = 0; k < NPX; k++) fragTotal += frags[k];
+    const overdraw = fragTotal / Math.max(1, visible);
+    const traffic1 = tot * P1 * (overdraw + 1), traffic4 = tot * P4 * (overdraw + 1);
+    document.getElementById("mBw").textContent = `${fmtB(traffic1)} (${overdraw.toFixed(2)}× write + 1 read)`; document.getElementById("kBw").textContent = fmtB(traffic4);
+    document.getElementById("mBws").textContent = (traffic1 * 60 / 1e9).toFixed(1) + " GB/s"; document.getElementById("kBws").textContent = (traffic4 * 60 / 1e9).toFixed(1) + " GB/s";
+    document.getElementById("tr-gb1").textContent = `G-buffer ${tot} B/px, ${fmtB(tot * P1)}`;
+    document.getElementById("tr-gb2").textContent = `${fmtB(tot * P1)} plus cluster lists`;
+    return { defEval, visible, gbytes: tot, depthBytes: b.Dep };
+  }
+
+  // ---------- 3. tiled ----------
+  const c3s = document.getElementById("c3s"), x3s = c3s.getContext("2d"), c3t = document.getElementById("c3t"), x3t = c3t.getContext("2d");
+  const r3s = document.getElementById("c3s-read"), r3t = document.getElementById("c3t-read");
+  function draw3() {
+    const N = st.nl, ts = st.tile, { tx, ty } = tiles, nt = tx * ty, tw = 640 / GW * ts, th = 360 / GH * ts;
+    let sum = 0, worst = -1, worstGap = -1, maxC = 1, fwdPlus = 0;
+    for (let t = 0; t < nt; t++) { sum += tiles.count[t]; if (tiles.count[t] > maxC) maxC = tiles.count[t]; const gap = tiles.minZ[t] === Infinity ? -1 : tiles.maxZ[t] - tiles.minZ[t]; if (gap > worstGap) { worstGap = gap; worst = t; } }
+    for (let k = 0; k < NPX; k++) if (frags[k]) fwdPlus += (st.prepass ? 1 : frags[k]) * tiles.count[tileOf(k)];
+    x3s.fillStyle = "#0b0e13"; x3s.fillRect(0, 0, 640, 360);
+    for (let t = 0; t < nt; t++) { const c = tiles.count[t]; x3s.fillStyle = rgb(c ? heat(c / Math.max(6, N * 0.6)) : GROUND); x3s.fillRect((t % tx) * tw, Math.floor(t / tx) * th, tw, th); }
+    // faint object outlines from the depth buffer so the tiles read against the scene
+    const img = gridImage(k => depth[k] === Infinity ? [0, 0, 0] : [255, 255, 255]);
+    x3s.globalAlpha = 0.10; blitGrid(x3s, img, 0, 0, 640, 360); x3s.globalAlpha = 1;
+    gridLines(x3s, 0, 0, 640, 360, ts, 0.25);
+    x3s.font = "11px IBM Plex Mono, monospace"; x3s.textAlign = "center"; x3s.textBaseline = "middle";
+    if (ts >= 4) for (let t = 0; t < nt; t++) { x3s.fillStyle = tiles.count[t] > N * 0.4 ? "#0b0e13" : "rgba(255,255,255,0.7)"; x3s.fillText(tiles.count[t], (t % tx) * tw + tw / 2, Math.floor(t / tx) * th + th / 2); }
+    x3s.textBaseline = "alphabetic";
+    if (worst >= 0) { x3s.strokeStyle = "#ef5d5d"; x3s.lineWidth = 2; x3s.strokeRect((worst % tx) * tw + 1, Math.floor(worst / tx) * th + 1, tw - 2, th - 2); }
+    const ht = st.hoverTile >= 0 ? st.hoverTile : worst;
+    if (st.hoverTile >= 0) { x3s.strokeStyle = "#fff"; x3s.lineWidth = 2; x3s.strokeRect((ht % tx) * tw + 1, Math.floor(ht / tx) * th + 1, tw - 2, th - 2); }
+    if (ht >= 0) {
+      const mn = tiles.minZ[ht], mx = tiles.maxZ[ht];
+      r3s.innerHTML = mn === Infinity ? `tile ${ht % tx},${Math.floor(ht / tx)}: sky only, 0 lights` : `tile ${ht % tx},${Math.floor(ht / tx)}: z ${mn.toFixed(1)} to ${mx.toFixed(1)} m · <strong>${tiles.count[ht]} of ${N} lights</strong>${ht === worst ? " · widest depth gap" : ""}`;
+      tdDraw(x3t, { keep: new Set(tiles.keep[ht]), before: ctx => { if (mn !== Infinity) wedge(ctx, ht % tx, mn, mx, ht === worst && st.hoverTile < 0 ? "rgba(239,93,93,0.18)" : "rgba(255,255,255,0.12)", ht === worst ? "#ef5d5d" : "#ffffff"); } });
+      r3t.innerHTML = mn === Infinity ? "empty tile" : `tile column wedge, <strong>${(mx - mn).toFixed(1)} m deep</strong>`;
+    } else { r3s.textContent = "hover a tile"; tdDraw(x3t, {}); }
+    const pxTile = ts * 30;
+    document.getElementById("t3-tiles").innerHTML = `${nt}<small> · ${pxTile}×${pxTile} px</small>`;
+    document.getElementById("t3-avg").innerHTML = `${(sum / nt).toFixed(1)}<small> max ${maxC}</small>`;
+    document.getElementById("t3-worst").innerHTML = worst >= 0 ? `${tiles.count[worst]}<small> lights, ${worstGap.toFixed(1)} m gap</small>` : "·";
+    document.getElementById("t3-eval").innerHTML = `${fmtM(fwdPlus * SCALE)}<small> vs ${fmtM(NPX * 0 + (() => { let f = 0; for (let k = 0; k < NPX; k++) f += st.prepass ? (frags[k] ? 1 : 0) : frags[k]; return f; })() * N * SCALE)} plain</small>`;
+    return { fwdPlus, sum, nt };
+  }
+
+  // ---------- 4. clustered ----------
+  const c4s = document.getElementById("c4s"), x4s = c4s.getContext("2d"), c4t = document.getElementById("c4t"), x4t = c4t.getContext("2d");
+  const r4s = document.getElementById("c4s-read"), r4t = document.getElementById("c4t-read");
+  function draw4(tiledInfo) {
+    const N = st.nl, S = st.slices, { tx, ty } = tiles, nt = tx * ty;
+    let visible = 0, sumTile = 0, sumClu = 0;
+    const img = gridImage(k => { if (depth[k] === Infinity) return GROUND; visible++; sumTile += tiles.count[tileOf(k)]; const c = clus.count[clusterOf(k)]; sumClu += c; return heat(c / Math.max(6, N * 0.6)); });
+    blitGrid(x4s, img, 0, 0, 640, 360); gridLines(x4s, 0, 0, 640, 360, st.tile, 0.25);
+    const row = st.hoverRow;
+    x4s.strokeStyle = "rgba(255,255,255,0.8)"; x4s.lineWidth = 1.5; x4s.strokeRect(0.5, row * 360 / GH * st.tile + 0.5, 639, 360 / GH * st.tile - 1);
+    if (st.hoverPx >= 0) {
+      const k = st.hoverPx; cellRect(x4s, k, 0, 0, 640, 360, "#fff");
+      r4s.innerHTML = depth[k] === Infinity ? "sky, no cluster lookup" : `z ${depth[k].toFixed(2)} m → slice <strong>${sliceOf(depth[k])} of ${S}</strong> · cluster list <strong>${clus.count[clusterOf(k)]} lights</strong> · tile list ${tiles.count[tileOf(k)]}`;
+    } else r4s.textContent = "hover a pixel";
+    // top-down: cluster grid for one tile row, cell colour = list length
+    tdDraw(x4t, {
+      before: ctx => {
+        for (let ti = 0; ti < tx; ti++) for (let s = 0; s < S; s++) {
+          const c = clus.count[(row * tx + ti) * S + s]; const col = heat(c / Math.max(6, N * 0.6));
+          wedge(ctx, ti, clus.zs[s], clus.zs[s + 1], c ? `rgba(${col[0] | 0},${col[1] | 0},${col[2] | 0},0.55)` : "rgba(255,255,255,0.03)", null);
+        }
+        ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 1; ctx.beginPath();
+        for (let s = 0; s <= S; s++) { const z = clus.zs[s]; ctx.moveTo(wx(-z * TANH), wz(z)); ctx.lineTo(wx(z * TANH), wz(z)); }
+        for (let ti = 1; ti < tx; ti++) { const xa = (ti * st.tile) / GW * 2 - 1; ctx.moveTo(wx(xa * TANH * NEAR), wz(NEAR)); ctx.lineTo(wx(xa * TANH * FAR), wz(FAR)); }
+        ctx.stroke();
+      }
+    });
+    r4t.innerHTML = `tile row ${row} · <strong>${tx} × ${S} clusters</strong> shown`;
+    const mem = clus.n * 8 + clus.total * 2, mem1080 = 120 * 68 * S * 8;
+    document.getElementById("t4-tile").innerHTML = `${(sumTile / Math.max(1, visible)).toFixed(2)}<small> ${nt} tiles</small>`;
+    document.getElementById("t4-clu").innerHTML = `${(sumClu / Math.max(1, visible)).toFixed(2)}<small> ${(100 * sumClu / Math.max(1, sumTile)).toFixed(0)}% of tiled</small>`;
+    document.getElementById("t4-n").innerHTML = `${fmtN(clus.n)}<small> · ${(clus.total / clus.n).toFixed(2)} avg</small>`;
+    document.getElementById("t4-mem").innerHTML = `${fmtB(mem)}<small> · ${fmtB(mem1080)} at 1080p</small>`;
+    return sumClu;
+  }
+
+  // ---------- 5. what a pixel stores ----------
+  const c5s = document.getElementById("c5s"), x5s = c5s.getContext("2d"), r5s = document.getElementById("c5s-read");
+  const triCol = id => { let h = (id * 2654435761) >>> 0; h ^= h >>> 13; h = (h * 0x5bd1e995) >>> 0; const a = (h & 255) / 255, b = ((h >> 8) & 255) / 255, v = 0.35 + 0.65 * (((h >> 16) & 255) / 255); return [(AMBER[0] * a + BLUE[0] * (1 - a) + 255 * b) / 2 * v, (AMBER[1] * a + BLUE[1] * (1 - a) + 255 * b) / 2 * v, (AMBER[2] * a + BLUE[2] * (1 - a) + 255 * b) / 2 * v]; };
+  // barycentrics of the hit inside its face triangle: tri 0 = (0,0),(1,0),(0,1); tri 1 = (1,1),(0,1),(1,0)
+  const bary = k => { const u = fu[k], v = fv[k]; return u + v > 1 ? [u + v - 1, 1 - u, 1 - v] : [1 - u - v, u, v]; };
+  function draw5(fwdPlus, defEval, cluEval, gb) {
+    const pw = 210, ph = 118, pos = [[2, 0], [215, 0], [428, 0]];
+    x5s.fillStyle = "#0b0e13"; x5s.fillRect(0, 0, 640, 360);
+    const imgs = [gridImage(k => depth[k] === Infinity ? GROUND : shade(k)), gridImage(k => depth[k] === Infinity ? GROUND : matOf(k).alb), gridImage(k => depth[k] === Infinity ? GROUND : triCol(triId[k]))];
+    const names = ["Forward+: depth, colour", "Deferred: G-buffer", "Visibility: triangle id"];
+    // second row: the derived data each one has at shading time
+    const imgs2 = [gridImage(k => { if (depth[k] === Infinity) return GROUND; const v = 40 + 215 * (FAR / depth[k] - 1) / (FAR / NEAR - 1); return [v, v, v]; }), gridImage(k => { if (depth[k] === Infinity) return GROUND; const [u, v] = octEncode(nx[k], ny[k], nz[k]); return [30 + AMBER[0] * u * 0.55 + BLUE[0] * v * 0.45, 30 + AMBER[1] * u * 0.55 + BLUE[1] * v * 0.45, 30 + AMBER[2] * u * 0.55 + BLUE[2] * v * 0.45]; }), gridImage(k => { if (depth[k] === Infinity) return GROUND; const [l0, l1, l2] = bary(k); return [AMBER[0] * l0 + BLUE[0] * l1 + 255 * l2, AMBER[1] * l0 + BLUE[1] * l1 + 255 * l2, AMBER[2] * l0 + BLUE[2] * l1 + 255 * l2]; })];
+    const names2 = ["prepass depth, stored", "normal, rough/metal, stored", "barycentrics, derived"];
+    x5s.font = "11px IBM Plex Mono, monospace"; x5s.textAlign = "left";
+    imgs.forEach((img, i) => { blitGrid(x5s, img, pos[i][0], 30, pw, ph); x5s.fillStyle = "rgba(255,255,255,0.8)"; x5s.fillText(names[i], pos[i][0] + 2, 22); });
+    imgs2.forEach((img, i) => { blitGrid(x5s, img, pos[i][0], 212, pw, ph); x5s.fillStyle = "rgba(255,255,255,0.6)"; x5s.fillText(names2[i], pos[i][0] + 2, 204); });
+    const ms = st.msaa ? 4 : 1;
+    const fB = (gb.depthBytes + 8) * ms, dB = gb.gbytes + 8, vB = (4 + gb.depthBytes) * ms + 8;
+    if (st.hoverPx >= 0) {
+      const k = st.hoverPx; pos.forEach(p => { cellRect(x5s, k, p[0], 30, pw, ph, "#fff"); cellRect(x5s, k, p[0], 212, pw, ph, "#fff"); });
+      const bb = bary(k); r5s.innerHTML = depth[k] === Infinity ? "sky: forward+ stores far depth, deferred a cleared G-buffer, v-buffer id 0" : `<strong>${fB} B</strong> forward+ · <strong>${dB} B</strong> deferred · <strong>${vB} B</strong> v-buffer, id ${triId[k]}, λ = (${bb.map(x => x.toFixed(2)).join(", ")})`;
+    } else r5s.textContent = "hover a pixel";
+    const P4 = 3840 * 2160, mx = Math.max(fB, dB, vB);
+    const setBar = (id, bytes, off, label) => { const el = document.getElementById(id); el.classList.toggle("off", off); el.querySelector(".fill").style.width = (100 * bytes / mx) + "%"; el.querySelector(".v").textContent = label || `${bytes} B/px · ${Math.round(bytes * P4 / 1048576)} MB`; };
+    setBar("bar-f", fB, false); setBar("bar-d", dB, st.msaa, st.msaa ? `no MSAA · ${dB} B/px` : null); setBar("bar-v", vB, false);
+    let visible = 0; for (let k = 0; k < NPX; k++) if (depth[k] !== Infinity) visible++;
+    document.getElementById("t5-f").innerHTML = `${fmtM(fwdPlus * SCALE)}<small> tile lists${st.prepass ? ", prepass" : ", overdraw"}</small>`;
+    document.getElementById("t5-d").innerHTML = `${fmtM(defEval * SCALE)}<small> sphere volumes</small>`;
+    document.getElementById("t5-v").innerHTML = `${fmtM(cluEval * SCALE)}<small> + ${fmtM(visible * SCALE)} material resolves</small>`;
+  }
+
+  // ---------- drive everything from one shared scene ----------
+  function drawAll() {
+    if (needRaster) { raster(); needRaster = false; }
+    lightCounts(); buildTiles(); buildClusters();
+    const fwdEval = draw1();
+    const d2 = draw2(fwdEval);
+    const d3 = draw3();
+    const cluEval = draw4(d3);
+    draw5(d3.fwdPlus, d2.defEval, cluEval, d2);
+  }
+  bindTopDown(c1t); bindTopDown(c2t); bindTopDown(c3t); bindTopDown(c4t);
+  bindHover(c1s, fullCell, k => { st.hoverPx = k; });
+  bindHover(c2s, (mx, my) => { const qx = mx < 320 ? mx - 2 : mx - 322, qy = my < 180 ? my - 2 : my - 182; return (qx < 0 || qy < 0 || qx >= 316 || qy >= 176) ? -1 : Math.floor(qy / 176 * GH) * GW + Math.floor(qx / 316 * GW); }, k => { st.hoverPx = k; });
+  bindHover(c3s, (mx, my) => { const k = fullCell(mx, my); return k < 0 ? -1 : tileOf(k); }, t => { st.hoverTile = t; });
+  bindHover(c4s, fullCell, k => { st.hoverPx = k; if (k >= 0) st.hoverRow = Math.min(tiles.ty - 1, Math.floor(Math.floor(k / GW) / st.tile)); });
+  bindHover(c5s, (mx, my) => { const col = Math.floor(mx / 213), qx = mx - [2, 215, 428][col], qy = my < 180 ? my - 30 : my - 212; return (col > 2 || qx < 0 || qx >= 210 || qy < 0 || qy >= 118) ? -1 : Math.floor(qy / 118 * GH) * GW + Math.floor(qx / 210 * GW); }, k => { st.hoverPx = k; });
+
+  const nl = document.getElementById("nl"), nl3 = document.getElementById("nl3");
+  const setLights = v => { st.nl = v; nl.value = v; nl3.value = v; document.getElementById("nlv").textContent = v; document.getElementById("nl3v").textContent = v; redraw(); };
+  nl.addEventListener("input", () => setLights(+nl.value)); nl3.addEventListener("input", () => setLights(+nl3.value));
+  const nobj = document.getElementById("nobj");
+  nobj.addEventListener("input", () => { st.nobj = +nobj.value; document.getElementById("nobjv").textContent = nobj.value; needRaster = true; redraw(); });
+  document.getElementById("prepass").addEventListener("change", ev => { st.prepass = ev.target.checked; redraw(); });
+  document.getElementById("msaa").addEventListener("change", ev => { st.msaa = ev.target.checked; redraw(); });
+  const nsl = document.getElementById("nsl");
+  nsl.addEventListener("input", () => { st.slices = +nsl.value; document.getElementById("nslv").textContent = nsl.value; redraw(); });
+  document.getElementById("segTile").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; st.tile = +b.dataset.v; st.hoverTile = -1; st.hoverRow = Math.min(st.hoverRow, Math.ceil(GH / st.tile) - 1); ev.currentTarget.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); redraw(); });
+  for (const id of ["fAlb", "fNrm", "fMat", "fDep"]) document.getElementById(id).addEventListener("change", redraw);
+  document.getElementById("tr-note").textContent = "Bandwidth is the number to watch on consoles and mobile, where the G-buffer round trip competes with everything else for the same memory bus. On tile-based mobile GPUs a G-buffer that stays in on-chip tile memory (framebuffer fetch, subpasses in Vulkan) costs almost nothing, which is why deferred is common there despite the bandwidth story on desktop.";
+  drawAll();
+})();
+</script>

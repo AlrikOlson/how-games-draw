@@ -1,0 +1,951 @@
+<title>Ambient Occlusion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas.r169 { aspect-ratio: 16 / 9; }
+.tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 820px) { .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .tiles.four { grid-template-columns: 1fr; } }
+.tiles .tile .n { font-size: 22px; }
+.tiles .tile .n small { font-size: 12px; color: var(--muted); font-weight: 400; }
+.ctl.chk { flex-direction: row; align-items: center; gap: 8px; }
+.ctl.chk label { text-transform: none; letter-spacing: 0; font-size: 13px; font-family: var(--font-display); color: var(--ink); }
+.below { margin-top: 22px; }
+.cols.wide .vp { max-width: 100%; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">10 m × 5.6 m side view · camera above · 320-texel depth strip · drag the white point</p>
+    <h1>Ambient Occlusion</h1>
+    <p class="lead">Ambient occlusion darkens corners, creases and the ground under things, so objects look like they sit in the world instead of floating on it. It costs about a millisecond a frame and makes almost every scene read better, which is why nearly every game runs it. The thing people get wrong is what it should darken: only the soft light that comes from everywhere at once, never the direct light from the sun or a lamp. A sunlit corner already has real shadows and should not be darkened a second time.</p>
+    <div class="key">
+      <span style="--sw:#4aa3ff">ray that gets out, or a test point in open air</span>
+      <span style="--sw:#f2a341">ray that hits something, or a test point that is buried</span>
+      <span style="--sw:#ffffff">the point you drag, horizon lines</span>
+      <span style="--sw:#8a9098">the surface, shaded by AO: dark means buried</span>
+    </div>
+    <dl class="terms">
+      <dt>ambient light</dt><dd>the soft light that arrives from every direction at once, with no single source</dd>
+      <dt>occlusion</dt><dd>how much of the sky a point cannot see because something is in the way</dd>
+      <dt>hemisphere</dt><dd>the half-dome of directions above a surface point; a half circle on this page</dd>
+      <dt>normal</dt><dd>the direction a surface faces, straight out from it</dd>
+      <dt>depth buffer</dt><dd>an image where each pixel stores how far away the nearest surface is, not its colour</dd>
+      <dt>texel</dt><dd>one pixel of a texture such as the depth buffer</dd>
+      <dt>sample</dt><dd>one test point or one ray; more samples means less noise and more cost</dd>
+      <dt>horizon</dt><dd>in one direction, the steepest angle at which something blocks the view</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#truth"><span class="n">01</span>The true answer</a></li><li><a href="#ssao"><span class="n">02</span>SSAO</a></li><li><a href="#horizon"><span class="n">03</span>Horizons</a></li><li><a href="#denoise"><span class="n">04</span>Noise, blur, history</a></li><li><a href="#beyond"><span class="n">05</span>What the depth buffer cannot see</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="truth">
+    <h2>The true answer: 64 rays per point</h2>
+    <p class="sub">Drag the white point along the surface and watch which of its 64 rays get out.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c1" width="640" height="360" class="r169 grab" aria-label="Side view of the scene with cosine-weighted rays cast from a surface point"></canvas>
+        <div class="cap"><span id="c1-read"></span><span id="c1-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Ambient occlusion asks one thing at every point on every surface: <b>how much sky can you see from here</b>. In an open field you see all of it; in a corner, half of it is wall. The way to find out is to <b>fire rays in every upward direction and count how many get away</b>. That count, as a fraction, is the AO value. This is slow, which is why the rest of the page is about faking it, but it is what every faster method is trying to match.</p>
+
+        <h3>What you're seeing</h3>
+        <p>A side view of a 10 m wide scene: flat ground, a box, a narrow crevice and a step up. The camera on this page looks straight down from above. From the white point, 64 rays fan out in a half circle. Blue rays escape past the dashed radius. Amber rays hit something first, with a dot where they stopped.</p>
+        <p>The surface itself is painted grey by the same test at every point. Bright means open sky, dark means buried.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the point into the crevice between the box and the step. Nearly every ray turns amber and the readout drops toward 0.</li>
+          <li>Drag it onto the top of the box. The only thing a ray can hit is the ground far below, so most rays escape.</li>
+          <li>Push the radius to 3 m. The floor near the step gets darker, because more distant things now count as blockers.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><label for="r1">Radius r <span class="val" id="r1v">1.5 m</span></label><input type="range" id="r1" min="0.25" max="3" step="0.05" value="1.5"></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The reference is a Monte Carlo estimate, which means it approximates an integral with random samples. From point <code>p</code>, shoot rays across the hemisphere, the half-dome of directions above the surface, and count the ones that travel the full distance <code>r</code> without hitting anything.</p>
+        <p>The rays are not spread evenly. They are cosine-weighted: dense near the normal, the direction the surface faces, and sparse near the horizon. A ray that skims the surface would bring in little light anyway, so it gets fewer samples. With this spread the estimate is the plain average of hit or miss, with no extra weights.</p>
+        <p>The radius <code>r</code> is a design choice, not physics. A small <code>r</code> gives tight contact shadows in corners; a large one darkens whole rooms. Every method on this page uses the same <code>r</code>, and the 64-ray reference is what they all try to match for a fraction of the work.</p>
+        <p class="words">In words: average, over all upward directions with straight up counting most, whether a ray gets out.</p>
+        <div class="math">AO(p) = (1/π) ∫_Ω V(p,ω) (n·ω) dω
+        <span class="c">V = 1 if the ray escapes within r</span>
+cosine pdf (n·ω)/π  ⇒  AO ≈ (1/N) Σ V(p, ω_i)
+2D slice: AO = ½ ∫ V(φ) cos φ dφ, φ ∈ (−π/2, π/2)
+          φ_i = asin(2u_i − 1)</div>
+        <p><code>p</code> is the surface point, <code>n</code> its normal, <code>ω</code> a direction and <code>Ω</code> the hemisphere. <code>V</code> is 1 when the ray escapes and 0 when it hits. In the 2D slice on this page, <code>φ</code> is the angle from the normal and <code>u_i</code> is a random number between 0 and 1 turned into a cosine-weighted angle.</p>
+        <p class="words">What this code does: fires 64 rays with the cosine spread and returns the fraction that got out.</p>
+<pre class="code"><span class="c">// reference AO: cosine-weighted rays from p, hemisphere around n</span>
+<span class="k">float</span> vis = 0.0;
+<span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; 64; i++) {
+  vec3 w = cosineSampleHemisphere(n, halton(i));  <span class="c">// pdf = (n·w)/π, so no weight needed</span>
+  vis += traceRay(p + n * EPS, w, r) ? 0.0 : 1.0;  <span class="c">// any hit inside r counts as blocked</span>
+}
+<span class="k">float</span> ao = vis / 64.0;                            <span class="c">// 1 = open sky, 0 = buried</span></pre>
+
+        <p class="tldr">AO is the fraction of the sky a point can see, and 64 rays per point is the answer everything else on this page is chasing.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="ssao">
+    <h2>SSAO: guessing from the depth buffer</h2>
+    <p class="sub">Move the point and watch each test sample get checked against the depth strip at the top.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c2" width="640" height="360" class="r169 grab" aria-label="SSAO kernel samples around a surface point, tested against the depth strip"></canvas>
+        <div class="cap"><span id="c2-read"></span><span id="c2-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Firing real rays is too slow for a game, so SSAO <b>cheats with the depth buffer</b>, the image the GPU already has that stores how far away each pixel's surface is. Around each pixel it <b>sprinkles a handful of test points</b> in a half-dome and asks, for each one, whether there is a surface in front of it. If the depth buffer says yes, that point <b>counts as blocked</b>. No rays, no scene, one lookup per point.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The strip along the top is the depth buffer as the camera above sees it: 320 texels, each 3.1 cm wide, brighter where the surface is closer to the camera. Around the white point, each test sample is a dot. Blue dots sit in open air. Amber dots are under the stored surface, with a line up to the texel that said so. Hollow dots were under the surface but too far from the point in depth, so the range check threw them out.</p>
+        <p>The surface is shaded by the same test at every point, and the readout puts the result next to the 64-ray reference.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Switch the kernel to sphere with the point on flat ground. Half the samples land underground and the AO reads about 0.5 for a surface that should read 1.</li>
+          <li>Turn the range check off and drag the point onto the ground beside the box. Samples that land on the box top now count as blockers for the ground.</li>
+          <li>Pull the samples slider from 16 down to 4 and watch the shaded surface turn patchy.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><span class="lab">Kernel</span><div class="seg" id="segK" role="group" aria-label="Kernel shape"><button data-v="sphere">sphere</button><button data-v="hemi" aria-pressed="true">hemisphere</button></div></div>
+          <div class="ctl"><span class="lab">Range check</span><div class="seg" id="segRC" role="group" aria-label="Range check"><button data-v="on" aria-pressed="true">on</button><button data-v="off">off</button></div></div>
+          <div class="ctl"><label for="ssN">Samples N <span class="val" id="ssNv">16</span></label><input type="range" id="ssN" min="4" max="64" step="1" value="16"></div>
+          <div class="ctl"><label for="ssR">Radius <span class="val" id="ssRv">1.5 m</span></label><input type="range" id="ssR" min="0.25" max="3" step="0.05" value="1.5"></div>
+          <div class="ctl"><label for="ssB">Bias <span class="val" id="ssBv">0.03 m</span></label><input type="range" id="ssB" min="0" max="0.2" step="0.005" value="0.03"></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>This is Crytek's 2007 method. Take the pixel's position in view space, which means measured from the camera, scatter N points around it, and project each one back onto the screen. Read the depth stored at that screen position. If the stored surface is closer to the camera than the sample, the sample is inside something, so it counts as occluded.</p>
+        <p>The original kernel, the cloud of sample offsets, was a full sphere. On flat ground half of it is below the floor, so an open surface reads 0.5 instead of 1. A hemisphere kernel turned to face along the normal fixes that.</p>
+        <p>Two guards make it usable. A bias, a small offset added to each sample's depth, stops a surface from occluding itself because stored depth comes in steps. A range check drops samples whose stored depth is far from the pixel's own depth. Without it, a tree behind a character darkens the character.</p>
+        <p class="words">In words: a sample is blocked if the depth buffer holds something in front of it, and it only counts if that something is close to the pixel.</p>
+        <div class="math">occ_i = [ z_buf(proj(s_i)) ≥ z(s_i) + bias ]
+        <span class="c">stored surface is closer than the sample</span>
+w_i   = smoothstep(0, 1, r / |z(p) − z_buf(s_i)|)
+AO    = 1 − (1/N) Σ occ_i · w_i
+sphere kernel on flat ground: half the samples
+are underground ⇒ AO ≈ 0.5</div>
+        <p><code>s_i</code> is the i-th sample point, <code>proj</code> puts it on the screen, <code>z_buf</code> reads the stored depth there and <code>z(s_i)</code> is the sample's own depth. <code>w_i</code> is the range weight, which fades to 0 as the stored surface gets far from the pixel.</p>
+        <p class="words">What this code does: places N points in a half-dome around the pixel, looks each one up in the depth buffer, and averages how many were buried.</p>
+<pre class="code"><span class="c">// SSAO, view space; one depth fetch per kernel sample</span>
+vec3 p = viewPos(uv), n = viewNormal(uv);
+mat3 tbn = kernelBasis(n, noiseTex[ivec2(gl_FragCoord.xy) &amp; 3]);  <span class="c">// 4×4 random rotation</span>
+<span class="k">float</span> occ = 0.0;
+<span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; N; i++) {
+  vec3 s = p + tbn * kernel[i] * radius;        <span class="c">// kernel[i]: unit hemisphere, |k| = sqrt(u)</span>
+  vec4 clip = proj * vec4(s, 1.0);
+  vec2 suv = clip.xy / clip.w * 0.5 + 0.5;       <span class="c">// where the sample lands on screen</span>
+  <span class="k">float</span> sceneZ = viewPos(suv).z;                 <span class="c">// what is stored there</span>
+  <span class="k">float</span> rangeW = smoothstep(0.0, 1.0, radius / abs(p.z - sceneZ));
+  occ += (sceneZ &gt;= s.z + bias ? 1.0 : 0.0) * rangeW;
+}
+<span class="k">float</span> ao = 1.0 - occ / <span class="k">float</span>(N);</pre>
+
+        <p class="tldr">SSAO never touches the scene; it only asks the depth buffer whether each nearby test point is inside something.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="horizon">
+    <h2>Horizons: walk out, keep the steepest angle</h2>
+    <p class="sub">Move the point and watch the march in each direction find how high the blockers reach.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c3" width="640" height="360" class="r169 grab" aria-label="Horizon march along the depth buffer with the occluded wedge drawn"></canvas>
+        <div class="cap"><span id="c3-read"></span><span id="c3-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Instead of random test points, HBAO and GTAO <b>walk away from the pixel</b> in a few screen directions and, at each step, note how steeply the surface there rises above the point. The steepest angle found is the <b>horizon</b> in that direction, like the skyline you see from a street. <b>Everything below the horizon is blocked</b>, everything above is open. Two angles replace dozens of yes-or-no tests, and the result is <b>much less noisy for the same cost</b>.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The depth buffer is a single row here, so there are only two directions: left and right. The short white ticks are the steps of the march, out to the dashed radius. The white lines run to the sample that set each horizon, and the amber wedges under them are the blocked part of the half circle. The blue wedge between them is the open part.</p>
+        <p>The surface is shaded by whichever method is selected. The tiles compare both methods against the reference, and against SSAO given the same number of depth fetches, as an RMS error across the whole surface.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the point next to the box. One amber wedge grows steep while the other stays flat, and the readout matches the reference closely.</li>
+          <li>Drop steps per direction to 2. The horizon still lands on something and the surface stays smooth; compare the two RMS error tiles.</li>
+          <li>Switch between HBAO and GTAO on the ground near the crevice. GTAO tracks the reference more closely at the same steps.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><span class="lab">Shade surface with</span><div class="seg" id="segH" role="group" aria-label="Horizon method"><button data-v="hbao">HBAO</button><button data-v="gtao" aria-pressed="true">GTAO</button></div></div>
+          <div class="ctl"><label for="hbK">Steps per direction <span class="val" id="hbKv">8</span></label><input type="range" id="hbK" min="2" max="32" step="1" value="8"></div>
+          <div class="ctl"><label for="hbR">Radius <span class="val" id="hbRv">1.5 m</span></label><input type="range" id="hbR" min="0.25" max="3" step="0.05" value="1.5"></div>
+        </div>
+        <div class="tiles four">
+          <div class="tile"><div class="n" id="t3-hbao">·</div><div class="l">HBAO at point</div></div>
+          <div class="tile"><div class="n" id="t3-gtao">·</div><div class="l">GTAO at point</div></div>
+          <div class="tile"><div class="n" id="t3-err">·</div><div class="l">horizon RMS err</div></div>
+          <div class="tile"><div class="n" id="t3-serr">·</div><div class="l">SSAO RMS err</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Walk away from the pixel in a screen direction, read the depth at each step, and keep the steepest elevation angle seen so far. That angle is the horizon in that direction. Everything under it is blocked and everything above is open. Two numbers per direction replace N independent hit tests, and the estimate changes smoothly as the horizon moves, so it is far less noisy for the same number of depth fetches.</p>
+        <p>HBAO (NVIDIA, 2008) integrates the horizon evenly over the view hemisphere and fades blockers by distance. GTAO (Activision, 2016) integrates the cosine-weighted hemisphere around the normal in closed form per slice, a slice being one screen direction and its opposite. That matches the reference definition. In 3D the slice result is averaged over directions φ; with one slice here it is divided by its open-sky value. Samples beyond <code>r</code> are ignored in both.</p>
+        <p class="words">In words: HBAO scores each direction by how high its horizon is; GTAO takes two horizons per slice and solves the cosine-weighted integral between them exactly.</p>
+        <div class="math">HBAO  h(φ) = max_k atan(Δz_k / Δxy_k)
+      t(φ) = tangent angle in slice φ
+      AO = 1 − (1/N) Σ_φ (sin h − sin t) W(r_k)
+GTAO  h1, h2 = horizons from the view vector,
+      clamped to n ± π/2
+      V̂ = ¼(−cos(2h1−n) + cos n + 2h1 sin n)
+         + ¼(−cos(2h2−n) + cos n + 2h2 sin n)
+      AO = (1/π) ∫_φ |n_proj(φ)| V̂(φ) dφ</div>
+        <p><code>h</code> is the horizon angle in direction <code>φ</code>, <code>t</code> the angle of the surface's own tangent plane, and <code>W</code> the distance falloff. In GTAO, <code>h1</code> and <code>h2</code> are the two horizons of a slice measured from the view direction, <code>n</code> is the normal's angle in that slice, and <code>V̂</code> is the visible fraction the closed-form integral gives.</p>
+        <p class="words">What this code does: steps outward from the pixel, tracks the highest elevation it has seen, and returns it as a sine so the two directions can be averaged.</p>
+<pre class="code"><span class="c">// horizon march in one screen direction; call once per direction (2 here, 4–8 in 3D)</span>
+<span class="k">float</span> horizonSin(vec2 uv, vec2 dir, vec3 p, vec3 n) {
+  <span class="k">float</span> maxSin = 0.0;                            <span class="c">// start flat, at the tangent plane</span>
+  <span class="k">for</span> (<span class="k">int</span> k = 1; k &lt;= STEPS; k++) {
+    vec2 suv = uv + dir * (<span class="k">float</span>(k) - 0.5 + jitter) * stepPx;   <span class="c">// jitter per pixel from the noise tile</span>
+    vec3 s = viewPos(suv) - p;
+    <span class="k">float</span> d = length(s);
+    <span class="k">if</span> (d &gt; radius) <span class="k">break</span>;
+    <span class="k">float</span> el = dot(s, n) / d;                    <span class="c">// sin of elevation above the tangent plane</span>
+    <span class="k">float</span> falloff = 1.0 - d * d / (radius * radius);
+    maxSin = max(maxSin, el * falloff);
+  }
+  <span class="k">return</span> maxSin;
+}
+<span class="k">float</span> ao = 1.0 - 0.5 * (horizonSin(uv, +dx, p, n) + horizonSin(uv, -dx, p, n));</pre>
+
+        <p class="tldr">A horizon march finds the skyline in each direction, and everything below the skyline is blocked.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="denoise">
+    <h2>Noise, blur, history</h2>
+    <p class="sub">Drag the tall box around a top-down yard and watch the four stages that turn a noisy AO image into a clean one.</p>
+    <div class="cols wide">
+      <div class="vp">
+        <canvas id="c4" width="640" height="360" class="r169 grab" aria-label="Four panels: raw noisy AO, depth-blind blur, bilateral blur, temporal accumulation"></canvas>
+        <div class="cap"><span id="c4-read"></span><span id="c4-cap"></span></div>
+      </div>
+    </div>
+    <div class="cols two below">
+      <div class="prose">
+        <p class="plain">Twelve test points per pixel is nowhere near enough, so the raw AO image is <b>speckled with noise</b>. The trick is to make the noise a <b>repeating 4×4 pattern</b> and then <b>blur it away</b> in a way that stops at the edges of objects. Then the game <b>keeps a running average across frames</b>, so each pixel ends up drawing on hundreds of tests it never ran.</p>
+
+        <h3>What you're seeing</h3>
+        <p>A 160×90 depth render of a 16 m × 9 m yard seen from above, with a tall box you can drag. Panel 1 is the raw SSAO with 12 samples per pixel. Panel 2 is a plain 4×4 blur that ignores depth and smears a halo around the box. Panel 3 is a blur that checks depth and stops at the box edge. Panel 4 adds the previous frames on top.</p>
+        <p>The readout counts the depth fetches for the whole image and how long the JavaScript took.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Compare panels 2 and 3 at the box edge. Panel 2 has a bright halo on the floor and a dark bleed onto the box top; panel 3 has neither.</li>
+          <li>Untick "reject history on depth change" while the box moves. A ghost of the old occlusion trails behind it in panel 4.</li>
+          <li>Push σ_z up to 1.5 m. The depth check stops mattering and panel 3 grows the same halo as panel 2.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><label for="sigZ">σ_z <span class="val" id="sigZv">0.20 m</span></label><input type="range" id="sigZ" min="0.05" max="1.5" step="0.05" value="0.2"></div>
+          <div class="ctl"><label for="alpha">History α <span class="val" id="alphav">0.10</span></label><input type="range" id="alpha" min="0.02" max="0.5" step="0.01" value="0.1"></div>
+          <div class="ctl chk"><input type="checkbox" id="anim" checked><label for="anim">move the box</label></div>
+          <div class="ctl chk"><input type="checkbox" id="reject" checked><label for="reject">reject history on depth change</label></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Each pixel of a 4×4 tile rotates the sample kernel differently, so a 4×4 blur sees all 16 rotations, which is 192 effective samples. A blur that ignores depth smears the dark floor onto the box top and lightens the floor next to it: the halo in panel 2. The bilateral blur, a blur that weights each neighbour by how close its depth is, stops at the edge, panel 3.</p>
+        <p>Temporal accumulation blends in the previous frames, with a new noise phase every frame, panel 4. In a real engine the history has to be reprojected with motion vectors, the per-pixel record of where each point was last frame. Here the camera is fixed, so the only rejection needed is a depth mismatch.</p>
+        <p class="words">In words: weight each neighbour by how similar its depth is, average, then blend a tenth of the new result into last frame's running total unless the depth changed.</p>
+        <div class="math">w_ij    = exp(−Δz² / σ_z²),  Δz = z_j − z_i
+blurred = Σ w_ij ao_j / Σ w_ij
+history = |z_prev(uv') − z(uv)| &gt; τ ? blurred : hist(uv')
+          <span class="c">uv' = uv − motion vector</span>
+result  = (1 − α) history + α blurred
+          <span class="c">α = 0.1 ⇒ ~10 frames, ~1900 effective samples</span></div>
+        <p><code>w_ij</code> is the weight of neighbour <code>j</code> for pixel <code>i</code>, <code>σ_z</code> sets how big a depth difference counts as an edge, <code>τ</code> is the mismatch that throws history away, and <code>α</code> is how much of the new frame goes into the running average. At α = 0.1 about 10 frames are blended, so roughly 1900 effective samples.</p>
+      </div>
+      <div class="prose">
+        <p class="words">What this code does: blurs 4×4 with depth-aware weights, then reads last frame's value at the reprojected position and blends it in unless that pixel used to be a different surface.</p>
+<pre class="code"><span class="c">// 4×4 bilateral blur; the footprint matches the 4×4 noise tile on purpose</span>
+<span class="k">float</span> z0 = depth(uv), sum = 0.0, wsum = 0.0;
+<span class="k">for</span> (<span class="k">int</span> j = -2; j &lt; 2; j++)
+<span class="k">for</span> (<span class="k">int</span> i = -2; i &lt; 2; i++) {
+  vec2 o = uv + vec2(i, j) * texel;
+  <span class="k">float</span> dz = depth(o) - z0;
+  <span class="k">float</span> w = exp(-dz * dz / (sigmaZ * sigmaZ));   <span class="c">// ~1 on the same surface, ~0 across an edge</span>
+  sum += ao(o) * w; wsum += w;
+}
+<span class="k">float</span> blurred = sum / wsum;
+
+<span class="c">// temporal: reproject, then reject a history sample that belonged to another surface</span>
+vec2 uvPrev = uv - motionVector(uv);
+<span class="k">float</span> h = abs(depthPrev(uvPrev) - z0) &gt; 0.1 ? blurred : history(uvPrev);
+aoOut = mix(h, blurred, alpha);</pre>
+
+        <p class="tldr">Make the noise a known pattern, blur it away without crossing edges, then average across frames and you get hundreds of samples for the price of twelve.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="beyond">
+    <h2>What the depth buffer cannot see</h2>
+    <p class="sub">Drag the point under the table edge, then to the right end of the step, and compare the three methods.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5" width="640" height="360" class="r169 grab" aria-label="SSAO, distance-field AO and ray-traced AO compared where the depth buffer has no information"></canvas>
+        <div class="cap"><span id="c5-read"></span><span id="c5-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">The depth buffer only knows about <b>the nearest surface in each pixel</b>, and nothing outside the frame. So SSAO thinks <b>everything under a table is solid</b> and <b>a wall just off screen does not exist</b>. Both mistakes shift as the camera turns, which is the crawling AO players notice. The only fix is to <b>ask the scene itself</b>, with a distance field or real rays, and that costs more.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The same scene plus a table and a wall just past the right edge. The dashed brackets mark the frame the camera can see. In SSAO mode the amber fill shows everything the depth buffer believes is solid: the whole column under each stored surface, and nothing outside the frame.</p>
+        <p>Switch methods and the marks change. SSAO shows its test dots. DFAO shows a fan of cones, each with circles for the distance-field steps and a number for how open that cone is. RTAO shows real rays. The tiles give each method's answer at the point with a rough cost, and the readout gives the 64-ray reference.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the point to the ground beside the table edge. SSAO darkens it as if it stood against a wall, while the reference says it is mostly open.</li>
+          <li>Drag it to the right end of the step, under the wall. SSAO stays bright because the wall is off screen; DFAO and RTAO both find it.</li>
+          <li>Set RTAO to 1 ray per pixel. The answer becomes 0 or 1 with nothing in between, which is why RTAO always needs a denoiser.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><span class="lab">Shade surface with</span><div class="seg" id="segM5" role="group" aria-label="AO method"><button data-v="ssao" aria-pressed="true">SSAO</button><button data-v="dfao">DFAO</button><button data-v="rtao">RTAO</button></div></div>
+          <div class="ctl"><span class="lab">RTAO rays per pixel</span><div class="seg" id="segRays" role="group" aria-label="Rays per pixel"><button data-v="1">1</button><button data-v="4">4</button><button data-v="16" aria-pressed="true">16</button><button data-v="64">64</button></div></div>
+        </div>
+        <div class="tiles">
+          <div class="tile" id="t5-ssao"><div class="n">·</div><div class="l" id="t5-ssao-l">SSAO</div></div>
+          <div class="tile" id="t5-dfao"><div class="n">·</div><div class="l" id="t5-dfao-l">DFAO</div></div>
+          <div class="tile" id="t5-rtao"><div class="n">·</div><div class="l" id="t5-rtao-l">RTAO</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The depth buffer stores one surface per texel, the nearest. Everything behind it is assumed solid and everything outside the frame does not exist. Under the table, SSAO's samples land inside a volume the buffer thinks is filled, so the ground beside the table edge is darkened as if it stood against a wall. At the right end of the step the real wall is one texel outside the frame, so SSAO sees nothing and the ground stays bright. Both errors change as the camera pans, which is the view dependence that players notice as AO "crawling".</p>
+        <p>Distance-field AO (Unreal, 2014) cone-traces a signed distance field of the whole scene, on screen or not. A signed distance field is a 3D grid that stores, at every point, how far it is to the nearest surface. Along each cone the ratio of that distance to the cone's width says how much of the cone is still clear. Ray-traced AO is the reference itself with hardware rays, usually one ray per pixel and a denoiser. Both cost more per pixel; only they get these cases right.</p>
+        <p class="words">In words: SSAO fails wherever the sample is in air but the buffer says solid, or off screen; DFAO takes the worst clearance along each cone; RTAO is the reference with fewer rays.</p>
+        <div class="math">SSAO fails if z_buf(proj(s)) ≥ z(s) but s is in air
+     <span class="c">(under the table)</span>, or proj(s) is off screen
+DFAO vis_c = min_t sat(d(p + ω_c t) / (t tan θ))
+     AO = Σ_c w_c vis_c / Σ_c w_c,  w_c = n·ω_c
+RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
+        <p><code>d</code> is the distance-field lookup, <code>ω_c</code> the direction of cone <code>c</code>, <code>θ</code> its half angle, <code>t</code> the distance along it, and <code>sat</code> clamps to 0 to 1. <code>w_c</code> weights each cone by how close it is to the normal.</p>
+        <p class="words">What this code does: for each cone, steps along it using the distance field, keeps the smallest clearance-to-width ratio it sees, then averages the cones weighted toward the normal.</p>
+<pre class="code"><span class="c">// DFAO: cone trace the global distance field, several cones over the hemisphere</span>
+<span class="k">float</span> coneAO(vec3 p, vec3 n, <span class="k">float</span> r) {
+  <span class="k">float</span> sum = 0.0, wsum = 0.0;
+  <span class="k">for</span> (<span class="k">int</span> c = 0; c &lt; NUM_CONES; c++) {
+    vec3 dir = coneDir[c]; <span class="k">float</span> w = dot(dir, n);
+    <span class="k">float</span> vis = 1.0, t = 0.05;
+    <span class="k">for</span> (<span class="k">int</span> s = 0; s &lt; 24 &amp;&amp; t &lt; r; s++) {
+      <span class="k">float</span> d = sampleSDF(p + n * 0.02 + dir * t);
+      vis = min(vis, saturate(d / (t * tanHalfAngle)));  <span class="c">// fraction of the cone still clear</span>
+      t += max(d, minStep);                              <span class="c">// step by the distance to the nearest surface</span>
+    }
+    sum += vis * w; wsum += w;
+  }
+  <span class="k">return</span> sum / wsum;
+}</pre>
+
+        <p class="tldr">Screen-space AO can only be as right as the depth buffer, and the depth buffer knows nothing about what is hidden or off screen.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">Typical numbers at 1920×1080 on a mid-range desktop GPU, full-resolution pass unless noted.</p>
+    <p class="plain">Read this table as a choice between <b>how much a frame you can spend</b> and <b>which mistakes you can live with</b>. The three screen-space rows all share the same blind spots from the last section; they differ in how much noise you get per depth lookup. The last two rows fix the blind spots by asking the scene, and pay for it.</p>
+    <div class="tbl-wrap">
+    <table class="stats">
+      <thead><tr><th>Method</th><th>Cost at 1080p</th><th>Lookups per pixel</th><th>What it looks like</th><th>Changes with the camera</th><th>Steady between frames</th><th>Pick it when</th></tr></thead>
+      <tbody>
+        <tr><td>SSAO (Crytek, 2007)</td><td>0.5–1.5 ms</td><td>8–32 depth</td><td>noisy; flat walls go grey with a sphere kernel</td><td>yes</td><td>poor without blur + TAA</td><td>mobile, minimum spec, or as a fallback</td></tr>
+        <tr><td>HBAO+ (NVIDIA)</td><td>1–2 ms</td><td>4–8 dirs × 4–8 steps, deinterleaved</td><td>smooth horizons; creases too dark at large r</td><td>yes</td><td>good</td><td>desktop games without a modern TAA pipeline</td></tr>
+        <tr><td>GTAO (Activision, 2016)</td><td class="hi">0.5–1 ms at half res</td><td>2–4 slices × 4–8 steps</td><td>closest to the reference of the screen-space set</td><td>yes</td><td>good, built for TAA</td><td>the default in most current engines</td></tr>
+        <tr><td>DFAO (Unreal, 2014)</td><td>1–3 ms at half res</td><td>9 cones × ~10–20 SDF taps</td><td>soft; misses thin things the SDF cannot hold</td><td>no</td><td>very good</td><td>large open worlds where off-screen blockers matter</td></tr>
+        <tr><td>RTAO</td><td>2–4 ms + denoiser</td><td>1–2 rays</td><td>the reference with hardware rays; the denoiser handles the noise</td><td>no</td><td>good with a temporal denoiser</td><td>RT-capable hardware, often folded into RT GI</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">The costs are ranges, not benchmarks. Each method shifts by 2× with resolution, radius and sample count. Running a screen-space pass at half resolution and upsampling with a depth-aware filter is the usual way to get GTAO under 1 ms on consoles.</p>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">Every row estimates the same integral. What differs is what the query reads: the depth buffer, a distance field, or the geometry.</p>
+    <p class="plain">Each row is <b>one way of asking "how much sky can this point see"</b>. The second column says what the GPU does per pixel, the third says what data has to exist for that to work, and the last names <b>games and engines that shipped it</b>.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Method</th><th>What the GPU does per pixel</th><th>Data it needs</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>SSAO</td><td>Puts N test points into the depth buffer, counts how many land behind the stored surface, and drops the ones too far away in depth.</td><td>Depth buffer, normals, 4×4 noise texture</td><td>Crysis (Crytek, 2007), the first shipped version; most engines since as a low-end option</td></tr>
+        <tr><td>HBAO+</td><td>Marches 4–8 screen directions, keeps the horizon angle per direction, integrates sin h − sin t; splits the screen 4×4 to keep the cache warm.</td><td>Depth buffer, normals</td><td>NVIDIA GameWorks titles, 2013 onward, e.g. Assassin's Creed IV: Black Flag</td></tr>
+        <tr><td>GTAO</td><td>Per slice, two horizons and a closed-form cosine-weighted integral; 1 slice per pixel, with TAA averaging the rest.</td><td>Depth buffer, normals, TAA</td><td>Call of Duty (Activision, 2016), Unity HDRP, Unreal Engine's GTAO path, Intel XeGTAO (2021)</td></tr>
+        <tr><td>DFAO</td><td>Cone-traces a global signed distance field; occlusion from distance over cone width; cached per world-space probe and interpolated.</td><td>Per-mesh SDFs merged into a global field</td><td>Unreal Engine 4 and 5 (Distance Field Ambient Occlusion)</td></tr>
+        <tr><td>RTAO</td><td>One hardware ray per pixel in a cosine-weighted direction, hit or miss within r, then temporal and spatial denoise.</td><td>Ray-tracing acceleration structure, motion vectors</td><td>Cyberpunk 2077, Metro Exodus, many DXR titles; in Lumen and Metro Exodus Enhanced Edition the AO term comes out of RT GI</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">The trap is what AO gets applied to. It only approximates how much ambient light a point misses, and direct light already has its own shadows, so a crease facing the sun should be as bright as the sun makes it. Many games still multiply AO over the whole lit image because it looks "grounded", which darkens sunlit corners twice; the right place for it is the indirect light, and in a GTAO pipeline also the specular occlusion derived from it.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  // ---------- world: side view, x 0..10 m, y up, canvas 640×360 at 64 px/m, y = 4.5 m at the top ----------
+  const W = 640, H = 360, PPM = 64, YTOP = 4.5, CAM = 4.5;
+  const sx = x => x * PPM, sy = y => (YTOP - y) * PPM;
+  const RECTS_A = [[0, -2, 3.9, 0], [3.9, -2, 4.2, -0.8], [4.2, -2, 6.5, 0], [6.5, -2, 10, 0.8], [1.3, 0, 2.5, 1.3]];
+  const RECTS_B = RECTS_A.concat([[6.0, 1.9, 7.8, 2.05], [7.55, 0.8, 7.8, 1.9], [9.3, -2, 10, 3.2]]);
+  const FRAME = [0.5, 9.3];
+  const NB = 320, TEX = 10 / NB;
+  const AMBER = "#f2a341", BLUE = "#4aa3ff", WHITE = "#ffffff", GRID = "rgba(255,255,255,0.12)", SOLID = "#1a1f27";
+
+  function heightAt(rects, x) { let h = -2; for (const r of rects) if (x >= r[0] && x < r[2] && r[3] > h) h = r[3]; return h; }
+  function depthBuffer(rects, xa, xb) {
+    const buf = new Float32Array(NB).fill(NaN);
+    for (let i = 0; i < NB; i++) { const x = (i + 0.5) * TEX; if (x >= xa && x <= xb) buf[i] = heightAt(rects, x); }
+    return buf;
+  }
+  function bufAt(buf, x) { const i = Math.floor(x / TEX); return (i < 0 || i >= NB) ? NaN : buf[i]; }
+
+  // visible-from-above boundary as a polyline with normals; walls are included
+  function buildSurface(rects) {
+    const pts = []; const dx = 0.02; let prev = null, s = 0;
+    const push = (x, y, nx, ny) => { if (prev) s += Math.hypot(x - prev[0], y - prev[1]); pts.push({ x, y, nx, ny, s }); prev = [x, y]; };
+    for (let i = 0; i <= 500; i++) {
+      const x = i * dx, h = heightAt(rects, x);
+      if (prev && Math.abs(h - prev[1]) > 1e-6) {
+        const xw = Math.round(x * 20) / 20, lo = Math.min(h, prev[1]), hi = Math.max(h, prev[1]);
+        const up = h > prev[1], nx = up ? -1 : 1; // rising wall faces left
+        const n = Math.max(1, Math.round((hi - lo) / dx));
+        for (let k = 0; k < n; k++) { const f = (k + 0.5) / n; push(xw, up ? lo + f * (hi - lo) : hi - f * (hi - lo), nx, 0); }
+      }
+      push(x, h, 0, 1);
+    }
+    return pts;
+  }
+  function nearestSurface(pts, x, y) { let best = 0, bd = Infinity; for (let i = 0; i < pts.length; i++) { const d = (pts[i].x - x) ** 2 + (pts[i].y - y) ** 2; if (d < bd) { bd = d; best = i; } } return best; }
+
+  function rayHit(rects, ox, oy, dx, dy, tmax) {
+    let best = tmax;
+    for (const r of rects) {
+      let t0 = -Infinity, t1 = Infinity;
+      if (Math.abs(dx) < 1e-9) { if (ox < r[0] || ox > r[2]) continue; } else { let a = (r[0] - ox) / dx, b = (r[2] - ox) / dx; if (a > b) { const t = a; a = b; b = t; } t0 = Math.max(t0, a); t1 = Math.min(t1, b); }
+      if (Math.abs(dy) < 1e-9) { if (oy < r[1] || oy > r[3]) continue; } else { let a = (r[1] - oy) / dy, b = (r[3] - oy) / dy; if (a > b) { const t = a; a = b; b = t; } t0 = Math.max(t0, a); t1 = Math.min(t1, b); }
+      if (t1 >= t0 && t1 > 0) { const t = Math.max(t0, 0); if (t < best) best = t; }
+    }
+    return best;
+  }
+  const EPS = 0.006;
+  // cosine-weighted directions around the normal; u stratified or random
+  function cosDir(p, u) { const phi = Math.asin(2 * u - 1), c = Math.cos(phi), s = Math.sin(phi); return [p.nx * c - p.ny * s, p.nx * s + p.ny * c]; }
+  function refAO(rects, p, r, K, rnd) {
+    const rays = []; let vis = 0;
+    for (let i = 0; i < K; i++) {
+      const u = rnd ? rnd() : (i + 0.5) / K, d = cosDir(p, u);
+      const t = rayHit(rects, p.x + p.nx * EPS, p.y + p.ny * EPS, d[0], d[1], r);
+      const hit = t < r; if (!hit) vis++;
+      rays.push([d[0], d[1], t, hit]);
+    }
+    return { ao: vis / K, rays, vis };
+  }
+  function hash(i) { let x = (i * 2654435761) >>> 0; x ^= x >>> 15; x = Math.imul(x, 2246822519) >>> 0; x ^= x >>> 13; return (x >>> 0) / 4294967296; }
+  function rng(seed) { let a = (seed * 1103515245 + 12345) >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+  // ---------- drawing ----------
+  function drawWorld(ctx, rects, opts = {}) {
+    ctx.fillStyle = "#0b0e13"; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = GRID; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = 1; x < 10; x++) { ctx.moveTo(sx(x) + 0.5, 0); ctx.lineTo(sx(x) + 0.5, H); }
+    for (let y = -1; y <= 4; y++) { ctx.moveTo(0, sy(y) + 0.5); ctx.lineTo(W, sy(y) + 0.5); }
+    ctx.stroke();
+    ctx.fillStyle = SOLID; for (const r of rects) ctx.fillRect(sx(r[0]), sy(r[3]), (r[2] - r[0]) * PPM, (r[3] - r[1]) * PPM);
+    ctx.strokeStyle = "rgba(255,255,255,0.25)"; for (const r of rects) ctx.strokeRect(sx(r[0]) + 0.5, sy(r[3]) + 0.5, (r[2] - r[0]) * PPM, (r[3] - r[1]) * PPM);
+    if (opts.strip) drawStrip(ctx, opts.strip);
+  }
+  function aoColor(v) { v = Math.max(0, Math.min(1, v)); const a = 34 + (255 - 34) * v, b = 38 + (255 - 38) * v, c = 46 + (255 - 46) * v; return `rgb(${a | 0},${b | 0},${c | 0})`; }
+  function shadeSurface(ctx, pts, vals, width = 6) {
+    ctx.lineCap = "butt"; ctx.lineWidth = width;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i], b = pts[i + 1];
+      ctx.strokeStyle = aoColor((vals[i] + vals[i + 1]) / 2);
+      ctx.beginPath(); ctx.moveTo(sx(a.x) + a.nx * width / 2, sy(a.y) - a.ny * width / 2); ctx.lineTo(sx(b.x) + b.nx * width / 2, sy(b.y) - b.ny * width / 2); ctx.stroke();
+    }
+  }
+  function drawStrip(ctx, buf) {
+    const h = 16; ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, h);
+    for (let i = 0; i < NB; i++) {
+      const v = buf[i]; if (Number.isNaN(v)) { ctx.fillStyle = "#2a1f18"; ctx.fillRect(i * 2, 0, 2, h); continue; }
+      const d = (CAM - v) / (CAM + 1.2); const g = Math.round(235 - 200 * d);
+      ctx.fillStyle = `rgb(${g},${g},${g})`; ctx.fillRect(i * 2, 0, 2, h);
+    }
+    ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.font = "11px IBM Plex Mono, monospace"; ctx.textBaseline = "top";
+    ctx.fillText("depth buffer · 320 texels · near = bright", 6, h + 7);
+  }
+  function handle(ctx, x, y, r = 6) { ctx.beginPath(); ctx.arc(sx(x), sy(y), r, 0, Math.PI * 2); ctx.fillStyle = WHITE; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b0e13"; ctx.stroke(); }
+  function normalTick(ctx, p) { ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(sx(p.x), sy(p.y)); ctx.lineTo(sx(p.x + p.nx * 0.25), sy(p.y + p.ny * 0.25)); ctx.stroke(); }
+  function label(ctx, text, x, y, color = "rgba(255,255,255,0.75)") { ctx.fillStyle = color; ctx.font = "11px IBM Plex Mono, monospace"; ctx.textBaseline = "top"; ctx.fillText(text, x, y); }
+
+  // pointer → world; any press moves the point to the nearest surface sample, then drags
+  function worldOf(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width * 10, YTOP - (ev.clientY - r.top) / r.height * H / PPM]; }
+  function surfaceDrag(canvas, pts, state, redraw) {
+    let active = false, pending = false;
+    const req = () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; redraw(); }); };
+    canvas.addEventListener("pointerdown", ev => { active = true; canvas.setPointerCapture(ev.pointerId); const [x, y] = worldOf(canvas, ev); state.i = nearestSurface(pts, x, y); req(); });
+    canvas.addEventListener("pointermove", ev => { if (!active) return; const [x, y] = worldOf(canvas, ev); state.i = nearestSurface(pts, x, y); req(); });
+    const end = ev => { active = false; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} };
+    canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
+  }
+  function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
+  function onSeg(id, fn) { const el = document.getElementById(id); el.addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; segOn(el, b.dataset.v); fn(b.dataset.v); }); }
+  function onRange(id, fmt, fn) { const el = document.getElementById(id), v = document.getElementById(id + "v"); el.addEventListener("input", () => { v.textContent = fmt(+el.value); fn(+el.value); }); }
+  const fmtM = v => v.toFixed(2).replace(/0$/, "") + " m";
+
+  const SURF_A = buildSurface(RECTS_A), BUF_A = depthBuffer(RECTS_A, 0, 10);
+  const SURF_B = buildSurface(RECTS_B), BUF_B = depthBuffer(RECTS_B, FRAME[0], FRAME[1]);
+  const refCache = new Map();
+  function refAll(rects, pts, r) { const key = (rects === RECTS_A ? "A" : "B") + r; if (!refCache.has(key)) refCache.set(key, pts.map(p => refAO(rects, p, r, 64).ao)); return refCache.get(key); }
+
+  // ---------- 1. ground truth ----------
+  const c1 = document.getElementById("c1"), x1 = c1.getContext("2d");
+  const s1 = { i: nearestSurface(SURF_A, 2.55, 0.02), r: 1.5 };
+  function draw1() {
+    const p = SURF_A[s1.i], r = s1.r, vals = refAll(RECTS_A, SURF_A, r);
+    drawWorld(x1, RECTS_A); shadeSurface(x1, SURF_A, vals);
+    const res = refAO(RECTS_A, p, r, 64);
+    x1.setLineDash([3, 4]); x1.strokeStyle = "rgba(255,255,255,0.35)"; x1.lineWidth = 1; x1.beginPath();
+    x1.arc(sx(p.x), sy(p.y), r * PPM, -Math.atan2(p.ny, p.nx) - Math.PI / 2, -Math.atan2(p.ny, p.nx) + Math.PI / 2); x1.stroke(); x1.setLineDash([]);
+    for (const [dx, dy, t, hit] of res.rays) {
+      x1.strokeStyle = hit ? AMBER : BLUE; x1.globalAlpha = hit ? 0.9 : 0.55; x1.lineWidth = 1;
+      x1.beginPath(); x1.moveTo(sx(p.x), sy(p.y)); x1.lineTo(sx(p.x + dx * t), sy(p.y - 0 + dy * t)); x1.stroke();
+      if (hit) { x1.fillStyle = AMBER; x1.beginPath(); x1.arc(sx(p.x + dx * t), sy(p.y + dy * t), 2, 0, Math.PI * 2); x1.fill(); }
+    }
+    x1.globalAlpha = 1; handle(x1, p.x, p.y);
+    document.getElementById("c1-read").innerHTML = `<strong>${res.vis} of 64 rays escape · AO = ${res.ao.toFixed(2)}</strong>`;
+    document.getElementById("c1-cap").textContent = `p = (${p.x.toFixed(2)}, ${p.y.toFixed(2)}) m · r = ${fmtM(r)}`;
+  }
+  surfaceDrag(c1, SURF_A, s1, draw1);
+  onRange("r1", fmtM, v => { s1.r = v; draw1(); });
+  draw1();
+
+  // ---------- 2. SSAO ----------
+  const c2 = document.getElementById("c2"), x2 = c2.getContext("2d");
+  const s2 = { i: nearestSurface(SURF_A, 2.9, 0.02), N: 16, r: 1.5, bias: 0.03, kernel: "hemi", range: true };
+  function ssao(buf, p, N, r, bias, kernel, range, seed) {
+    const rnd = rng(seed + 1); const samples = []; let occ = 0;
+    for (let i = 0; i < N; i++) {
+      const a = kernel === "sphere" ? rnd() * Math.PI * 2 : rnd() * Math.PI - Math.PI / 2;
+      const l = Math.sqrt(rnd()) * r; // uniform over the disc area
+      let ox, oy;
+      if (kernel === "sphere") { ox = Math.cos(a) * l; oy = Math.sin(a) * l; }
+      else { const c = Math.cos(a), s = Math.sin(a); ox = (p.nx * c - p.ny * s) * l; oy = (p.nx * s + p.ny * c) * l; }
+      const x = p.x + ox, y = p.y + oy, stored = bufAt(buf, x);
+      let state = 0, w = 1; // 0 free, 1 occluded, 2 range-rejected, 3 off screen
+      if (Number.isNaN(stored)) state = 3;
+      else if (stored >= y + bias) {
+        w = range ? (() => { const q = Math.min(1, r / Math.abs(p.y - stored)); return q * q * (3 - 2 * q); })() : 1;
+        state = w < 0.5 ? 2 : 1; occ += w;
+      }
+      samples.push([x, y, stored, state]);
+    }
+    return { ao: 1 - occ / N, occ, samples };
+  }
+  function ssaoAll(buf, pts, st) { return pts.map((p, i) => ssao(buf, p, st.N, st.r, st.bias, st.kernel, st.range, i).ao); }
+  function draw2() {
+    const p = SURF_A[s2.i];
+    drawWorld(x2, RECTS_A, { strip: BUF_A });
+    shadeSurface(x2, SURF_A, ssaoAll(BUF_A, SURF_A, s2));
+    const res = ssao(BUF_A, p, s2.N, s2.r, s2.bias, s2.kernel, s2.range, s2.i);
+    x2.setLineDash([3, 4]); x2.strokeStyle = "rgba(255,255,255,0.35)"; x2.lineWidth = 1; x2.beginPath();
+    if (s2.kernel === "sphere") x2.arc(sx(p.x), sy(p.y), s2.r * PPM, 0, Math.PI * 2); else x2.arc(sx(p.x), sy(p.y), s2.r * PPM, -Math.atan2(p.ny, p.nx) - Math.PI / 2, -Math.atan2(p.ny, p.nx) + Math.PI / 2);
+    x2.stroke(); x2.setLineDash([]);
+    for (const [x, y, stored, state] of res.samples) {
+      if (state !== 3) { x2.strokeStyle = state === 0 ? "rgba(74,163,255,0.35)" : "rgba(242,163,65,0.5)"; x2.lineWidth = 1; x2.beginPath(); x2.moveTo(sx(x), sy(y)); x2.lineTo(sx(x), sy(stored)); x2.stroke(); x2.fillRect(Math.floor(x / TEX) * 2, 16, 2, 3); }
+      x2.beginPath(); x2.arc(sx(x), sy(y), 3.5, 0, Math.PI * 2);
+      if (state === 0) { x2.fillStyle = BLUE; x2.fill(); } else if (state === 1) { x2.fillStyle = AMBER; x2.fill(); } else { x2.strokeStyle = state === 2 ? AMBER : "rgba(255,255,255,0.5)"; x2.lineWidth = 1.5; x2.stroke(); }
+    }
+    normalTick(x2, p); handle(x2, p.x, p.y);
+    const ref = refAll(RECTS_A, SURF_A, s2.r)[s2.i];
+    document.getElementById("c2-read").innerHTML = `<strong>occluded ${res.occ.toFixed(1)} of ${s2.N} · SSAO = ${res.ao.toFixed(2)}</strong> · reference ${ref.toFixed(2)}`;
+    document.getElementById("c2-cap").textContent = `hollow = occluded but range-rejected · ${s2.kernel === "sphere" ? "sphere" : "hemisphere"} kernel`;
+  }
+  surfaceDrag(c2, SURF_A, s2, draw2);
+  onSeg("segK", v => { s2.kernel = v; draw2(); });
+  onSeg("segRC", v => { s2.range = v === "on"; draw2(); });
+  onRange("ssN", v => String(v), v => { s2.N = v; draw2(); });
+  onRange("ssR", fmtM, v => { s2.r = v; draw2(); });
+  onRange("ssB", v => v.toFixed(3) + " m", v => { s2.bias = v; draw2(); });
+  draw2();
+
+  // ---------- 3. horizon-based ----------
+  const c3 = document.getElementById("c3"), x3 = c3.getContext("2d");
+  const s3 = { i: nearestSurface(SURF_A, 2.95, 0.02), K: 8, r: 1.5, method: "gtao" };
+  function sector(ctx, p, a0, a1, r, fill) { ctx.fillStyle = fill; ctx.beginPath(); ctx.moveTo(sx(p.x), sy(p.y)); ctx.arc(sx(p.x), sy(p.y), r * PPM, -a0, -a1, true); ctx.closePath(); ctx.fill(); }
+  function horizon(buf, p, K, r, jitter) {
+    const nAng = Math.atan2(p.nx, p.ny); // angle from the view vector (up), positive to the right
+    let h1 = nAng + Math.PI / 2, h2 = nAng - Math.PI / 2;
+    const sinH = [0, 0], elev = [0, 0], hz = [null, null], samples = [];
+    for (let side = 0; side < 2; side++) {
+      const d = side === 0 ? 1 : -1, step = r / K;
+      for (let k = 1; k <= K; k++) {
+        const x = p.x + d * (k - 0.5 + jitter) * step, y = bufAt(buf, x); if (Number.isNaN(y)) break;
+        const vx = x - p.x, vy = y - p.y, dist = Math.hypot(vx, vy); if (dist > r) break; if (dist < 1e-4) continue;
+        const el = (vx * p.nx + vy * p.ny) / dist, fall = 1 - dist * dist / (r * r);
+        samples.push([x, y]);
+        if (el * fall > sinH[side]) { sinH[side] = el * fall; elev[side] = Math.asin(Math.max(-1, Math.min(1, el))); hz[side] = [x, y]; }
+        const th = Math.atan2(vx, vy);
+        if (side === 0) h1 = Math.min(h1, th); else h2 = Math.max(h2, th);
+      }
+    }
+    const g = (h, n) => (-Math.cos(2 * h - n) + Math.cos(n) + 2 * h * Math.sin(n)) / 4;
+    const gtao = (g(h1, nAng) + g(h2, nAng)) / (g(nAng + Math.PI / 2, nAng) + g(nAng - Math.PI / 2, nAng));
+    const hbao = 1 - (sinH[0] + sinH[1]) / 2;
+    return { hbao, gtao, elev, hz, samples, h1, h2, nAng };
+  }
+  function draw3() {
+    const p = SURF_A[s3.i], { K, r } = s3, ref = refAll(RECTS_A, SURF_A, r);
+    const hv = SURF_A.map((q, i) => { const h = horizon(BUF_A, q, K, r, hash(i)); return s3.method === "gtao" ? h.gtao : h.hbao; });
+    const sv = ssaoAll(BUF_A, SURF_A, { N: 2 * K, r, bias: 0.03, kernel: "hemi", range: true });
+    let e1 = 0, e2 = 0; for (let i = 0; i < SURF_A.length; i++) { e1 += (hv[i] - ref[i]) ** 2; e2 += (sv[i] - ref[i]) ** 2; }
+    drawWorld(x3, RECTS_A, { strip: BUF_A }); shadeSurface(x3, SURF_A, hv);
+    const h = horizon(BUF_A, p, K, r, hash(s3.i));
+    const nA = Math.atan2(p.ny, p.nx);
+    sector(x3, p, nA - Math.PI / 2 + h.elev[0], nA + Math.PI / 2 - h.elev[1], r, "rgba(74,163,255,0.12)");
+    if (h.elev[0] > 0) sector(x3, p, nA - Math.PI / 2, nA - Math.PI / 2 + h.elev[0], r, "rgba(242,163,65,0.28)");
+    if (h.elev[1] > 0) sector(x3, p, nA + Math.PI / 2 - h.elev[1], nA + Math.PI / 2, r, "rgba(242,163,65,0.28)");
+    x3.setLineDash([3, 4]); x3.strokeStyle = "rgba(255,255,255,0.35)"; x3.lineWidth = 1; x3.beginPath(); x3.arc(sx(p.x), sy(p.y), r * PPM, -nA - Math.PI / 2, -nA + Math.PI / 2); x3.stroke(); x3.setLineDash([]);
+    x3.strokeStyle = "rgba(255,255,255,0.85)"; x3.lineWidth = 1.5; x3.beginPath(); for (const [x, y] of h.samples) { x3.moveTo(sx(x), sy(y) - 4); x3.lineTo(sx(x), sy(y) - 12); } x3.stroke();
+    for (let side = 0; side < 2; side++) if (h.hz[side]) {
+      const [x, y] = h.hz[side]; x3.strokeStyle = WHITE; x3.lineWidth = 1.5; x3.beginPath(); x3.moveTo(sx(p.x), sy(p.y)); x3.lineTo(sx(x), sy(y)); x3.stroke();
+      x3.fillStyle = AMBER; x3.beginPath(); x3.arc(sx(x), sy(y), 4, 0, Math.PI * 2); x3.fill();
+      label(x3, `h${side === 0 ? "R" : "L"} = ${(h.elev[side] * 180 / Math.PI).toFixed(0)}°`, sx(x) + (side === 0 ? 8 : -60), sy(y) - 16, AMBER);
+    }
+    normalTick(x3, p); handle(x3, p.x, p.y);
+    const deg = a => (a * 180 / Math.PI).toFixed(0) + "°";
+    document.getElementById("c3-read").innerHTML = `<strong>${s3.method.toUpperCase()} = ${(s3.method === "gtao" ? h.gtao : h.hbao).toFixed(2)}</strong> · reference ${ref[s3.i].toFixed(2)}`;
+    document.getElementById("c3-cap").textContent = `2 × ${K} steps of ${(r / K * 100).toFixed(0)} cm · view-space h1 = ${deg(h.h1)}, h2 = ${deg(h.h2)}, n = ${deg(h.nAng)}`;
+    document.getElementById("t3-hbao").textContent = h.hbao.toFixed(2);
+    document.getElementById("t3-gtao").textContent = h.gtao.toFixed(2);
+    document.getElementById("t3-err").textContent = Math.sqrt(e1 / SURF_A.length).toFixed(3);
+    document.getElementById("t3-serr").innerHTML = Math.sqrt(e2 / SURF_A.length).toFixed(3) + ` <small>N = ${2 * K}</small>`;
+  }
+  surfaceDrag(c3, SURF_A, s3, draw3);
+  onSeg("segH", v => { s3.method = v; draw3(); });
+  onRange("hbK", v => String(v), v => { s3.K = v; draw3(); });
+  onRange("hbR", fmtM, v => { s3.r = v; draw3(); });
+  draw3();
+
+  // ---------- 5. beyond screen space ----------
+  const c5 = document.getElementById("c5"), x5 = c5.getContext("2d");
+  const s5 = { i: nearestSurface(SURF_B, 9.12, 0.82), method: "ssao", rays: 16, r: 1.5 };
+  const SS5 = { N: 16, r: 1.5, bias: 0.03, kernel: "hemi", range: true };
+  function sdRect(x, y, r) { const dx = Math.max(r[0] - x, x - r[2]), dy = Math.max(r[1] - y, y - r[3]); return (dx < 0 && dy < 0) ? Math.max(dx, dy) : Math.hypot(Math.max(dx, 0), Math.max(dy, 0)); }
+  function sdf(x, y) { let d = Infinity; for (const r of RECTS_B) d = Math.min(d, sdRect(x, y, r)); return d; }
+  const CONES = [-72, -36, 0, 36, 72].map(a => a * Math.PI / 180), TANH = Math.tan(18 * Math.PI / 180);
+  function coneAO(p, r) {
+    let sum = 0, wsum = 0, taps = 0; const cones = [];
+    for (const a of CONES) {
+      const c = Math.cos(a), s = Math.sin(a), dx = p.nx * c - p.ny * s, dy = p.nx * s + p.ny * c, w = Math.cos(a);
+      let vis = 1, t = 0.05; const steps = [];
+      for (let k = 0; k < 24 && t < r; k++) {
+        const qx = p.x + p.nx * 0.02 + dx * t, qy = p.y + p.ny * 0.02 + dy * t, d = sdf(qx, qy); taps++;
+        steps.push([qx, qy, Math.max(d, 0)]);
+        vis = Math.min(vis, Math.max(0, Math.min(1, d / (t * TANH))));
+        if (d < 0.002) { vis = 0; break; }
+        t += Math.max(d, 0.04);
+      }
+      sum += vis * w; wsum += w; cones.push({ dx, dy, vis, steps, t: Math.min(t, r) });
+    }
+    return { ao: sum / wsum, taps, cones };
+  }
+  const cache5 = {};
+  function shade5(method) {
+    const key = method + (method === "rtao" ? s5.rays : "");
+    if (cache5[key]) return cache5[key];
+    let v;
+    if (method === "ssao") v = ssaoAll(BUF_B, SURF_B, SS5);
+    else if (method === "dfao") v = SURF_B.map(p => coneAO(p, s5.r).ao);
+    else v = SURF_B.map((p, i) => refAO(RECTS_B, p, s5.r, s5.rays, s5.rays === 64 ? null : rng(i + 7)).ao);
+    cache5[key] = v; return v;
+  }
+  function draw5() {
+    const p = SURF_B[s5.i], r = s5.r, m = s5.method;
+    drawWorld(x5, RECTS_B, { strip: BUF_B });
+    // what the depth buffer believes: everything under the stored height, inside the frame only
+    if (m === "ssao") {
+      x5.fillStyle = "rgba(242,163,65,0.13)";
+      for (let i = 0; i < NB; i++) { const h = BUF_B[i]; if (!Number.isNaN(h)) x5.fillRect(i * 2, sy(h), 2, H - sy(h)); }
+      x5.fillStyle = "rgba(11,14,19,0.55)"; x5.fillRect(0, 16, sx(FRAME[0]), H); x5.fillRect(sx(FRAME[1]), 16, W - sx(FRAME[1]), H);
+    }
+    x5.strokeStyle = "rgba(255,255,255,0.6)"; x5.lineWidth = 1; x5.setLineDash([6, 4]); x5.beginPath();
+    x5.moveTo(sx(FRAME[0]) + 0.5, 16); x5.lineTo(sx(FRAME[0]) + 0.5, H); x5.moveTo(sx(FRAME[1]) + 0.5, 16); x5.lineTo(sx(FRAME[1]) + 0.5, H); x5.stroke(); x5.setLineDash([]);
+    label(x5, "frame edge →", sx(FRAME[1]) - 88, 22); label(x5, "off screen", W - 72, 40, AMBER);
+    label(x5, "table", sx(6.05), sy(2.05) - 14); label(x5, "wall →", sx(9.3) - 48, sy(3.2) - 14);
+    shadeSurface(x5, SURF_B, shade5(m));
+    const ss = ssao(BUF_B, p, SS5.N, SS5.r, SS5.bias, SS5.kernel, SS5.range, s5.i);
+    const df = coneAO(p, r);
+    const rt = refAO(RECTS_B, p, r, s5.rays, s5.rays === 64 ? null : rng(s5.i + 7));
+    if (m === "ssao") {
+      for (const [x, y, stored, state] of ss.samples) {
+        x5.beginPath(); x5.arc(sx(x), sy(y), 3.5, 0, Math.PI * 2);
+        if (state === 0) { x5.fillStyle = BLUE; x5.fill(); } else if (state === 1) { x5.fillStyle = AMBER; x5.fill(); } else { x5.strokeStyle = state === 2 ? AMBER : "rgba(255,255,255,0.5)"; x5.lineWidth = 1.5; x5.stroke(); }
+      }
+    } else if (m === "dfao") {
+      for (const c of df.cones) {
+        x5.strokeStyle = c.vis > 0.5 ? BLUE : AMBER; x5.lineWidth = 1; x5.beginPath(); x5.moveTo(sx(p.x), sy(p.y)); x5.lineTo(sx(p.x + c.dx * c.t), sy(p.y + c.dy * c.t)); x5.stroke();
+        for (const [qx, qy, d] of c.steps) { x5.strokeStyle = "rgba(255,255,255,0.4)"; x5.beginPath(); x5.arc(sx(qx), sy(qy), Math.max(1, d * PPM), 0, Math.PI * 2); x5.stroke(); }
+        label(x5, c.vis.toFixed(2), sx(p.x + c.dx * (c.t + 0.12)) - 12, sy(p.y + c.dy * (c.t + 0.12)) - 6, c.vis > 0.5 ? BLUE : AMBER);
+      }
+    } else {
+      for (const [dx, dy, t, hit] of rt.rays) { x5.strokeStyle = hit ? AMBER : BLUE; x5.globalAlpha = hit ? 0.9 : 0.55; x5.beginPath(); x5.moveTo(sx(p.x), sy(p.y)); x5.lineTo(sx(p.x + dx * t), sy(p.y + dy * t)); x5.stroke(); }
+      x5.globalAlpha = 1;
+    }
+    normalTick(x5, p); handle(x5, p.x, p.y);
+    const ref = refAO(RECTS_B, p, r, 64).ao;
+    document.getElementById("c5-read").innerHTML = `<strong>reference (64 rays) = ${ref.toFixed(2)}</strong> · p = (${p.x.toFixed(2)}, ${p.y.toFixed(2)}) m`;
+    document.getElementById("c5-cap").textContent = "cost ≈ order of magnitude at 1080p";
+    const set = (id, v, l) => { document.getElementById(id).querySelector(".n").textContent = v.toFixed(2); document.getElementById(id + "-l").textContent = l; document.getElementById(id).classList.toggle("on", id === "t5-" + m); };
+    set("t5-ssao", ss.ao, `SSAO · ${SS5.N} fetches · ≈${(SS5.N * 0.05).toFixed(1)} ms`);
+    set("t5-dfao", df.ao, `DFAO · ${df.taps} SDF taps · ≈${(df.taps * 0.025).toFixed(1)} ms`);
+    set("t5-rtao", rt.ao, `RTAO · ${s5.rays} ray${s5.rays > 1 ? "s" : ""} · ≈${(s5.rays * 1.5).toFixed(0)} ms${s5.rays === 1 ? " + denoiser" : ""}`);
+  }
+  surfaceDrag(c5, SURF_B, s5, draw5);
+  onSeg("segM5", v => { s5.method = v; draw5(); });
+  onSeg("segRays", v => { s5.rays = +v; draw5(); });
+  draw5();
+
+  // ---------- 4. noise and denoise: 160×90 top-down depth render of a 16 m × 9 m yard ----------
+  const c4 = document.getElementById("c4"), x4 = c4.getContext("2d");
+  const GX = 160, GZ = 90, CELL = 0.1, N4 = 12, R4 = 1.0, BIAS4 = 0.03;
+  const s4 = { bx: 5.5, bz: 4.5, sigma: 0.2, alpha: 0.1, anim: true, reject: true, frame: 0, dragging: false };
+  const hmap = new Float32Array(GX * GZ), hprev = new Float32Array(GX * GZ).fill(NaN);
+  const raw = new Float32Array(GX * GZ), naive = new Float32Array(GX * GZ), bil = new Float32Array(GX * GZ), hist = new Float32Array(GX * GZ).fill(1);
+  const KER = []; for (let i = 0; i < N4; i++) { const u1 = hash(i + 11), u2 = hash(i + 31), rr = Math.sqrt(u1), ph = 2 * Math.PI * u2, l = Math.cbrt(hash(i + 51)); KER.push([rr * Math.cos(ph) * l, Math.sqrt(1 - u1) * l, rr * Math.sin(ph) * l]); }
+  const NOISE = []; for (let i = 0; i < 16; i++) NOISE.push(hash(i + 100));
+  function heightYard(x, z) {
+    let h = x > 11.5 ? 0.8 : 0;
+    if (x >= 7.6 && x < 7.9 && z >= 1 && z < 8) h = -0.8;
+    if (Math.abs(x - s4.bx) < 1.2 && Math.abs(z - s4.bz) < 1.2) h = Math.max(h, 1.3);
+    if (Math.abs(x - 13.2) < 0.8 && Math.abs(z - 6.2) < 0.8) h = Math.max(h, 1.4);
+    return h;
+  }
+  const smooth = q => { q = Math.min(1, q); return q * q * (3 - 2 * q); };
+  function computeRaw() {
+    for (let j = 0; j < GZ; j++) for (let i = 0; i < GX; i++) hmap[j * GX + i] = heightYard((i + 0.5) * CELL, (j + 0.5) * CELL);
+    const rot = s4.frame * 0.618034;
+    for (let j = 0; j < GZ; j++) for (let i = 0; i < GX; i++) {
+      const o = j * GX + i, py = hmap[o], px = (i + 0.5) * CELL, pz = (j + 0.5) * CELL;
+      const hx = (hmap[j * GX + Math.min(GX - 1, i + 1)] - hmap[j * GX + Math.max(0, i - 1)]) / (2 * CELL);
+      const hz = (hmap[Math.min(GZ - 1, j + 1) * GX + i] - hmap[Math.max(0, j - 1) * GX + i]) / (2 * CELL);
+      let nx = -hx, ny = 1, nz = -hz; const nl = Math.hypot(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
+      let tx = ny, ty = -nx, tz = 0; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;   // T = normalize(cross(n, z))
+      const bx = ny * tz - nz * ty, by = nz * tx - nx * tz, bz = nx * ty - ny * tx;              // B = cross(n, T)
+      const a = 2 * Math.PI * ((NOISE[(i & 3) + ((j & 3) << 2)] + rot) % 1), ca = Math.cos(a), sa = Math.sin(a);
+      let occ = 0;
+      for (let k = 0; k < N4; k++) {
+        const kx = KER[k][0] * ca - KER[k][2] * sa, kz = KER[k][0] * sa + KER[k][2] * ca, ky = KER[k][1];
+        const sxw = px + (tx * kx + nx * ky + bx * kz) * R4, syw = py + (ty * kx + ny * ky + by * kz) * R4, szw = pz + (tz * kx + nz * ky + bz * kz) * R4;
+        const ix = Math.floor(sxw / CELL), iz = Math.floor(szw / CELL);
+        if (ix < 0 || ix >= GX || iz < 0 || iz >= GZ) continue;
+        const stored = hmap[iz * GX + ix];
+        if (stored >= syw + BIAS4) occ += smooth(R4 / Math.abs(py - stored));
+      }
+      raw[o] = 1 - occ / N4;
+    }
+  }
+  function blur(src, dst, sigma) {
+    const s2 = sigma ? sigma * sigma : 0;
+    for (let j = 0; j < GZ; j++) for (let i = 0; i < GX; i++) {
+      const o = j * GX + i, z0 = hmap[o]; let sum = 0, wsum = 0;
+      for (let dj = -2; dj < 2; dj++) { const jj = j + dj; if (jj < 0 || jj >= GZ) continue;
+        for (let di = -2; di < 2; di++) { const ii = i + di; if (ii < 0 || ii >= GX) continue;
+          const q = jj * GX + ii, dz = hmap[q] - z0, w = sigma ? Math.exp(-dz * dz / s2) : 1;
+          sum += src[q] * w; wsum += w; } }
+      dst[o] = sum / wsum;
+    }
+  }
+  function temporal() {
+    const a = s4.alpha;
+    for (let o = 0; o < GX * GZ; o++) {
+      if (s4.reject && Math.abs(hprev[o] - hmap[o]) > 0.1) hist[o] = bil[o];
+      else hist[o] += a * (bil[o] - hist[o]);
+    }
+    hprev.set(hmap);
+  }
+  const off4 = document.createElement("canvas"); off4.width = GX; off4.height = GZ; const ox4 = off4.getContext("2d");
+  const img4 = new ImageData(GX, GZ);
+  function panel(src, px, py, text) {
+    const d = img4.data;
+    for (let o = 0; o < GX * GZ; o++) { const v = Math.round(28 + 227 * Math.max(0, Math.min(1, src[o]))); d[o * 4] = v; d[o * 4 + 1] = v; d[o * 4 + 2] = v; d[o * 4 + 3] = 255; }
+    ox4.putImageData(img4, 0, 0); x4.imageSmoothingEnabled = false; x4.drawImage(off4, px, py, W / 2, H / 2);
+    x4.fillStyle = "rgba(11,14,19,0.75)"; x4.fillRect(px + 6, py + 6, text.length * 6.7 + 10, 17);
+    label(x4, text, px + 11, py + 9);
+  }
+  function step4() {
+    const t0 = performance.now();
+    computeRaw(); blur(raw, naive, 0); blur(raw, bil, s4.sigma); temporal();
+    const ms = performance.now() - t0;
+    panel(raw, 0, 0, `1 · raw, ${N4} spp, 4×4 noise`);
+    panel(naive, W / 2, 0, `2 · 4×4 box blur, depth-blind`);
+    panel(bil, 0, H / 2, `3 · 4×4 bilateral, σz = ${s4.sigma.toFixed(2)} m`);
+    panel(hist, W / 2, H / 2, `4 · + history, α = ${s4.alpha.toFixed(2)}, frame ${s4.frame}`);
+    x4.strokeStyle = "rgba(255,255,255,0.35)"; x4.lineWidth = 1; x4.beginPath(); x4.moveTo(W / 2 + 0.5, 0); x4.lineTo(W / 2 + 0.5, H); x4.moveTo(0, H / 2 + 0.5); x4.lineTo(W, H / 2 + 0.5); x4.stroke();
+    document.getElementById("c4-read").innerHTML = `<strong>${(GX * GZ).toLocaleString("en-US")} px × ${N4} samples = ${(GX * GZ * N4).toLocaleString("en-US")} depth fetches</strong> · ${ms.toFixed(1)} ms in JS`;
+    document.getElementById("c4-cap").textContent = `box at (${s4.bx.toFixed(1)}, ${s4.bz.toFixed(1)}) m · 1 texel = 10 cm · r = 1 m`;
+    s4.frame++;
+  }
+  let visible4 = true, tick4 = 0;
+  if ("IntersectionObserver" in window) new IntersectionObserver(es => { visible4 = es[0].isIntersecting; }).observe(c4);
+  function loop4(ts) {
+    requestAnimationFrame(loop4);
+    if (!visible4 || (tick4++ & 1)) return;
+    if (s4.anim && !s4.dragging) { s4.bx = 5.5 + 2.2 * Math.sin(ts * 0.0006); s4.bz = 4.5 + 1.2 * Math.cos(ts * 0.0004); }
+    step4();
+  }
+  step4(); requestAnimationFrame(loop4);
+  function yardOf(ev) { const r = c4.getBoundingClientRect(); const cx = (ev.clientX - r.left) / r.width * W, cy = (ev.clientY - r.top) / r.height * H; return [(cx % (W / 2)) / (W / 2) * 16, (cy % (H / 2)) / (H / 2) * 9]; }
+  c4.addEventListener("pointerdown", ev => { s4.dragging = true; c4.setPointerCapture(ev.pointerId); const [x, z] = yardOf(ev); s4.bx = Math.max(1.3, Math.min(10.2, x)); s4.bz = Math.max(1.3, Math.min(7.7, z)); s4.anim = false; document.getElementById("anim").checked = false; });
+  c4.addEventListener("pointermove", ev => { if (!s4.dragging) return; const [x, z] = yardOf(ev); s4.bx = Math.max(1.3, Math.min(10.2, x)); s4.bz = Math.max(1.3, Math.min(7.7, z)); });
+  const end4 = ev => { s4.dragging = false; try { c4.releasePointerCapture(ev.pointerId); } catch (e) {} };
+  c4.addEventListener("pointerup", end4); c4.addEventListener("pointercancel", end4);
+  onRange("sigZ", v => v.toFixed(2) + " m", v => { s4.sigma = v; });
+  onRange("alpha", v => v.toFixed(2), v => { s4.alpha = v; });
+  document.getElementById("anim").addEventListener("change", ev => { s4.anim = ev.target.checked; });
+  document.getElementById("reject").addEventListener("change", ev => { s4.reject = ev.target.checked; });
+})();
+</script>

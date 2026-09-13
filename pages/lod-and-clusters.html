@@ -1,0 +1,944 @@
+<title>LOD & Cluster Hierarchies</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas.wide { aspect-ratio: 16 / 9; }
+.vp canvas.sq { aspect-ratio: 1; }
+.uses.trade { font-size: 14px; }
+.uses.trade td { min-width: 14ch; }
+.uses.trade td:first-child { white-space: normal; min-width: 11ch; }
+.ctl.chk { flex-direction: row; align-items: center; gap: 8px; }
+.ctl.chk label { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--ink); }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">2048-vertex outline · 14 m rock · 1080p at 60° fov · drag the camera</p>
+    <h1>LOD &amp; Clusters</h1>
+    <p class="lead">A level of detail, or LOD, is a cheaper copy of a mesh with fewer triangles, used when the object is small on screen. It saves the GPU from drawing detail smaller than a pixel, which is wasted work and slow work. The thing almost everyone gets wrong is picking the level by distance. The real rule is <b>projected error</b>: how many pixels the cheap copy strays from the full one, and whether anyone could see that.</p>
+    <div class="key">
+      <span style="--sw:#f2a341">most detailed level (LOD 0)</span>
+      <span style="--sw:#4aa3ff">least detailed level</span>
+      <span style="--sw:#ffffff">full mesh for reference, camera, drag handles</span>
+      <span style="--sw:#5ad48a">pixel whose shading is kept</span>
+      <span style="--sw:#ef5d5d">wasted shader lane, or over the memory budget</span>
+    </div>
+    <dl class="terms">
+      <dt>LOD</dt><dd>level of detail: a copy of a mesh with fewer triangles, for when it is small on screen</dd>
+      <dt>mesh</dt><dd>the triangles that make up an object's surface</dd>
+      <dt>projected error</dt><dd>how far the simplified shape strays from the full one, measured in screen pixels</dd>
+      <dt>τ (tau)</dt><dd>the error you are willing to accept, in pixels; at 1 px nobody can see the difference</dd>
+      <dt>cluster</dt><dd>a chunk of about 128 triangles that picks its own level of detail</dd>
+      <dt>DAG</dt><dd>the hierarchy of clusters, coarse versions above fine ones; short for directed acyclic graph</dd>
+      <dt>pixel quad</dt><dd>the 2×2 block of pixels a GPU always shades together</dd>
+      <dt>page</dt><dd>a 128 KB block of cluster data that is loaded or dropped as one unit</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#error"><span class="n">01</span>Pick the level by pixel error</a></li><li><a href="#quads"><span class="n">02</span>Why tiny triangles cost so much</a></li><li><a href="#dag"><span class="n">03</span>Let each chunk pick its own level</a></li><li><a href="#stream"><span class="n">04</span>Load only the pages you need</a></li><li><a href="#cost"><span class="n">05</span>Triangle count as you back away</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="error">
+    <h2>Pick the level by pixel error</h2>
+    <p class="sub">Drag the camera back and watch which of the four outlines gets drawn, and how far it strays in pixels.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c1" class="wide grab" width="640" height="360" aria-label="Silhouette at four levels of detail with projected error"></canvas>
+        <div class="cap"><span id="c1-read"></span><span id="c1-tri"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">The rock comes in four copies: 2048, 512, 128 and 32 points around its outline. Each cheaper copy strays a little from the true shape. <b>Measure that stray in pixels on screen</b>, then <b>pick the cheapest copy that stays under a threshold</b>. Distance only matters through how much it shrinks the error.</p>
+
+        <h3>What you're seeing</h3>
+        <p>A 1:1 pixel crop of a 1080p frame. The thin white line is the full 2048-point outline. The filled shape is the level in use, amber for the most detailed and blue for the least.</p>
+        <p>The inset at the top right zooms 4× into a 40×40 px window around the worst point of the chosen level, so you can see the error in pixels. The track along the bottom marks the distances where the level switches for the current threshold.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the camera back. The e_px numbers in the readout fall and the fill turns blue as coarser levels take over.</li>
+          <li>Set the threshold τ to 4 px. The switch marks slide toward the camera, so you drop levels sooner.</li>
+          <li>Untick the cross-fade and drag slowly across a switch mark. The outline pops. Tick it and the two levels blend through a dot pattern.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><label for="d1">Camera distance <span class="val" id="d1v">100 m</span></label><input type="range" id="d1" min="1" max="2.9031" step="0.001" value="2.000"></div>
+          <div class="ctl"><label for="tau1">Threshold τ <span class="val" id="tau1v">1.0 px</span></label><input type="range" id="tau1" min="0.25" max="4" step="0.25" value="1"></div>
+          <div class="ctl chk"><input type="checkbox" id="fade1" checked><label for="fade1">dithered cross-fade</label></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Each level is made offline by decimation, which means removing one point at a time, always the one that moves the outline least, until the target count is reached. The level's error is then measured, not guessed: the largest distance in metres from any original point to the simplified outline. That one number is all the runtime needs.</p>
+        <p>At runtime the error is projected to pixels using the camera distance and the field of view, which is the angle the camera can see. The coarsest level whose projected error still fits under the threshold τ wins.</p>
+        <p class="words">In words: pixel error is the world error scaled by how big a metre looks at this distance; pick the coarsest level under τ; the switch distance is where a level's error crosses τ.</p>
+        <div class="math">e_px = e_world · (H/2) / (d · tan(fov/2))
+LOD  = max { L : e_px(L) ≤ τ }
+d_switch(L) = e_L · (H/2) / (τ · tan(fov/2))</div>
+        <p>e_world is the level's measured error in metres, H the screen height in pixels (1080 here), d the camera distance, fov the vertical field of view, L the level and τ the threshold.</p>
+        <p>Switching meshes at one exact distance pops. The usual fix is a dithered cross-fade: over a short band past the switch distance both levels are drawn, and a fixed 4×4 pattern of dots called a Bayer mask decides which pixels belong to which level. Each pixel is drawn exactly once, so it works inside the normal opaque pass with a single depth write.</p>
+        <p>TAA, the anti-aliasing that blends frames over time, smooths the dots away. The cost is that both levels are drawn during the fade.</p>
+        <p class="words">What this code does: converts metres to pixels, walks the levels and keeps the last one under τ, then uses the dot pattern to split pixels between the two levels during a fade.</p>
+<pre class="code"><span class="k">float</span> projectError(<span class="k">float</span> eWorld, <span class="k">float</span> dist) {
+  <span class="k">return</span> eWorld * (0.5 * viewportH) / (dist * tan(0.5 * fovY));   <span class="c">// metres -> pixels</span>
+}
+<span class="k">int</span> selectLOD(MeshLODs m, vec3 camPos, <span class="k">float</span> tau) {
+  <span class="k">float</span> d = max(distance(camPos, m.center) - m.radius, nearZ); <span class="c">// closest point of the bounds</span>
+  <span class="k">int</span> lod = 0;
+  <span class="k">for</span> (<span class="k">int</span> i = 1; i &lt; m.count; i++)
+    <span class="k">if</span> (projectError(m.error[i], d) &lt;= tau) lod = i;   <span class="c">// error[] grows with i, so the last pass wins</span>
+  <span class="k">return</span> lod;
+}
+<span class="c">// pixel shader, both levels drawn during the fade band</span>
+<span class="k">float</span> t = bayer4x4[ivec2(gl_FragCoord.xy) &amp; 3] / 16.0;
+<span class="k">if</span> (isOutgoingLOD ? (t &lt; fade) : (t &gt;= fade)) <span class="k">discard</span>;      <span class="c">// masks are complementary: every pixel drawn once</span></pre>
+
+        <p class="tldr">Pick the cheapest mesh whose error on screen stays under your pixel threshold. Distance is only an input to that.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="quads">
+    <h2>Why tiny triangles cost so much</h2>
+    <p class="sub">Drag a triangle around a 16×16 pixel patch, then shrink it and watch how much shader work gets thrown away.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c2" class="sq grab" width="512" height="512" aria-label="Pixel quads touched by a small triangle"></canvas>
+        <div class="cap"><span id="c2-read"></span><span id="c2-zero"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">A GPU never shades one pixel on its own. It <b>always shades a 2×2 block called a quad</b>, even when the triangle touches only one of the four. The other three are wasted. So <b>a mesh full of pixel-sized triangles can cost four times what it should</b>, which is the real reason a distant mesh needs fewer triangles.</p>
+
+        <h3>What you're seeing</h3>
+        <p>16×16 pixels of the screen, magnified 32×, with the 2×2 quads outlined. Green pixels are covered by the triangle, so their shading is kept. Red pixels are helper lanes: shaded because they share a quad with a green one, then thrown away.</p>
+        <p>The tiles count the useful pixels, the lanes launched, and the ratio between them.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the size slider down to 1 px. Efficiency drops toward 25 %: one useful pixel for every four lanes.</li>
+          <li>Switch to tiled mesh at that size. The whole patch runs the shader about four times per pixel.</li>
+          <li>Push the size to 12 px. Waste only happens along the edges and efficiency climbs.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><label for="tri2">Triangle size <span class="val" id="tri2v">2.5 px</span></label><input type="range" id="tri2" min="0.5" max="12" step="0.25" value="2.5"></div>
+          <div class="ctl"><span class="lab">Scene</span><div class="seg" id="mode2" role="group" aria-label="Single triangle or tiled mesh"><button data-v="one" aria-pressed="true">one triangle</button><button data-v="tiled">tiled mesh</button></div></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t2-cov">—</div><div class="l">pixel centres shaded</div></div>
+          <div class="tile"><div class="n" id="t2-lanes">—</div><div class="l">lanes launched</div></div>
+          <div class="tile on"><div class="n" id="t2-eff">—</div><div class="l">quad efficiency</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The quad exists because of derivatives. <code>dFdx</code> and <code>dFdy</code> are shader functions that ask how much a value changes to the next pixel over, and they need a neighbour to subtract. Mip selection, which picks how blurry a copy of the texture to sample, uses those derivatives.</p>
+        <p>A triangle that covers one pixel centre still launches all four lanes. The three extras are helper lanes: they run the full shader and their results are thrown away.</p>
+        <p>Tile the whole area with pixel-sized triangles and the shader runs roughly four times per output pixel. The rasterizer, the fixed hardware that turns triangles into pixels, also spends its per-triangle setup rate on triangles that cover nothing. This is why a 2048-triangle mesh at 500 m is a bad idea even though it draws in one call.</p>
+        <p class="words">In words: count the 2×2 blocks the triangle touches, multiply by four for lanes, and divide the useful pixels by that.</p>
+        <div class="math">quads touched = |{ q : some pixel centre in q is covered }|
+lanes launched = 4 · quads touched
+quad efficiency = covered pixel centres / lanes launched</div>
+        <p>q is one quad, a 2×2 block of pixels. A pixel centre counts as covered when it falls inside the triangle.</p>
+        <p>Nanite, the cluster renderer in Unreal Engine 5, sidesteps the quad rule for its smallest clusters. Clusters whose triangles are only a few pixels wide are rasterized in a compute shader, a GPU program that runs outside the fixed pipeline, one pixel at a time. Each pixel records depth and a triangle id in a 64-bit visibility buffer, using an atomic max so the nearest triangle wins.</p>
+        <p>Large triangles still go through the hardware path. Material shading then runs once per pixel from that buffer, so shading cost stops depending on triangle size at all.</p>
+        <p class="words">What this code does: shows the derivative read that forces the quad to exist, then Nanite's per-pixel write that packs depth and triangle id into one 64-bit number.</p>
+<pre class="code"><span class="c">// why the quad exists: derivatives are differences across the 2x2 block</span>
+vec2 duvdx = dFdx(uv);                <span class="c">// reads the lane to the right, even if it lies outside the triangle</span>
+vec2 duvdy = dFdy(uv);
+<span class="k">float</span> lod = log2(max(length(duvdx * texSize), length(duvdy * texSize)));
+vec4 albedo = textureLod(tex, uv, lod);
+<span class="c">// helper lanes execute every line above and then write nothing.</span>
+<span class="c">// Nanite's software path for small triangles, per pixel, no quads:</span>
+<span class="k">uint64</span> packed = (<span class="k">uint64</span>(depthBits) &lt;&lt; 32) | (clusterId &lt;&lt; 7) | triIndex;
+InterlockedMax(visBuffer[pixel], packed);   <span class="c">// nearest depth wins, id rides along</span></pre>
+
+        <p class="tldr">Every triangle pays for whole 2×2 blocks of pixels, so pixel-sized triangles cost up to four times more than they look.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="dag">
+    <h2>Let each chunk pick its own level</h2>
+    <p class="sub">Drag the camera in the top-down map and watch each cluster of 128 segments choose its own level.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c3" class="sq grab" width="512" height="512" aria-label="Cluster DAG cut for a camera position"></canvas>
+        <div class="cap"><span id="c3-read"></span><span id="c3-lv"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Instead of one level for the whole rock, <b>cut the mesh into clusters of about 128 triangles</b> and <b>let each cluster pick its own level</b>. The side facing you stays sharp while the side facing away goes coarse. The hard part is <b>making sure neighbours never leave a crack</b>, and the fix lives in how the levels are built.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Top: a map seen from above, 48 m across, with the camera as a white handle and its view as a faint wedge. The outline is drawn cluster by cluster, amber for the finest level and blue for the coarsest, with white dots where clusters meet.</p>
+        <p>Bottom: the hierarchy itself, one row per level with the single root cluster at the top. Filled dots are the clusters being drawn right now, the set called the cut.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the camera close to one side of the rock. The nearest clusters turn amber while the far side stays blue.</li>
+          <li>Raise τ to 8 px. Almost everything goes blue and the cluster count in the readout falls.</li>
+          <li>Look at a boundary between two colours. The white dot sits on both sides, so there is no gap.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><label for="tau3">Threshold τ <span class="val" id="tau3v">2.0 px</span></label><input type="range" id="tau3" min="0.25" max="8" step="0.25" value="2"></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Building the hierarchy: take neighbouring clusters, merge them into one group, simplify the group to half its segments, split the result back into clusters, and repeat until one cluster is left. The result is a DAG, a directed acyclic graph, which is a tree where a child may have more than one parent.</p>
+        <p>Points on a group's boundary are locked during simplification, so two groups always agree on their shared edge. The next level shifts the grouping, which moves those locked boundaries into the middle of a new group where they can finally be simplified.</p>
+        <p>Every cluster stores two errors: the error of the group that made it and the error of the group that consumed it. Both are made monotonic, meaning a parent's error is always at least the largest error below it. The cut then needs one test per cluster with no walk up or down the tree.</p>
+        <p>All clusters from one group share one error and one bounding sphere, the sphere that encloses them and gives the distance. So siblings decide identically, and a group boundary is either drawn at the same points on both sides or replaced as a whole. That is where the crack-free guarantee comes from.</p>
+        <p class="words">In words: draw a cluster when its parent's error is too big for τ but its own error fits; because errors and bounds only grow going up, exactly one cluster on each path passes.</p>
+        <div class="math">draw cluster c  ⇔  parent_error_px(c) &gt; τ ≥ cluster_error_px(c)
+parent_error ≥ max(child errors), parent bounds ⊇ child bounds  ⇒  e_px monotonic on every root-to-leaf path
+vertex test:  dist(p, ab) = |(b − a) × (p − a)| / |b − a|      (Douglas-Peucker, kept if largest)</div>
+        <p>parent_error_px and cluster_error_px are the two stored errors projected to pixels. The vertex test is the point-to-segment distance used while simplifying: a and b are the segment ends, p the point being judged.</p>
+        <p>The GPU version runs one thread per cluster. After the error test it drops clusters outside the frustum, the wedge of space the camera can see, and clusters hidden behind others according to the HZB, a stack of shrinking depth images. Survivors go into a list that one indirect draw consumes, meaning a draw call whose arguments the GPU wrote itself.</p>
+        <p class="words">What this code does: one GPU thread per cluster tests the two errors, drops what is out of view or hidden, and appends the survivors to the list a single indirect draw will eat.</p>
+<pre class="code">[numthreads(64, 1, 1)]
+<span class="k">void</span> CullClusters(<span class="k">uint</span> id : SV_DispatchThreadID) {
+  Cluster c = clusters[id];
+  <span class="k">float</span> dC = sphereDistance(cam, c.lodBounds);     <span class="c">// bounds of the group that MADE c</span>
+  <span class="k">float</span> dP = sphereDistance(cam, c.parentBounds);  <span class="c">// bounds of the group that CONSUMED c</span>
+  <span class="k">float</span> eC = projectError(c.lodError, dC);
+  <span class="k">float</span> eP = projectError(c.parentError, dP);     <span class="c">// +inf for the root</span>
+  <span class="k">if</span> (!(eP &gt; tau &amp;&amp; eC &lt;= tau)) <span class="k">return</span>;             <span class="c">// exactly one cluster per path passes</span>
+  <span class="k">if</span> (!inFrustum(c.bounds) || occludedByHZB(c.bounds)) <span class="k">return</span>;
+  <span class="k">uint</span> slot; InterlockedAdd(visibleCount, 1, slot);
+  visibleClusters[slot] = id;                        <span class="c">// one indirect draw eats this list</span>
+}</pre>
+
+        <p class="tldr">Split the mesh into clusters and give each an error that only grows upward; then every cluster can pick its own level with no cracks.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="stream">
+    <h2>Load only the pages you need</h2>
+    <p class="sub">Twelve rocks share one hierarchy stored in 128 KB pages. Drag the camera and lower the budget to watch pages come and go.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c4" class="sq grab" width="512" height="512" aria-label="Page residency for twelve instances against a memory budget"></canvas>
+        <div class="cap"><span id="c4-read"></span><span id="c4-deg"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">The whole hierarchy is too big to keep in video memory for every object. So it is <b>cut into 128 KB pages</b>, and <b>only the pages some visible cluster needs are loaded</b>. When memory runs out, <b>the finest pages go first</b> and the object just looks a bit coarser for a moment. Nothing ever vanishes.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Top: twelve copies of the rock on a 142 m map, each drawn at its own cut. A red dashed ring around a rock means it is drawing coarser than τ because a page it wanted is not loaded.</p>
+        <p>Bottom: the nine pages. Filled means loaded, dim means no one needs it, and a red dashed outline means wanted but evicted. Page 0 holds the top of the hierarchy and is always loaded.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the camera next to one rock. Its fine pages light up and the loaded count in the readout rises.</li>
+          <li>Pull the budget down to 128 KB. Only page 0 fits, and every rock draws from the top of the hierarchy in red.</li>
+          <li>Raise τ to 8 px. Fewer fine pages are needed and the memory figure drops.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><label for="budget4">Budget <span class="val" id="budget4v">640 KB</span></label><input type="range" id="budget4" min="1" max="9" step="1" value="5"></div>
+          <div class="ctl"><label for="tau4">Threshold τ <span class="val" id="tau4v">1.0 px</span></label><input type="range" id="tau4" min="0.25" max="8" step="0.25" value="1"></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Clusters are packed into fixed-size pages, coarsest levels first, so page 0 holds the top of the hierarchy and is never evicted. The cull pass that computes the cut also notices when a chosen cluster lives in a page that is not loaded. It writes a request, draws the nearest loaded ancestor instead, and the CPU streams the page in over the next frames.</p>
+        <p>Over budget, the finest pages are evicted first. An instance whose cut lost a page raises its own threshold until its cut fits in loaded memory. A coarser cut is still a valid cut, so the crack-free property survives eviction.</p>
+        <p>In this demo a page holds 4 clusters. That is a stand-in for engines that quantize and compress geometry to pack far more clusters into the same 128 KB.</p>
+        <p class="words">In words: the loaded set is the root page plus every page any instance's cut touches; if that exceeds the budget, an instance loosens its τ to the next error step until its cut fits.</p>
+        <div class="math">resident = page(root) ∪ ⋃ᵢ { page(c) : c ∈ cut(instanceᵢ, τᵢ) }
+constraint: |resident| · 128 KB ≤ budget
+fallback: τᵢ ← min { e_px(c) : e_px(c) &gt; τᵢ }  until cut(instanceᵢ, τᵢ) ⊆ resident</div>
+        <p>resident is the set of loaded pages, cut(instanceᵢ, τᵢ) the clusters instance i draws at its own threshold τᵢ, and page(c) the page that holds cluster c.</p>
+        <p class="words">What this code does: on the GPU a missing page becomes a request and the cluster falls back to a loaded ancestor; on the CPU requests are sorted by priority, old pages are evicted until there is room, and new ones load.</p>
+<pre class="code"><span class="c">// inside the cull pass, after the cut test passed for cluster c</span>
+<span class="k">if</span> (!pageResident[c.page]) {
+  InterlockedMax(pageRequest[c.page], priorityFromError(eC));  <span class="c">// GPU -> CPU readback next frame</span>
+  c = nearestResidentAncestor(c);      <span class="c">// same DAG, coarser cut, still crack-free</span>
+}
+<span class="c">// CPU, once per frame</span>
+sortRequestsByPriority();
+<span class="k">while</span> (residentBytes + PAGE_BYTES &gt; budget) evict(leastRecentlyRequestedPage());
+<span class="k">for</span> (req : requests) <span class="k">if</span> (residentBytes + PAGE_BYTES &lt;= budget) load(req.page);</pre>
+
+        <p class="tldr">Stream the hierarchy in 128 KB pages, keep the root always, and drop the finest pages first; the mesh only ever gets briefly coarser.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="cost">
+    <h2>Triangle count as you back away</h2>
+    <p class="sub">Drag the cursor across the chart to compare no LOD, four fixed levels and the cluster cut at one distance.</p>
+    <div class="cols wide">
+      <div class="vp">
+        <canvas id="c5" class="wide grab" width="640" height="360" aria-label="Triangles versus camera distance for three LOD schemes"></canvas>
+        <div class="cap"><span id="c5-read"></span><span id="c5-cull"></span></div>
+      </div>
+    </div>
+    <div class="cols">
+      <div class="prose">
+        <p class="plain">This chart is the payoff. With <b>no LOD</b> the rock costs 2048 triangles at every distance. <b>Four fixed levels</b> drop in big steps. The <b>cluster cut</b> drops in many small steps and stays closest to what the pixels deserve. All three end on the same 32-triangle floor.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Triangles submitted for one rock against camera distance, on a log scale from 10 m to 500 m. White dashed is no LOD, amber is the four discrete levels, blue is the cluster cut. The faint blue dashed line uses the right axis and counts how many hierarchy nodes the cull pass had to visit.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the cursor to 50 m. The discrete tile sits on a step while the cluster tile lands in between.</li>
+          <li>Drag out to 500 m. All three lines meet near the floor and the gap closes.</li>
+          <li>Lower τ to 0.25 px. Every switch moves further out and the staircase widens.</li>
+        </ul>
+      </div>
+      <div class="prose">
+        <div class="controls" style="margin-top:0">
+          <div class="ctl"><label for="tau5">Threshold τ <span class="val" id="tau5v">1.0 px</span></label><input type="range" id="tau5" min="0.25" max="4" step="0.25" value="1"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t5-none">—</div><div class="l">no LOD</div></div>
+          <div class="tile"><div class="n" id="t5-disc">—</div><div class="l">4 discrete LODs</div></div>
+          <div class="tile on"><div class="n" id="t5-clus">—</div><div class="l">cluster cut</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The discrete curve is a staircase: each step is one switch distance from the first demo. The cluster curve steps more often and more gently, because each of the 33 clusters switches at its own distance and the near side of the rock stays finer than the far side. Both reach the same floor of 32 triangles; the difference is how much they overshoot in between.</p>
+        <p>Draw calls, the requests the CPU sends to the GPU, tell the other half. Discrete LOD costs one draw per mesh per instance, or one instanced draw per level in use. The cluster path is one indirect draw for the whole scene, paid for with a cull dispatch that walks the hierarchy from the root and stops at the cut. The dashed line counts those visits.</p>
+        <p class="words">In words: the triangle count is the sum over the clusters in the cut; the nodes visited are every cluster whose ancestors all failed the test.</p>
+        <div class="math">triangles(d) = Σ_{c ∈ cut(d)} tris(c)
+nodes visited = |{ c : every ancestor of c has e_px &gt; τ }|   (traversal stops at the cut)</div>
+        <p>cut(d) is the set of clusters drawn at distance d, tris(c) the triangle count of cluster c.</p>
+        <p class="words">What this code does: walks the hierarchy with a stack, emits a node as soon as its error fits under τ, and otherwise pushes its children, skipping any it has already seen.</p>
+<pre class="code"><span class="c">// hierarchical cull: a stack of nodes, stop where the cut passes</span>
+push(root);
+<span class="k">while</span> (!empty()) {
+  Node n = pop(); visited++;
+  <span class="k">if</span> (projectError(n.error, sphereDistance(cam, n.bounds)) &lt;= tau) { emit(n); <span class="k">continue</span>; }
+  <span class="k">for</span> (child : n.children) <span class="k">if</span> (!seen(child)) push(child);   <span class="c">// DAG: siblings share children</span>
+}</pre>
+
+        <p class="tldr">Per-cluster LOD follows the pixel budget far more closely than whole-mesh levels, and ships as one indirect draw.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">Four ways to match triangles to pixels, side by side.</p>
+    <p class="plain">Read across a row for one technique. The columns are how much work it is to set up, how much memory it takes, whether you can see it switch, how it copes with tiny triangles, and whether the mesh can still bend or animate. Memory figures are for this page's 2048-vertex rock unless stated; the ratios carry over.</p>
+    <div class="tbl-wrap">
+    <table class="uses trade">
+      <thead><tr><th>Technique</th><th>Setting it up</th><th>Memory</th><th>Visible switching</th><th>Tiny triangles</th><th>Can it animate</th></tr></thead>
+      <tbody>
+        <tr><td>Discrete LODs</td><td>Made by an artist or by automatic decimation, 3 to 5 levels per mesh. Cheap to set up, tedious to tune for each asset.</td><td>All levels added up: 2048 + 512 + 128 + 32 = 2720 vertices, 1.33× the base mesh.</td><td>Yes, at every switch. Hidden with a dithered cross-fade or by keeping τ under 1 px.</td><td>Up to the artist. Too few levels and LOD 0 is all sub-pixel triangles at range.</td><td>Fully. Skinning, morphs and vertex animation all work, since each level is an ordinary mesh.</td></tr>
+        <tr><td>HLOD and impostors</td><td>Merge a whole region into one stand-in mesh offline, or bake a set of pictures of the asset from many angles (an octahedral impostor atlas).</td><td>Stand-in meshes plus atlases. A 2048² RGBA8 impostor atlas is 16 MB raw, 4 MB at BC7.</td><td>Yes, when a region swaps between real meshes and its stand-in. Impostors also shift as you move past them.</td><td>Good. One stand-in replaces hundreds of draws and their tiny triangles.</td><td>No. The stand-in is static and impostors are pictures.</td></tr>
+        <tr><td>Progressive meshes</td><td>Automatic: a list of edge collapses stored as vertex splits (Hoppe, 1996).</td><td>Base mesh plus one split record per removed vertex, about the size of the source mesh.</td><td>None in principle: continuous, with geomorphs that slide vertices between states.</td><td>Decisions are per vertex on the CPU, a poor fit for GPU batching and instancing.</td><td>Limited. The collapse order is baked for the rest pose.</td></tr>
+        <tr><td>Cluster DAG (Nanite)</td><td>Fully automatic: cluster, group, simplify, split, repeat. No per-asset tuning.</td><td>About 2× the source triangles across all levels (1 + ½ + ¼ + …), quantized and compressed on disk; only loaded pages sit in VRAM.</td><td>Per cluster and under 1 px at τ ≤ 1, so effectively none. TAA absorbs the rest.</td><td>Handled. Sub-pixel clusters use the software rasterizer, so no helper lanes.</td><td>Static or rigid moves in its original form. Skinning arrived later and with restrictions.</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">Every row answers the same question: how many triangles does this thing deserve at this size on screen.</p>
+    <p class="plain">The columns say what gets asked each frame, what data has to exist to answer it, and where you can see it running.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Use</th><th>What gets asked</th><th>Data it needs</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>LOD groups</td><td>Per object, once a frame: project the bounds or the per-level error, pick a mesh, and add a little slack (hysteresis) so it does not flicker at the boundary.</td><td>3 to 5 meshes and a screen-size or error threshold per level</td><td>Unity LOD Group, Unreal static-mesh LODs, Godot 4 visibility ranges, most engines</td></tr>
+        <tr><td>HLOD</td><td>Per region: is the whole group of buildings small enough to draw as one merged stand-in with one material.</td><td>Baked stand-in meshes and merged textures per region, a spatial hierarchy of regions</td><td>Unreal Engine HLOD with World Partition, Unity's HLOD package, most open-world engines</td></tr>
+        <tr><td>Octahedral impostors</td><td>Pick the baked picture nearest the camera direction and blend the three surrounding ones.</td><td>An atlas of views laid out on an octahedron, usually with depth and normals</td><td>Foliage and distant props in Unreal via the Impostor Baker, many foliage pipelines</td></tr>
+        <tr><td>Terrain patches</td><td>Per patch: split it further while its height error projects to more than τ pixels.</td><td>Height-map mip chain with a per-patch error bound, or nested clipmap rings</td><td>Geometry clipmaps (Losasso and Hoppe, 2004), most terrain systems since</td></tr>
+        <tr><td>Cluster DAG</td><td>Per cluster on the GPU: parent_error &gt; τ ≥ cluster_error, then frustum and HZB occlusion, then one indirect draw.</td><td>Cluster DAG with group errors and bounds, 128 KB streaming pages, visibility buffer</td><td>Nanite in Unreal Engine 5 (Karis, "A Deep Dive into Nanite Virtualized Geometry", SIGGRAPH 2021)</td></tr>
+        <tr><td>Progressive meshes</td><td>Apply vertex splits or collapses until the mesh reaches the target count for this view.</td><td>Base mesh plus an ordered stream of vertex-split records</td><td>Hoppe, SIGGRAPH 1996, the root of continuous LOD; view-dependent refinement followed</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">The trap is the phrase "LOD distance": the real rule is triangle size on screen, which is projected error. A 200 m cliff at 1 km still needs its 1 m ledges, and a pebble at 3 m does not need 2048 triangles. Any setting that takes a distance quietly assumes an object size, and a huge object far away is where that guess breaks.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  // ---------- shared scene: a 2048-vertex closed outline, metres, centred on the origin ----------
+  const N = 2048, H = 1080, FOV = 60 * Math.PI / 180, TANH = Math.tan(FOV / 2);
+  const AMBER = [242, 163, 65], BLUE = [74, 163, 255];
+  const GROUND = "#0b0e13", GRID = "rgba(255,255,255,0.12)", WHITE = "#ffffff", GREEN = "#5ad48a", RED = "#ef5d5d";
+  const P = new Float64Array(N * 2);
+  for (let i = 0; i < N; i++) {
+    const t = i / N * Math.PI * 2;
+    const r = 5.2 + 1.1 * Math.sin(3 * t + 0.4) + 0.7 * Math.sin(7 * t + 2.1) + 0.32 * Math.sin(19 * t + 1.0)
+            + 0.14 * Math.sin(53 * t + 0.3) + 0.06 * Math.sin(131 * t) + 0.025 * Math.sin(347 * t + 0.7) + 0.012 * Math.sin(701 * t);
+    P[i * 2] = Math.cos(t) * r; P[i * 2 + 1] = Math.sin(t) * r * 0.85;
+  }
+  const px = i => P[(((i % N) + N) % N) * 2], py = i => P[(((i % N) + N) % N) * 2 + 1];
+  let RADIUS = 0; for (let i = 0; i < N; i++) RADIUS = Math.max(RADIUS, Math.hypot(px(i), py(i)));
+
+  function segDist(x, y, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+    const h = L2 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L2)) : 0;
+    return Math.hypot(x - ax - dx * h, y - ay - dy * h);
+  }
+  // greedy decimation: repeatedly drop the vertex closest to the chord between its neighbours
+  function simplify(idx, target, closed) {
+    const n = idx.length, prev = new Int32Array(n), next = new Int32Array(n), cost = new Float64Array(n), alive = new Uint8Array(n).fill(1);
+    for (let i = 0; i < n; i++) { prev[i] = i - 1; next[i] = i + 1; }
+    if (closed) { prev[0] = n - 1; next[n - 1] = 0; } else { prev[0] = -1; next[n - 1] = -1; }
+    const c = i => (prev[i] < 0 || next[i] < 0) ? Infinity : segDist(px(idx[i]), py(idx[i]), px(idx[prev[i]]), py(idx[prev[i]]), px(idx[next[i]]), py(idx[next[i]]));
+    for (let i = 0; i < n; i++) cost[i] = c(i);
+    let segs = closed ? n : n - 1;
+    while (segs > target) {
+      let best = -1, bc = Infinity;
+      for (let i = 0; i < n; i++) if (alive[i] && cost[i] < bc) { bc = cost[i]; best = i; }
+      if (best < 0) break;
+      alive[best] = 0; const p = prev[best], q = next[best];
+      if (p >= 0) next[p] = q; if (q >= 0) prev[q] = p;
+      if (p >= 0) cost[p] = c(p); if (q >= 0) cost[q] = c(q);
+      segs--;
+    }
+    const out = []; for (let i = 0; i < n; i++) if (alive[i]) out.push(idx[i]);
+    return out;
+  }
+  // one-sided Hausdorff: every original vertex against the simplified chord that spans it
+  function measure(kept, closed) {
+    let m = 0, at = kept[0]; const n = kept.length;
+    for (let k = 0; k < (closed ? n : n - 1); k++) {
+      const a = kept[k], b = (closed && k === n - 1) ? kept[0] + N : kept[k + 1];
+      for (let j = a + 1; j < b; j++) { const d = segDist(px(j), py(j), px(a), py(a), px(b), py(b)); if (d > m) { m = d; at = j; } }
+    }
+    return { err: m, at };
+  }
+  function lvl(level, max, a) {
+    const t = max ? level / max : 0;
+    return `rgba(${(AMBER[0] + (BLUE[0] - AMBER[0]) * t) | 0},${(AMBER[1] + (BLUE[1] - AMBER[1]) * t) | 0},${(AMBER[2] + (BLUE[2] - AMBER[2]) * t) | 0},${a})`;
+  }
+  const errPx = (e, d) => e * (H / 2) / (Math.max(d, 0.5) * TANH);
+  const fmtN = n => n.toLocaleString("en-US");
+  const fmtKB = kb => kb >= 1024 ? (kb / 1024).toFixed(2) + " MB" : kb + " KB";
+  function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
+  function canvasXY(cv, ev) { const r = cv.getBoundingClientRect(); return [(ev.clientX - r.left) * cv.width / r.width, (ev.clientY - r.top) * cv.height / r.height]; }
+  function dragOn(cv, onDown, onMove) {
+    let active = false;
+    cv.addEventListener("pointerdown", ev => { const [x, y] = canvasXY(cv, ev); if (onDown(x, y)) { active = true; cv.setPointerCapture(ev.pointerId); ev.preventDefault(); } });
+    cv.addEventListener("pointermove", ev => { if (!active) return; const [x, y] = canvasXY(cv, ev); onMove(x, y); });
+    const end = ev => { if (active) { active = false; try { cv.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
+  }
+  function throttled(fn) { let pending = false; return () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; fn(); }); }; }
+  function mono(ctx, size) { ctx.font = `${size}px "IBM Plex Mono", Menlo, Consolas, monospace`; }
+
+  // ---------- 1. discrete LODs and screen-space error ----------
+  const ALL = Array.from({ length: N }, (_, i) => i);
+  const LOD = [{ idx: ALL, err: 0, at: 0 }];
+  for (const t of [512, 128, 32]) { const kept = simplify(LOD[LOD.length - 1].idx, t, true); const m = measure(kept, true); LOD.push({ idx: kept, err: m.err, at: m.at }); }
+  const st1 = { d: 100, tau: 1, fade: true };
+  const dSwitch = (L, tau) => L === 0 ? 0 : LOD[L].err * (H / 2) / (tau * TANH);
+  function selectLOD(d, tau) { let L = 0; for (let i = 1; i < 4; i++) if (errPx(LOD[i].err, d) <= tau) L = i; return L; }
+  const c1 = document.getElementById("c1"), x1 = c1.getContext("2d"), W1 = 640, H1 = 360;
+  const offA = document.createElement("canvas"), offB = document.createElement("canvas");
+  offA.width = offB.width = W1; offA.height = offB.height = H1;
+  const oA = offA.getContext("2d"), oB = offB.getContext("2d");
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  const patLT = [], patGE = [];
+  for (let k = 0; k <= 16; k++) {
+    for (const [arr, test] of [[patLT, v => v < k], [patGE, v => v >= k]]) {
+      const t = document.createElement("canvas"); t.width = t.height = 4; const tc = t.getContext("2d");
+      const im = tc.createImageData(4, 4);
+      for (let i = 0; i < 16; i++) { im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = 255; im.data[i * 4 + 3] = test(BAYER[i]) ? 255 : 0; }
+      tc.putImageData(im, 0, 0); arr[k] = x1.createPattern(t, "repeat");
+    }
+  }
+  function pathLevel(ctx, L, s, cx, cy) {
+    ctx.beginPath(); const idx = LOD[L].idx;
+    for (let k = 0; k < idx.length; k++) { const X = cx + px(idx[k]) * s, Y = cy + py(idx[k]) * s; if (k) ctx.lineTo(X, Y); else ctx.moveTo(X, Y); }
+    ctx.closePath();
+  }
+  function drawLevelTo(ctx, L, s, mask) {
+    ctx.clearRect(0, 0, W1, H1); pathLevel(ctx, L, s, 320, 176);
+    ctx.fillStyle = lvl(L, 3, 0.45); ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = lvl(L, 3, 1); ctx.stroke();
+    if (mask) { ctx.globalCompositeOperation = "destination-in"; ctx.fillStyle = mask; ctx.fillRect(0, 0, W1, H1); ctx.globalCompositeOperation = "source-over"; }
+  }
+  const TR = { x0: 28, x1: 612, y: 330, h: 12, dmin: 10, dmax: 800 };
+  const dToX = d => TR.x0 + (Math.log(d / TR.dmin) / Math.log(TR.dmax / TR.dmin)) * (TR.x1 - TR.x0);
+  const xToD = x => TR.dmin * Math.pow(TR.dmax / TR.dmin, Math.min(1, Math.max(0, (x - TR.x0) / (TR.x1 - TR.x0))));
+  function draw1() {
+    const d = st1.d, tau = st1.tau, s = errPx(1, d); // pixels per metre at this distance
+    const B = selectLOD(d, tau);
+    let A = B, f = 0;
+    if (st1.fade && B > 0) { const ds = dSwitch(B, tau); f = Math.min(1, Math.max(0, (d - ds) / (0.25 * ds))); if (f < 1) A = B - 1; else f = 0; }
+    x1.fillStyle = GROUND; x1.fillRect(0, 0, W1, H1);
+    pathLevel(x1, 0, s, 320, 176); x1.strokeStyle = "rgba(255,255,255,0.3)"; x1.lineWidth = 1; x1.stroke();
+    if (f > 0) { const k = Math.round(f * 16); drawLevelTo(oA, A, s, patGE[k]); drawLevelTo(oB, B, s, patLT[k]); x1.drawImage(offA, 0, 0); x1.drawImage(offB, 0, 0); }
+    else { drawLevelTo(oA, B, s, null); x1.drawImage(offA, 0, 0); }
+    // magnifier around the worst vertex of the chosen level
+    const ref = LOD[Math.max(B, 1)].at, mx = 320 + px(ref) * s, my = 176 + py(ref) * s;
+    const SR = 40, IS = 160, ix = W1 - IS - 10, iy = 10;
+    const sx = Math.round(Math.min(Math.max(mx - SR / 2, 0), W1 - SR)), sy = Math.round(Math.min(Math.max(my - SR / 2, 0), H1 - SR));
+    x1.imageSmoothingEnabled = false; x1.drawImage(c1, sx, sy, SR, SR, ix, iy, IS, IS);
+    x1.strokeStyle = GRID; x1.lineWidth = 1; x1.beginPath();
+    for (let g = 4; g < IS; g += 4) { x1.moveTo(ix + g + 0.5, iy); x1.lineTo(ix + g + 0.5, iy + IS); x1.moveTo(ix, iy + g + 0.5); x1.lineTo(ix + IS, iy + g + 0.5); }
+    x1.stroke();
+    x1.strokeStyle = "rgba(255,255,255,0.85)"; x1.strokeRect(ix + 0.5, iy + 0.5, IS - 1, IS - 1);
+    x1.strokeStyle = "rgba(255,255,255,0.6)"; x1.strokeRect(sx + 0.5, sy + 0.5, SR - 1, SR - 1);
+    mono(x1, 11); x1.fillStyle = "rgba(255,255,255,0.8)"; x1.textAlign = "left"; x1.fillText("×4 · worst vertex", ix + 6, iy + IS + 14);
+    x1.fillText(`1080p crop · ${s.toFixed(1)} px/m`, 12, 20);
+    // distance track with the LOD bands that fall out of the rule
+    for (let L = 0; L < 4; L++) {
+      const a = Math.max(TR.dmin, dSwitch(L, tau)), b = L < 3 ? Math.min(TR.dmax, dSwitch(L + 1, tau)) : TR.dmax;
+      if (b <= a) continue;
+      x1.fillStyle = lvl(L, 3, 0.55); x1.fillRect(dToX(a), TR.y, dToX(b) - dToX(a), TR.h);
+      if (st1.fade && L > 0) { const fb = Math.min(TR.dmax, a * 1.25); if (fb > a) { x1.fillStyle = "rgba(255,255,255,0.25)"; x1.fillRect(dToX(a), TR.y, dToX(fb) - dToX(a), TR.h); } }
+    }
+    x1.fillStyle = "rgba(255,255,255,0.75)"; x1.textAlign = "center";
+    for (let L = 1; L < 4; L++) { const ds = dSwitch(L, tau); if (ds > TR.dmin && ds < TR.dmax) { x1.fillText(`${ds < 100 ? ds.toFixed(0) : Math.round(ds)} m`, dToX(ds), TR.y - 5); x1.fillRect(dToX(ds) - 0.5, TR.y - 2, 1, TR.h + 4); } }
+    x1.textAlign = "left"; x1.fillText("10 m", TR.x0, TR.y + TR.h + 13); x1.textAlign = "right"; x1.fillText("800 m", TR.x1, TR.y + TR.h + 13);
+    x1.textAlign = "center"; x1.fillStyle = "rgba(255,255,255,0.55)"; x1.fillText("camera distance", 320, TR.y + TR.h + 13);
+    const hx = dToX(d); x1.beginPath(); x1.arc(hx, TR.y + TR.h / 2, 7, 0, Math.PI * 2); x1.fillStyle = WHITE; x1.fill(); x1.lineWidth = 2; x1.strokeStyle = GROUND; x1.stroke();
+    const errs = LOD.map(l => errPx(l.err, d).toFixed(2)).join(" / ");
+    document.getElementById("c1-read").innerHTML = `d = <strong>${d.toFixed(1)} m</strong> · LOD <strong>${B}</strong> (${LOD[B].idx.length} verts) · e_px: ${errs}`;
+    const tris = f > 0 ? LOD[A].idx.length + LOD[B].idx.length : LOD[B].idx.length;
+    document.getElementById("c1-tri").innerHTML = `<strong>${fmtN(tris)} triangles</strong>${f > 0 ? ` · fading ${A}→${B} at ${(f * 100).toFixed(0)} %` : ""}`;
+  }
+  const req1 = throttled(draw1);
+  const d1 = document.getElementById("d1"), d1v = document.getElementById("d1v");
+  function setD1(d, fromSlider) { st1.d = Math.min(TR.dmax, Math.max(TR.dmin, d)); d1v.textContent = st1.d.toFixed(0) + " m"; if (!fromSlider) d1.value = Math.log10(st1.d).toFixed(3); req1(); }
+  d1.addEventListener("input", () => setD1(Math.pow(10, +d1.value), true));
+  const tau1 = document.getElementById("tau1");
+  tau1.addEventListener("input", () => { st1.tau = +tau1.value; document.getElementById("tau1v").textContent = st1.tau.toFixed(2) + " px"; req1(); });
+  document.getElementById("fade1").addEventListener("change", ev => { st1.fade = ev.target.checked; req1(); });
+  dragOn(c1, x => { setD1(xToD(x)); return true; }, x => setD1(xToD(x)));
+  draw1();
+
+  // ---------- 2. quads and small triangles ----------
+  const c2 = document.getElementById("c2"), x2 = c2.getContext("2d"), G = 16, CELL = 32;
+  const st2 = { s: 2.5, ax: 5.3, ay: 6.4, tiled: false };
+  function edge(ax, ay, bx, by, x, y) { return (bx - ax) * (y - ay) - (by - ay) * (x - ax); }
+  function coverage(t) {
+    const [a, b, c] = t, area = edge(a[0], a[1], b[0], b[1], c[0], c[1]);
+    const pix = [], quads = new Set();
+    if (Math.abs(area) < 1e-9) return { pix, quads };
+    const sg = Math.sign(area);
+    const i0 = Math.max(0, Math.floor(Math.min(a[0], b[0], c[0]))), i1 = Math.min(G - 1, Math.ceil(Math.max(a[0], b[0], c[0])));
+    const j0 = Math.max(0, Math.floor(Math.min(a[1], b[1], c[1]))), j1 = Math.min(G - 1, Math.ceil(Math.max(a[1], b[1], c[1])));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const x = i + 0.5, y = j + 0.5;
+      if (edge(a[0], a[1], b[0], b[1], x, y) * sg >= 0 && edge(b[0], b[1], c[0], c[1], x, y) * sg >= 0 && edge(c[0], c[1], a[0], a[1], x, y) * sg >= 0) {
+        pix.push(j * G + i); quads.add((j >> 1) * (G / 2) + (i >> 1));
+      }
+    }
+    return { pix, quads };
+  }
+  function triangles2() {
+    const s = st2.s, h = s * SQRT3_2;
+    if (!st2.tiled) return [[[st2.ax, st2.ay], [st2.ax + s, st2.ay], [st2.ax + s / 2, st2.ay + h]]];
+    const out = [], bx = ((st2.ax % s) + s) % s - s, by = ((st2.ay % h) + h) % h - h;
+    const rows = Math.ceil((G - by) / h) + 1, cols = Math.ceil((G - bx) / s) + 2;
+    for (let r = 0; r < rows; r++) {
+      const y0 = by + r * h, y1 = y0 + h, o0 = (r & 1) ? s / 2 : 0, o1 = ((r + 1) & 1) ? s / 2 : 0;
+      if (y0 > G) break;
+      for (let k = -1; k < cols; k++) {
+        const xa = bx + k * s + o0, xb = bx + k * s + o1;
+        if (xa + s >= 0 && xa <= G) out.push([[xa, y0], [xa + s, y0], [xa + s / 2, y1]]);
+        if (xb + s >= 0 && xb <= G && y1 <= G + h) out.push([[xb, y1], [xb + s / 2, y0], [xb + s, y1]]);
+      }
+    }
+    return out;
+  }
+  const SQRT3_2 = Math.sqrt(3) / 2;
+  function draw2() {
+    const tris = triangles2(), covered = new Uint8Array(G * G), helper = new Uint8Array(G * G);
+    let lanes = 0, covCount = 0, zero = 0, quadCount = 0;
+    for (const t of tris) {
+      const { pix, quads } = coverage(t);
+      if (!pix.length) { zero++; continue; }
+      lanes += 4 * quads.size; quadCount += quads.size;
+      for (const p of pix) { if (!covered[p]) covCount++; covered[p] = 1; }
+      for (const q of quads) { const qi = q % (G / 2), qj = (q / (G / 2)) | 0; for (const [di, dj] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const p = (qj * 2 + dj) * G + qi * 2 + di; if (!pix.includes(p)) helper[p]++; } }
+    }
+    x2.fillStyle = GROUND; x2.fillRect(0, 0, 512, 512);
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) {
+      const p = j * G + i;
+      if (covered[p]) { x2.fillStyle = "rgba(90,212,138,0.4)"; x2.fillRect(i * CELL, j * CELL, CELL, CELL); }
+      if (helper[p]) { x2.fillStyle = `rgba(239,93,93,${Math.min(0.85, 0.22 * helper[p])})`; x2.fillRect(i * CELL, j * CELL, CELL, CELL); }
+    }
+    x2.strokeStyle = GRID; x2.lineWidth = 1; x2.beginPath();
+    for (let g = 1; g < G; g++) { if (g % 2 === 0) continue; x2.moveTo(g * CELL + 0.5, 0); x2.lineTo(g * CELL + 0.5, 512); x2.moveTo(0, g * CELL + 0.5); x2.lineTo(512, g * CELL + 0.5); }
+    x2.stroke();
+    x2.strokeStyle = "rgba(255,255,255,0.32)"; x2.beginPath();
+    for (let g = 2; g < G; g += 2) { x2.moveTo(g * CELL + 0.5, 0); x2.lineTo(g * CELL + 0.5, 512); x2.moveTo(0, g * CELL + 0.5); x2.lineTo(512, g * CELL + 0.5); }
+    x2.stroke();
+    // pixel centres
+    x2.fillStyle = "rgba(255,255,255,0.35)";
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) x2.fillRect(i * CELL + CELL / 2 - 1, j * CELL + CELL / 2 - 1, 2, 2);
+    x2.strokeStyle = st2.tiled ? "rgba(242,163,65,0.6)" : "rgba(242,163,65,1)"; x2.lineWidth = st2.tiled ? 1 : 2; x2.beginPath();
+    for (const t of tris) { x2.moveTo(t[0][0] * CELL, t[0][1] * CELL); x2.lineTo(t[1][0] * CELL, t[1][1] * CELL); x2.lineTo(t[2][0] * CELL, t[2][1] * CELL); x2.closePath(); }
+    x2.stroke();
+    x2.beginPath(); x2.arc(st2.ax * CELL, st2.ay * CELL, 7, 0, Math.PI * 2); x2.fillStyle = WHITE; x2.fill(); x2.lineWidth = 2; x2.strokeStyle = GROUND; x2.stroke();
+    mono(x2, 11); x2.fillStyle = "rgba(255,255,255,0.8)"; x2.textAlign = "left"; x2.fillText("1 pixel = 32 canvas px · 2×2 quads outlined", 10, 502);
+    const eff = lanes ? covCount / lanes : 0;
+    document.getElementById("t2-cov").textContent = fmtN(covCount);
+    document.getElementById("t2-lanes").textContent = fmtN(lanes);
+    document.getElementById("t2-eff").textContent = lanes ? (eff * 100).toFixed(0) + " %" : "—";
+    document.getElementById("c2-read").innerHTML = `s = <strong>${st2.s.toFixed(2)} px</strong> · ${fmtN(tris.length)} triangle${tris.length === 1 ? "" : "s"} · ${fmtN(quadCount)} quads · ${fmtN(lanes - covCount)} helper lanes`;
+    document.getElementById("c2-zero").innerHTML = zero ? `<strong>${fmtN(zero)}</strong> cover no centre, still cost setup` : "every triangle covers a centre";
+  }
+  const req2 = throttled(draw2);
+  const tri2 = document.getElementById("tri2");
+  tri2.addEventListener("input", () => { st2.s = +tri2.value; document.getElementById("tri2v").textContent = st2.s.toFixed(2) + " px"; req2(); });
+  document.getElementById("mode2").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; st2.tiled = b.dataset.v === "tiled"; segOn(ev.currentTarget, b.dataset.v); req2(); });
+  dragOn(c2, () => true, (x, y) => { st2.ax = Math.min(G, Math.max(0, x / CELL)); st2.ay = Math.min(G, Math.max(0, y / CELL)); req2(); });
+  draw2();
+
+  // ---------- 3. cluster DAG ----------
+  const CL = [];
+  function sphereOfPts(pts) { let cx = 0, cy = 0; for (const p of pts) { cx += p[0]; cy += p[1]; } cx /= pts.length; cy /= pts.length; let r = 0; for (const p of pts) r = Math.max(r, Math.hypot(p[0] - cx, p[1] - cy)); return { x: cx, y: cy, r }; }
+  function enclose(sphs) { let cx = 0, cy = 0; for (const s of sphs) { cx += s.x; cy += s.y; } cx /= sphs.length; cy /= sphs.length; let r = 0; for (const s of sphs) r = Math.max(r, Math.hypot(s.x - cx, s.y - cy) + s.r); return { x: cx, y: cy, r }; }
+  function mkCluster(level, idx, err, sph, children) { const c = { id: CL.length, level, idx, err, sph, children, parentErr: Infinity, parentSph: null, segs: idx.length - 1 }; CL.push(c); return c; }
+  let cur = [];
+  for (let k = 0; k < 16; k++) { const idx = []; for (let j = 0; j <= 128; j++) idx.push(k * 128 + j); cur.push(mkCluster(0, idx, 0, sphereOfPts(idx.map(i => [px(i), py(i)])), [])); }
+  const LEVELS = [cur.slice()];
+  for (let level = 0; cur.length > 1 || cur[0].segs > 32; level++) {
+    const c = cur.length, g = Math.min(4, c), off = (level % 2) ? 1 : 0, next = [];
+    for (let i = 0; i < c / g; i++) {
+      const members = []; for (let j = 0; j < g; j++) members.push(cur[(off + i * g + j) % c]);
+      let merged = members[0].idx.slice();
+      for (let j = 1; j < g; j++) { const m = members[j].idx, shift = merged[merged.length - 1] - m[0]; for (let k = 1; k < m.length; k++) merged.push(m[k] + shift); }
+      const closed = g === c;               // the group is the whole loop
+      if (closed) merged.pop();             // last vertex == first + N
+      const S = closed ? merged.length : merged.length - 1;
+      const kept = simplify(merged, Math.max(closed ? 3 : 1, Math.floor(S / 2)), closed);
+      let err = measure(kept, closed).err; for (const m of members) err = Math.max(err, m.err);   // monotonic
+      const sph = enclose(members.map(m => m.sph));
+      const segs = closed ? kept.length : kept.length - 1, parts = Math.ceil(segs / 128);
+      const list = closed ? kept.concat([kept[0] + N]) : kept;
+      for (let p = 0; p < parts; p++) {
+        const a = Math.round(p * segs / parts), b = Math.round((p + 1) * segs / parts);
+        const sub = list.slice(a, b + 1), base = Math.floor(sub[0] / N) * N;
+        next.push(mkCluster(level + 1, sub.map(v => v - base), err, sph, members));
+      }
+      for (const m of members) { m.parentErr = err; m.parentSph = sph; }
+    }
+    cur = next; LEVELS.push(cur.slice());
+  }
+  const MAXL = LEVELS.length - 1, ROOT = LEVELS[MAXL][0];
+  function cutFor(camx, camy, tau, out) {
+    out.length = 0;
+    for (const c of CL) {
+      const eC = errPx(c.err, Math.hypot(camx - c.sph.x, camy - c.sph.y) - c.sph.r);
+      const eP = c.parentSph ? errPx(c.parentErr, Math.hypot(camx - c.parentSph.x, camy - c.parentSph.y) - c.parentSph.r) : Infinity;
+      if ((!c.parentSph || eP > tau) && eC <= tau) out.push(c);
+    }
+    return out;
+  }
+  function visited(camx, camy, tau) {
+    const seen = new Uint8Array(CL.length), stack = [ROOT]; let n = 0;
+    while (stack.length) { const c = stack.pop(); if (seen[c.id]) continue; seen[c.id] = 1; n++; if (errPx(c.err, Math.hypot(camx - c.sph.x, camy - c.sph.y) - c.sph.r) <= tau) continue; for (const ch of c.children) stack.push(ch); }
+    return n;
+  }
+  function strokeCluster(ctx, c, sx, sy, cx, cy) {
+    ctx.beginPath(); for (let k = 0; k < c.idx.length; k++) { const X = cx + px(c.idx[k]) * sx, Y = cy + py(c.idx[k]) * sy; if (k) ctx.lineTo(X, Y); else ctx.moveTo(X, Y); } ctx.stroke();
+  }
+  function strokeOutline(ctx, s, cx, cy) { ctx.beginPath(); for (let i = 0; i <= N; i++) { const X = cx + px(i) * s, Y = cy + py(i) * s; if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y); } ctx.stroke(); }
+
+  const c3 = document.getElementById("c3"), x3 = c3.getContext("2d");
+  const st3 = { x: -9.5, y: 3.5, tau: 2 }, S3 = 512 / 48, MAPH = 340, cut3 = [];
+  function draw3() {
+    cutFor(st3.x, st3.y, st3.tau, cut3);
+    x3.fillStyle = GROUND; x3.fillRect(0, 0, 512, 512);
+    // map grid every 4 m
+    x3.strokeStyle = GRID; x3.lineWidth = 1; x3.beginPath();
+    for (let m = -24; m <= 24; m += 4) { const X = 256 + m * S3, Y = MAPH / 2 + m * S3; x3.moveTo(X + 0.5, 0); x3.lineTo(X + 0.5, MAPH); if (Math.abs(m) <= 16) { x3.moveTo(0, Y + 0.5); x3.lineTo(512, Y + 0.5); } }
+    x3.stroke();
+    x3.strokeStyle = "rgba(255,255,255,0.18)"; strokeOutline(x3, S3, 256, MAPH / 2);
+    let segs = 0, lmin = MAXL, lmax = 0, dNear = Infinity;
+    for (const c of cut3) {
+      segs += c.segs; lmin = Math.min(lmin, c.level); lmax = Math.max(lmax, c.level);
+      dNear = Math.min(dNear, Math.hypot(st3.x - c.sph.x, st3.y - c.sph.y) - c.sph.r);
+      x3.strokeStyle = lvl(c.level, MAXL, 1); x3.lineWidth = 2.2; strokeCluster(x3, c, S3, S3, 256, MAPH / 2);
+    }
+    x3.fillStyle = WHITE;
+    for (const c of cut3) { for (const i of [c.idx[0], c.idx[c.idx.length - 1]]) { x3.beginPath(); x3.arc(256 + px(i) * S3, MAPH / 2 + py(i) * S3, 2.2, 0, Math.PI * 2); x3.fill(); } }
+    // camera and its view wedge toward the rock
+    const cxp = 256 + st3.x * S3, cyp = MAPH / 2 + st3.y * S3, ang = Math.atan2(-st3.y, -st3.x);
+    x3.fillStyle = "rgba(255,255,255,0.06)"; x3.beginPath(); x3.moveTo(cxp, cyp);
+    x3.lineTo(cxp + Math.cos(ang - FOV / 2) * 900, cyp + Math.sin(ang - FOV / 2) * 900); x3.lineTo(cxp + Math.cos(ang + FOV / 2) * 900, cyp + Math.sin(ang + FOV / 2) * 900); x3.closePath(); x3.fill();
+    x3.beginPath(); x3.arc(cxp, cyp, 7, 0, Math.PI * 2); x3.fillStyle = WHITE; x3.fill(); x3.lineWidth = 2; x3.strokeStyle = GROUND; x3.stroke();
+    mono(x3, 11); x3.fillStyle = "rgba(255,255,255,0.8)"; x3.textAlign = "left"; x3.fillText("top-down · 48 m across · 4 m grid", 10, 16);
+    // DAG: one row per level, root at the top
+    x3.fillStyle = "rgba(255,255,255,0.08)"; x3.fillRect(0, MAPH, 512, 512 - MAPH);
+    const rowY = L => 512 - 14 - (L / MAXL) * (512 - MAPH - 32), nodeX = (L, i) => 76 + (i + 0.5) * (428 / LEVELS[L].length);
+    const pos = new Map(); LEVELS.forEach((row, L) => row.forEach((c, i) => pos.set(c.id, [nodeX(L, i), rowY(L)])));
+    x3.strokeStyle = "rgba(255,255,255,0.14)"; x3.lineWidth = 1; x3.beginPath();
+    for (const c of CL) { const a = pos.get(c.id); for (const ch of c.children) { const b = pos.get(ch.id); x3.moveTo(a[0], a[1]); x3.lineTo(b[0], b[1]); } }
+    x3.stroke();
+    const inCut = new Uint8Array(CL.length); for (const c of cut3) inCut[c.id] = 1;
+    for (const c of CL) { const [X, Y] = pos.get(c.id); x3.beginPath(); x3.arc(X, Y, inCut[c.id] ? 5.5 : 3.5, 0, Math.PI * 2); if (inCut[c.id]) { x3.fillStyle = lvl(c.level, MAXL, 1); x3.fill(); } else { x3.fillStyle = GROUND; x3.fill(); x3.strokeStyle = lvl(c.level, MAXL, 0.5); x3.lineWidth = 1.2; x3.stroke(); } }
+    x3.textAlign = "left"; x3.fillStyle = "rgba(255,255,255,0.7)";
+    LEVELS.forEach((row, L) => x3.fillText(`L${L} ${row.length}×${row[0].segs}`, 8, rowY(L) + 4));
+    document.getElementById("c3-read").innerHTML = `cut: <strong>${cut3.length} clusters</strong> · <strong>${fmtN(segs)} segments</strong> · nearest cluster ${dNear.toFixed(1)} m`;
+    document.getElementById("c3-lv").innerHTML = `levels ${lmin}–${lmax} · errors ≤ ${st3.tau.toFixed(2)} px`;
+  }
+  const req3 = throttled(draw3);
+  function cam3(x, y) { st3.x = Math.min(23, Math.max(-23, (x - 256) / S3)); st3.y = Math.min(15, Math.max(-15, (y - MAPH / 2) / S3)); req3(); }
+  dragOn(c3, (x, y) => { if (y > MAPH) return false; cam3(x, y); return true; }, cam3);
+  const tau3 = document.getElementById("tau3");
+  tau3.addEventListener("input", () => { st3.tau = +tau3.value; document.getElementById("tau3v").textContent = st3.tau.toFixed(2) + " px"; req3(); });
+  draw3();
+
+  // ---------- 4. streaming pages ----------
+  const INST = [[-38, -34], [-6, -40], [30, -36], [-42, -4], [-12, -10], [18, -12], [44, -8], [-30, 22], [4, 18], [34, 20], [-14, 42], [24, 44]];
+  const PAGE_KB = 128, PER_PAGE = 4;
+  const order = CL.slice().sort((a, b) => b.level - a.level || a.id - b.id);
+  order.forEach((c, k) => { c.page = (k / PER_PAGE) | 0; });
+  const NPAGES = Math.ceil(CL.length / PER_PAGE);
+  const PAGE_LV = []; for (let p = 0; p < NPAGES; p++) { const ls = order.slice(p * PER_PAGE, (p + 1) * PER_PAGE).map(c => c.level); PAGE_LV.push([Math.max(...ls), Math.min(...ls)]); }
+  const c4 = document.getElementById("c4"), x4 = c4.getContext("2d");
+  const st4 = { x: -8, y: -4, tau: 1, budget: 5 }, S4 = 3.6, MAPH4 = 400;
+  const cuts4 = INST.map(() => []), taus4 = new Float64Array(INST.length), pageState = new Uint8Array(NPAGES), pageFlash = new Float64Array(NPAGES);
+  function nextTau(i, tau) { let best = Infinity; const cx = st4.x - INST[i][0], cy = st4.y - INST[i][1]; for (const c of CL) { const e = errPx(c.err, Math.hypot(cx - c.sph.x, cy - c.sph.y) - c.sph.r); if (e > tau && e < best) best = e; } return best === Infinity ? 1e9 : best; }
+  function compute4() {
+    const wanted = new Set([0]);
+    INST.forEach((p, i) => { taus4[i] = st4.tau; cutFor(st4.x - p[0], st4.y - p[1], st4.tau, cuts4[i]); for (const c of cuts4[i]) wanted.add(c.page); });
+    let needed = new Set(wanted), guard = 0;
+    while (needed.size > st4.budget && guard++ < 200) {
+      let pg = 0; for (const p of needed) pg = Math.max(pg, p);
+      INST.forEach((p, i) => {
+        let k = 0;
+        while (cuts4[i].some(c => c.page === pg) && k++ < 40) { taus4[i] = nextTau(i, taus4[i]); cutFor(st4.x - p[0], st4.y - p[1], taus4[i], cuts4[i]); }
+      });
+      needed = new Set([0]); for (const cut of cuts4) for (const c of cut) needed.add(c.page);
+    }
+    return { wanted, needed };
+  }
+  let flashing = false;
+  function draw4() {
+    const { wanted, needed } = compute4(), now = performance.now();
+    for (let p = 0; p < NPAGES; p++) { const s = needed.has(p) ? 1 : 0; if (s !== pageState[p]) { pageState[p] = s; pageFlash[p] = now; } }
+    x4.fillStyle = GROUND; x4.fillRect(0, 0, 512, 512);
+    x4.strokeStyle = GRID; x4.lineWidth = 1; x4.beginPath();
+    for (let m = -70; m <= 70; m += 10) { const X = 256 + m * S4, Y = MAPH4 / 2 + m * S4; x4.moveTo(X + 0.5, 0); x4.lineTo(X + 0.5, MAPH4); if (Math.abs(m) <= 50) { x4.moveTo(0, Y + 0.5); x4.lineTo(512, Y + 0.5); } }
+    x4.stroke();
+    let degraded = 0, tris = 0;
+    INST.forEach((p, i) => {
+      const cx = 256 + p[0] * S4, cy = MAPH4 / 2 + p[1] * S4, deg = taus4[i] > st4.tau;
+      if (deg) degraded++;
+      x4.strokeStyle = "rgba(255,255,255,0.12)"; x4.lineWidth = 1; strokeOutline(x4, S4, cx, cy);
+      for (const c of cuts4[i]) { tris += c.segs; x4.strokeStyle = lvl(c.level, MAXL, 1); x4.lineWidth = 1.4; strokeCluster(x4, c, S4, S4, cx, cy); }
+      if (deg) { x4.strokeStyle = RED; x4.lineWidth = 1.5; x4.setLineDash([3, 3]); x4.beginPath(); x4.arc(cx, cy, (RADIUS + 1.5) * S4, 0, Math.PI * 2); x4.stroke(); x4.setLineDash([]); }
+      mono(x4, 10); x4.fillStyle = deg ? RED : "rgba(255,255,255,0.6)"; x4.textAlign = "center";
+      const d = Math.hypot(st4.x - p[0], st4.y - p[1]);
+      x4.fillText(`${d.toFixed(0)} m · L${Math.min(...cuts4[i].map(c => c.level))}${deg ? ` · τ ${taus4[i].toFixed(1)}` : ""}`, cx, cy + (RADIUS + 4.5) * S4);
+    });
+    const cxp = 256 + st4.x * S4, cyp = MAPH4 / 2 + st4.y * S4;
+    x4.beginPath(); x4.arc(cxp, cyp, 7, 0, Math.PI * 2); x4.fillStyle = WHITE; x4.fill(); x4.lineWidth = 2; x4.strokeStyle = GROUND; x4.stroke();
+    mono(x4, 11); x4.fillStyle = "rgba(255,255,255,0.8)"; x4.textAlign = "left"; x4.fillText("top-down · 142 m across · 10 m grid · 12 instances", 10, 16);
+    // page strip
+    x4.fillStyle = "rgba(255,255,255,0.08)"; x4.fillRect(0, MAPH4, 512, 512 - MAPH4);
+    const bw = (512 - 20 - (NPAGES - 1) * 6) / NPAGES, by = MAPH4 + 30, bh = 40;
+    let anyFlash = false;
+    for (let p = 0; p < NPAGES; p++) {
+      const bx = 10 + p * (bw + 6), res = needed.has(p), evicted = wanted.has(p) && !res;
+      if (res) { x4.fillStyle = lvl(PAGE_LV[p][0], MAXL, 0.85); x4.fillRect(bx, by, bw, bh); }
+      x4.strokeStyle = evicted ? RED : (res ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.22)"); x4.lineWidth = evicted ? 2 : 1;
+      if (evicted) x4.setLineDash([4, 3]); x4.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1); x4.setLineDash([]);
+      const age = now - pageFlash[p];
+      if (pageFlash[p] && age < 600) { anyFlash = true; x4.strokeStyle = `rgba(255,255,255,${(1 - age / 600).toFixed(2)})`; x4.lineWidth = 3; x4.strokeRect(bx - 2, by - 2, bw + 4, bh + 4); }
+      mono(x4, 11); x4.textAlign = "center"; x4.fillStyle = res ? GROUND : "rgba(255,255,255,0.7)"; x4.fillText(`P${p}`, bx + bw / 2, by + 17);
+      mono(x4, 9); x4.fillText(PAGE_LV[p][0] === PAGE_LV[p][1] ? `L${PAGE_LV[p][0]}` : `L${PAGE_LV[p][0]}–${PAGE_LV[p][1]}`, bx + bw / 2, by + 31);
+    }
+    mono(x4, 11); x4.textAlign = "left"; x4.fillStyle = "rgba(255,255,255,0.7)";
+    x4.fillText(`${NPAGES} pages × ${PAGE_KB} KB · ${PER_PAGE} clusters each · P0 always resident`, 10, MAPH4 + 18);
+    x4.fillText("filled: resident · red dashed: wanted, evicted · dim: not needed", 10, by + bh + 18);
+    document.getElementById("c4-read").innerHTML = `resident <strong>${needed.size} of ${NPAGES} pages</strong> · <strong>${fmtKB(needed.size * PAGE_KB)}</strong> of ${fmtKB(NPAGES * PAGE_KB)} · ${fmtN(tris)} triangles`;
+    document.getElementById("c4-deg").innerHTML = degraded ? `<strong>${degraded} of 12 instances</strong> rendering coarser than τ` : "every instance at its own cut";
+    if (anyFlash && !flashing) { flashing = true; requestAnimationFrame(() => { flashing = false; draw4(); }); }
+  }
+  const req4 = throttled(draw4);
+  function cam4(x, y) { st4.x = Math.min(68, Math.max(-68, (x - 256) / S4)); st4.y = Math.min(54, Math.max(-54, (y - MAPH4 / 2) / S4)); req4(); }
+  dragOn(c4, (x, y) => { if (y > MAPH4) return false; cam4(x, y); return true; }, cam4);
+  const budget4 = document.getElementById("budget4");
+  budget4.addEventListener("input", () => { st4.budget = +budget4.value; document.getElementById("budget4v").textContent = fmtKB(st4.budget * PAGE_KB); req4(); });
+  const tau4 = document.getElementById("tau4");
+  tau4.addEventListener("input", () => { st4.tau = +tau4.value; document.getElementById("tau4v").textContent = st4.tau.toFixed(2) + " px"; req4(); });
+  draw4();
+
+  // ---------- 5. cost over distance ----------
+  const c5 = document.getElementById("c5"), x5 = c5.getContext("2d");
+  const st5 = { d: 60, tau: 1 }, PL = 60, PR = 590, PT = 22, PB = 296, DMIN = 10, DMAX = 800, YMAX = 2200, cut5 = [];
+  const dX = d => PL + Math.log(d / DMIN) / Math.log(DMAX / DMIN) * (PR - PL), xD = x => DMIN * Math.pow(DMAX / DMIN, Math.min(1, Math.max(0, (x - PL) / (PR - PL))));
+  const yT = t => PB - (t / YMAX) * (PB - PT), yV = v => PB - (v / CL.length) * (PB - PT);
+  function clusterTris(d, tau) { cutFor(-d, 0, tau, cut5); let s = 0; for (const c of cut5) s += c.segs; return s; }
+  function draw5() {
+    const tau = st5.tau;
+    x5.fillStyle = GROUND; x5.fillRect(0, 0, 640, 360);
+    x5.strokeStyle = GRID; x5.lineWidth = 1; x5.beginPath();
+    for (const t of [512, 1024, 1536, 2048]) { x5.moveTo(PL, yT(t) + 0.5); x5.lineTo(PR, yT(t) + 0.5); }
+    for (const d of [10, 20, 50, 100, 200, 500]) { x5.moveTo(dX(d) + 0.5, PT); x5.lineTo(dX(d) + 0.5, PB); }
+    x5.stroke();
+    mono(x5, 11); x5.fillStyle = "rgba(255,255,255,0.6)"; x5.textAlign = "right";
+    for (const t of [0, 512, 1024, 1536, 2048]) x5.fillText(fmtN(t), PL - 6, yT(t) + 4);
+    x5.textAlign = "left"; for (const v of [11, 22, 33]) x5.fillText(String(v), PR + 6, yV(v) + 4);
+    x5.textAlign = "center"; for (const d of [10, 20, 50, 100, 200, 500]) x5.fillText(d + " m", dX(d), PB + 14);
+    x5.fillText("camera distance (log)", (PL + PR) / 2, PB + 30);
+    x5.save(); x5.translate(14, (PT + PB) / 2); x5.rotate(-Math.PI / 2); x5.fillText("triangles", 0, 0); x5.restore();
+    x5.save(); x5.translate(632, (PT + PB) / 2); x5.rotate(Math.PI / 2); x5.fillText("nodes visited", 0, 0); x5.restore();
+    const S = 180, xs = [], disc = [], clus = [], vis = [];
+    for (let i = 0; i <= S; i++) { const d = DMIN * Math.pow(DMAX / DMIN, i / S); xs.push(dX(d)); disc.push(LOD[selectLOD(d, tau)].idx.length); clus.push(clusterTris(d, tau)); vis.push(visited(-d, 0, tau)); }
+    const line = (ys, col, w, dash, ymap) => { x5.strokeStyle = col; x5.lineWidth = w; x5.setLineDash(dash); x5.beginPath(); ys.forEach((v, i) => i ? x5.lineTo(xs[i], ymap(v)) : x5.moveTo(xs[i], ymap(v))); x5.stroke(); x5.setLineDash([]); };
+    line(xs.map(() => N), "rgba(255,255,255,0.55)", 1.5, [6, 5], yT);
+    line(vis, "rgba(74,163,255,0.55)", 1.2, [2, 4], yV);
+    line(disc, "#f2a341", 2, [], yT);
+    line(clus, "#4aa3ff", 2, [], yT);
+    // legend
+    const leg = [["no LOD", "rgba(255,255,255,0.7)"], ["4 discrete LODs", "#f2a341"], ["cluster cut", "#4aa3ff"], ["nodes visited (right axis)", "rgba(74,163,255,0.6)"]];
+    x5.textAlign = "left"; let lx = PL + 10;
+    for (const [t, col] of leg) { x5.fillStyle = col; x5.fillRect(lx, 30, 14, 3); x5.fillStyle = "rgba(255,255,255,0.8)"; x5.fillText(t, lx + 20, 34); lx += 20 + x5.measureText(t).width + 18; }
+    // cursor
+    const d = st5.d, dT = LOD[selectLOD(d, tau)].idx.length, cT = clusterTris(d, tau), nCl = cut5.length, v = visited(-d, 0, tau);
+    x5.strokeStyle = WHITE; x5.lineWidth = 1; x5.beginPath(); x5.moveTo(dX(d) + 0.5, PT); x5.lineTo(dX(d) + 0.5, PB); x5.stroke();
+    for (const [val, col, ym] of [[N, WHITE, yT], [dT, "#f2a341", yT], [cT, "#4aa3ff", yT], [v, "#4aa3ff", yV]]) { x5.beginPath(); x5.arc(dX(d), ym(val), 4, 0, Math.PI * 2); x5.fillStyle = col; x5.fill(); }
+    x5.beginPath(); x5.arc(dX(d), PB, 7, 0, Math.PI * 2); x5.fillStyle = WHITE; x5.fill(); x5.lineWidth = 2; x5.strokeStyle = GROUND; x5.stroke();
+    document.getElementById("t5-none").textContent = fmtN(N);
+    document.getElementById("t5-disc").textContent = fmtN(dT);
+    document.getElementById("t5-clus").textContent = fmtN(cT);
+    document.getElementById("c5-read").innerHTML = `d = <strong>${d.toFixed(0)} m</strong> · τ = ${tau.toFixed(2)} px · discrete: LOD ${selectLOD(d, tau)}, 1 draw · cluster: ${nCl} clusters, 1 indirect draw`;
+    document.getElementById("c5-cull").innerHTML = `<strong>${v} of ${CL.length} nodes</strong> visited by the cull`;
+  }
+  const req5 = throttled(draw5);
+  dragOn(c5, x => { st5.d = xD(x); req5(); return true; }, x => { st5.d = xD(x); req5(); });
+  const tau5 = document.getElementById("tau5");
+  tau5.addEventListener("input", () => { st5.tau = +tau5.value; document.getElementById("tau5v").textContent = st5.tau.toFixed(2) + " px"; req5(); });
+  draw5();
+})();
+</script>

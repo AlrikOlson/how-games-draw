@@ -1,0 +1,1233 @@
+<title>Global Illumination</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas { aspect-ratio: 1; }
+.cols.two .prose { max-width: none; }
+.btnrow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.cap .bad { color: #ef5d5d; }
+.cap .ok { color: #5ad48a; }
+.pair { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 28px; margin-top: 22px; }
+@media (max-width: 820px) { .pair { grid-template-columns: minmax(0,1fr); } }
+.uses td:first-child { white-space: normal; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">8 m × 8 m Cornell box · red wall left, green wall right · drag the light</p>
+    <h1>Global Illumination</h1>
+    <p class="lead">Direct light is the light a lamp puts on a surface it can see, with nothing in the way. <b>Global illumination</b> is all the light that arrives after a bounce: the red wall tinting the box, the floor lighting the ceiling. Every real-time method on this page is a different way to store or fake that bounce light, and the choice sets your memory budget, your frame cost, and what is allowed to move. The part people get wrong is that none of them replaces direct light or mirror-like reflections; they add a soft, blurry layer on top.</p>
+    <div class="key">
+      <span style="--sw:#f2a341">the light and the energy it gives off</span>
+      <span style="--sw:#4aa3ff">probe, camera or cone</span>
+      <span style="--sw:#ffffff">drag handle or ray</span>
+      <span style="--sw:#ef5d5d">missing or leaked light</span>
+      <span style="--sw:#c8403a">red wall, albedo ρ = (0.75, 0.15, 0.15)</span>
+      <span style="--sw:#3fa85a">green wall, albedo ρ = (0.15, 0.65, 0.2)</span>
+    </div>
+    <dl class="terms">
+      <dt>direct light</dt><dd>light that goes straight from the lamp to a surface with nothing in between</dd>
+      <dt>bounce light</dt><dd>light that hit a surface first and carried on; also called indirect light</dd>
+      <dt>irradiance</dt><dd>how much light lands on a point, added up over every direction it can come from</dd>
+      <dt>albedo</dt><dd>the share of light a surface throws back, per colour; a red wall keeps most of the green and blue</dd>
+      <dt>lightmap</dt><dd>a texture that stores bounce light on a surface, worked out ahead of time</dd>
+      <dt>probe</dt><dd>a point in the air that remembers how much light arrives from each direction</dd>
+      <dt>depth buffer</dt><dd>for every pixel of the frame, how far away the surface it shows is</dd>
+      <dt>voxel</dt><dd>one cube in a 3D grid, the volume version of a pixel</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#reference"><span class="n">01</span>Direct light vs the full picture</a></li><li><a href="#radiosity"><span class="n">02</span>Radiosity</a></li><li><a href="#probes"><span class="n">03</span>Probes</a></li><li><a href="#ssgi"><span class="n">04</span>Screen-space GI</a></li><li><a href="#voxel"><span class="n">05</span>Voxel cones and the surface cache</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="reference">
+    <h2>Direct light vs the full picture</h2>
+    <p class="sub">Drag the light in either view and compare a room lit by direct light alone to one where the light keeps bouncing.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c1a" width="512" height="512" class="grab" aria-label="Room lit by direct light only"></canvas>
+        <div class="cap"><strong>direct only</strong><span id="c1a-cap"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c1b" width="512" height="512" class="grab" aria-label="Room lit by the path-traced reference with bounces"></canvas>
+        <div class="cap"><strong id="c1b-title">up to 4 bounces</strong><span id="c1b-cap"></span></div>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><label for="bounces">Max bounces <span class="val" id="bouncesv">4</span></label><input type="range" id="bounces" min="1" max="5" step="1" value="4"></div>
+      <div class="ctl"><label for="rpf">Rays per frame <span class="val" id="rpfv">300</span></label><input type="range" id="rpf" min="50" max="800" step="50" value="300"></div>
+      <div class="ctl"><span class="lab">Accumulation</span><div class="seg"><button id="b1reset">restart</button></div></div>
+    </div>
+    <div class="pair">
+      <div class="prose">
+        <p class="plain">The left picture stops each light path at the <b>first surface it hits</b>. The right picture lets it <b>keep bouncing</b>, up to the number on the slider. Everything on the right that is missing on the left is bounce light, and it is <b>what every method below is trying to fake cheaply</b>.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Both views are a slice through the 8 m room, seen from the side, with the light as the amber dot. The glow in the air is how much light passes through each spot. The coloured strips along the walls are how much light lands there.</p>
+        <p>On the left the ceiling is black, the space behind the divider is black, and the box is lit on one side only. On the right the floor lights the ceiling, the red wall spills onto the left face of the box, and the shadows fill in.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the light down and to the left so the divider hides it from the box. On the left the box goes black. On the right it stays dimly lit by light coming off the walls.</li>
+          <li>Set max bounces to 1. The right view becomes the direct-only picture, and its caption says so.</li>
+          <li>Press restart and watch the right view. It starts grainy and smooths out as the ray count climbs and the noise percentage in the caption drops.</li>
+        </ul>
+      </div>
+      <div class="prose">
+        <h3>The real version</h3>
+        <p>Both views are path tracers: they follow light paths one random bounce at a time and add up where each path goes. This one starts paths at the lamp, a few hundred per frame, and keeps adding. The picture it settles on is unbiased, meaning that with enough rays it is the exact answer rather than an approximation.</p>
+        <p>The catch is noise. The readout compares two independent halves of the accumulation, and the gap between them is the grain you can see. A game gets one sample per pixel per frame, so a path tracer in a game needs a denoiser and a history buffer, which is a copy of last frame's result that this frame blends into. Every other method on this page gives up exactness for a picture that is stable on frame one.</p>
+        <p class="words">In words: the light leaving a point is what the point emits itself, plus every bit of incoming light scaled by how the surface reflects it and by how steeply it arrives. The incoming light is just someone else's outgoing light, which is what makes it a bounce.</p>
+        <div class="math">L_o(x, ω_o) = L_e(x, ω_o) + ∫_Ω f(x, ω_i, ω_o) · L_i(x, ω_i) · cosθ_i dω_i
+L_i(x, ω_i) = L_o(hit(x, ω_i), −ω_i)      <span class="c">// recursive: the incoming light is someone else's outgoing</span>
+diffuse:  f = ρ / π   (3D)     f = ρ / 2   (this 2D slice)
+point light in 2D falls off as 1 / r, not 1 / r²</div>
+        <p><code>L_o</code> is light leaving point x in direction ω_o, <code>L_e</code> is what x emits itself, <code>f</code> is the reflectance (the albedo ρ divided by π, or by 2 in this flat slice), and cosθ_i is the tilt of the incoming direction against the surface. In this flat slice a point light fades as 1 / r instead of 1 / r².</p>
+        <p class="words">What this code does: starts one path at the lamp, and at every hit paints the path into the air, adds what landed on the wall, tints the path by the wall's albedo, and picks a new random direction.</p>
+<pre class="code"><span class="c">// one light path; the "camera" is every cell the path crosses</span>
+vec2 p = lightPos;  vec2 d = uniformCircle(rand());
+vec3 throughput = lightPower / float(raysPerFrame);
+<span class="k">for</span> (int bounce = 0; bounce &lt; maxBounces; bounce++) {
+  Hit h = traceScene(p, d);                 <span class="c">// nearest wall segment</span>
+  splatLine(p, h.pos, throughput);          <span class="c">// light density in the air</span>
+  addIrradiance(h.seg, h.u, throughput);    <span class="c">// what lands on the wall</span>
+  throughput *= albedo(h.seg);              <span class="c">// color bleeding lives here</span>
+  d = cosineSample(h.normal, rand());       <span class="c">// pdf = cosθ / 2 in 2D</span>
+  p = h.pos + h.normal * 1e-3;
+}
+<span class="c">// noise estimate: two independent accumulators A and B</span>
+noise = sum(|A - B|) / sum(A + B);</pre>
+        <p class="tldr">Bounce light is everything the right view has and the left view does not, and getting it without the grain is the whole problem.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="radiosity">
+    <h2>Radiosity: solve once, bake to a texture</h2>
+    <p class="sub">Cut the walls into patches, pass light between them one step at a time, then bake the answer into a texture and move the box.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c2" width="512" height="512" class="grab" aria-label="Radiosity patches on the room walls with baked lightmap strips"></canvas>
+        <div class="cap"><span id="c2-read"></span><span id="c2-mem"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Chop every wall into small <b>patches</b>. Each pass, every patch <b>collects light from every other patch it can see</b>, so each pass adds one more bounce. When it settles, <b>write the answer into a texture</b> on each wall and never compute it again. That texture is a lightmap, and it costs nothing per frame right up until something moves.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Each wall is drawn as a row of patches coloured by how much light they hold. Hover a patch and white lines show which other patches it trades light with; brighter lines carry more. The strips outside the four room walls are the baked lightmaps, one texel (a texture pixel) every few centimetres, at the size on the slider.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Press step one pass a few times. The ceiling and the far side of the divider brighten one bounce per pass, and the passes tile counts along.</li>
+          <li>Press bake, then drag the box. Its shadow stays on the floor where the bake put it.</li>
+          <li>Push patches per wall to 64. The form factor count in the tiles grows with the square of the patch count, and the milliseconds to build them follow.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><label for="ppw">Patches per 8 m wall <span class="val" id="ppwv">16</span></label><input type="range" id="ppw" min="8" max="64" step="8" value="16"></div>
+          <div class="ctl"><label for="texel">Lightmap texel <span class="val" id="texelv">25 cm</span></label><input type="range" id="texel" min="5" max="50" step="5" value="25"></div>
+          <div class="ctl"><span class="lab">Solve</span><div class="seg"><button id="rStep">step one pass</button><button id="rRun">run 24</button><button id="rReset">reset</button></div></div>
+          <div class="ctl"><span class="lab">Lightmap</span><div class="seg"><button id="rBake">bake</button><button id="rUnbake">rebuild</button></div></div>
+        </div>
+        <div class="tiles">
+          <div class="tile" id="t2-pass"><div class="n">0</div><div class="l">passes = bounces</div></div>
+          <div class="tile" id="t2-ff"><div class="n">—</div><div class="l">form factors</div></div>
+          <div class="tile" id="t2-ms"><div class="n">—</div><div class="l">ms to build F</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Radiosity assumes every surface is diffuse, meaning it scatters light evenly in all directions like matte paint. Then the light leaving a patch is one number per colour with no direction attached, and the whole problem turns into a linear system: a big table of numbers you solve pass by pass.</p>
+        <p>The entry that links patch i to patch j is the form factor <code>F_ij</code>, the fraction of light leaving patch i that lands on patch j. It depends only on geometry, so it is computed once. The direct light from the lamp is computed once too and folded into the emission term, so the solve only carries the bounces.</p>
+        <p>Each pass is one Jacobi step, meaning every patch gathers from last pass's values at the same time. A handful of passes is enough. The result lives on the surfaces, which is exactly what a lightmap is, and reading it costs one texture fetch. Bake it and the lighting is frozen: move the box and its shadow stays where the bake left it.</p>
+        <p class="words">In words: a patch's light is what the lamp puts on it directly, plus its albedo times the light it gathers from every patch it can see.</p>
+        <div class="math">B_i = E_i + ρ_i · Σ_j F_ij · B_j            <span class="c">// one Jacobi pass, all i at once</span>
+2D form factor, patch i center to patch j:
+F_ij ≈ cosθ_i · cosθ_j / (2 · r_ij) · len_j · V_ij    <span class="c">// 3D: cosθ_i cosθ_j / (π r²) · A_j</span>
+Σ_j F_ij ≤ 1                                <span class="c">// energy conservation, per row</span>
+E_i = ρ_i · I · cosθ_i / r_i · V_i           <span class="c">// direct light, folded into the emission</span></div>
+        <p><code>B_i</code> is the light leaving patch i, <code>E_i</code> is its direct light, ρ_i is its albedo, <code>F_ij</code> is the form factor from above, and <code>V</code> is 1 when the two can see each other and 0 when something is in the way. The rows of F add up to at most 1, so no pass can invent energy.</p>
+        <p class="words">What this code does: for every patch, adds up the light from every other patch weighted by the form factor, multiplies by the albedo, and adds the direct light back in. Then copies the result into a strip texture, one texel per step along the wall.</p>
+<pre class="code"><span class="c">// CPU bake, or a compute pass: B_new[i] for all patches</span>
+<span class="k">for</span> (int i = 0; i &lt; N; i++) {
+  vec3 gathered = vec3(0.0);
+  <span class="k">for</span> (int j = 0; j &lt; N; j++)
+    gathered += F[i * N + j] * B_old[j];    <span class="c">// F is N×N, precomputed with visibility</span>
+  B_new[i] = E[i] + albedo[i] * gathered;   <span class="c">// each pass adds one more bounce</span>
+}
+<span class="c">// bake: one texel per (texelSize) along the wall, RGBA8 or RGBM</span>
+lightmap[wall][t] = B[patchAt(wall, (t + 0.5) * texelSize)];</pre>
+        <p class="tldr">Radiosity turns bounce light into a table you solve once; a lightmap is that answer stored on the walls, free to read and wrong the moment anything moves.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="probes">
+    <h2>Probes: bounce light for things that move</h2>
+    <p class="sub">Drag the sphere behind the divider, then drag the light, and watch a moving object borrow bounce light from probes in the air.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c3" width="512" height="512" class="grab" aria-label="Irradiance probe grid shading a dynamic sphere"></canvas>
+        <div class="cap"><span id="c3-read"></span><span id="c3-mem"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">A lightmap only helps surfaces that existed when it was baked. A character walking through the room needs the same bounce light, so engines <b>store it at points in the air</b> called probes. Each probe <b>remembers the light arriving from each direction</b>, and a moving object <b>blends the nearest few probes</b>. The trap is that blending across a wall <b>pulls light through the wall</b>.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The blue dots are a grid of probes at the spacing on the slider. Each stores incoming light in 16 direction bins plus a distance per bin. The sphere is the moving object, shaded from the 4 probes around it. The blue lobe on the highlighted probe is the compressed version of its 16 bins, drawn over the raw ones.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the sphere behind the divider with the weights set to bilinear only. The caption turns red and reports how much light leaked through the wall.</li>
+          <li>Switch the weights to + visibility (DDGI). The leak goes away and the sphere darkens to what can reach it.</li>
+          <li>Widen the spacing to 2 m. Fewer probes, less memory in the caption, and more chances for a probe on the wrong side of a wall to get a vote.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><label for="spacing">Probe spacing <span class="val" id="spacingv">1.0 m</span></label><input type="range" id="spacing" min="0.5" max="2" step="0.25" value="1"></div>
+          <div class="ctl"><span class="lab">Weights</span><div class="seg" id="segVis" role="group" aria-label="Probe weighting"><button data-v="0" aria-pressed="true">bilinear only</button><button data-v="1">+ visibility (DDGI)</button></div></div>
+          <div class="ctl"><span class="lab">Show on sphere</span><div class="seg" id="segLit" role="group" aria-label="Sphere lighting term"><button data-v="full" aria-pressed="true">direct + indirect</button><button data-v="ind">indirect only</button></div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Each probe shoots rays and keeps the radiance it saw per direction; the 16 bins are the raw data. What ships is usually a projection onto a few basis functions, a handful of smooth curves that together approximate the bins. In this flat slice the equivalent of L1 spherical harmonics (the first, smoothest set of those curves on a sphere) is 3 numbers per colour channel, and the irradiance for any surface direction falls out of a dot product.</p>
+        <p>The failure is interpolation. Bilinear weighting, the plain blend by distance along each axis, knows nothing about walls. The sphere behind the divider sits in a cell whose right-hand probes are in the lit half of the room, so their lit values get blended straight through the divider.</p>
+        <p>DDGI (dynamic diffuse global illumination) fixes this by storing a depth per bin: how far each probe can see in that direction. When the stored depth says the probe cannot see the shading point, its weight drops to almost nothing.</p>
+        <p class="words">In words: squash the 16 bins into 3 numbers, read irradiance for a surface direction with one dot product, and weight each probe by distance, by whether it sits in front of the surface, and by whether it can see the point.</p>
+        <div class="math">2D SH, order 1:  a0 = (1/2π) ∫ L dθ   a1 = (1/π) ∫ L cosθ dθ   b1 = (1/π) ∫ L sinθ dθ
+E(n) = 2·a0 + (π/2) · (a1·n.x + b1·n.y)             <span class="c">// cosine lobe, 3 coefficients</span>
+w_k  = bilinear_k · wrap_k · vis_k
+wrap_k = ((n · dir_to_probe) + 1)² / 4               <span class="c">// backface term</span>
+vis_k  = |p − probe_k| &lt; depth_k(dir) + bias ? 1 : 0.01   <span class="c">// DDGI uses Chebyshev on (depth, depth²)</span></div>
+        <p><code>a0, a1, b1</code> are the 3 stored numbers, <code>E(n)</code> is the irradiance for a surface facing direction n, and <code>w_k</code> is probe k's weight: its bilinear share, times a wrap term that fades probes behind the surface, times a visibility term that is 1 if the probe's stored depth reaches the point and 0.01 if not. DDGI uses a Chebyshev test on the stored depth and depth squared instead of a hard cutoff.</p>
+        <p class="words">What this code does: for each of the 4 probes around the point, works out the three weights, multiplies them together, and adds that probe's irradiance; then divides by the total weight.</p>
+<pre class="code"><span class="c">// fragment shader: gather indirect irradiance from the 4 (8 in 3D) cell probes</span>
+ivec2 base = ivec2(floor(p / spacing));  vec2 f = fract(p / spacing);
+vec3 sum = vec3(0.0); float wsum = 0.0;
+<span class="k">for</span> (int k = 0; k &lt; 4; k++) {
+  ivec2 id = base + ivec2(k &amp; 1, k &gt;&gt; 1);
+  vec2 toProbe = probePos(id) - p;  float dist = length(toProbe);
+  float w = mix(1.0 - f.x, f.x, k &amp; 1) * mix(1.0 - f.y, f.y, k &gt;&gt; 1);
+  w *= pow((dot(n, toProbe / dist) + 1.0) * 0.5, 2.0);          <span class="c">// wrap shading</span>
+  float d = texelFetch(probeDepth, binOf(id, -toProbe / dist)).r;
+  w *= dist &lt; d + bias ? 1.0 : 0.01;                           <span class="c">// visibility</span>
+  sum += w * shEvalIrradiance(probeSH(id), n);  wsum += w;
+}
+vec3 indirect = albedo * sum / max(wsum, 1e-4);</pre>
+        <p class="tldr">Probes give moving objects bounce light from the air; store a depth per direction, or the blend will hand light straight through walls.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="ssgi">
+    <h2>Screen-space GI: only what the camera sees</h2>
+    <p class="sub">Drag the camera and its aim point and watch bounce light appear and vanish as walls leave the frame.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c4" width="512" height="512" class="grab" aria-label="Camera in the room, visible surfaces, and screen-space bounce rays"></canvas>
+        <div class="cap"><span id="c4-read"></span><span id="c4-miss"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">The cheapest bounce light comes from <b>reusing the frame you already drew</b>. The frame has a colour for every pixel and a depth for every pixel. Walk a ray across that picture until it dips behind something and <b>call that a hit</b>. It needs no scene data and everything can move. The cost is that <b>anything off screen does not exist</b>, so its light vanishes too.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The blue wedge is the camera's view; it sees a 1D image of 160 pixels. Only the wall surfaces inside that wedge are in the depth and colour buffers. From the inspected pixel, bounce rays are marched across the screen. Red rays left the screen or slipped behind something and came back with nothing.</p>
+        <p>The three strips under the room are the colour buffer, the bounce light found in screen space, and the same rays traced against the real room for comparison.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the aim point so the red wall leaves the frame. The box stops receiving red light, because the red wall is no longer in the buffer.</li>
+          <li>Narrow the field of view to 40°. Less wall is in the buffer, and the rays lost off screen tile climbs.</li>
+          <li>Drop the thickness to 0.1 m and watch the behind-depth percentage in the caption rise.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><label for="fov">Camera FOV <span class="val" id="fovv">90°</span></label><input type="range" id="fov" min="40" max="120" step="5" value="90"></div>
+          <div class="ctl"><label for="thick">Thickness <span class="val" id="thickv">0.5 m</span></label><input type="range" id="thick" min="0.1" max="2" step="0.1" value="0.5"></div>
+          <div class="ctl"><label for="pix">Inspect pixel <span class="val" id="pixv">80</span></label><input type="range" id="pix" min="0" max="159" step="1" value="80"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile" id="t4-vis"><div class="n">—</div><div class="l">m of wall in buffer</div></div>
+          <div class="tile" id="t4-ss"><div class="n">—</div><div class="l">bounce captured</div></div>
+          <div class="tile" id="t4-off"><div class="n">—</div><div class="l">rays lost off screen</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Screen-space GI reads two buffers the frame already produced: the depth buffer and the lit colour buffer. For each bounce ray it steps forward a little, projects the point back onto the screen, and compares the ray's depth with the stored depth at that pixel. If the ray has gone behind the stored surface by less than a thickness margin, that is a hit, and the colour stored there is the bounce light.</p>
+        <p>That is why it is cheap and fully dynamic, and why it shows up as the lowest tier in most engines and as the first trace in Lumen. The ray only knows what the camera knows. Rays that leave the screen or pass behind a thin object return nothing.</p>
+        <p class="words">In words: step along the ray, look up the depth at that screen column, and call it a hit if the ray is just behind the stored surface. Average the colours of the hits.</p>
+        <div class="math">screen-space march:  for each step t:  q = p + d·t
+   col = project(q).x           depth_ray = dot(q − C, forward)
+   hit  = depth_ray &gt; zbuf[col] &amp;&amp; depth_ray − zbuf[col] &lt; thickness
+   miss = col outside [0, W)  ||  depth_ray − zbuf[col] ≥ thickness
+bounce(p) = (1/K) Σ_k color[col_k] · (hit_k ? 1 : 0)      <span class="c">// cosine-weighted rays, so no cos term</span></div>
+        <p><code>p</code> is the pixel's surface point, <code>d</code> the ray direction, <code>C</code> the camera, <code>zbuf</code> the depth buffer, <code>W</code> the screen width in pixels, and <code>K</code> the number of rays. The rays are already picked in proportion to the cosine, so no extra cosine term appears.</p>
+        <p class="words">What this code does: for each of K random rays, marches up to 32 steps, stops when it leaves the screen, and adds the colour buffer's value when the ray dips just behind the stored depth.</p>
+<pre class="code"><span class="c">// SSGI, per pixel, half resolution in practice</span>
+vec3 gi = vec3(0.0);
+<span class="k">for</span> (int k = 0; k &lt; K; k++) {
+  vec3 d = cosineSample(n, hash(pix, k, frame));
+  vec3 q = p;
+  <span class="k">for</span> (int s = 0; s &lt; 32; s++) {
+    q += d * stepLen;                              <span class="c">// world step, then reproject</span>
+    vec2 uv = projectToScreen(q);
+    <span class="k">if</span> (any(lessThan(uv, vec2(0))) || any(greaterThan(uv, vec2(1)))) <span class="k">break</span>;   <span class="c">// off screen: no data</span>
+    float zs = texture(depthBuf, uv).r;
+    float zr = viewDepth(q);
+    <span class="k">if</span> (zr &gt; zs &amp;&amp; zr - zs &lt; thickness) { gi += texture(colorBuf, uv).rgb; <span class="k">break</span>; }
+  }
+}
+gi *= albedo / float(K);   <span class="c">// then temporally accumulate: 1 spp is far too noisy</span></pre>
+        <p class="tldr">Screen-space GI is bounce light from the frame you already have: free of scene data, and blind to anything the camera cannot see.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="voxel">
+    <h2>Voxel cones and the surface cache</h2>
+    <p class="sub">Drag the shading point along a wall, drag the light, and watch a coarse grid stand in for the room while the cache catches up.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5" width="512" height="512" class="grab" aria-label="Voxel grid with cones traced from a point on a wall"></canvas>
+        <div class="cap"><span id="c5-read"></span><span id="c5-mem"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Turn the room into a <b>coarse grid of cubes</b>, each storing how solid it is and how much light it gives off. From a point on a wall, send out a few <b>cones that get fatter as they go</b>, reading coarser copies of the grid as they widen. Five cones stand in for hundreds of rays. The price is <b>blur</b>, and <b>thin walls that leak</b>, because a thin wall barely fills a fat cube.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The grid is the voxelized room at the resolution you pick. The blue circles are the cone samples, starting at the white shading point and growing with distance. The strips just outside the walls are the surface cache: small lighting textures on the surfaces, with the texels updated this frame marked in white.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the shading point behind the divider on the 16² grid. The caption reports a leak: the 12 cm divider inside a 50 cm voxel is only 24 % solid, so most of each cone passes through it.</li>
+          <li>Switch to 64². The divider nearly fills its voxels, the leak closes, and the memory in the caption climbs.</li>
+          <li>Drag the light, then watch the frames since light moved tile. The cache refreshes a few texels per frame, so the new lighting arrives over several frames; lower the budget and the lag grows.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><span class="lab">Voxel grid</span><div class="seg" id="segRes" role="group" aria-label="Voxel resolution"><button data-v="16">16²</button><button data-v="32" aria-pressed="true">32²</button><button data-v="64">64²</button></div></div>
+          <div class="ctl"><label for="aperture">Cone aperture <span class="val" id="aperturev">30°</span></label><input type="range" id="aperture" min="10" max="70" step="5" value="30"></div>
+          <div class="ctl"><label for="budget">Cache texels per frame <span class="val" id="budgetv">32</span></label><input type="range" id="budget" min="4" max="128" step="4" value="32"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile" id="t5-cone"><div class="n">—</div><div class="l">cone-traced E</div></div>
+          <div class="tile" id="t5-ref"><div class="n">—</div><div class="l">64-ray reference E</div></div>
+          <div class="tile" id="t5-age"><div class="n">—</div><div class="l">frames since light moved</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>A cone trace is a ray march that takes bigger steps as it goes. At distance t the cone is <code>2·t·tan(θ/2)</code> wide, so the sampler reads the mip level (the downscaled copy of the grid) whose voxel is that size, and the number of steps grows with the logarithm of the distance instead of the distance. Occlusion builds up front to back with the same blend a volume renderer uses, so once the cone is 95 % blocked it stops.</p>
+        <p>Re-lighting the whole voxel grid every frame is the expensive part. Lumen keeps a surface cache instead: small radiance textures on the surfaces, updated a budgeted number of texels per frame, and each update gathers from last frame's cache. That gives multiple bounces for free and a visible lag when the light moves. SDFGI in Godot 4 and Lumen's software path swap the voxel opacity for a signed distance field, a grid that stores the distance to the nearest surface, and keep the same idea.</p>
+        <p class="words">In words: step along the cone, pick the mip whose voxel matches the cone's width there, blend in that voxel's colour by how solid it is, and stop when the cone is mostly blocked. Add the cones up, weighted by how well each one faces the surface.</p>
+        <div class="math">cone step:  t += max(voxelSize, 2·t·tan(θ/2)) · 0.5
+            level = log2(2·t·tan(θ/2) / voxelSize)
+            c_v, α_v = sampleMip(p + d·t, level)
+            color += (1 − α) · c_v · α_v
+            α     += (1 − α) · α_v                      <span class="c">// front-to-back, stop at α &gt; 0.95</span>
+E_ind(p, n) ≈ Σ_cones w_c · color_c,   w_c ∝ cos(angle to n)
+surface cache:  B_i ← ρ_i · (E_direct,i + gather from B_prev)   <span class="c">// K texels per frame, round robin</span></div>
+        <p><code>t</code> is the distance along the cone, θ its opening angle, <code>c_v, α_v</code> the colour and solidity read from the grid, and <code>E_ind</code> the bounce irradiance for a point p facing n. The last line is the cache update: a texel's light is its albedo times its direct light plus what it gathers from last frame's cache.</p>
+        <p class="words">What this code does: marches one cone, growing the step and the mip level with distance, blending in each sample front to back until the cone is 95 % blocked or runs out of distance.</p>
+<pre class="code"><span class="c">// one cone: origin p, direction d, aperture theta; voxels hold (rgb, alpha)</span>
+vec3 color = vec3(0.0); float alpha = 0.0;
+float t = voxelSize;                                       <span class="c">// skip the voxel we stand in</span>
+<span class="k">while</span> (alpha &lt; 0.95 &amp;&amp; t &lt; maxDist) {
+  float diameter = max(voxelSize, 2.0 * t * tan(theta * 0.5));
+  float level = log2(diameter / voxelSize);
+  vec4 v = textureLod(voxelRadiance, (p + d * t) / gridSize, level);
+  color += (1.0 - alpha) * v.rgb * v.a;                    <span class="c">// premultiplied by voxel alpha</span>
+  alpha += (1.0 - alpha) * v.a;
+  t += diameter * 0.5;
+}
+<span class="c">// 5 cones per pixel, then albedo * sum(w_c * color_c)</span></pre>
+        <p class="tldr">Cones trade hundreds of rays for a few blurry reads of a coarse grid; the surface cache spreads the relighting over frames, so light moves with a lag.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">What each method gives up, so you can pick the one your game can afford.</p>
+    <p class="plain">Read across a row to see what a method costs and where it breaks. The first four columns are what you are choosing between: <b>whether objects can move</b>, <b>whether lights can move</b>, <b>how much memory</b> it takes, and <b>how many milliseconds</b> it eats each frame. The last two say how it fails: light leaking where it should not, or grain that needs smoothing over frames. Costs are for a 1080p diffuse GI pass on a console-class GPU and are approximate, and every row still needs direct lighting, shadows and a separate reflection system.</p>
+    <div class="tbl-wrap">
+    <table class="stats">
+      <thead><tr><th>Method</th><th>Objects can move</th><th>Lights can move</th><th>Memory</th><th>Cost per frame</th><th>Leaks</th><th>Noise</th></tr></thead>
+      <tbody>
+        <tr><td>Baked lightmaps</td><td>no</td><td>no</td><td>10–200 MB per level</td><td class="hi">~0 ms, one texture read</td><td>bleeds across seams when texels are big</td><td>none, baked away</td></tr>
+        <tr><td>Baked probes (SH L1/L2)</td><td>only moving objects</td><td>no</td><td>18–54 B per probe</td><td class="hi">&lt; 0.1 ms</td><td>through walls, no visibility test</td><td>none</td></tr>
+        <tr><td>DDGI probes (RT updated)</td><td>yes</td><td>yes, ~10 frames to settle</td><td>~1–4 MB per volume</td><td>1–3 ms</td><td>stopped by the depth per texel</td><td>low, smoothed over frames</td></tr>
+        <tr><td>Screen-space GI</td><td>yes</td><td>yes</td><td>none beyond the frame's own buffers</td><td>1–2 ms at half res</td><td>none, but light vanishes off screen</td><td>high, needs history</td></tr>
+        <tr><td>VXGI / SDFGI</td><td>partly, movers are re-voxelized</td><td>yes</td><td>32–256 MB of clipmaps</td><td>3–6 ms</td><td>thin walls at coarse voxels</td><td>low, blurry</td></tr>
+        <tr><td>Lumen (software)</td><td>yes, distance fields per mesh</td><td>yes, cache lags</td><td>surface cache atlas, tens of MB</td><td>4–8 ms incl. reflections</td><td>SDF thickness, cache coverage</td><td>medium, denoised</td></tr>
+        <tr><td>Hardware RT + ReSTIR</td><td>yes, BVH rebuild</td><td>yes</td><td>BVH 100 MB+</td><td>5–20 ms, needs upscaling</td><td>none</td><td>high, denoiser required</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">Memory is what decides lightmaps in practice. One 8 m × 8 m wall at 2 cm texels is 160 000 texels, and a level has thousands of surfaces like it. Probe volumes cost little memory and pay for it in artifacts, and that is the trade every runtime method makes.</p>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">Which engines and games use each approach, and what they had to build to make it work.</p>
+    <p class="plain">Each row is one way of getting bounce light. The second column says <b>what the shader asks for</b> at a pixel, the third says <b>what has to be built or baked</b> before it can answer, and the last names <b>engines and games</b> that shipped it. Most engines ship several rows at once and layer them: a screen-space trace first, then a trace against a world-space structure when that misses, then baked data or probes beyond that.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Use</th><th>What the shader asks</th><th>What has to exist first</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>Baked lightmaps</td><td>Read a texture at the surface's lightmap coordinates.</td><td>An offline radiosity or path-traced bake, one texel per 5–50 cm, with every surface given its own patch of texture</td><td>Quake (1996); Mirror's Edge (2008, Beast bake); Unreal Lightmass; Unity</td></tr>
+        <tr><td>Runtime radiosity</td><td>Re-run the bounce solve every frame on precomputed form factors, so lights can move.</td><td>Static geometry, the form-factor matrix, low-res patches</td><td>Enlighten in Frostbite (Battlefield 3, 2011)</td></tr>
+        <tr><td>Light probe volumes</td><td>Blend the stored SH coefficients of the nearest probes for a moving object.</td><td>A baked probe grid or tetrahedral mesh, L1 or L2 SH</td><td>Unity Light Probes; Unreal Volumetric Lightmap; Far Cry 3 (2012) radiance transfer volumes</td></tr>
+        <tr><td>DDGI</td><td>Probes re-traced every frame with hardware rays; each probe's vote is weighted by whether it can see the point.</td><td>Irradiance and depth octahedral textures per probe</td><td>NVIDIA RTXGI, Majercik et al. 2019</td></tr>
+        <tr><td>Screen-space GI</td><td>March bounce rays across the depth buffer and read the lit colour buffer where they hit.</td><td>Depth, normals, previous frame colour</td><td>Unreal Engine 4.24+ SSGI; Unity HDRP; Lumen's first trace</td></tr>
+        <tr><td>Voxel and SDF cone tracing</td><td>Cones through a lighting grid with mips, or through SDF cascades.</td><td>Voxelized or distance-field clipmaps that follow the camera</td><td>Crassin et al. 2011; NVIDIA VXGI; Godot 4 SDFGI</td></tr>
+        <tr><td>Surface cache + traces</td><td>Screen trace, then an SDF or hardware ray, then read lighting from cards stuck to surfaces.</td><td>Mesh distance fields, card atlas, radiance cache probes</td><td>Lumen, Unreal Engine 5 (2022)</td></tr>
+        <tr><td>Hardware ray-traced GI</td><td>Trace real rays per pixel, reuse the good samples with ReSTIR, then denoise.</td><td>A BVH of the scene, temporal history</td><td>Metro Exodus Enhanced Edition (2021); Cyberpunk 2077 path tracing mode (2023)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">When an engine's feature list says real-time GI, it almost always means one or two soft, blurry bounces, updated over several frames. Shiny and mirror-like bounces are a separate system called reflections, with its own screen-space, probe and ray-traced tiers. Turning GI on usually does not turn them on.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  // ---------- scene: 8 m × 8 m room, y down (0 = ceiling, 8 = floor) ----------
+  const W = 512, ROOM = 8;
+  const RED = [0.75, 0.15, 0.15], GREEN = [0.15, 0.65, 0.2], GREY = [0.72, 0.72, 0.72], BOXC = [0.8, 0.8, 0.8];
+  const PART = { x: 2.6, half: 0.06, top: 2.5 };   // thin divider: 12 cm thick, floor to 2.5 m
+  const BOX0 = { x: 4.6, w: 1.6, h: 2.0 };          // sits on the floor
+  const LIGHT_I = 2.2;                               // point light intensity (2D: E = I cos / r)
+
+  function makeScene(box) {
+    const segs = [];
+    const add = (ax, ay, bx, by, nx, ny, alb, name, thick) => {
+      const len = Math.hypot(bx - ax, by - ay);
+      segs.push({ ax, ay, bx, by, nx, ny, alb, name, len, thick, dx: (bx - ax) / len, dy: (by - ay) / len });
+    };
+    add(0, 0, 0, 8, 1, 0, RED, "left", 1);
+    add(8, 0, 8, 8, -1, 0, GREEN, "right", 1);
+    add(0, 8, 8, 8, 0, -1, GREY, "floor", 1);
+    add(0, 0, 8, 0, 0, 1, GREY, "ceiling", 1);
+    const x0 = box.x, x1 = box.x + box.w, y0 = 8 - box.h;
+    add(x0, y0, x1, y0, 0, -1, BOXC, "box top", 1);
+    add(x0, y0, x0, 8, -1, 0, BOXC, "box left", 1);
+    add(x1, y0, x1, 8, 1, 0, BOXC, "box right", 1);
+    const pl = PART.x - PART.half, pr = PART.x + PART.half;
+    add(pl, PART.top, pl, 8, -1, 0, GREY, "divider left", 2 * PART.half);
+    add(pr, PART.top, pr, 8, 1, 0, GREY, "divider right", 2 * PART.half);
+    add(pl, PART.top, pr, PART.top, 0, -1, GREY, "divider top", 2 * PART.half);
+    return { segs, box };
+  }
+  // nearest segment along a ray; returns {t, seg, u} or null
+  function hitScene(scene, ox, oy, dx, dy, tmax = 1e9, skip = -1) {
+    let best = null, bt = tmax;
+    const segs = scene.segs;
+    for (let i = 0; i < segs.length; i++) {
+      if (i === skip) continue;
+      const s = segs[i];
+      const den = dx * s.dy - dy * s.dx;
+      if (Math.abs(den) < 1e-9) continue;
+      const wx = s.ax - ox, wy = s.ay - oy;
+      const t = (wx * s.dy - wy * s.dx) / den;
+      const u = (wx * dy - wy * dx) / den;
+      if (t > 1e-6 && t < bt && u >= 0 && u <= s.len) { bt = t; best = { t, seg: i, u: u / s.len }; }
+    }
+    return best;
+  }
+  function directE(scene, px, py, nx, ny, L) {
+    let lx = L[0] - px, ly = L[1] - py; const r = Math.hypot(lx, ly); lx /= r; ly /= r;
+    const c = nx * lx + ny * ly; if (c <= 0) return 0;
+    const h = hitScene(scene, px + nx * 1e-3, py + ny * 1e-3, lx, ly, r - 2e-3);
+    return h ? 0 : LIGHT_I * c / r;
+  }
+  function cosSample(nx, ny, u) {
+    const th = Math.asin(2 * u - 1), c = Math.cos(th), s = Math.sin(th);
+    return [nx * c - ny * s, nx * s + ny * c];
+  }
+
+  // ---------- radiosity: patches, form factors, Jacobi ----------
+  function buildPatches(scene, perWall) {
+    const P = [];
+    scene.segs.forEach((s, si) => {
+      const n = Math.max(1, Math.round(perWall * s.len / ROOM));
+      for (let k = 0; k < n; k++) {
+        const t0 = k / n, t1 = (k + 1) / n, tm = (t0 + t1) / 2;
+        P.push({ seg: si, t0, t1, cx: s.ax + s.dx * s.len * tm, cy: s.ay + s.dy * s.len * tm, nx: s.nx, ny: s.ny, len: s.len / n, alb: s.alb,
+                 E: [0, 0, 0], B: [0, 0, 0], Bi: [0, 0, 0] });
+      }
+    });
+    return P;
+  }
+  function formFactors(scene, P) {
+    const N = P.length, F = new Float32Array(N * N);
+    for (let i = 0; i < N; i++) {
+      const a = P[i]; let row = 0;
+      for (let j = 0; j < N; j++) {
+        if (i === j || P[j].seg === a.seg) continue;
+        const b = P[j];
+        let dx = b.cx - a.cx, dy = b.cy - a.cy; const r = Math.hypot(dx, dy); dx /= r; dy /= r;
+        const ci = a.nx * dx + a.ny * dy, cj = -(b.nx * dx + b.ny * dy);
+        if (ci <= 0 || cj <= 0) continue;
+        const h = hitScene(scene, a.cx + a.nx * 1e-3, a.cy + a.ny * 1e-3, dx, dy, r - 1e-3);
+        if (h && h.seg !== b.seg) continue;
+        const f = Math.min(0.5, ci * cj / (2 * r) * b.len);
+        F[i * N + j] = f; row += f;
+      }
+      if (row > 1) for (let j = 0; j < N; j++) F[i * N + j] /= row;   // conserve energy
+    }
+    return F;
+  }
+  function setEmission(scene, P, L) {
+    for (const p of P) { const e = directE(scene, p.cx, p.cy, p.nx, p.ny, L); p.E = [p.alb[0] * e, p.alb[1] * e, p.alb[2] * e]; p.B = p.E.slice(); p.Bi = [0, 0, 0]; }
+  }
+  function jacobiPass(P, F) {
+    const N = P.length, nb = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      let r = 0, g = 0, b = 0; const o = i * N;
+      for (let j = 0; j < N; j++) { const f = F[o + j]; if (f) { r += f * P[j].B[0]; g += f * P[j].B[1]; b += f * P[j].B[2]; } }
+      const a = P[i].alb; nb[i * 3] = a[0] * r; nb[i * 3 + 1] = a[1] * g; nb[i * 3 + 2] = a[2] * b;
+    }
+    for (let i = 0; i < N; i++) { const p = P[i]; p.Bi = [nb[i * 3], nb[i * 3 + 1], nb[i * 3 + 2]]; p.B = [p.E[0] + p.Bi[0], p.E[1] + p.Bi[1], p.E[2] + p.Bi[2]]; }
+  }
+  // full solve used as the radiance source for the probe and screen-space demos
+  function solve(scene, L, perWall, passes) {
+    const P = buildPatches(scene, perWall), F = formFactors(scene, P);
+    setEmission(scene, P, L);
+    for (let k = 0; k < passes; k++) jacobiPass(P, F);
+    const bySeg = scene.segs.map(() => []);
+    P.forEach(p => bySeg[p.seg].push(p));
+    return { P, F, bySeg, lookup: (si, u) => { const arr = bySeg[si]; return arr[Math.min(arr.length - 1, (u * arr.length) | 0)]; } };
+  }
+
+  // ---------- drawing helpers ----------
+  const S = 56, O = 32;                              // 56 px per metre, 32 px margin
+  const X = m => O + m * S, Y = m => O + m * S;
+  const TONE = new Uint8Array(4097); for (let i = 0; i <= 4096; i++) TONE[i] = Math.round(255 * Math.pow(1 - Math.exp(-i / 512), 1 / 2.2));
+  function tone(v) { return v <= 0 ? 0 : v >= 8 ? 255 : TONE[(v * 512) | 0]; }
+  function rgb(c, k = 1) { return `rgb(${tone(c[0] * k)},${tone(c[1] * k)},${tone(c[2] * k)})`; }
+  function handle(ctx, x, y, r = 7, fill = "#ffffff") {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = "#0b0e13"; ctx.stroke();
+  }
+  function lightGlow(ctx, L) {
+    const x = X(L[0]), y = Y(L[1]);
+    const g = ctx.createRadialGradient(x, y, 3, x, y, 34);
+    g.addColorStop(0, "rgba(242,163,65,0.9)"); g.addColorStop(1, "rgba(242,163,65,0)");
+    ctx.fillStyle = g; ctx.fillRect(x - 34, y - 34, 68, 68);
+    handle(ctx, x, y, 7, "#f2a341");
+  }
+  function drawSolids(ctx, scene, fill = "#151920") {
+    const b = scene.box;
+    ctx.fillStyle = fill;
+    ctx.fillRect(X(b.x), Y(8 - b.h), b.w * S, b.h * S);
+    ctx.fillRect(X(PART.x - PART.half), Y(PART.top), 2 * PART.half * S, (8 - PART.top) * S);
+  }
+  function roomFrame(ctx) {
+    ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1;
+    ctx.strokeRect(X(0) + 0.5, Y(0) + 0.5, ROOM * S, ROOM * S);
+  }
+  // draw every segment as a strip with a colour function per patch
+  function drawStrips(ctx, scene, patches, colorOf, thick = 7) {
+    for (const p of patches) {
+      const s = scene.segs[p.seg];
+      const ax = s.ax + s.dx * s.len * p.t0, ay = s.ay + s.dy * s.len * p.t0, bx = s.ax + s.dx * s.len * p.t1, by = s.ay + s.dy * s.len * p.t1;
+      const ox = -s.nx * thick / 2, oy = -s.ny * thick / 2;        // strip sits just outside the surface
+      ctx.strokeStyle = colorOf(p); ctx.lineWidth = thick; ctx.lineCap = "butt";
+      ctx.beginPath(); ctx.moveTo(X(ax) + ox, Y(ay) + oy); ctx.lineTo(X(bx) + ox, Y(by) + oy); ctx.stroke();
+    }
+  }
+  function worldOf(canvas, ev, map) {
+    const r = canvas.getBoundingClientRect(), px = (ev.clientX - r.left) / r.width * W, py = (ev.clientY - r.top) / r.height * W;
+    return map ? map(px, py) : [(px - O) / S, (py - O) / S];
+  }
+  function drag(canvas, getHandles, onMove, onHover, map) {
+    let active = -1;
+    canvas.addEventListener("pointerdown", ev => {
+      const [x, y] = worldOf(canvas, ev, map);
+      const hs = getHandles(); let best = -1, bd = 0.4;
+      hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
+      if (best >= 0) { active = best; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); }
+    });
+    canvas.addEventListener("pointermove", ev => {
+      const [x, y] = worldOf(canvas, ev, map);
+      if (active >= 0) onMove(active, Math.max(0.05, Math.min(7.95, x)), Math.max(0.05, Math.min(7.95, y)));
+      else if (onHover) onHover(x, y);
+    });
+    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
+    canvas.addEventListener("pointerleave", () => { if (onHover) onHover(-99, -99); });
+  }
+  function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
+  // only animate demos that are on screen
+  const visible = new Map();
+  const io = new IntersectionObserver(es => es.forEach(e => visible.set(e.target, e.isIntersecting)), { rootMargin: "100px" });
+  function watch(canvas) { visible.set(canvas, true); io.observe(canvas); }
+  function fmtBytes(b) { return b >= 1048576 ? (b / 1048576).toFixed(2) + " MB" : b >= 1024 ? (b / 1024).toFixed(1) + " KB" : b + " B"; }
+  function fmtN(n) { return n.toLocaleString("en-US"); }
+  // deterministic-ish fast random
+  let seed = 12345;
+  function rnd() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
+
+  // ---------- 1. direct vs path-traced reference (light tracing, progressive) ----------
+  const R1 = 256, CELL = ROOM / R1;
+  const d1 = { L: [5.6, 1.0], bounces: 4, rpf: 300, scene: makeScene(BOX0) };
+  function makeAccum() {
+    const bins = buildPatches(d1.scene, 64).map(p => (p.acc = [0, 0, 0], p));
+    const start = d1.scene.segs.map((s, i) => bins.findIndex(p => p.seg === i)), count = d1.scene.segs.map((s, i) => bins.filter(p => p.seg === i).length);
+    return { A: new Float32Array(R1 * R1 * 3), B: new Float32Array(R1 * R1 * 3), rays: 0, bins, start, count };
+  }
+  const acc1 = [makeAccum(), makeAccum()];
+  function resetAccum() { for (const a of acc1) { a.A.fill(0); a.B.fill(0); a.rays = 0; a.bins.forEach(p => p.acc = [0, 0, 0]); } }
+  function splat(buf, x0, y0, x1, y1, tp) {
+    const len = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(len / CELL));
+    const sx = (x1 - x0) / n, sy = (y1 - y0) / n;
+    let x = x0 + sx * 0.5, y = y0 + sy * 0.5;
+    for (let i = 0; i < n; i++, x += sx, y += sy) {
+      const cx = (x / CELL) | 0, cy = (y / CELL) | 0;
+      if (cx >= 0 && cx < R1 && cy >= 0 && cy < R1) { const o = (cy * R1 + cx) * 3; buf[o] += tp[0]; buf[o + 1] += tp[1]; buf[o + 2] += tp[2]; }
+    }
+  }
+  function traceRays(acc, maxB, count) {
+    const sc = d1.scene, L = d1.L;
+    for (let r = 0; r < count; r++) {
+      const buf = (acc.rays & 1) ? acc.B : acc.A; acc.rays++;
+      const a = rnd() * Math.PI * 2; let dx = Math.cos(a), dy = Math.sin(a), px = L[0], py = L[1];
+      const tp = [1, 1, 1]; let skip = -1;
+      for (let b = 0; b < maxB; b++) {
+        const h = hitScene(sc, px, py, dx, dy, 1e9, skip); if (!h) break;
+        const hx = px + dx * h.t, hy = py + dy * h.t, s = sc.segs[h.seg];
+        splat(buf, px, py, hx, hy, tp);
+        const n = acc.count[h.seg], bin = acc.bins[acc.start[h.seg] + Math.min(n - 1, (h.u * n) | 0)];
+        const il = 1 / bin.len;   // count per metre of wall; E = count/rays · 2π·I / len
+        bin.acc[0] += tp[0] * il; bin.acc[1] += tp[1] * il; bin.acc[2] += tp[2] * il;
+        tp[0] *= s.alb[0]; tp[1] *= s.alb[1]; tp[2] *= s.alb[2];
+        [dx, dy] = cosSample(s.nx, s.ny, rnd());
+        px = hx + s.nx * 1e-3; py = hy + s.ny * 1e-3; skip = h.seg;
+      }
+    }
+  }
+  const img1 = new ImageData(R1, R1), off1 = document.createElement("canvas"); off1.width = R1; off1.height = R1;
+  const ox1 = off1.getContext("2d");
+  function drawAccum(ctx, acc, capEl) {
+    const inv = acc.rays ? 0.3 * 2 * Math.PI * LIGHT_I / CELL / acc.rays : 0, p = img1.data, A = acc.A, B = acc.B;
+    let num = 0, den = 0;
+    for (let i = 0, o = 0; i < R1 * R1; i++, o += 4) {
+      const r = A[i * 3] + B[i * 3], g = A[i * 3 + 1] + B[i * 3 + 1], b = A[i * 3 + 2] + B[i * 3 + 2];
+      p[o] = tone(r * inv); p[o + 1] = tone(g * inv); p[o + 2] = tone(b * inv); p[o + 3] = 255;
+      if ((i & 7) === 0) { num += Math.abs(A[i * 3 + 1] - B[i * 3 + 1]); den += g; }
+    }
+    ox1.putImageData(img1, 0, 0);
+    ctx.fillStyle = "#0b0e13"; ctx.fillRect(0, 0, W, W);
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(off1, X(0), Y(0), ROOM * S, ROOM * S);
+    drawSolids(ctx, d1.scene, "#0b0e13");
+    const kw = acc.rays ? 2 * Math.PI * LIGHT_I / acc.rays : 0;
+    drawStrips(ctx, d1.scene, acc.bins, b => rgb([b.alb[0] * b.acc[0] * kw, b.alb[1] * b.acc[1] * kw, b.alb[2] * b.acc[2] * kw]), 8);
+    roomFrame(ctx); lightGlow(ctx, d1.L);
+    const noise = den > 0 ? num / den : 1;
+    capEl.innerHTML = `<strong>${fmtN(acc.rays)} rays</strong> · noise ${(100 * noise).toFixed(1)} %`;
+  }
+  const c1a = document.getElementById("c1a"), c1b = document.getElementById("c1b"), x1a = c1a.getContext("2d"), x1b = c1b.getContext("2d");
+  watch(c1a); watch(c1b);
+  let ms1 = 0;
+  function frame1() {
+    if (visible.get(c1a) || visible.get(c1b)) {
+      const t0 = performance.now();
+      if (acc1[0].rays < 400000) traceRays(acc1[0], 1, d1.rpf);
+      if (acc1[1].rays < 400000) traceRays(acc1[1], d1.bounces, d1.rpf);
+      drawAccum(x1a, acc1[0], document.getElementById("c1a-cap"));
+      drawAccum(x1b, acc1[1], document.getElementById("c1b-cap"));
+      ms1 = 0.9 * ms1 + 0.1 * (performance.now() - t0);
+      document.getElementById("c1a-cap").innerHTML += ` · ${ms1.toFixed(1)} ms/frame`;
+    }
+    requestAnimationFrame(frame1);
+  }
+  for (const c of [c1a, c1b]) drag(c, () => [d1.L], (i, x, y) => { d1.L = [x, y]; resetAccum(); });
+  const bEl = document.getElementById("bounces");
+  bEl.addEventListener("input", () => { d1.bounces = +bEl.value; document.getElementById("bouncesv").textContent = bEl.value; document.getElementById("c1b-title").textContent = d1.bounces === 1 ? "1 bounce (= direct)" : `up to ${d1.bounces} bounces`; acc1[1].A.fill(0); acc1[1].B.fill(0); acc1[1].rays = 0; acc1[1].bins.forEach(p => p.acc = [0, 0, 0]); });
+  const rpfEl = document.getElementById("rpf");
+  rpfEl.addEventListener("input", () => { d1.rpf = +rpfEl.value; document.getElementById("rpfv").textContent = rpfEl.value; });
+  document.getElementById("b1reset").addEventListener("click", resetAccum);
+  frame1();
+
+  // ---------- 2. radiosity + lightmap bake ----------
+  const c2 = document.getElementById("c2"), x2 = c2.getContext("2d");
+  const d2 = { L: [5.6, 1.0], perWall: 16, texel: 25, box: { ...BOX0 }, passes: 0, baked: null, hover: -1, msF: 0 };
+  d2.scene = makeScene(d2.box);
+  function rebuild2(keepPasses) {
+    const t0 = performance.now();
+    d2.scene = makeScene(d2.box);
+    d2.P = buildPatches(d2.scene, d2.perWall); d2.F = formFactors(d2.scene, d2.P);
+    d2.msF = performance.now() - t0;
+    setEmission(d2.scene, d2.P, d2.L);
+    const n = keepPasses ? d2.passes : 0; d2.passes = 0;
+    for (let k = 0; k < n; k++) step2();
+    draw2();
+  }
+  function step2() { jacobiPass(d2.P, d2.F); d2.passes++; }
+  function draw2() {
+    const P = d2.P, N = P.length, sc = d2.scene;
+    x2.fillStyle = "#0b0e13"; x2.fillRect(0, 0, W, W);
+    drawSolids(x2, sc);
+    const src = d2.baked ? d2.baked.B : null;
+    drawStrips(x2, sc, P, (p) => { const i = P.indexOf(p); return rgb(src ? src[i] : p.B); }, 8);
+    // hovered patch: lines to its form-factor partners
+    if (d2.hover >= 0) {
+      const i = d2.hover, a = P[i], o = i * N; let mx = 0;
+      for (let j = 0; j < N; j++) mx = Math.max(mx, d2.F[o + j]);
+      for (let j = 0; j < N; j++) { const f = d2.F[o + j]; if (f < 0.004) continue;
+        x2.strokeStyle = `rgba(255,255,255,${(0.08 + 0.7 * f / mx).toFixed(2)})`; x2.lineWidth = 1;
+        x2.beginPath(); x2.moveTo(X(a.cx), Y(a.cy)); x2.lineTo(X(P[j].cx), Y(P[j].cy)); x2.stroke(); }
+      handle(x2, X(a.cx), Y(a.cy), 5);
+    }
+    // baked lightmap strips outside the four room walls
+    if (d2.baked) {
+      const bk = d2.baked, tx = bk.texel / 100;
+      for (let si = 0; si < 4; si++) {
+        const s = sc.segs[si], n = Math.ceil(s.len / tx), arr = bk.bySeg[si];
+        for (let t = 0; t < n; t++) {
+          const u0 = t * tx / s.len, u1 = Math.min(1, (t + 1) * tx / s.len), um = (u0 + u1) / 2;
+          const pi = arr[Math.min(arr.length - 1, (um * arr.length) | 0)];
+          const ax = X(s.ax + s.dx * s.len * u0) - s.nx * 22, ay = Y(s.ay + s.dy * s.len * u0) - s.ny * 22;
+          const bx = X(s.ax + s.dx * s.len * u1) - s.nx * 22, by = Y(s.ay + s.dy * s.len * u1) - s.ny * 22;
+          x2.strokeStyle = rgb(bk.B[pi]); x2.lineWidth = 12; x2.beginPath(); x2.moveTo(ax, ay); x2.lineTo(bx, by); x2.stroke();
+          x2.strokeStyle = "rgba(11,14,19,0.9)"; x2.lineWidth = 1; x2.beginPath(); x2.moveTo(ax, ay); x2.lineTo(bx, by); x2.stroke();
+          x2.strokeStyle = "rgba(11,14,19,0.9)"; x2.beginPath(); x2.moveTo(ax + s.nx * 6, ay + s.ny * 6); x2.lineTo(ax - s.nx * 6, ay - s.ny * 6); x2.stroke();
+        }
+      }
+      if (Math.abs(d2.box.x - bk.boxX) > 0.02) {   // stale shadow marker
+        x2.strokeStyle = "#ef5d5d"; x2.lineWidth = 1; x2.setLineDash([4, 4]);
+        x2.strokeRect(X(bk.boxX), Y(8 - d2.box.h), d2.box.w * S, d2.box.h * S); x2.setLineDash([]);
+      }
+    }
+    roomFrame(x2); lightGlow(x2, d2.L);
+    handle(x2, X(d2.box.x + d2.box.w / 2), Y(8 - d2.box.h), 6);
+    let nz = 0; for (let k = 0; k < d2.F.length; k++) if (d2.F[k]) nz++;
+    document.querySelector("#t2-pass .n").textContent = d2.passes;
+    document.querySelector("#t2-ff .n").textContent = `${fmtN(nz)} / ${fmtN(N * N)}`;
+    document.querySelector("#t2-ms .n").textContent = d2.msF.toFixed(0);
+    let read = `<strong>${N} patches</strong> · pass ${d2.passes}`;
+    if (d2.hover >= 0) { const a = P[d2.hover]; let row = 0; for (let j = 0; j < N; j++) row += d2.F[d2.hover * N + j];
+      read = `<strong>${sc.segs[a.seg].name}</strong> patch · B = (${a.B.map(v => v.toFixed(2)).join(", ")}) · Σ F = ${row.toFixed(2)}`; }
+    if (d2.baked && Math.abs(d2.box.x - bk_x()) > 0.02) read += ` · <span class="bad">baked with box at x = ${bk_x().toFixed(1)} m, box now at ${d2.box.x.toFixed(1)} m</span>`;
+    document.getElementById("c2-read").innerHTML = read;
+    const tx = d2.texel / 100; let tex2 = 0; sc.segs.forEach(s => tex2 += Math.ceil(s.len / tx));
+    const tex3 = 6 * Math.ceil(ROOM / tx) ** 2;
+    document.getElementById("c2-mem").innerHTML = d2.baked ? `baked: <strong>${fmtN(tex2)} texels · ${fmtBytes(tex2 * 4)}</strong> RGBA8 in 2D · 3D room ${fmtBytes(tex3 * 4)}` : `not baked · ${d2.texel} cm texels would be ${fmtN(tex2)} texels (${fmtBytes(tex3 * 4)} as a 3D room)`;
+  }
+  function bk_x() { return d2.baked.boxX; }
+  function nearestPatch(x, y) {
+    let best = -1, bd = 0.25;
+    d2.P.forEach((p, i) => { const s = d2.scene.segs[p.seg];
+      const t = Math.max(0, Math.min(s.len, (x - s.ax) * s.dx + (y - s.ay) * s.dy)); const d = Math.hypot(s.ax + s.dx * t - x, s.ay + s.dy * t - y);
+      if (d < bd && t / s.len >= p.t0 && t / s.len <= p.t1) { bd = d; best = i; } });
+    return best;
+  }
+  let pend2 = false;
+  function req2(fn) { if (pend2) return; pend2 = true; requestAnimationFrame(() => { pend2 = false; fn(); }); }
+  drag(c2, () => [d2.L, [d2.box.x + d2.box.w / 2, 8 - d2.box.h]], (i, x, y) => {
+    if (i === 0) { d2.L = [x, y]; req2(() => { setEmission(d2.scene, d2.P, d2.L); const n = d2.passes; d2.passes = 0; for (let k = 0; k < n; k++) step2(); draw2(); }); }
+    else { d2.box.x = Math.max(PART.x + PART.half + 0.05, Math.min(8 - d2.box.w - 0.05, x - d2.box.w / 2)); if (d2.baked) req2(() => { d2.scene = makeScene(d2.box); d2.P = buildPatches(d2.scene, d2.perWall); draw2(); }); else req2(() => rebuild2(true)); }
+  }, (x, y) => { const h = nearestPatch(x, y); if (h !== d2.hover) { d2.hover = h; draw2(); } });
+  document.getElementById("rStep").addEventListener("click", () => { step2(); draw2(); });
+  document.getElementById("rRun").addEventListener("click", () => { for (let k = 0; k < 24; k++) step2(); draw2(); });
+  document.getElementById("rReset").addEventListener("click", () => { d2.baked = null; setEmission(d2.scene, d2.P, d2.L); d2.passes = 0; draw2(); });
+  document.getElementById("rBake").addEventListener("click", () => {
+    if (d2.passes === 0) for (let k = 0; k < 24; k++) step2();
+    const bySeg = d2.scene.segs.map(() => []); d2.P.forEach((p, i) => bySeg[p.seg].push(i));
+    d2.baked = { B: d2.P.map(p => p.B.slice()), bySeg, boxX: d2.box.x, texel: d2.texel }; draw2(); });
+  document.getElementById("rUnbake").addEventListener("click", () => { d2.baked = null; rebuild2(true); });
+  const ppwEl = document.getElementById("ppw");
+  ppwEl.addEventListener("input", () => { d2.perWall = +ppwEl.value; document.getElementById("ppwv").textContent = ppwEl.value; d2.baked = null; d2.hover = -1; rebuild2(true); });
+  const texEl = document.getElementById("texel");
+  texEl.addEventListener("input", () => { d2.texel = +texEl.value; document.getElementById("texelv").textContent = texEl.value + " cm"; if (d2.baked) d2.baked.texel = d2.texel; draw2(); });
+  rebuild2(false); for (let k = 0; k < 3; k++) step2(); draw2();
+
+  // ---------- shared radiance source for demos 3 and 4: cached form factors, re-solved when the light moves ----------
+  function radSource(scene, perWall) {
+    const P = buildPatches(scene, perWall), F = formFactors(scene, P), bySeg = scene.segs.map(() => []);
+    P.forEach(p => bySeg[p.seg].push(p));
+    const src = { scene, P, F, bySeg, lookup: (si, u) => { const a = bySeg[si]; return a[Math.min(a.length - 1, (u * a.length) | 0)]; },
+      update(L) { setEmission(scene, P, L); for (let k = 0; k < 24; k++) jacobiPass(P, F); } };
+    return src;
+  }
+  // radiance seen along a ray, from the patch it hits (null if nothing)
+  function radianceAlong(src, ox, oy, dx, dy) {
+    const h = hitScene(src.scene, ox, oy, dx, dy); if (!h) return null;
+    return { B: src.lookup(h.seg, h.u).B, t: h.t, h };
+  }
+
+  // ---------- 3. irradiance probes ----------
+  const c3 = document.getElementById("c3"), x3 = c3.getContext("2d");
+  const d3 = { L: [5.6, 1.0], spacing: 1, vis: 0, lit: "full", obj: [2.15, 7.0], r: 0.36, scene: makeScene(BOX0) };
+  d3.src = radSource(d3.scene, 32); d3.src.update(d3.L);
+  const NB = 16;
+  function inSolid(x, y) { return (x >= BOX0.x && x <= BOX0.x + BOX0.w && y >= 8 - BOX0.h) || (Math.abs(x - PART.x) <= PART.half && y >= PART.top); }
+  function buildProbes() {
+    const s = d3.spacing, n = Math.floor(ROOM / s + 1e-6) + 1, probes = [];
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const x = Math.max(0.12, Math.min(7.88, i * s)), y = Math.max(0.12, Math.min(7.88, j * s));
+      const pr = { x, y, i, j, dead: inSolid(x, y), L: [], depth: [], sh: [[0, 0, 0], [0, 0, 0], [0, 0, 0]] };
+      if (!pr.dead) for (let b = 0; b < NB; b++) {
+        const acc = [0, 0, 0]; let dep = 0;
+        for (let k = 0; k < 4; k++) {
+          const a = (b + (k + 0.5) / 4) / NB * Math.PI * 2;
+          const r = radianceAlong(d3.src, x, y, Math.cos(a), Math.sin(a));
+          if (r) { acc[0] += r.B[0] / 4; acc[1] += r.B[1] / 4; acc[2] += r.B[2] / 4; dep += r.t / 4; } else dep += 20;
+        }
+        pr.L.push(acc); pr.depth.push(dep);
+        const th = (b + 0.5) / NB * Math.PI * 2, c = Math.cos(th), sn = Math.sin(th);
+        for (let ch = 0; ch < 3; ch++) { pr.sh[0][ch] += acc[ch] / NB; pr.sh[1][ch] += acc[ch] * c * 2 / NB; pr.sh[2][ch] += acc[ch] * sn * 2 / NB; }
+      }
+      probes.push(pr);
+    }
+    d3.probes = probes; d3.n = n;
+  }
+  function shE(pr, nx, ny) { const e = []; for (let ch = 0; ch < 3; ch++) e.push(Math.max(0, 2 * pr.sh[0][ch] + Math.PI / 2 * (pr.sh[1][ch] * nx + pr.sh[2][ch] * ny))); return e; }
+  // gather at point p with normal n; returns {E, w:[4 weights], ids}
+  function gather(px, py, nx, ny, useVis) {
+    const s = d3.spacing, n = d3.n, fi = Math.min(n - 2, Math.max(0, Math.floor(px / s))), fj = Math.min(n - 2, Math.max(0, Math.floor(py / s)));
+    const fx = Math.min(1, Math.max(0, px / s - fi)), fy = Math.min(1, Math.max(0, py / s - fj));
+    const E = [0, 0, 0], ws = [], ids = []; let wsum = 0;
+    for (let k = 0; k < 4; k++) {
+      const ii = fi + (k & 1), jj = fj + (k >> 1), pr = d3.probes[jj * n + ii]; ids.push(pr);
+      let w = ((k & 1) ? fx : 1 - fx) * ((k >> 1) ? fy : 1 - fy);
+      if (pr.dead) w = 0;
+      else if (useVis) {
+        let tx = pr.x - px, ty = pr.y - py; const dist = Math.hypot(tx, ty) || 1e-6; tx /= dist; ty /= dist;
+        w *= Math.pow((nx * tx + ny * ty + 1) * 0.5, 2);
+        const bin = ((Math.atan2(-ty, -tx) / (Math.PI * 2) + 1) * NB) % NB | 0;   // probe looking toward p
+        w *= dist < pr.depth[bin] + 0.15 ? 1 : 0.01;
+      }
+      ws.push(w); wsum += w;
+      if (w > 0) { const e = shE(pr, nx, ny); E[0] += w * e[0]; E[1] += w * e[1]; E[2] += w * e[2]; }
+    }
+    if (wsum > 0) { E[0] /= wsum; E[1] /= wsum; E[2] /= wsum; }
+    return { E, w: ws.map(w => wsum ? w / wsum : 0), ids };
+  }
+  function draw3() {
+    x3.fillStyle = "#0b0e13"; x3.fillRect(0, 0, W, W);
+    drawSolids(x3, d3.scene);
+    drawStrips(x3, d3.scene, d3.src.P, p => rgb(p.B), 7);
+    for (const pr of d3.probes) {
+      x3.beginPath(); x3.arc(X(pr.x), Y(pr.y), 4, 0, Math.PI * 2);
+      if (pr.dead) { x3.strokeStyle = "rgba(255,255,255,0.3)"; x3.lineWidth = 1; x3.stroke(); }
+      else { x3.fillStyle = rgb(pr.sh[0].map(v => 2 * v)); x3.fill(); x3.strokeStyle = "rgba(255,255,255,0.25)"; x3.lineWidth = 1; x3.stroke(); }
+    }
+    // sphere shading
+    const [cx, cy] = d3.obj, K = 48, alb = 0.8;
+    let sumBi = 0, sumVis = 0, cen = null;
+    for (let k = 0; k < K; k++) {
+      const a0 = k / K * Math.PI * 2, a1 = (k + 1) / K * Math.PI * 2, am = (a0 + a1) / 2, nx = Math.cos(am), ny = Math.sin(am);
+      const px = cx + nx * d3.r, py = cy + ny * d3.r;
+      const gb = gather(px, py, nx, ny, false), gv = gather(px, py, nx, ny, true);
+      const g = d3.vis ? gv : gb;
+      sumBi += gb.E[1]; sumVis += gv.E[1];
+      const dir = d3.lit === "full" ? directE(d3.scene, px, py, nx, ny, d3.L) : 0;
+      const col = g.E.map(e => alb * (e + dir));
+      x3.fillStyle = rgb(col); x3.beginPath(); x3.moveTo(X(cx), Y(cy)); x3.arc(X(cx), Y(cy), d3.r * S, a0 - 0.01, a1 + 0.01); x3.closePath(); x3.fill();
+    }
+    cen = gather(cx, cy, 0, -1, !!d3.vis);
+    // the 4 cell probes and their weights
+    cen.ids.forEach((pr, k) => {
+      x3.strokeStyle = `rgba(74,163,255,${(0.15 + 0.85 * cen.w[k]).toFixed(2)})`; x3.lineWidth = 1.5;
+      x3.beginPath(); x3.moveTo(X(cx), Y(cy)); x3.lineTo(X(pr.x), Y(pr.y)); x3.stroke();
+      x3.beginPath(); x3.arc(X(pr.x), Y(pr.y), 7, 0, Math.PI * 2); x3.strokeStyle = "#4aa3ff"; x3.stroke();
+    });
+    // polar plot of the heaviest probe: raw bins (grey) and L1 reconstruction (blue)
+    let hi = 0; cen.w.forEach((w, k) => { if (w > cen.w[hi]) hi = k; });
+    const pr = cen.ids[hi];
+    if (!pr.dead) {
+      const scale = 34 / Math.max(0.3, Math.max(...pr.L.map(l => l[1])) * 1.2);
+      x3.beginPath();
+      for (let b = 0; b <= NB; b++) { const l = pr.L[b % NB], th = (b % NB + 0.5) / NB * Math.PI * 2, r = 4 + l[1] * scale;
+        const px = X(pr.x) + Math.cos(th) * r, py = Y(pr.y) + Math.sin(th) * r; b ? x3.lineTo(px, py) : x3.moveTo(px, py); }
+      x3.strokeStyle = "rgba(255,255,255,0.5)"; x3.lineWidth = 1; x3.stroke();
+      x3.beginPath();
+      for (let b = 0; b <= 48; b++) { const th = b / 48 * Math.PI * 2, v = Math.max(0, pr.sh[0][1] + pr.sh[1][1] * Math.cos(th) + pr.sh[2][1] * Math.sin(th)), r = 4 + v * scale;
+        const px = X(pr.x) + Math.cos(th) * r, py = Y(pr.y) + Math.sin(th) * r; b ? x3.lineTo(px, py) : x3.moveTo(px, py); }
+      x3.strokeStyle = "#4aa3ff"; x3.lineWidth = 1.5; x3.stroke();
+      // depth per bin as short ticks
+      for (let b = 0; b < NB; b++) { const th = (b + 0.5) / NB * Math.PI * 2, r = Math.min(d3.spacing, pr.depth[b]) * S;
+        x3.strokeStyle = "rgba(74,163,255,0.25)"; x3.beginPath(); x3.moveTo(X(pr.x) + Math.cos(th) * (r - 4), Y(pr.y) + Math.sin(th) * (r - 4)); x3.lineTo(X(pr.x) + Math.cos(th) * r, Y(pr.y) + Math.sin(th) * r); x3.stroke(); }
+    }
+    roomFrame(x3); lightGlow(x3, d3.L); handle(x3, X(cx), Y(cy), 6);
+    const live = d3.probes.filter(p => !p.dead).length, leak = sumVis > 1e-4 ? (sumBi - sumVis) / sumVis : 0;
+    document.getElementById("c3-read").innerHTML = `sphere indirect E: bilinear <strong>${(sumBi / K).toFixed(3)}</strong> · with visibility <strong>${(sumVis / K).toFixed(3)}</strong> · ${leak > 0.25 ? `<span class="bad">${(100 * leak).toFixed(0)} % leaked</span>` : `<span class="ok">${(100 * Math.abs(leak)).toFixed(0)} % difference</span>`}`;
+    document.getElementById("c3-mem").innerHTML = `${live} probes · 16 bins RGB16F + depth = ${fmtBytes(live * 128)} · as L1 SH ${fmtBytes(live * 18)}`;
+  }
+  let pend3 = false;
+  function req3(full) { if (pend3) return; pend3 = true; requestAnimationFrame(() => { pend3 = false; if (full) { d3.src.update(d3.L); buildProbes(); } draw3(); }); }
+  drag(c3, () => [d3.L, d3.obj], (i, x, y) => { if (i === 0) { d3.L = [x, y]; req3(true); } else { d3.obj = [x, y]; req3(false); } });
+  const spEl = document.getElementById("spacing");
+  spEl.addEventListener("input", () => { d3.spacing = +spEl.value; document.getElementById("spacingv").textContent = (+spEl.value).toFixed(2) + " m"; buildProbes(); draw3(); });
+  document.getElementById("segVis").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; d3.vis = +b.dataset.v; segOn(ev.currentTarget, d3.vis); draw3(); });
+  document.getElementById("segLit").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; d3.lit = b.dataset.v; segOn(ev.currentTarget, d3.lit); draw3(); });
+  buildProbes(); draw3();
+
+  // ---------- 4. screen-space GI ----------
+  const c4 = document.getElementById("c4"), x4 = c4.getContext("2d");
+  const NPIX = 160, K4 = 16;
+  const d4 = { L: [5.6, 1.0], C: [6.6, 2.4], A: [2.8, 6.4], fov: 90, thick: 0.5, pix: 80, scene: makeScene(BOX0) };
+  d4.src = radSource(d4.scene, 32); d4.src.update(d4.L);
+  const T4 = { k: 352 / 448, tx: 80 - 32 * 352 / 448, ty: 14 - 32 * 352 / 448 };   // room drawn at 352 px
+  const map4 = (px, py) => [((px - T4.tx) / T4.k - O) / S, ((py - T4.ty) / T4.k - O) / S];
+  function camBasis() {
+    let fx = d4.A[0] - d4.C[0], fy = d4.A[1] - d4.C[1]; const l = Math.hypot(fx, fy) || 1; fx /= l; fy /= l;
+    return { fx, fy, rx: -fy, ry: fx, th: Math.tan(d4.fov / 2 * Math.PI / 180) };
+  }
+  function project(cb, qx, qy) {
+    const rx = qx - d4.C[0], ry = qy - d4.C[1], depth = rx * cb.fx + ry * cb.fy;
+    if (depth < 0.05) return { depth, col: -1 };
+    const u = (rx * cb.rx + ry * cb.ry) / depth / cb.th;
+    return { depth, col: Math.floor((u + 1) * 0.5 * NPIX) };
+  }
+  function compute4() {
+    const cb = camBasis(), sc = d4.scene, src = d4.src, G = [];
+    for (let c = 0; c < NPIX; c++) {
+      const u = ((c + 0.5) / NPIX * 2 - 1) * cb.th; let dx = cb.fx + cb.rx * u, dy = cb.fy + cb.ry * u; const l = Math.hypot(dx, dy); dx /= l; dy /= l;
+      const h = hitScene(sc, d4.C[0], d4.C[1], dx, dy);
+      if (!h) { G.push(null); continue; }
+      const s = sc.segs[h.seg], px = d4.C[0] + dx * h.t, py = d4.C[1] + dy * h.t;
+      G.push({ px, py, nx: s.nx, ny: s.ny, seg: h.seg, depth: (px - d4.C[0]) * cb.fx + (py - d4.C[1]) * cb.fy, color: src.lookup(h.seg, h.u).B, alb: s.alb, dx, dy });
+    }
+    let sumSS = 0, sumRef = 0, off = 0, behind = 0, total = 0, inspect = null;
+    G.forEach((g, c) => {
+      if (!g) return;
+      const ss = [0, 0, 0], ref = [0, 0, 0], rays = [];
+      for (let k = 0; k < K4; k++) {
+        const [rdx, rdy] = cosSample(g.nx, g.ny, (k + 0.5) / K4);
+        const ox = g.px + g.nx * 1e-3, oy = g.py + g.ny * 1e-3;
+        const hw = hitScene(sc, ox, oy, rdx, rdy); total++;
+        if (hw) { const B = src.lookup(hw.seg, hw.u).B; ref[0] += B[0] / K4; ref[1] += B[1] / K4; ref[2] += B[2] / K4; }
+        let res = "miss", t = 0.12, end = [ox, oy];
+        for (let sI = 0; sI < 120; sI++, t += 0.1) {
+          const qx = ox + rdx * t, qy = oy + rdy * t, pr = project(cb, qx, qy);
+          end = [qx, qy];
+          if (pr.col < 0 || pr.col >= NPIX) { res = "off"; off++; break; }
+          const gz = G[pr.col]; if (!gz) { res = "off"; off++; break; }
+          if (pr.depth > gz.depth) { if (pr.depth - gz.depth < d4.thick) { res = "hit"; ss[0] += gz.color[0] / K4; ss[1] += gz.color[1] / K4; ss[2] += gz.color[2] / K4; end = [gz.px, gz.py]; } else { res = "behind"; behind++; } break; }
+          if (qx < 0 || qx > 8 || qy < 0 || qy > 8) { res = "off"; off++; break; }
+        }
+        if (c === d4.pix) rays.push({ res, end });
+      }
+      g.ss = ss; g.ref = ref; sumSS += ss[0] + ss[1] + ss[2]; sumRef += ref[0] + ref[1] + ref[2];
+      if (c === d4.pix) inspect = { g, rays };
+    });
+    return { G, cb, sumSS, sumRef, off, behind, total, inspect };
+  }
+  function draw4() {
+    const r = compute4(), G = r.G, cb = r.cb;
+    x4.fillStyle = "#0b0e13"; x4.fillRect(0, 0, W, W);
+    x4.save(); x4.translate(T4.tx, T4.ty); x4.scale(T4.k, T4.k);
+    drawSolids(x4, d4.scene);
+    x4.globalAlpha = 0.28; drawStrips(x4, d4.scene, d4.src.P, p => rgb(p.B), 7); x4.globalAlpha = 1;
+    for (let c = 0; c < NPIX; c++) { const g = G[c]; if (!g) continue;
+      const s = d4.scene.segs[g.seg], hw = 0.5 / NPIX * cb.th * 2 * g.depth + 0.03;   // half footprint of one pixel
+      x4.strokeStyle = rgb(g.color); x4.lineWidth = 8;
+      x4.beginPath(); x4.moveTo(X(g.px - s.dx * hw) - s.nx * 4, Y(g.py - s.dy * hw) - s.ny * 4); x4.lineTo(X(g.px + s.dx * hw) - s.nx * 4, Y(g.py + s.dy * hw) - s.ny * 4); x4.stroke(); }
+    x4.strokeStyle = "rgba(74,163,255,0.6)"; x4.lineWidth = 1.5;
+    for (const sgn of [-1, 1]) { let dx = cb.fx + cb.rx * cb.th * sgn, dy = cb.fy + cb.ry * cb.th * sgn; const l = Math.hypot(dx, dy); dx /= l; dy /= l;
+      const h = hitScene(d4.scene, d4.C[0], d4.C[1], dx, dy), t = h ? h.t : 12;
+      x4.beginPath(); x4.moveTo(X(d4.C[0]), Y(d4.C[1])); x4.lineTo(X(d4.C[0] + dx * t), Y(d4.C[1] + dy * t)); x4.stroke(); }
+    if (r.inspect) { const g = r.inspect.g;
+      x4.strokeStyle = "#4aa3ff"; x4.lineWidth = 1; x4.setLineDash([3, 4]); x4.beginPath(); x4.moveTo(X(d4.C[0]), Y(d4.C[1])); x4.lineTo(X(g.px), Y(g.py)); x4.stroke(); x4.setLineDash([]);
+      for (const ry of r.inspect.rays) { x4.strokeStyle = ry.res === "hit" ? "rgba(255,255,255,0.8)" : "rgba(239,93,93,0.85)"; x4.lineWidth = 1;
+        x4.beginPath(); x4.moveTo(X(g.px), Y(g.py)); x4.lineTo(X(ry.end[0]), Y(ry.end[1])); x4.stroke(); }
+      handle(x4, X(g.px), Y(g.py), 5); }
+    roomFrame(x4); lightGlow(x4, d4.L);
+    handle(x4, X(d4.C[0]), Y(d4.C[1]), 8, "#4aa3ff"); handle(x4, X(d4.A[0]), Y(d4.A[1]), 5);
+    x4.restore();
+    const rows = [["color buffer (lit, what SSGI can read)", g => g.color], ["screen-space bounce", g => g.ss], ["same rays, world-space (reference)", g => g.ref]];
+    const y0 = 388, hRow = 24, wCol = 352 / NPIX;
+    x4.font = "11px IBM Plex Mono, monospace"; x4.textBaseline = "middle";
+    rows.forEach(([label, fn], i) => {
+      const y = y0 + i * (hRow + 16);
+      x4.fillStyle = "#8d95a3"; x4.textAlign = "left"; x4.fillText(label, 80, y - 8);
+      for (let c = 0; c < NPIX; c++) { const g = G[c]; x4.fillStyle = g ? rgb(fn(g)) : "#151920"; x4.fillRect(80 + c * wCol, y, wCol + 0.5, hRow); }
+      x4.strokeStyle = "rgba(255,255,255,0.12)"; x4.lineWidth = 1; x4.strokeRect(80.5, y + 0.5, 352, hRow);
+      x4.strokeStyle = "#ffffff"; x4.beginPath(); x4.moveTo(80 + (d4.pix + 0.5) * wCol, y); x4.lineTo(80 + (d4.pix + 0.5) * wCol, y + hRow); x4.stroke();
+    });
+    let visLen = 0; G.forEach(g => { if (g) visLen += (2 * 0.5 / NPIX * cb.th * 2 * g.depth) / Math.max(0.2, Math.abs(g.dx * g.nx + g.dy * g.ny)); });
+    let totLen = 0; d4.scene.segs.forEach(s => totLen += s.len);
+    const cap = r.sumRef > 1e-6 ? r.sumSS / r.sumRef : 0;
+    document.querySelector("#t4-vis .n").textContent = `${Math.min(totLen, visLen).toFixed(1)} / ${totLen.toFixed(0)}`;
+    document.querySelector("#t4-ss .n").textContent = (100 * cap).toFixed(0) + " %";
+    document.querySelector("#t4-off .n").textContent = (100 * r.off / Math.max(1, r.total)).toFixed(0) + " %";
+    const g = r.inspect && r.inspect.g;
+    document.getElementById("c4-read").innerHTML = g ? `pixel ${d4.pix} sees <strong>${d4.scene.segs[g.seg].name}</strong> at ${g.depth.toFixed(2)} m · bounce ss (${g.ss.map(v => v.toFixed(2)).join(", ")}) vs world (${g.ref.map(v => v.toFixed(2)).join(", ")})` : `pixel ${d4.pix} sees nothing`;
+    document.getElementById("c4-miss").innerHTML = `<span class="bad">${(100 * r.off / Math.max(1, r.total)).toFixed(0)} % of rays off screen · ${(100 * r.behind / Math.max(1, r.total)).toFixed(0)} % behind depth</span>`;
+  }
+  let pend4 = false;
+  function req4(full) { if (pend4) return; pend4 = true; requestAnimationFrame(() => { pend4 = false; if (full) d4.src.update(d4.L); draw4(); }); }
+  drag(c4, () => [d4.L, d4.C, d4.A], (i, x, y) => { if (i === 0) { d4.L = [x, y]; req4(true); } else { (i === 1 ? d4.C : d4.A)[0] = x; (i === 1 ? d4.C : d4.A)[1] = y; req4(false); } }, null, map4);
+  const fovEl = document.getElementById("fov"), thEl = document.getElementById("thick"), pixEl = document.getElementById("pix");
+  fovEl.addEventListener("input", () => { d4.fov = +fovEl.value; document.getElementById("fovv").textContent = fovEl.value + "°"; req4(false); });
+  thEl.addEventListener("input", () => { d4.thick = +thEl.value; document.getElementById("thickv").textContent = (+thEl.value).toFixed(1) + " m"; req4(false); });
+  pixEl.addEventListener("input", () => { d4.pix = +pixEl.value; document.getElementById("pixv").textContent = pixEl.value; req4(false); });
+  draw4();
+
+  // ---------- 5. voxel cone tracing + surface cache ----------
+  const c5 = document.getElementById("c5"), x5 = c5.getContext("2d"); watch(c5);
+  const d5 = { L: [5.6, 1.0], res: 32, aperture: 30, budget: 32, scene: makeScene(BOX0), p: [2.15, 8], n: [0, -1], seg: 2, cursor: 0, frame: 0, movedAt: 0 };
+  d5.P = buildPatches(d5.scene, 32); d5.P.forEach(p => { p.B = [0, 0, 0]; p.fresh = 0; });
+  function updateCache() {
+    const P = d5.P, N = P.length, sc = d5.scene;
+    for (let k = 0; k < d5.budget; k++) {
+      const p = P[d5.cursor % N]; d5.cursor++;
+      const e = directE(sc, p.cx, p.cy, p.nx, p.ny, d5.L), g = [0, 0, 0];
+      for (let r = 0; r < 8; r++) {
+        const [dx, dy] = cosSample(p.nx, p.ny, (r + rnd()) / 8);
+        const h = hitScene(sc, p.cx + p.nx * 1e-3, p.cy + p.ny * 1e-3, dx, dy, 1e9, p.seg);
+        if (h) { const B = d5.lookup(h.seg, h.u).B; g[0] += B[0] / 8; g[1] += B[1] / 8; g[2] += B[2] / 8; }   // last frame's cache
+      }
+      p.B = [p.alb[0] * (e + g[0]), p.alb[1] * (e + g[1]), p.alb[2] * (e + g[2])]; p.fresh = d5.frame;
+    }
+  }
+  { const bySeg = d5.scene.segs.map(() => []); d5.P.forEach(p => bySeg[p.seg].push(p)); d5.lookup = (si, u) => { const a = bySeg[si]; return a[Math.min(a.length - 1, (u * a.length) | 0)]; }; }
+  function voxelize() {
+    const R = d5.res, vs = ROOM / R, levels = [];
+    const pm = new Float32Array(R * R * 3), al = new Float32Array(R * R), cnt = new Float32Array(R * R), rad = new Float32Array(R * R * 3);
+    for (const p of d5.P) {
+      const s = d5.scene.segs[p.seg], n = Math.max(1, Math.ceil(p.len / (vs / 4)));
+      for (let k = 0; k < n; k++) {
+        const u = p.t0 + (p.t1 - p.t0) * (k + 0.5) / n, x = s.ax + s.dx * s.len * u - s.nx * 0.01, y = s.ay + s.dy * s.len * u - s.ny * 0.01;
+        const cx = Math.min(R - 1, Math.max(0, (x / vs) | 0)), cy = Math.min(R - 1, Math.max(0, (y / vs) | 0)), o = cy * R + cx;
+        rad[o * 3] += p.B[0]; rad[o * 3 + 1] += p.B[1]; rad[o * 3 + 2] += p.B[2]; cnt[o]++;
+        al[o] = Math.max(al[o], Math.min(1, s.thick / vs));
+      }
+    }
+    for (let o = 0; o < R * R; o++) {
+      const x = ((o % R) + 0.5) * vs, y = (((o / R) | 0) + 0.5) * vs;
+      if (inSolid(x, y) && !cnt[o]) al[o] = 1;                      // interior of the box / divider
+      if (cnt[o]) for (let c = 0; c < 3; c++) pm[o * 3 + c] = rad[o * 3 + c] / cnt[o] * al[o];
+    }
+    levels.push({ R, pm, al });
+    for (let r = R >> 1; r >= 2; r >>= 1) {
+      const prev = levels[levels.length - 1], npm = new Float32Array(r * r * 3), nal = new Float32Array(r * r);
+      for (let j = 0; j < r; j++) for (let i = 0; i < r; i++) {
+        const o = j * r + i; for (let dj = 0; dj < 2; dj++) for (let di = 0; di < 2; di++) { const q = (2 * j + dj) * prev.R + 2 * i + di;
+          nal[o] += prev.al[q] / 4; npm[o * 3] += prev.pm[q * 3] / 4; npm[o * 3 + 1] += prev.pm[q * 3 + 1] / 4; npm[o * 3 + 2] += prev.pm[q * 3 + 2] / 4; } }
+      levels.push({ R: r, pm: npm, al: nal });
+    }
+    d5.levels = levels;
+  }
+  function sampleVox(x, y, level) {
+    const lv = d5.levels[Math.min(d5.levels.length - 1, Math.max(0, Math.round(level)))], R = lv.R;
+    const i = (x / ROOM * R) | 0, j = (y / ROOM * R) | 0;
+    if (i < 0 || j < 0 || i >= R || j >= R) return null;
+    const o = j * R + i; return { pm: [lv.pm[o * 3], lv.pm[o * 3 + 1], lv.pm[o * 3 + 2]], a: lv.al[o] };
+  }
+  function coneTrace(px, py, dx, dy, theta) {
+    const vs = ROOM / d5.res, tanH = Math.tan(theta / 2), color = [0, 0, 0], steps = []; let alpha = 0, t = vs;
+    px += d5.n[0] * vs * 0.5; py += d5.n[1] * vs * 0.5;        // normal offset: leave the voxel we stand in
+    while (alpha < 0.95 && t < 14) {
+      const diam = Math.max(vs, 2 * t * tanH), level = Math.log2(diam / vs);
+      const v = sampleVox(px + dx * t, py + dy * t, level); if (!v) break;
+      steps.push({ x: px + dx * t, y: py + dy * t, r: diam / 2, a: alpha });
+      color[0] += (1 - alpha) * v.pm[0]; color[1] += (1 - alpha) * v.pm[1]; color[2] += (1 - alpha) * v.pm[2];
+      alpha += (1 - alpha) * v.a;
+      t += diam * 0.5;
+    }
+    return { color, alpha, steps };
+  }
+  const img5cache = {};
+  function draw5() {
+    const R = d5.res, vs = ROOM / R, lv0 = d5.levels[0];
+    x5.fillStyle = "#0b0e13"; x5.fillRect(0, 0, W, W);
+    const img = img5cache[R] || (img5cache[R] = { data: new ImageData(R, R), cv: Object.assign(document.createElement("canvas"), { width: R, height: R }) });
+    const p = img.data.data;
+    for (let o = 0; o < R * R; o++) { const a = lv0.al[o], k = o * 4;
+      if (a > 0) { p[k] = Math.max(tone(lv0.pm[o * 3]), 34 * a); p[k + 1] = Math.max(tone(lv0.pm[o * 3 + 1]), 40 * a); p[k + 2] = Math.max(tone(lv0.pm[o * 3 + 2]), 52 * a); p[k + 3] = 255; }
+      else { p[k] = 11; p[k + 1] = 14; p[k + 2] = 19; p[k + 3] = 255; } }
+    img.cv.getContext("2d").putImageData(img.data, 0, 0);
+    x5.imageSmoothingEnabled = false; x5.drawImage(img.cv, X(0), Y(0), ROOM * S, ROOM * S);
+    if (R <= 32) { x5.strokeStyle = "rgba(255,255,255,0.08)"; x5.lineWidth = 1; x5.beginPath();
+      for (let k = 1; k < R; k++) { const q = Math.round(X(k * vs)) + 0.5; x5.moveTo(q, Y(0)); x5.lineTo(q, Y(8)); x5.moveTo(X(0), q); x5.lineTo(X(8), q); } x5.stroke(); }
+    // true geometry outline over the voxels
+    x5.strokeStyle = "rgba(255,255,255,0.45)"; x5.lineWidth = 1;
+    x5.strokeRect(X(BOX0.x) + 0.5, Y(8 - BOX0.h) + 0.5, BOX0.w * S, BOX0.h * S);
+    x5.strokeRect(X(PART.x - PART.half) + 0.5, Y(PART.top) + 0.5, 2 * PART.half * S, (8 - PART.top) * S);
+    // surface cache strips outside the room walls
+    for (const q of d5.P) { if (q.seg > 3) continue; const s = d5.scene.segs[q.seg];
+      const ax = X(s.ax + s.dx * s.len * q.t0) - s.nx * 22, ay = Y(s.ay + s.dy * s.len * q.t0) - s.ny * 22, bx = X(s.ax + s.dx * s.len * q.t1) - s.nx * 22, by = Y(s.ay + s.dy * s.len * q.t1) - s.ny * 22;
+      x5.strokeStyle = rgb(q.B); x5.lineWidth = 12; x5.beginPath(); x5.moveTo(ax, ay); x5.lineTo(bx, by); x5.stroke();
+      if (d5.frame - q.fresh < 1) { x5.strokeStyle = "#ffffff"; x5.lineWidth = 2; x5.beginPath(); x5.moveTo(ax + s.nx * 9, ay + s.ny * 9); x5.lineTo(bx + s.nx * 9, by + s.ny * 9); x5.stroke(); } }
+    // cones
+    const [px, py] = d5.p, [nx, ny] = d5.n, th = d5.aperture * Math.PI / 180, E = [0, 0, 0]; let wsum = 0, nsteps = 0;
+    for (const off of [-60, -30, 0, 30, 60]) {
+      const a = off * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), dx = nx * c - ny * s, dy = nx * s + ny * c, w = Math.cos(a);
+      const r = coneTrace(px, py, dx, dy, th); nsteps += r.steps.length;
+      E[0] += w * r.color[0]; E[1] += w * r.color[1]; E[2] += w * r.color[2]; wsum += w;
+      for (const st of r.steps) { x5.beginPath(); x5.arc(X(st.x), Y(st.y), st.r * S, 0, Math.PI * 2);
+        x5.strokeStyle = `rgba(74,163,255,${(0.4 * (1 - st.a)).toFixed(2)})`; x5.lineWidth = 1; x5.stroke(); }
+      const last = r.steps[r.steps.length - 1]; if (last) { x5.strokeStyle = "rgba(74,163,255,0.5)"; x5.beginPath(); x5.moveTo(X(px), Y(py)); x5.lineTo(X(last.x), Y(last.y)); x5.stroke(); }
+    }
+    E[0] /= wsum; E[1] /= wsum; E[2] /= wsum;
+    // 64-ray reference against the same cache
+    const ref = [0, 0, 0];
+    for (let k = 0; k < 64; k++) { const [dx, dy] = cosSample(nx, ny, (k + 0.5) / 64), h = hitScene(d5.scene, px + nx * 1e-3, py + ny * 1e-3, dx, dy, 1e9, d5.seg);
+      if (h) { const B = d5.lookup(h.seg, h.u).B; ref[0] += B[0] / 64; ref[1] += B[1] / 64; ref[2] += B[2] / 64; } }
+    roomFrame(x5); lightGlow(x5, d5.L);
+    x5.strokeStyle = "#ffffff"; x5.lineWidth = 2; x5.beginPath(); x5.moveTo(X(px), Y(py)); x5.lineTo(X(px + nx * 0.35), Y(py + ny * 0.35)); x5.stroke();
+    handle(x5, X(px), Y(py), 6);
+    const lum = c => (c[0] + c[1] + c[2]) / 3, ratio = lum(ref) > 1e-3 ? lum(E) / lum(ref) : 1;
+    document.querySelector("#t5-cone .n").textContent = lum(E).toFixed(3);
+    document.querySelector("#t5-ref .n").textContent = lum(ref).toFixed(3);
+    const since = d5.frame - d5.movedAt, N = d5.P.length;
+    document.querySelector("#t5-age .n").textContent = `${since} · ${Math.min(100, (100 * since * d5.budget / N)).toFixed(0)} % refreshed`;
+    const wall = d5.scene.segs[d5.seg].name;
+    document.getElementById("c5-read").innerHTML = `point on <strong>${wall}</strong> · ${nsteps} cone steps · cone / reference = ${ratio > 1.4 ? `<span class="bad">${ratio.toFixed(2)} (leak)</span>` : `<span class="ok">${ratio.toFixed(2)}</span>`} · divider α = ${Math.min(1, 2 * PART.half / vs).toFixed(2)}`;
+    const vox2 = R * R * 8 * 4 / 3, vox3 = R * R * R * 8 * 8 / 7;
+    document.getElementById("c5-mem").innerHTML = `${R}² voxels ${(vs * 100).toFixed(1)} cm · RGBA16F + mips ${fmtBytes(vox2)} (3D ${fmtBytes(vox3)}) · cache ${N} texels`;
+  }
+  function frame5() {
+    if (visible.get(c5)) { d5.frame++; updateCache(); voxelize(); draw5(); }
+    requestAnimationFrame(frame5);
+  }
+  function snapToWall(x, y) {
+    let best = null, bd = 1e9;
+    d5.scene.segs.forEach((s, si) => { const t = Math.max(0.05, Math.min(s.len - 0.05, (x - s.ax) * s.dx + (y - s.ay) * s.dy));
+      const qx = s.ax + s.dx * t, qy = s.ay + s.dy * t, d = Math.hypot(qx - x, qy - y); if (d < bd) { bd = d; best = { qx, qy, si, s }; } });
+    d5.p = [best.qx + best.s.nx * 0.02, best.qy + best.s.ny * 0.02]; d5.n = [best.s.nx, best.s.ny]; d5.seg = best.si;
+  }
+  drag(c5, () => [d5.L, d5.p], (i, x, y) => { if (i === 0) { d5.L = [x, y]; d5.movedAt = d5.frame; } else snapToWall(x, y); });
+  document.getElementById("segRes").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; d5.res = +b.dataset.v; segOn(ev.currentTarget, d5.res); });
+  const apEl = document.getElementById("aperture"), buEl = document.getElementById("budget");
+  apEl.addEventListener("input", () => { d5.aperture = +apEl.value; document.getElementById("aperturev").textContent = apEl.value + "°"; });
+  buEl.addEventListener("input", () => { d5.budget = +buEl.value; document.getElementById("budgetv").textContent = buEl.value; });
+  for (let k = 0; k < 12; k++) updateCache();   // warm the cache so the page is lit at rest
+  voxelize(); draw5(); frame5();
+})();
+</script>

@@ -1,0 +1,932 @@
+<title>Depth Precision &amp; Reverse-Z</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tiles .n { font-size: 22px; }
+@media (max-width: 480px) { .tiles.four { grid-template-columns: 1fr; } }
+.vp canvas.wide16 { aspect-ratio: 16 / 9; }
+.chk { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 14px; font-family: var(--font-mono); font-size: 13px; }
+.chk label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.sw { display: inline-block; width: 18px; height: 3px; background: var(--sw); }
+.sw.dash { background: repeating-linear-gradient(90deg, var(--sw) 0 4px, transparent 4px 7px); }
+.uses td.num { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.uses.trade td:first-child { white-space: normal; min-width: 11ch; }
+.uses.trade td:nth-child(2) { max-width: none; }
+.uses.trade td:nth-child(5), .uses.trade td:nth-child(6) { min-width: 18ch; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">near 0.1 m · far 1000 m · 24-bit integer vs float32 depth · every number is computed live</p>
+    <h1>Depth Precision</h1>
+    <p class="lead">A depth buffer is the GPU's per-pixel record of how far away the nearest surface is, and it decides which object draws in front. It stores a function of <b>1/z</b>, not the distance itself, so with a 0.1 m near plane <b>90% of a 24-bit buffer describes the first metre</b> and far objects get scraps. <b>Reverse-Z</b> flips the mapping so far objects land near 0.0, which is where a float32 has its densest values. The part people get wrong: the flip only pays off with a float buffer, and on a 24-bit integer buffer it changes almost nothing.</p>
+    <div class="key">
+      <span style="--sw:#4aa3ff">standard Z, 0 at the near plane</span>
+      <span style="--sw:#f2a341">reverse Z, 1 at the near plane</span>
+      <span style="--sw:#ffffff">handle you can drag, cursor</span>
+      <span style="--sw:#5ad48a">decal wins the pixel</span>
+      <span style="--sw:#ef5d5d">decal loses, floor shows through</span>
+    </div>
+    <dl class="terms">
+      <dt>depth buffer</dt><dd>one number per pixel saying how far the nearest surface is; a new pixel only draws if it is closer</dd>
+      <dt>near, far plane</dt><dd>the closest and farthest distances the camera will draw; nothing outside them is drawn</dd>
+      <dt>code</dt><dd>one of the distinct values the buffer can store; a 24-bit buffer has 16,777,215 of them</dd>
+      <dt>step</dt><dd>the smallest change in distance the buffer can tell apart at a given range</dd>
+      <dt>z-fighting</dt><dd>two surfaces so close that they share a code, so pixels flicker between them</dd>
+      <dt>float32</dt><dd>a 32-bit number with a sliding decimal point; its values are packed tightest near 0</dd>
+      <dt>reverse-Z</dt><dd>storing 1 at the near plane and 0 at the far plane, so far objects land where floats are densest</dd>
+      <dt>decal</dt><dd>a flat detail, like a poster or a bullet hole, drawn a hair above a surface</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#codes"><span class="n">01</span>Where the codes go</a></li><li><a href="#near"><span class="n">02</span>The near plane sets everything</a></li><li><a href="#reverse"><span class="n">03</span>Reverse-Z</a></li><li><a href="#fight"><span class="n">04</span>Z-fighting simulator</a></li><li><a href="#readback"><span class="n">05</span>Reading the buffer back</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="codes">
+    <h2>Where the codes go</h2>
+    <p class="sub">Move the near and far planes and watch which distances get the 16,777,215 steps of a 24-bit buffer.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c1" width="512" height="512" aria-label="Stored depth against view distance and codes per decade"></canvas>
+        <div class="cap"><span id="c1-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">The depth buffer doesn't store distance. It stores a value that <b>rises fast near the camera and then flattens out</b>, so <b>half of its codes are used up by twice the near distance</b>. Move the near plane in and the first few centimetres eat everything. <b>Every 10× further out gets a tenth as many codes</b>.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The top plot is the value the buffer stores, against the real distance on a log axis. The white dots sit at 1, 10, 100 and 1000 m, each labelled with the smallest distance step the buffer can tell apart there.</p>
+        <p>The bottom bars count how many codes land in each decade of distance: 1 cm to 10 cm, 10 cm to 1 m, and so on out to 10 km. Bar height is on a log scale, so a bar half as tall has far fewer than half the codes.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag Near down to 1 cm. The step at 1000 m in the tiles gets 10× worse, and the 1 cm to 10 cm bar fills up.</li>
+          <li>Drag Far up to 10 km. The step numbers barely move. The far plane hardly matters.</li>
+          <li>Switch to D16. Every step gets about 256× worse, which is what dropping from 24 bits to 16 costs.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><label for="n1">Near <span class="val" id="n1v"></span></label><input type="range" id="n1" min="-2" max="0" step="0.01" value="-1"></div>
+          <div class="ctl"><label for="f1">Far <span class="val" id="f1v"></span></label><input type="range" id="f1" min="2" max="4" step="0.01" value="3"></div>
+          <div class="ctl"><span class="lab">Buffer</span><div class="seg" id="seg1" role="group" aria-label="Depth buffer bits"><button data-v="16">D16</button><button data-v="24" aria-pressed="true">D24</button></div></div>
+        </div>
+        <div class="tiles four">
+          <div class="tile"><div class="n" id="t1-1">—</div><div class="l">step at 1 m</div></div>
+          <div class="tile"><div class="n" id="t1-10">—</div><div class="l">step at 10 m</div></div>
+          <div class="tile"><div class="n" id="t1-100">—</div><div class="l">step at 100 m</div></div>
+          <div class="tile"><div class="n" id="t1-1000">—</div><div class="l">step at 1000 m</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The vertex shader outputs a clip-space z and a w, where w is the view depth: the straight-line distance in front of the camera. The rasterizer divides z by w, and that divide is what bends the curve. What lands in the buffer is a hyperbola in z, steep at the near plane and flat for the rest of the scene. Half of the codes sit below <code>2n</code> no matter where far is.</p>
+        <p>The smallest step the buffer can tell apart at distance z is the slope of that curve divided by the code count, and it grows with z². At 1 m you resolve fractions of a micrometre. At 1000 m two surfaces must be half a metre apart to get different codes.</p>
+        <p class="words">In words: stored depth is a 1/z curve, and the step at any distance is that curve's slope there divided by the number of codes.</p>
+        <div class="math">z_ndc = f·(z − n) / (z·(f − n))          <span class="c">z_ndc ∈ [0,1], 0 at near: D3D, Vulkan, Metal</span>
+dz_view/dz_ndc = z²·(f − n) / (n·f)       metres per unit of stored depth
+Δz(D24) = z²·(f − n) / (n·f·(2²⁴ − 1))   smallest resolvable step at z</div>
+        <p>z is the view distance, n and f are the near and far planes, z_ndc is the stored value between 0 and 1, and Δz is the smallest distance difference the buffer can hold at z.</p>
+        <p class="words">What this code does: builds the clip z and w the way D3D, Vulkan and Metal expect, then counts how many 24-bit codes fall between two distances.</p>
+<pre class="code"><span class="c">// vertex shader output, D3D / Vulkan / Metal clip convention (0 = near, 1 = far)</span>
+<span class="k">float</span> zClip = zView * f / (f - n) - n * f / (f - n);
+<span class="k">float</span> wClip = zView;                 <span class="c">// the rasterizer divides: zNdc = zClip / wClip</span>
+<span class="c">// after the divide: zNdc = f * (zView - n) / (zView * (f - n))</span>
+
+<span class="c">// 24-bit codes spent between view distances a and b</span>
+<span class="k">uint</span> codesBetween(<span class="k">float</span> a, <span class="k">float</span> b) {
+  <span class="k">return</span> <span class="k">uint</span>((zNdc(b) - zNdc(a)) * 16777215.0);
+}
+<span class="c">// zNdc(2n) = f / (2(f - n)) ≈ 0.5: half the codes are gone by twice the near distance</span></pre>
+
+        <p class="tldr">Depth is stored as a 1/z curve, so half the codes are gone by twice the near distance and each decade further out gets a tenth as many.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="near">
+    <h2>The near plane sets everything</h2>
+    <p class="sub">Two sliders, one plot each: see how much the step at 100 m cares about the near plane, and how little it cares about the far plane.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c2" width="512" height="512" aria-label="Depth step at 100 metres as a function of near and far plane"></canvas>
+        <div class="cap"><span id="c2-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">If your scene flickers in the distance, the fix is to <b>push the near plane out</b>, not pull the far plane in. <b>Halving the near plane halves your precision everywhere.</b> Multiplying the far plane by 100 costs under 1%. <b>The far slider is close to a placebo.</b></p>
+
+        <h3>What you're seeing</h3>
+        <p>Both plots show the step size at 100 m on a D24 buffer, on log axes. The top one sweeps the near plane from 1 cm to 1 m; the bottom one sweeps the far plane from 100 m to 100 km. The white handle marks your current setting on each.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag Near from 10 cm to 1 m. The step at 50 m tile drops by 10× and the codes-below-1-m tile falls.</li>
+          <li>Drag Far across its whole range. The handle on the bottom plot rides an almost flat line.</li>
+          <li>Read the third tile: the near plane you would need for a 1 mm step at 100 m. It is 0.6 m, too far out for a first-person camera.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><label for="n2">Near <span class="val" id="n2v"></span></label><input type="range" id="n2" min="-2" max="0" step="0.01" value="-1"></div>
+          <div class="ctl"><label for="f2">Far <span class="val" id="f2v"></span></label><input type="range" id="f2" min="2" max="5" step="0.01" value="3"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t2-50">—</div><div class="l">step at 50 m, D24</div></div>
+          <div class="tile"><div class="n" id="t2-1m">—</div><div class="l">codes spent below 1 m</div></div>
+          <div class="tile"><div class="n" id="t2-need">—</div><div class="l">near needed for 1 mm at 100 m</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The step formula has n in the denominator and f only inside <code>(f − n)/f</code>, which is 0.999 for any far plane worth having. So the near plane controls the answer and the far plane is a rounding error. That is why "push the near plane out" is the first fix for z-fighting and "pull the far plane in" almost never helps.</p>
+        <p>The practical rule for a 24-bit buffer: to hold a 1 mm step at distance z you need a near plane of about <code>z² / (0.001 · 2²⁴)</code>. For 100 m that is 0.6 m, which a first-person camera cannot afford. This is the gap reverse-Z closes in the next section.</p>
+        <p class="words">In words: the step is distance squared divided by the near plane and the code count; turn it around to get the near plane you need.</p>
+        <div class="math">Δz ≈ z² / (n · 2²⁴)                 for f ≫ n
+n_needed = z² / (Δz_wanted · 2²⁴)   near plane that keeps Δz at z</div>
+        <p>z is the distance you care about, n is the near plane, Δz is the step in metres, and 2²⁴ is the code count of a 24-bit buffer.</p>
+        <p class="words">What this code does: computes metres per code at a distance, and the near plane you can afford for a wanted step.</p>
+<pre class="code"><span class="c">// metres of scene per depth code at view distance z, integer buffer</span>
+<span class="k">float</span> depthStep(<span class="k">float</span> z, <span class="k">float</span> n, <span class="k">float</span> f, <span class="k">int</span> bits) {
+  <span class="k">float</span> dzdn = z * z * (f - n) / (n * f);     <span class="c">// slope of view depth against stored depth</span>
+  <span class="k">return</span> dzdn / <span class="k">float</span>((1u &lt;&lt; bits) - 1u);
+}
+
+<span class="c">// near plane you can afford for a wanted step at distance z</span>
+<span class="k">float</span> nearFor(<span class="k">float</span> z, <span class="k">float</span> stepM, <span class="k">int</span> bits) {
+  <span class="k">return</span> z * z / (stepM * <span class="k">float</span>((1u &lt;&lt; bits) - 1u));   <span class="c">// (f - n)/f dropped: it is ~1</span>
+}</pre>
+
+        <p class="tldr">Precision scales with 1 over the near plane; the far plane is close to free.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="reverse">
+    <h2>Reverse-Z: flip it, then use floats</h2>
+    <p class="sub">Compare the stored value and the step size for standard and reverse-Z, on integer and float buffers.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c3" width="512" height="512" aria-label="Standard and reverse depth mapping, and step size for four buffer configurations"></canvas>
+        <div class="cap"><span id="c3-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">A <b>float32 packs its values tightest near zero</b>. Standard Z puts almost the whole scene near 1.0, where floats are no denser than a 24-bit integer. <b>Reverse-Z sends far objects toward 0.0</b>, where the float's tightening cancels the curve's flattening. The result is <b>steps that grow with z instead of z²</b>.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The top plot is the stored value for both conventions: blue for standard (0 at near), amber for reverse (1 at near). Each shaded band is one float32 exponent, and every band holds the same 2²³ codes, so the narrow bands near 0 are where values are dense.</p>
+        <p>The bottom plot is metres per code for four buffer setups. The amber sawtooth is float reverse-Z.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Untick D24 standard. D24 reverse was hiding underneath it on the same line. The flip does nothing for an integer buffer.</li>
+          <li>Compare the D32F std and D32F rev tiles at 100 m. Same bits, same memory, and the reverse one is far smaller.</li>
+          <li>Drag Near from 10 cm to 1 cm. The float reverse-Z curve barely moves; the integer curves get 10× worse.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><label for="n3">Near <span class="val" id="n3v"></span></label><input type="range" id="n3" min="-2" max="0" step="0.01" value="-1"></div>
+          <div class="ctl"><label for="f3">Far <span class="val" id="f3v"></span></label><input type="range" id="f3" min="2" max="4" step="0.01" value="3"></div>
+        </div>
+        <div class="chk" id="chk3">
+          <label><input type="checkbox" id="t-d24s" checked><span class="sw" style="--sw:#4aa3ff"></span>D24 standard</label>
+          <label><input type="checkbox" id="t-d24r" checked><span class="sw dash" style="--sw:#4aa3ff"></span>D24 reverse</label>
+          <label><input type="checkbox" id="t-d32s" checked><span class="sw dash" style="--sw:#f2a341"></span>D32F standard</label>
+          <label><input type="checkbox" id="t-d32r" checked><span class="sw" style="--sw:#f2a341"></span>D32F reverse</label>
+        </div>
+        <div class="tiles four">
+          <div class="tile" id="tile-d24s"><div class="n">—</div><div class="l">D24 std, 100 m</div></div>
+          <div class="tile" id="tile-d24r"><div class="n">—</div><div class="l">D24 rev, 100 m</div></div>
+          <div class="tile" id="tile-d32s"><div class="n">—</div><div class="l">D32F std, 100 m</div></div>
+          <div class="tile" id="tile-d32r"><div class="n">—</div><div class="l">D32F rev, 100 m</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>A float32 spends 8 bits on an exponent and 23 on a mantissa. The exponent picks a power-of-two band; the mantissa picks one of 2²³ evenly spaced values inside it. So every band has the same number of codes, and the bands get narrower toward 0.</p>
+        <p>Standard Z puts almost the whole scene in [0.5, 1), a single band where the spacing is 2⁻²⁴: no better than a 24-bit integer. Reverse-Z maps the far end of the scene toward 0, so the range 100 m to 1000 m alone gets four bands. The hyperbola's flattening is cancelled by the float's tightening.</p>
+        <p>On the bottom plot that is the amber sawtooth. The step halves every time the stored value crosses a power of two, and the trend is linear in z instead of quadratic. The two D24 curves lie on top of each other, because flipping 1 − z inside an integer buffer keeps the same code spacing.</p>
+        <p class="words">In words: swap what near and far map to, then the float's spacing at the stored value times the curve's slope gives the step.</p>
+        <div class="math">z_rev = n·(f − z) / (z·(f − n))          1 at near, 0 at far
+ulp(x) = 2^(⌊log₂ x⌋ − 23)                 float32 spacing at value x
+Δz(D32F rev) = ulp(z_rev) · z²·(f − n)/(n·f)   ≈ z · 2⁻²³ … z · 2⁻²⁴
+reverse projection z row: [ 0  0  n/(n − f)  −f·n/(n − f) ]   w row unchanged</div>
+        <p>z_rev is the flipped stored value, ulp(x) is the gap between a float and its neighbour at x, Δz is the step in metres, and the last line is the projection matrix row that produces the flip.</p>
+        <p>Switching costs three lines. Swap near and far in the projection, test with GREATER instead of LESS, and clear to 0.0 instead of 1.0. Then check everything that assumed "smaller is closer": the sign of depth bias, Hi-Z downsampling (a shrunken copy of the depth buffer used to skip hidden objects, which must now take the max, not the min), soft-particle and SSAO fades, and any shader that turns depth back into metres.</p>
+        <p class="words">What this code does: builds the swapped projection, optionally drops the far plane, and sets the compare and clear values on each API.</p>
+<pre class="code"><span class="c">// projection with near and far swapped: z_rev = n·(f − z) / (z·(f − n))</span>
+<span class="k">mat4</span> P = perspectiveZO(fovY, aspect, far, near);   <span class="c">// same helper, last two arguments swapped</span>
+<span class="c">// infinite far plane: z_clip = n, w_clip = z_view</span>
+P[2][2] = 0.0;  P[3][2] = near;                     <span class="c">// column-major; row-major writes P[2][3]</span>
+
+<span class="c">// D3D12</span>
+dss.DepthFunc = D3D12_COMPARISON_FUNC_GREATER;
+cmd-&gt;ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, nullptr);
+<span class="c">// Vulkan</span>
+ds.depthCompareOp = VK_COMPARE_OP_GREATER;
+clear.depthStencil = { 0.0f, 0 };
+<span class="c">// OpenGL 4.5: without this the [-1,1] to [0,1] remap throws the float precision away</span>
+glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+glDepthFunc(GL_GREATER);  glClearDepth(0.0);</pre>
+
+        <p class="tldr">Reverse-Z works because float spacing tightens toward 0 as fast as the 1/z curve flattens; it needs a float buffer to do anything.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="fight">
+    <h2>Z-fighting simulator</h2>
+    <p class="sub">Drag the camera away from a decal that sits 1 mm above a floor and watch the pixels start to fight.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c4" width="640" height="360" class="grab wide16" aria-label="Side view of a camera, floor and decal, and a 64 by 16 pixel strip showing which surface wins the depth test"></canvas>
+        <div class="cap"><span id="c4-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain"><b>Z-fighting</b> is two surfaces closer together than one depth step, so they <b>share a code and the pixels flicker</b> between them. Here a decal sits 1 mm above a floor. <b>Back the camera off and the fight starts</b> where the step size reaches 1 mm. <b>Depth bias</b> is the usual patch: nudge the decal toward the camera before the test.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The top is a side view: the eye on the left, the floor and decal on a log distance axis, and a white handle you drag to move the camera. The red dashed line marks the distance where the fight begins.</p>
+        <p>The strip below is 64×16 pixels cut from the centre of a 1920×1080 frame with a 60° field of view, tested exactly as the buffer would test them. Green means the decal won the pixel; red means both surfaces got the same code and the floor kept it.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the handle to the right until the strip goes red. The "fight starts at" tile told you the distance in advance.</li>
+          <li>Switch to D32F rev. The fight distance moves past the far plane.</li>
+          <li>Raise Grazing angle to 80°. The gap along the view axis grows and the fight starts further out. Under reverse-Z, a bias with the wrong sign moves the decal the wrong way.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><span class="lab">Buffer</span><div class="seg" id="seg4" role="group" aria-label="Depth buffer configuration"><button data-v="d24s" aria-pressed="true">D24 std</button><button data-v="d24r">D24 rev</button><button data-v="d32s">D32F std</button><button data-v="d32r">D32F rev</button></div></div>
+          <div class="ctl"><label for="a4">Grazing angle <span class="val" id="a4v"></span></label><input type="range" id="a4" min="0" max="80" step="1" value="45"></div>
+          <div class="ctl"><label for="n4">Near <span class="val" id="n4v"></span></label><input type="range" id="n4" min="-2" max="0" step="0.01" value="-1"></div>
+          <div class="ctl"><label for="bc4">Constant bias <span class="val" id="bc4v"></span></label><input type="range" id="bc4" min="0" max="8" step="0.5" value="0"></div>
+          <div class="ctl"><label for="bs4">Slope bias <span class="val" id="bs4v"></span></label><input type="range" id="bs4" min="0" max="4" step="0.25" value="0"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t4-step">—</div><div class="l">step at camera distance</div></div>
+          <div class="tile"><div class="n" id="t4-gap">—</div><div class="l">gap along the view axis</div></div>
+          <div class="tile"><div class="n" id="t4-fight">—</div><div class="l">fight starts at</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Both surfaces are rasterized, projected and quantized per pixel exactly as the buffer would store them. The floor is drawn first, the decal second with the same test. Green pixels are where the decal's code is strictly closer; red pixels are where the two codes are equal and the floor keeps the pixel. The stripes are the two 1/z curves crossing code boundaries at slightly different places.</p>
+        <p>Depth bias moves the decal before the test. The constant part is in units of the smallest step r. The slope part scales with how fast depth changes across one pixel, which is what a grazing angle does to the gap. Under reverse-Z "toward the camera" is +z, so both factors change sign, which is the most common bug when a renderer switches.</p>
+        <p class="words">In words: the bias is a slope term for tilted triangles plus a constant term counted in depth steps.</p>
+        <div class="math">bias = m · slopeFactor + r · constantFactor
+m = max(|∂z_ndc/∂x|, |∂z_ndc/∂y|)      per pixel, from the triangle's plane
+r = 2⁻²⁴ (D24)  or  ulp(max z of the triangle) (D32F)</div>
+        <p>m is the biggest change in stored depth across one pixel, r is one depth step in the current format, and the two factors are the numbers you set in the rasterizer state.</p>
+        <p class="words">What this code does: sets the two bias factors in D3D12, then shows the no-bias alternative where ties go to the decal.</p>
+<pre class="code"><span class="c">// D3D12 rasterizer state (Vulkan: depthBiasConstantFactor, depthBiasSlopeFactor, depthBiasClamp)</span>
+rs.DepthBias            = 2;      <span class="c">// × r: 2^-24 for D24, ulp(largest z in the triangle) for D32F</span>
+rs.SlopeScaledDepthBias = 1.5;    <span class="c">// × m = max(|dz/dx|, |dz/dy|) in ndc units per pixel</span>
+rs.DepthBiasClamp       = 0.0;
+<span class="c">// bias = m * SlopeScaledDepthBias + r * DepthBias, added to z before the test</span>
+<span class="c">// reverse-Z: negate both factors, or the decal moves away from the camera</span>
+
+<span class="c">// decals with no bias at all: same vertex math as the floor, then</span>
+dss.DepthFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL;   <span class="c">// ties go to the later draw</span></pre>
+
+        <p class="tldr">The fight starts where the step size reaches the gap; bias buys some distance, and a float reverse-Z buffer buys far more.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="readback">
+    <h2>Reading the buffer back</h2>
+    <p class="sub">Hover over a pixel of a live depth buffer and turn its stored value back into metres, with the right formula and the wrong one.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5" width="512" height="512" aria-label="Depth buffer image with float exponent contours, and a plot of the error from linearizing with the wrong convention"></canvas>
+        <div class="cap"><span id="c5-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Effects like ambient occlusion, fog and reflections need to <b>turn a stored depth back into a real distance</b>. That only works if you <b>use the same convention the buffer was written with</b>. Mix them up and the result looks almost right, with near and far swapped. The <b>error tile shows the buffer's precision</b> at the pixel under your cursor, measured directly.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The image is the raw stored value, brightened so reverse-Z's tiny numbers are visible. The amber contours mark where the float32 exponent changes; under reverse-Z each one is a doubling of distance.</p>
+        <p>The bottom plot compares the right formula (white) and the wrong-convention formula (red) across the whole depth range.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Hover across the scene. The linearized tile gives the distance in metres; the wrong-formula tile gives a confident, wrong number.</li>
+          <li>Switch to D32F standard. The contours collapse to one line hugging the near plane: the whole scene shares one exponent band.</li>
+          <li>Switch to reverse, f = ∞. The reconstruction error barely changes. Dropping the far plane costs almost nothing.</li>
+        </ul>
+
+        <div class="controls">
+          <div class="ctl"><span class="lab">Buffer written as</span><div class="seg" id="seg5" role="group" aria-label="Depth convention"><button data-v="std">D32F standard</button><button data-v="rev" aria-pressed="true">D32F reverse</button><button data-v="inf">reverse, f = ∞</button></div></div>
+        </div>
+        <div class="tiles four">
+          <div class="tile"><div class="n" id="t5-stored">—</div><div class="l">stored value</div></div>
+          <div class="tile"><div class="n" id="t5-lin">—</div><div class="l">linearized, right formula</div></div>
+          <div class="tile"><div class="n" id="t5-wrong">—</div><div class="l">linearized, wrong formula</div></div>
+          <div class="tile"><div class="n" id="t5-err">—</div><div class="l">reconstruction error</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The image brightens the raw value with a 0.25 power. Under reverse-Z the region between two contours has 2²³ codes to itself. Under standard Z there is one contour, hugging the near plane, and the whole scene shares a single band.</p>
+        <p>Linearizing means undoing the 1/z curve to get view depth in metres, and it needs the same convention the buffer was written with. The bottom plot shows what happens otherwise: the reverse formula applied to standard data, or the other way round, maps near to far and far to near through a curve that looks plausible for one frame. The reconstruction error tile is the true view depth minus the linearized one, which is the buffer's precision at that pixel measured directly.</p>
+        <p class="words">In words: each convention has its own formula for turning a stored value back into metres, and with an infinite far plane the reverse one collapses to n divided by the stored value.</p>
+        <div class="math">standard:   z = n·f / (f − d·(f − n))
+reverse:    z = n·f / (n + d·(f − n))
+reverse, f = ∞:   d = n / z   so   z = n / d
+infinite far, reverse:  z_clip = n,      w_clip = z_view
+infinite far, standard: z_clip = z_view − n,  w_clip = z_view</div>
+        <p>d is the stored value between 0 and 1, z is the view depth in metres, n and f are the near and far planes, and z_clip and w_clip are what the vertex shader outputs before the divide.</p>
+        <p class="words">What this code does: three one-line linearize functions, one per convention, and a helper that rebuilds a full view-space position from a pixel and its depth.</p>
+<pre class="code"><span class="k">float</span> linearStd(<span class="k">float</span> d, <span class="k">float</span> n, <span class="k">float</span> f) { <span class="k">return</span> n * f / (f - d * (f - n)); }  <span class="c">// d in [0,1], 0 = near</span>
+<span class="k">float</span> linearRev(<span class="k">float</span> d, <span class="k">float</span> n, <span class="k">float</span> f) { <span class="k">return</span> n * f / (n + d * (f - n)); }
+<span class="k">float</span> linearRevInf(<span class="k">float</span> d, <span class="k">float</span> n)      { <span class="k">return</span> n / d; }
+<span class="c">// OpenGL default [-1,1] range instead: z = 2nf / (f + n - d*(f - n))</span>
+
+<span class="k">vec3</span> viewPos(<span class="k">vec2</span> uv, <span class="k">float</span> d, <span class="k">mat4</span> invProj) {
+  <span class="k">vec4</span> ndc = <span class="k">vec4</span>(uv * 2.0 - 1.0, d, 1.0);   <span class="c">// raw buffer value, no remap on [0,1] APIs; flip uv.y for D3D</span>
+  <span class="k">vec4</span> v = invProj * ndc;
+  <span class="k">return</span> v.xyz / v.w;                          <span class="c">// the divide undoes the perspective</span>
+}</pre>
+
+        <p class="tldr">Linearize with the formula that matches how the buffer was written, or you get a plausible picture with near and far swapped.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">Step sizes for near 0.1 m and far 1000 m. Memory is for a 1920×1080 frame; bandwidth figures are estimates.</p>
+    <p class="plain">How to read this: each row is one way to set up the depth buffer. The three step columns are the <b>smallest distance the buffer can tell apart</b> at 1, 100 and 1000 m, computed live from the formulas above, and <b>smaller is better</b>. You're choosing between memory, whether you get a stencil byte, and <b>how far out z-fighting starts</b>.</p>
+    <div class="tbl-wrap">
+    <table class="uses trade">
+      <thead><tr><th>Buffer</th><th>Bytes per pixel · memory at 1080p</th><th>Step at 1 m</th><th>Step at 100 m</th><th>Step at 1000 m</th><th>What goes wrong</th><th>Pick it when</th></tr></thead>
+      <tbody>
+        <tr><td>D16 standard</td><td class="num">2 · 4.1 MB</td><td class="num" id="tr-d16-1"></td><td class="num" id="tr-d16-100"></td><td class="num" id="tr-d16-1000"></td><td>Fights a few metres out. Needs the near plane pushed to 1 m or more.</td><td>Small shadow maps, 2.5D, UI, old mobile GPUs.</td></tr>
+        <tr><td>D24S8 standard</td><td class="num">4 · 8.3 MB</td><td class="num" id="tr-d24-1"></td><td class="num" id="tr-d24-100"></td><td class="num" id="tr-d24-1000"></td><td>Millimetre-scale fights from about 50 m with a 0.1 m near plane.</td><td>The historical default. You need stencil and have no float depth.</td></tr>
+        <tr><td>D24S8 reverse</td><td class="num">4 · 8.3 MB</td><td class="num" id="tr-d24r-1"></td><td class="num" id="tr-d24r-100"></td><td class="num" id="tr-d24r-1000"></td><td>Same steps as standard. The flip alone buys nothing on an integer format.</td><td>Only as a step toward D32F, so the compare ops are already right.</td></tr>
+        <tr><td>D32F standard</td><td class="num">4 · 8.3 MB</td><td class="num" id="tr-d32s-1"></td><td class="num" id="tr-d32s-100"></td><td class="num" id="tr-d32s-1000"></td><td>The scene sits in [0.5, 1): one exponent band, spacing 2⁻²⁴, no gain over D24.</td><td>Never on purpose.</td></tr>
+        <tr><td>D32F reverse</td><td class="num">4 · 8.3 MB</td><td class="num" id="tr-d32r-1"></td><td class="num" id="tr-d32r-100"></td><td class="num" id="tr-d32r-1000"></td><td>Roughly z · 2⁻²³: no visible fights inside 10 km. Needs a [0,1] clip range (glClipControl on GL).</td><td>The default for anything with a perspective camera.</td></tr>
+        <tr><td>D32F reverse, f = ∞</td><td class="num">4 · 8.3 MB</td><td class="num" id="tr-inf-1"></td><td class="num" id="tr-inf-100"></td><td class="num" id="tr-inf-1000"></td><td>Within a factor of 2 of finite reverse at any distance. Nothing is far-clipped, so the sky must be drawn at d = 0 with GREATER_EQUAL.</td><td>Open worlds, space, anything where a far plane is a lie.</td></tr>
+        <tr><td>D32F + S8 reverse</td><td class="num">8 · 16.6 MB (typ.)</td><td class="num" id="tr-d32s8-1"></td><td class="num" id="tr-d32s8-100"></td><td class="num" id="tr-d32s8-1000"></td><td>Same steps as D32F. The stencil byte is usually padded out to a second plane, so the footprint doubles (estimate; varies by GPU).</td><td>Reverse-Z plus stencil, for deferred light volumes or portals.</td></tr>
+        <tr><td>Logarithmic depth</td><td class="num">any format</td><td class="num" id="tr-log-1"></td><td class="num" id="tr-log-100"></td><td class="num" id="tr-log-1000"></td><td>Constant relative step, but writing gl_FragDepth turns off early-Z and Hi-Z rejection. The vertex-shader variant interpolates wrongly on large near triangles.</td><td>Planetary scale on hardware without float depth.</td></tr>
+        <tr><td>W-buffer (historical)</td><td class="num">D16 / D24</td><td class="num" id="tr-w-1"></td><td class="num" id="tr-w-100"></td><td class="num" id="tr-w-1000"></td><td>Stores view depth as a straight line, so the step is the same everywhere and wasteful up close. A fixed-function Direct3D option that hardware stopped supporting.</td><td>Nowhere today. Reverse-Z float gives the same evenness for free.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">Logarithmic depth writes <code>log2(1 + w) / log2(1 + f)</code>, which gives a constant relative error the way reverse-Z float does. The catch is where it is written. A depth written in the fragment shader cannot be tested before shading, so those draws lose the early-Z and hierarchical-Z rejection that saves most of a frame's overdraw.</p>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">The same three-line switch, and the shader work that follows it.</p>
+    <p class="plain">How to read this: each row is one place the depth convention <b>leaks into a real engine</b>. The second column says what the code has to do, the third what data it needs, and the last <b>where you can see it shipped</b>.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Use</th><th>What the code has to do</th><th>Data it needs</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>Reverse-Z as the default</td><td>GREATER test against a float depth cleared to 0, with near and far swapped in the projection.</td><td>D32F or D32F+S8 target, [0,1] clip range</td><td>Unreal Engine 4 and 5, Unity HDRP and URP on platforms that report a reversed Z buffer, Frostbite, many engines</td></tr>
+        <tr><td>Infinite far plane</td><td>A projection with z_clip = n so nothing is far-clipped; reverse-Z keeps the precision.</td><td>Reverse-Z float depth</td><td>Unreal Engine, many open-world renderers</td></tr>
+        <tr><td>Planet-scale depth</td><td>Logarithmic depth written per fragment, or the scene split across near and far cameras with separate buffers.</td><td>Any depth format, a fragment depth write or two passes</td><td>Outerra (logarithmic depth, 2012 blog posts); Kerbal Space Program (camera split)</td></tr>
+        <tr><td>Decals and shadow maps</td><td>Slope-scaled depth bias so flat-on-flat geometry and shadow lookups do not cut into themselves.</td><td>Rasterizer bias state, sign flipped under reverse-Z</td><td>Every engine with shadow maps</td></tr>
+        <tr><td>Depth reconstruction</td><td>Linearize the buffer and multiply by the inverse projection to get a view-space position for SSAO, SSR, deferred lighting and fog.</td><td>Depth buffer, inverse projection, the right convention</td><td>Every deferred or screen-space effect; Unity HDRP, Unreal</td></tr>
+        <tr><td>Hierarchical-Z culling</td><td>Downsample depth with max instead of min under reverse-Z, then test bounding boxes against the pyramid.</td><td>Mip chain of the previous frame's depth</td><td>Unreal Engine 5 Nanite occlusion culling, many GPU-driven renderers</td></tr>
+        <tr><td>The reference write-ups</td><td>Plots of code density against distance for every convention and format.</td><td>The formulas on this page</td><td>Nathan Reed, "Depth Precision Visualized" (2015); Upchurch and Desbrun, "Tightening the Precision of Perspective Rendering" (JGT 2012)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">The trap: reverse-Z only pays off with a floating-point buffer. On a 24-bit integer format, 1 − z quantized to 2²⁴ codes has exactly the same spacing as z, so flipping the compare op and clear value while keeping D24S8 changes almost nothing. Change the format to D32F first; the flipped test is what makes that format useful.</p>
+  </section>
+</div>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const P24 = 16777215;
+  const AMB = "#f2a341", BLU = "#4aa3ff", WHT = "#ffffff", GRN = "#5ad48a", RED = "#ef5d5d";
+  const GRID = "rgba(255,255,255,0.12)", DIM = "rgba(255,255,255,0.5)", GND = "#0b0e13";
+  const MONO = '11px "IBM Plex Mono", Menlo, Consolas, monospace';
+  const log10 = Math.log10;
+
+  // ---------- depth math (z_ndc in [0,1], 0 at near) ----------
+  function ndcStd(z, n, f) { return f * (z - n) / (z * (f - n)); }
+  function ndcRev(z, n, f) { return n * (f - z) / (z * (f - n)); }
+  function linStd(d, n, f) { return n * f / (f - d * (f - n)); }
+  function linRev(d, n, f) { return n * f / (n + d * (f - n)); }
+  function jac(z, n, f) { return z * z * (f - n) / (n * f); } // |dz_view / dz_ndc|
+  function ulp32(x) { x = Math.abs(x); if (x === 0) return 2 ** -149; return 2 ** (Math.max(Math.floor(Math.log2(x)), -126) - 23); }
+  const CFG = {
+    d24s: { name: "D24 standard", bits: 24, rev: false, col: BLU, dash: [] },
+    d24r: { name: "D24 reverse", bits: 24, rev: true, col: BLU, dash: [6, 5] },
+    d32s: { name: "D32F standard", bits: 32, rev: false, col: AMB, dash: [6, 5] },
+    d32r: { name: "D32F reverse", bits: 32, rev: true, col: AMB, dash: [] },
+  };
+  function stored(cfg, z, n, f) { return cfg.rev ? ndcRev(z, n, f) : ndcStd(z, n, f); }
+  function quant(cfg, d) {
+    if (cfg.bits === 32) return Math.fround(d);
+    const codes = 2 ** cfg.bits - 1; return Math.round(d * codes) / codes;
+  }
+  function stepAt(cfg, z, n, f) {
+    const J = jac(z, n, f);
+    if (cfg.bits !== 32) return J / (2 ** cfg.bits - 1);
+    return ulp32(stored(cfg, z, n, f)) * J;
+  }
+
+  // ---------- formatting ----------
+  function fmtM(m) {
+    if (!isFinite(m)) return "—";
+    if (m >= 1000) return (m / 1000).toFixed(m >= 10000 ? 0 : 1) + " km";
+    if (m >= 1) return m.toFixed(m >= 100 ? 0 : 2) + " m";
+    if (m >= 0.01) return (m * 100).toFixed(2) + " cm";
+    if (m >= 1e-3) return (m * 1e3).toFixed(2) + " mm";
+    if (m >= 1e-6) return (m * 1e6).toFixed(2) + " µm";
+    return (m * 1e9).toFixed(1) + " nm";
+  }
+  function fmtTick(v) {
+    if (v >= 1000) return Math.round(v / 1000) + " km";
+    if (v >= 1) return Math.round(v) + " m";
+    if (v >= 0.01) return Math.round(v * 100) + " cm";
+    if (v >= 1e-3) return Math.round(v * 1e3) + " mm";
+    if (v >= 1e-6) return Math.round(v * 1e6) + " µm";
+    return Math.round(v * 1e9) + " nm";
+  }
+  function fmtCount(c) { return c >= 1e6 ? (c / 1e6).toFixed(2) + "M" : c >= 1e3 ? (c / 1e3).toFixed(1) + "k" : String(c); }
+  function fmtPct(p) { return p >= 10 ? p.toFixed(1) + "%" : p >= 0.1 ? p.toFixed(2) + "%" : p.toFixed(4) + "%"; }
+
+  // ---------- plot helper ----------
+  function plot(ctx, r, xa, ya) {
+    const lx = v => xa.log ? log10(v) : v, ly = v => ya.log ? log10(v) : v;
+    const x0 = lx(xa.min), x1 = lx(xa.max), y0 = ly(ya.min), y1 = ly(ya.max);
+    const fx = v => r.x + (lx(v) - x0) / (x1 - x0) * r.w;
+    const fy = v => r.y + r.h - (ly(v) - y0) / (y1 - y0) * r.h;
+    const ix = px => { const t = x0 + (px - r.x) / r.w * (x1 - x0); return xa.log ? 10 ** t : t; };
+    function ticks(a) {
+      const out = [];
+      if (a.log) { const e0 = Math.ceil(log10(a.min) - 1e-9), e1 = Math.floor(log10(a.max) + 1e-9); for (let e = e0; e <= e1; e++) out.push({ v: 10 ** e, l: (a.fmt || fmtTick)(10 ** e) }); }
+      else { const k = a.ticks || 4; for (let i = 0; i <= k; i++) { const v = a.min + (a.max - a.min) * i / k; out.push({ v, l: (a.fmt || (x => String(+x.toFixed(3))))(v) }); } }
+      return out;
+    }
+    function frame() {
+      ctx.save(); ctx.font = MONO; ctx.lineWidth = 1; ctx.strokeStyle = GRID; ctx.fillStyle = DIM;
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      const xt = ticks(xa);
+      xt.forEach((t, i) => { const px = Math.round(fx(t.v)) + 0.5; ctx.beginPath(); ctx.moveTo(px, r.y); ctx.lineTo(px, r.y + r.h); ctx.stroke(); if (!xa.skip || i % xa.skip === 0) ctx.fillText(t.l, px, r.y + r.h + 4); });
+      ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      const yt = ticks(ya);
+      yt.forEach((t, i) => { const py = Math.round(fy(t.v)) + 0.5; ctx.beginPath(); ctx.moveTo(r.x, py); ctx.lineTo(r.x + r.w, py); ctx.stroke(); if (!ya.skip || i % ya.skip === 0) ctx.fillText(t.l, r.x - 5, py); });
+      ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w, r.h);
+      ctx.restore();
+    }
+    function curve(fn, col, dash, N) {
+      N = N || 240;
+      ctx.save(); ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip();
+      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash(dash || []); ctx.beginPath(); let pen = false;
+      for (let i = 0; i <= N; i++) {
+        const x = ix(r.x + r.w * i / N), y = fn(x);
+        if (!isFinite(y) || (ya.log && y <= 0)) { pen = false; continue; }
+        const px = fx(x), py = Math.max(r.y - 4, Math.min(r.y + r.h + 4, fy(y)));
+        if (pen) ctx.lineTo(px, py); else ctx.moveTo(px, py); pen = true;
+      }
+      ctx.stroke(); ctx.restore();
+    }
+    function shade(a, b) { // dim the region outside [a, b]
+      ctx.save(); ctx.fillStyle = "rgba(255,255,255,0.06)";
+      const pa = Math.max(r.x, Math.min(r.x + r.w, fx(a))), pb = Math.max(r.x, Math.min(r.x + r.w, fx(b)));
+      ctx.fillRect(r.x, r.y, pa - r.x, r.h); ctx.fillRect(pb, r.y, r.x + r.w - pb, r.h); ctx.restore();
+    }
+    return { fx, fy, ix, frame, curve, shade, r };
+  }
+  function text(ctx, s, x, y, col, align, base) { ctx.save(); ctx.font = MONO; ctx.fillStyle = col || DIM; ctx.textAlign = align || "left"; ctx.textBaseline = base || "top"; ctx.fillText(s, x, y); ctx.restore(); }
+  function dot(ctx, x, y, col, rad) { ctx.beginPath(); ctx.arc(x, y, rad || 4, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill(); }
+  function handle(ctx, x, y, rad) { ctx.beginPath(); ctx.arc(x, y, rad || 7, 0, Math.PI * 2); ctx.fillStyle = WHT; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = GND; ctx.stroke(); }
+  function clear(ctx, w, h) { ctx.setLineDash([]); ctx.fillStyle = GND; ctx.fillRect(0, 0, w, h); }
+
+  // ---------- controls ----------
+  function logSlider(id, obj, key, cb) {
+    const el = $(id), out = $(id + "v");
+    const upd = () => { obj[key] = 10 ** +el.value; out.textContent = fmtM(obj[key]); };
+    el.addEventListener("input", () => { upd(); cb(); }); upd();
+  }
+  function linSlider(id, obj, key, fmt, cb) {
+    const el = $(id), out = $(id + "v");
+    const upd = () => { obj[key] = +el.value; out.textContent = fmt(obj[key]); };
+    el.addEventListener("input", () => { upd(); cb(); }); upd();
+  }
+  function seg(id, obj, key, cb, parse) {
+    const el = $(id);
+    el.addEventListener("click", ev => {
+      const b = ev.target.closest("button"); if (!b) return;
+      obj[key] = parse ? parse(b.dataset.v) : b.dataset.v;
+      el.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+      cb();
+    });
+  }
+  function canvasPos(canvas, ev) {
+    const r = canvas.getBoundingClientRect();
+    return [(ev.clientX - r.left) / r.width * canvas.width, (ev.clientY - r.top) / r.height * canvas.height];
+  }
+  function throttle(fn) { let pending = false; return () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; fn(); }); }; }
+
+  // ================= 1. where the codes go =================
+  const c1 = $("c1"), x1 = c1.getContext("2d");
+  const s1 = { n: 0.1, f: 1000, bits: 24 };
+  const DEC = [[0.01, 0.1], [0.1, 1], [1, 10], [10, 100], [100, 1000], [1000, 10000]];
+  function draw1() {
+    const { n, f, bits } = s1, codes = 2 ** bits - 1, cfg = { bits, rev: false };
+    clear(x1, 512, 512);
+    const P = plot(x1, { x: 50, y: 24, w: 446, h: 200 }, { min: 0.01, max: 10000, log: true }, { min: 0, max: 1, ticks: 4, fmt: v => v.toFixed(2) });
+    P.frame(); P.shade(n, f);
+    P.curve(z => (z < n || z > f) ? NaN : ndcStd(z, n, f), BLU, [], 400);
+    for (const z of [1, 10, 100, 1000]) if (z >= n && z <= f) {
+      const px = P.fx(z), py = P.fy(ndcStd(z, n, f));
+      dot(x1, px, py, WHT, 3.5);
+      text(x1, fmtM(stepAt(cfg, z, n, f)), px, py + 8, WHT, "center", "top");
+    }
+    text(x1, "stored depth z_ndc against view distance", P.r.x, 6, DIM);
+    text(x1, "half of all codes", P.fx(2 * n) + 5, P.fy(0.5) - 6, DIM, "left", "bottom");
+    x1.setLineDash([3, 4]); x1.strokeStyle = "rgba(255,255,255,0.35)"; x1.beginPath(); x1.moveTo(P.fx(2 * n), P.fy(0.5)); x1.lineTo(P.fx(2 * n), P.r.y + P.r.h); x1.moveTo(P.r.x, P.fy(0.5)); x1.lineTo(P.fx(2 * n), P.fy(0.5)); x1.stroke(); x1.setLineDash([]);
+
+    // histogram: codes per decade, bar height on a log scale
+    const H = { x: 50, y: 306, w: 446, h: 154 }, bw = H.w / DEC.length;
+    text(x1, `codes per decade of distance, ${bits}-bit buffer (bar height is log scale)`, H.x, 262, DIM);
+    x1.strokeStyle = GRID; x1.lineWidth = 1;
+    for (let e = 0; e <= log10(codes); e += 2) { const py = Math.round(H.y + H.h - e / log10(codes) * H.h * 0.86) + 0.5; x1.beginPath(); x1.moveTo(H.x, py); x1.lineTo(H.x + H.w, py); x1.stroke(); text(x1, e === 0 ? "1" : "10^" + e, H.x - 5, py, DIM, "right", "middle"); }
+    DEC.forEach(([a, b], i) => {
+      const lo = Math.max(a, n), hi = Math.min(b, f);
+      const cnt = hi > lo ? Math.max(0, Math.round(codes * (ndcStd(hi, n, f) - ndcStd(lo, n, f)))) : 0;
+      const hgt = cnt > 0 ? Math.max(2, log10(cnt) / log10(codes) * H.h * 0.86) : 0;
+      const bx = H.x + i * bw + 8, by = H.y + H.h - hgt;
+      x1.fillStyle = cnt > 0 ? BLU : "rgba(255,255,255,0.08)"; x1.fillRect(bx, by, bw - 16, hgt);
+      text(x1, cnt > 0 ? fmtCount(cnt) : "none", bx + (bw - 16) / 2, by - 14, WHT, "center", "top");
+      if (cnt > 0) text(x1, fmtPct(100 * cnt / codes), bx + (bw - 16) / 2, by - 26, DIM, "center", "top");
+      text(x1, fmtTick(a) + "–" + fmtTick(b), bx + (bw - 16) / 2, H.y + H.h + 5, DIM, "center", "top");
+    });
+    for (const z of [1, 10, 100, 1000]) $("t1-" + z).textContent = (z >= n && z <= f) ? fmtM(stepAt(cfg, z, n, f)) : "outside";
+    $("c1-cap").innerHTML = `near <strong>${fmtM(n)}</strong> · far <strong>${fmtM(f)}</strong> · ${codes.toLocaleString("en-US")} codes · half of them below <strong>${fmtM(2 * n)}</strong>`;
+  }
+  logSlider("n1", s1, "n", draw1); logSlider("f1", s1, "f", draw1);
+  seg("seg1", s1, "bits", draw1, v => +v);
+  draw1();
+
+  // ================= 2. near plane sensitivity =================
+  const c2 = $("c2"), x2 = c2.getContext("2d");
+  const s2 = { n: 0.1, f: 1000 };
+  function draw2() {
+    const { n, f } = s2, D24 = CFG.d24s;
+    clear(x2, 512, 512);
+    const ya = { min: 1e-5, max: 1, log: true };
+    const A = plot(x2, { x: 60, y: 24, w: 436, h: 180 }, { min: 0.01, max: 1, log: true }, ya);
+    A.frame(); A.curve(nn => stepAt(D24, 100, nn, f), BLU);
+    const sN = stepAt(D24, 100, n, f);
+    handle(x2, A.fx(n), A.fy(sN), 5);
+    text(x2, `near ${fmtM(n)} → ${fmtM(sN)} at 100 m`, A.fx(n) + (n > 0.15 ? -10 : 10), A.fy(sN) - 10, WHT, n > 0.15 ? "right" : "left", "bottom");
+    text(x2, `step at 100 m against near plane, far = ${fmtM(f)}`, A.r.x, 6, DIM);
+    const B = plot(x2, { x: 60, y: 286, w: 436, h: 180 }, { min: 100, max: 1e5, log: true }, ya);
+    B.frame(); B.curve(ff => stepAt(D24, 100, n, ff), BLU);
+    handle(x2, B.fx(f), B.fy(sN), 5);
+    text(x2, `far ${fmtM(f)} → ${fmtM(sN)} at 100 m`, B.fx(f) + (f > 3000 ? -10 : 10), B.fy(sN) - 10, WHT, f > 3000 ? "right" : "left", "bottom");
+    text(x2, `step at 100 m against far plane, near = ${fmtM(n)}`, B.r.x, 268, DIM);
+    const s50 = stepAt(D24, 50, n, f);
+    $("t2-50").textContent = (s50 * 100).toFixed(s50 * 100 >= 1 ? 2 : 3) + " cm";
+    $("t2-1m").textContent = n < 1 ? fmtPct(100 * ndcStd(Math.min(1, f), n, f)) : "0%";
+    $("t2-need").textContent = fmtM(100 * 100 / (0.001 * P24));
+    $("c2-cap").innerHTML = `D24, near <strong>${fmtM(n)}</strong>, far <strong>${fmtM(f)}</strong> · step at 50 m <strong>${fmtM(s50)}</strong> · at 100 m <strong>${fmtM(sN)}</strong>`;
+  }
+  logSlider("n2", s2, "n", draw2); logSlider("f2", s2, "f", draw2);
+  draw2();
+
+  // ================= 3. reverse-Z with float =================
+  const c3 = $("c3"), x3 = c3.getContext("2d");
+  const s3 = { n: 0.1, f: 1000 };
+  function draw3() {
+    const { n, f } = s3;
+    clear(x3, 512, 512);
+    const T = plot(x3, { x: 50, y: 22, w: 446, h: 124 }, { min: 0.01, max: 10000, log: true }, { min: 0, max: 1, ticks: 2, fmt: v => v.toFixed(1) });
+    for (let k = 0; k < 24; k++) {
+      const hi = 2 ** -k, lo = 2 ** -(k + 1);
+      x3.fillStyle = k % 2 ? "rgba(242,163,65,0.05)" : "rgba(242,163,65,0.14)";
+      x3.fillRect(T.r.x, T.fy(hi), T.r.w, Math.max(1, T.fy(lo) - T.fy(hi)));
+    }
+    T.frame(); T.shade(n, f);
+    const inR = z => z >= n && z <= f;
+    T.curve(z => inR(z) ? ndcStd(z, n, f) : NaN, BLU, [], 400);
+    T.curve(z => inR(z) ? ndcRev(z, n, f) : NaN, AMB, [], 400);
+    text(x3, "stored value; each shaded band is one float32 exponent, 2^23 codes", T.r.x, 5, DIM);
+    const S = plot(x3, { x: 50, y: 200, w: 446, h: 262 }, { min: 0.01, max: 10000, log: true }, { min: 1e-9, max: 10, log: true, skip: 2 });
+    S.frame(); S.shade(n, f);
+    for (const id in CFG) if ($("t-" + id).checked) { const c = CFG[id]; S.curve(z => inR(z) ? stepAt(c, z, n, f) : NaN, c.col, c.dash, 700); }
+    text(x3, "metres per depth code against view distance", S.r.x, 182, DIM);
+    let best = null;
+    for (const id in CFG) {
+      const v = stepAt(CFG[id], 100, n, f);
+      $("tile-" + id).querySelector(".n").textContent = (100 >= n && 100 <= f) ? fmtM(v) : "outside";
+      if (!best || v < best.v) best = { id, v };
+    }
+    for (const id in CFG) $("tile-" + id).classList.toggle("on", best && best.id === id);
+    const a = stepAt(CFG.d24s, 100, n, f), b = stepAt(CFG.d32r, 100, n, f);
+    $("c3-cap").innerHTML = `at 100 m: D24 <strong>${fmtM(a)}</strong> · D32F reverse <strong>${fmtM(b)}</strong> · <strong>${(a / b).toFixed(0)}×</strong> finer`;
+  }
+  logSlider("n3", s3, "n", draw3); logSlider("f3", s3, "f", draw3);
+  $("chk3").addEventListener("change", draw3);
+  draw3();
+
+  // ================= 4. z-fighting simulator =================
+  const c4 = $("c4"), x4 = c4.getContext("2d");
+  const s4 = { D: 55, alpha: 45, n: 0.1, f: 1000, cfg: "d24s", bc: 0, bs: 0 };
+  const STRIP_W = 64, STRIP_H = 16, DPX = 2 * Math.tan(Math.PI / 6) / 1920; // ndc-ish slope per pixel, 60° hfov
+  const PSI = 25 * Math.PI / 180, CP = Math.cos(PSI), SP = Math.sin(PSI);
+  const img4 = new ImageData(STRIP_W, STRIP_H), off4 = document.createElement("canvas"); off4.width = STRIP_W; off4.height = STRIP_H;
+  const AX4 = { x: 80, w: 530, y: 118 };
+  const ax4 = plot(x4, { x: AX4.x, y: 30, w: AX4.w, h: 150 }, { min: 1, max: 10000, log: true }, { min: 0, max: 1 });
+  function draw4() {
+    const { D, n, f, bc, bs } = s4, cfg = CFG[s4.cfg], al = s4.alpha * Math.PI / 180;
+    const ta = Math.tan(al), ca = Math.cos(al), gap = 0.001 / ca; // gap along the view axis at the strip centre
+    clear(x4, 640, 360);
+    // per-pixel depth of floor and decal, quantized like the buffer would
+    const zf = (i, j) => { const s = CP * (i - 31.5) * DPX + SP * (j - 7.5) * DPX; return D / (1 - ta * s); };
+    const dF = (i, j) => stored(cfg, zf(i, j), n, f);
+    const dD = (i, j) => stored(cfg, zf(i, j) * (1 - gap / D), n, f);
+    let pass = 0; const p = img4.data;
+    for (let j = 0; j < STRIP_H; j++) for (let i = 0; i < STRIP_W; i++) {
+      const qF = quant(cfg, dF(i, j));
+      const d0 = dD(i, j);
+      const m = Math.max(Math.abs(dD(i + 1, j) - d0), Math.abs(dD(i, j + 1) - d0));
+      const r = cfg.bits === 32 ? ulp32(d0) : 1 / P24;
+      const bias = bs * m + bc * r;
+      const qD = quant(cfg, d0 + (cfg.rev ? bias : -bias));
+      const ok = cfg.rev ? qD > qF : qD < qF;
+      if (ok) pass++;
+      const o = (j * STRIP_W + i) * 4;
+      if (ok) { p[o] = 90; p[o + 1] = 212; p[o + 2] = 138; } else { p[o] = 239; p[o + 1] = 93; p[o + 2] = 93; }
+      p[o + 3] = 255;
+    }
+    // fight onset: first distance where the step reaches the gap (no bias)
+    let Df = NaN;
+    for (let z = 1; z <= f; z *= 1.01) if (stepAt(cfg, z, n, f) >= gap) { Df = z; break; }
+    // side view
+    x4.strokeStyle = "rgba(255,255,255,0.28)"; x4.lineWidth = 1; x4.beginPath(); x4.moveTo(AX4.x, AX4.y + 0.5); x4.lineTo(AX4.x + AX4.w, AX4.y + 0.5); x4.stroke();
+    for (let e = 0; e <= 4; e++) { const px = Math.round(ax4.fx(10 ** e)) + 0.5; x4.strokeStyle = GRID; x4.beginPath(); x4.moveTo(px, AX4.y - 6); x4.lineTo(px, AX4.y + 6); x4.stroke(); text(x4, fmtTick(10 ** e), px, AX4.y + 12, DIM, "center", "top"); }
+    text(x4, "camera distance to the decal (log) · drag the handle", AX4.x, 8, DIM);
+    text(x4, "white = floor · green = decal 1 mm above it (offset exaggerated) · red = fight onset", AX4.x, 22, DIM);
+    // camera glyph
+    x4.fillStyle = WHT; x4.beginPath(); x4.moveTo(40, AX4.y); x4.lineTo(20, AX4.y - 12); x4.lineTo(20, AX4.y + 12); x4.closePath(); x4.fill();
+    x4.fillRect(8, AX4.y - 8, 12, 16);
+    text(x4, "eye", 26, AX4.y + 16, DIM, "center", "top");
+    const hx = ax4.fx(D), ux = Math.sin(al), uy = Math.cos(al), L = 34;
+    x4.strokeStyle = "rgba(255,255,255,0.22)"; x4.setLineDash([3, 4]); x4.beginPath(); x4.moveTo(40, AX4.y); x4.lineTo(hx - ux * L, AX4.y - uy * L); x4.moveTo(40, AX4.y); x4.lineTo(hx + ux * L, AX4.y + uy * L); x4.stroke(); x4.setLineDash([]);
+    x4.strokeStyle = "rgba(255,255,255,0.7)"; x4.lineWidth = 3; x4.beginPath(); x4.moveTo(hx - ux * L, AX4.y - uy * L); x4.lineTo(hx + ux * L, AX4.y + uy * L); x4.stroke();
+    const nx = -uy * 7, ny = ux * 7; // decal, offset toward the camera (not to scale)
+    x4.strokeStyle = GRN; x4.lineWidth = 2; x4.beginPath(); x4.moveTo(hx - ux * L * 0.7 + nx, AX4.y - uy * L * 0.7 + ny); x4.lineTo(hx + ux * L * 0.7 + nx, AX4.y + uy * L * 0.7 + ny); x4.stroke();
+    if (isFinite(Df) && Df >= 1) {
+      const fx = Math.round(ax4.fx(Df)) + 0.5;
+      x4.strokeStyle = RED; x4.setLineDash([4, 4]); x4.lineWidth = 1; x4.beginPath(); x4.moveTo(fx, 52); x4.lineTo(fx, AX4.y + 30); x4.stroke(); x4.setLineDash([]);
+      text(x4, "fight from " + fmtM(Df), fx + (Df > 2000 ? -5 : 5), 40, RED, Df > 2000 ? "right" : "left", "top");
+    }
+    handle(x4, hx, AX4.y, 8);
+    text(x4, "camera at " + fmtM(D), hx, AX4.y + 30, WHT, "center", "top");
+    // strip
+    off4.getContext("2d").putImageData(img4, 0, 0);
+    x4.imageSmoothingEnabled = false; x4.drawImage(off4, 0, 195, 640, 160);
+    x4.strokeStyle = "rgba(255,255,255,0.28)"; x4.lineWidth = 1; x4.strokeRect(0.5, 195.5, 639, 159);
+    text(x4, `64×16 px strip at ${fmtM(D)} · ${cfg.name} · decal passes in ${pass} of ${STRIP_W * STRIP_H} px`, 8, 180, DIM, "left", "bottom");
+    const stp = stepAt(cfg, D, n, f);
+    $("t4-step").textContent = fmtM(stp);
+    $("t4-gap").textContent = fmtM(gap);
+    $("t4-fight").textContent = isFinite(Df) ? fmtM(Df) : "past far (" + fmtM(f) + ")";
+    $("c4-cap").innerHTML = `${cfg.name} · near ${fmtM(n)} · camera at <strong>${fmtM(D)}</strong> · step <strong>${fmtM(stp)}</strong> vs gap <strong>${fmtM(gap)}</strong> · decal wins <strong>${(100 * pass / (STRIP_W * STRIP_H)).toFixed(1)}%</strong>`;
+  }
+  const req4 = throttle(draw4);
+  let drag4 = false;
+  c4.addEventListener("pointerdown", ev => {
+    const [px, py] = canvasPos(c4, ev);
+    if (Math.abs(py - AX4.y) < 40 && py < 190) { drag4 = true; c4.setPointerCapture(ev.pointerId); s4.D = Math.max(1, Math.min(s4.f * 0.99, ax4.ix(px))); req4(); }
+  });
+  c4.addEventListener("pointermove", ev => { if (!drag4) return; const [px] = canvasPos(c4, ev); s4.D = Math.max(1, Math.min(s4.f * 0.99, ax4.ix(px))); req4(); });
+  const end4 = ev => { if (drag4) { drag4 = false; try { c4.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+  c4.addEventListener("pointerup", end4); c4.addEventListener("pointercancel", end4);
+  seg("seg4", s4, "cfg", draw4);
+  linSlider("a4", s4, "alpha", v => v + "°", draw4);
+  logSlider("n4", s4, "n", draw4);
+  linSlider("bc4", s4, "bc", v => v.toFixed(1) + " × r", draw4);
+  linSlider("bs4", s4, "bs", v => v.toFixed(2) + " × m", draw4);
+  draw4();
+
+  // ================= 5. reading the buffer back =================
+  const c5 = $("c5"), x5 = c5.getContext("2d");
+  const s5 = { cfg: "rev", n: 0.1, f: 1000, hover: [80, 58] };
+  const RW = 160, RH = 90, TANH = Math.tan(Math.PI / 6), TANV = TANH * RH / RW;
+  const SPH = [[-2.2, -0.6, 6, 0.9], [1.8, 0.2, 12, 1.6], [-0.5, 0, 45, 1.5], [6, 9, 300, 26]];
+  const zTrue = new Float64Array(RW * RH);
+  for (let j = 0; j < RH; j++) for (let i = 0; i < RW; i++) {
+    const dx = ((i + 0.5) / RW * 2 - 1) * TANH, dy = (1 - (j + 0.5) / RH * 2) * TANV;
+    let t = Infinity;
+    if (dy < 0) t = -1.5 / dy; // floor at y = -1.5 m
+    const a = dx * dx + dy * dy + 1;
+    for (const [cx, cy, cz, r] of SPH) {
+      const b = -2 * (dx * cx + dy * cy + cz), c0 = cx * cx + cy * cy + cz * cz - r * r, disc = b * b - 4 * a * c0;
+      if (disc > 0) { const tt = (-b - Math.sqrt(disc)) / (2 * a); if (tt > 0 && tt < t) t = tt; }
+    }
+    zTrue[j * RW + i] = t; // view depth is t because the ray direction has z = 1
+  }
+  const img5 = new ImageData(RW, RH), off5 = document.createElement("canvas"); off5.width = RW; off5.height = RH;
+  const st5 = new Float32Array(RW * RH);
+  function store5(z) {
+    const { n, f, cfg } = s5;
+    if (!isFinite(z)) return cfg === "std" ? 1 : 0;
+    if (cfg === "std") return Math.fround(ndcStd(z, n, f));
+    if (cfg === "rev") return Math.fround(ndcRev(z, n, f));
+    return Math.fround(n / z);
+  }
+  function lin5(d, right) {
+    const { n, f, cfg } = s5;
+    if (cfg === "std") return right ? linStd(d, n, f) : linRev(d, n, f);
+    if (cfg === "rev") return right ? linRev(d, n, f) : linStd(d, n, f);
+    return right ? n / d : linStd(d, n, f);
+  }
+  function build5() {
+    const p = img5.data;
+    for (let k = 0; k < RW * RH; k++) st5[k] = store5(zTrue[k]);
+    for (let j = 0; j < RH; j++) for (let i = 0; i < RW; i++) {
+      const k = j * RW + i, d = st5[k], v = Math.round(255 * Math.pow(d, 0.25));
+      const e = d > 0 ? Math.floor(Math.log2(d)) : -200;
+      const eL = i > 0 && st5[k - 1] > 0 ? Math.floor(Math.log2(st5[k - 1])) : e;
+      const eU = j > 0 && st5[k - RW] > 0 ? Math.floor(Math.log2(st5[k - RW])) : e;
+      const o = k * 4;
+      if (e !== eL || e !== eU) { p[o] = 242; p[o + 1] = 163; p[o + 2] = 65; } else { p[o] = v; p[o + 1] = v; p[o + 2] = v; }
+      p[o + 3] = 255;
+    }
+    off5.getContext("2d").putImageData(img5, 0, 0);
+  }
+  function draw5() {
+    const { n, f, cfg } = s5, [hi, hj] = s5.hover;
+    clear(x5, 512, 512);
+    x5.imageSmoothingEnabled = false; x5.drawImage(off5, 0, 0, 512, 288);
+    const k = hj * RW + hi, d = st5[k], zt = zTrue[k];
+    const zl = lin5(d, true), zw = lin5(d, false);
+    // cursor
+    const cx = (hi + 0.5) * 3.2, cy = (hj + 0.5) * 3.2;
+    x5.strokeStyle = WHT; x5.lineWidth = 1; x5.strokeRect(hi * 3.2 - 1, hj * 3.2 - 1, 5.2, 5.2);
+    x5.beginPath(); x5.arc(cx, cy, 9, 0, Math.PI * 2); x5.stroke();
+    text(x5, `raw value^0.25 · amber = float exponent changes · ${cfg === "std" ? "standard" : cfg === "rev" ? "reverse" : "reverse, f = ∞"}`, 8, 276, DIM, "left", "bottom");
+    // wrong-convention plot
+    const P = plot(x5, { x: 54, y: 318, w: 442, h: 156 }, { min: 0.1, max: 1000, log: true }, { min: 0.01, max: 1000, log: true, skip: 2 });
+    P.frame();
+    P.curve(z => z, "rgba(255,255,255,0.35)", [4, 4]);
+    P.curve(z => lin5(store5(z), false), RED, [], 400);
+    text(x5, "linearized distance against true distance: white = right formula, red = wrong convention", P.r.x, 300, DIM);
+    if (isFinite(zt)) { dot(x5, P.fx(zt), P.fy(Math.max(0.01, Math.min(1000, zw))), RED, 4); handle(x5, P.fx(zt), P.fy(zt), 5); }
+    // readouts
+    const xv = ((hi + 0.5) / RW * 2 - 1) * TANH * zl, yv = (1 - (hj + 0.5) / RH * 2) * TANV * zl;
+    $("t5-stored").textContent = d.toPrecision(7);
+    $("t5-lin").textContent = isFinite(zt) ? fmtM(zl) : "sky";
+    $("t5-wrong").textContent = isFinite(zt) ? fmtM(zw) : (isFinite(zw) ? fmtM(zw) : "∞");
+    $("t5-err").textContent = isFinite(zt) ? fmtM(Math.abs(zt - zl)) : "—";
+    $("c5-cap").innerHTML = isFinite(zt)
+      ? `pixel (${hi * 12}, ${hj * 12}) of 1920×1080 · true z <strong>${fmtM(zt)}</strong> · view pos <strong>(${xv.toFixed(2)}, ${yv.toFixed(2)}, ${zl.toFixed(2)}) m</strong>`
+      : `pixel (${hi * 12}, ${hj * 12}) of 1920×1080 · sky: cleared to <strong>${d}</strong>`;
+  }
+  const req5 = throttle(draw5);
+  c5.addEventListener("pointermove", ev => { const [px, py] = canvasPos(c5, ev); if (py < 288) { s5.hover = [Math.max(0, Math.min(RW - 1, Math.floor(px / 3.2))), Math.max(0, Math.min(RH - 1, Math.floor(py / 3.2)))]; req5(); } });
+  c5.addEventListener("pointerdown", ev => { const [px, py] = canvasPos(c5, ev); if (py < 288) { s5.hover = [Math.max(0, Math.min(RW - 1, Math.floor(px / 3.2))), Math.max(0, Math.min(RH - 1, Math.floor(py / 3.2)))]; req5(); } });
+  seg("seg5", s5, "cfg", () => { build5(); draw5(); });
+  build5(); draw5();
+
+  // ================= tradeoffs table numbers =================
+  (() => {
+    const n = 0.1, f = 1000;
+    const rows = {
+      d16: z => stepAt({ bits: 16, rev: false }, z, n, f),
+      d24: z => stepAt(CFG.d24s, z, n, f), d24r: z => stepAt(CFG.d24r, z, n, f),
+      d32s: z => stepAt(CFG.d32s, z, n, f), d32r: z => stepAt(CFG.d32r, z, n, f), d32s8: z => stepAt(CFG.d32r, z, n, f),
+      inf: z => ulp32(n / z) * z * z / n,
+      log: z => z * Math.log(1 + f) / P24, // D24 logarithmic: uniform relative step
+      w: () => f / P24,                     // D24 W-buffer: uniform absolute step
+    };
+    for (const id in rows) for (const z of [1, 100, 1000]) $(`tr-${id}-${z}`).textContent = fmtM(rows[id](z));
+  })();
+})();
+</script>

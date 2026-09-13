@@ -1,0 +1,1182 @@
+<title>Frustum & Occlusion Culling</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 480px) { .tiles.four { grid-template-columns: 1fr 1fr; } }
+.btn { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 6px 12px; background: var(--chip); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.below { margin-top: 24px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 820px) { .below { grid-template-columns: minmax(0, 1fr); } }
+.uses td:nth-child(2) { max-width: none; }
+.uses.trade td { font-size: 14px; }
+.uses.trade td:first-child { white-space: normal; min-width: 11ch; }
+.cap .bad { color: #ef5d5d; }
+.cap .ok { color: #5ad48a; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">200 m × 200 m top-down world · 150 objects · 1080p target · drag the camera</p>
+    <h1>Culling</h1>
+    <p class="lead">Culling is the renderer <b>deciding what not to draw</b> before it draws anything. Skipping an object that is outside the camera's view, or hidden behind a wall, saves the whole cost of drawing it, and the test is far cheaper than the draw. <b>Frustum culling</b> drops what is outside the view and needs almost nothing; <b>occlusion culling</b> drops what is hidden, needs depth from the rest of the scene, and is harder, later, and often one frame stale. The thing people get wrong is treating either test as exact: both <b>keep extra objects on purpose</b> and must never drop a visible one, because nothing later in the frame can bring it back.</p>
+    <div class="key">
+      <span style="--sw:#f2a341">drawn</span>
+      <span style="--sw:#3a3f48">skipped</span>
+      <span style="--sw:#4aa3ff">drawn but not needed</span>
+      <span style="--sw:#ef5d5d">wrongly skipped / failed</span>
+      <span style="--sw:#5ad48a">whole group accepted</span>
+      <span style="--sw:#ffffff">camera, view wedge, wall</span>
+    </div>
+    <dl class="terms">
+      <dt>frustum</dt><dd>the wedge of space the camera can see</dd>
+      <dt>bounds</dt><dd>a simple shape (sphere or box) wrapped around an object; cheap to test</dd>
+      <dt>culling</dt><dd>skipping an object before it is drawn</dd>
+      <dt>conservative</dt><dd>a test that may keep extra objects but never drops a visible one</dd>
+      <dt>false positive</dt><dd>an object the test kept even though it is not visible</dd>
+      <dt>occluder</dt><dd>something big and close that hides what is behind it</dd>
+      <dt>depth buffer</dt><dd>for each direction on screen, how far away the nearest drawn surface is</dd>
+      <dt>draw call</dt><dd>one order to the GPU to draw one object or one batch of objects</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#frustum"><span class="n">01</span>Skip what the camera can't see</a></li><li><a href="#hierarchy"><span class="n">02</span>Reject a thousand objects with one test</a></li><li><a href="#hiz"><span class="n">03</span>Skip what's hidden behind a wall</a></li><li><a href="#portals"><span class="n">04</span>Rooms, doorways and a lookup table</a></li><li><a href="#gpu"><span class="n">05</span>Drop specks, then let the GPU cull</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="frustum">
+    <h2>Skip what the camera can't see</h2>
+    <p class="sub">Drag the camera or its aim point and watch every object get tested against the view wedge.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c1" width="512" height="512" class="grab" aria-label="Top-down world with a camera frustum and objects tested against it"></canvas>
+        <div class="cap"><span id="c1-read"></span><span id="c1-cost"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">The camera only sees a wedge of the world. <b>Anything outside that wedge is skipped</b> before it costs a draw. The test doesn't look at the object's real shape, only a <b>simple shape wrapped around it</b>, so it sometimes keeps things it didn't need to. That's fine: <b>keeping extra is safe, dropping a visible one is not</b>.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The white wedge is the frustum, the region the camera can see. Amber objects are inside the wedge and get drawn. Grey ones failed the test and are skipped.</p>
+        <p>Blue ones passed the test but don't touch the wedge at all: the wrap shape was loose, so they are drawn for nothing. The thin outlines are the wrap shapes.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Switch the shape from sphere to tilted box. The blue count drops because the box hugs each object tighter.</li>
+          <li>Drag the aim point so a long wall lies diagonally across a corner of the wedge. It stays blue with every shape.</li>
+          <li>Push FOV to 120°. More objects turn amber, and the test cost in the caption doesn't change, because every object is tested no matter what.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:6px">
+          <div class="ctl"><span class="lab">Wrap shape</span><div class="seg" id="segBounds" role="group" aria-label="Bounding volume"><button data-v="sphere">sphere</button><button data-v="aabb" aria-pressed="true">aligned box</button><button data-v="obb">tilted box</button></div></div>
+          <div class="ctl"><label for="fov1">FOV <span class="val" id="fov1v">60°</span></label><input type="range" id="fov1" min="30" max="120" step="1" value="60"></div>
+          <div class="ctl"><label for="far1">Far plane <span class="val" id="far1v">120 m</span></label><input type="range" id="far1" min="30" max="200" step="5" value="120"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile" id="t1-sphere"><div class="n">0</div><div class="l">sphere: kept but outside</div></div>
+          <div class="tile" id="t1-aabb"><div class="n">0</div><div class="l">aligned box: kept but outside</div></div>
+          <div class="tile" id="t1-obb"><div class="n">0</div><div class="l">tilted box: kept but outside</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>A plane is a flat cut through space, stored as a direction (its normal, n) and an offset (d). Plugging a point p into n·p + d gives its signed distance: positive on the inside, negative on the outside. The frustum is the space where every one of its planes gives a non-negative distance. This 2D demo has four planes; a 3D camera has six.</p>
+        <p>An object is rejected the moment any one plane says its whole wrap shape is on the outside. Straddling a plane counts as inside, so an object is never rejected for being half in.</p>
+        <p>The wrap shape decides how many false positives survive. A sphere around a 30 m wall is 30 m wide in every direction. An aligned box, a box lined up with the world axes (an AABB), grows when the wall rotates 45°. A tilted box that turns with the object (an OBB) stays tight. Even the tight one only checks the frustum's own planes, so an object lying diagonally across a corner passes every plane and is still outside.</p>
+        <p class="words">In words: for each plane, take the point of the shape that reaches farthest inward. If even that point is outside, the object is gone.</p>
+        <div class="math">plane:   n·p + d = 0,  n unit, inside where n·p + d ≥ 0
+sphere:  reject if  n·c + d &lt; −r          (for any plane)
+AABB:    p-vertex p = (n.x ≥ 0 ? max.x : min.x, …)
+         reject if  n·p + d &lt; 0
+OBB:     r_eff = hx·|n·u| + hy·|n·v| + hz·|n·w|
+         reject if  n·c + d &lt; −r_eff</div>
+        <p>n is the plane's direction and d its offset. c and r are a sphere's centre and radius. min and max are the two corners of an aligned box, and the p-vertex is the corner farthest along n. For the tilted box, hx, hy, hz are its half-sizes, u, v, w are its own axes, and r_eff is how far it reaches along n.</p>
+        <p class="words">What this code does: walks the six planes and bails on the first one the box is fully behind.</p>
+        <pre class="code"><span class="k">bool</span> aabbInFrustum(vec3 bmin, vec3 bmax, vec4 planes[6]) {
+  <span class="k">for</span> (int i = 0; i &lt; 6; i++) {
+    vec3 n = planes[i].xyz;
+    <span class="c">// p-vertex: the corner farthest along the plane normal</span>
+    vec3 p = vec3(n.x &gt;= 0.0 ? bmax.x : bmin.x,
+                  n.y &gt;= 0.0 ? bmax.y : bmin.y,
+                  n.z &gt;= 0.0 ? bmax.z : bmin.z);
+    <span class="k">if</span> (dot(n, p) + planes[i].w &lt; 0.0) <span class="k">return</span> false; <span class="c">// whole box behind this plane</span>
+  }
+  <span class="k">return</span> true; <span class="c">// inside or straddling every plane; may still be a false positive</span>
+}</pre>
+
+        <p class="tldr">Frustum culling drops an object only when it is fully outside one plane; a tighter wrap shape just means fewer extras.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="hierarchy">
+    <h2>Reject a thousand objects with one test</h2>
+    <p class="sub">Drag the camera and watch whole groups of objects get accepted or thrown out at once.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c2" width="512" height="512" class="grab" aria-label="Quadtree walked against the camera frustum"></canvas>
+        <div class="cap"><span id="c2-read"></span><span id="c2-cost"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Testing every object one by one costs the same whether the camera sees the whole world or a blank wall. Grouping objects into <b>boxes inside bigger boxes</b> means <b>one test can throw out a thousand objects</b> at once. The work then depends on <b>how much the wedge touches</b>, not on how big the world is. It's the difference between checking every house in a city and first asking which neighbourhoods the wedge overlaps.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The world is split into a quadtree: one box cut into four, and each quarter cut again wherever there are enough objects. Red outlines are groups thrown out whole with a single test. Green outlines are groups accepted whole; every object inside is drawn with no further test.</p>
+        <p>Faint white outlines are groups the wedge's edge cuts through. Only those get opened.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Push objects to 5,000. The brute force tile climbs to 5,000; the two hierarchy tiles barely move.</li>
+          <li>Aim the camera at an empty corner. Almost every group goes red and the test count collapses.</li>
+          <li>Untick draw nodes to see just the objects. The tile numbers stay the same.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:6px">
+          <div class="ctl"><label for="n2">Objects <span class="val" id="n2v">1,000</span></label><input type="range" id="n2" min="100" max="5000" step="50" value="1000"></div>
+          <div class="ctl"><label for="nodes2"><input type="checkbox" id="nodes2" checked> draw nodes</label></div>
+        </div>
+        <div class="tiles">
+          <div class="tile on" id="t2-node"><div class="n">0</div><div class="l">group tests</div></div>
+          <div class="tile on" id="t2-obj"><div class="n">0</div><div class="l">object tests</div></div>
+          <div class="tile" id="t2-brute"><div class="n">0</div><div class="l">brute force tests</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>A spatial hierarchy is a tree of nested bounds. The root box covers the whole world and each child covers a quarter of its parent. Each node here also stores the tight box around its own objects, so it is really a small bounding volume hierarchy (a tree of boxes around boxes) laid out as a quadtree.</p>
+        <p>Walking the tree uses a three-way test per node. If the p-vertex, the corner farthest along a plane's normal, is outside any plane, the node is OUT and the whole subtree is skipped. If the n-vertex, the corner least along the normal, is inside every plane, the node is IN and every object under it is accepted without another test. Anything else is PARTIAL, and only then are the children opened.</p>
+        <p>Brute force is one test per object, every frame, whether the object is behind the camera or not. The hierarchy costs the nodes visited plus the objects in leaves cut by an edge, about O(log N + k), where k is the number of objects near the frustum edge.</p>
+        <p class="words">In words: brute force grows with the size of the world; the tree grows with what the frustum's edge touches.</p>
+        <div class="math">brute force:  tests = N
+hierarchy:    tests = nodes visited + objects in straddling leaves
+              ≈ O(log N + k),  k = objects near the frustum edge
+node classify: p-vertex outside → OUT
+               n-vertex inside  → IN  (n-vertex = corner least along n)
+               otherwise        → PARTIAL, open it</div>
+        <p>N is the number of objects and k the number sitting near the frustum's edge. The p-vertex and n-vertex are the two opposite corners of a node's box along a plane's normal n.</p>
+        <p class="words">What this code does: tests one node, then either drops it, accepts it whole, or steps into its children.</p>
+        <pre class="code"><span class="k">void</span> cullNode(Node n, Plane planes[6]) {
+  <span class="k">int</span> r = classify(n.bounds, planes);   <span class="c">// OUT, IN or PARTIAL, one box test</span>
+  <span class="k">if</span> (r == OUT) <span class="k">return</span>;                  <span class="c">// whole subtree gone for the price of one test</span>
+  <span class="k">if</span> (r == IN) { emitAll(n); <span class="k">return</span>; }   <span class="c">// no per-object tests either</span>
+  <span class="k">if</span> (n.isLeaf) {
+    <span class="k">for</span> (Object o : n.items)
+      <span class="k">if</span> (aabbInFrustum(o.bmin, o.bmax, planes)) emit(o);
+  } <span class="k">else</span> {
+    <span class="k">for</span> (Node c : n.children) cullNode(c, planes);
+  }
+}</pre>
+
+        <p class="tldr">A tree of boxes makes the cull cost depend on the frustum's edge, not on the size of the world.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="hiz">
+    <h2>Skip what's hidden behind a wall</h2>
+    <p class="sub">Drag the three walls, the camera or its aim point, and hover an object to see its test.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c3" width="512" height="512" class="grab" aria-label="Top-down world with occluders and the occlusion verdict per object"></canvas>
+        <div class="cap"><span id="c3-read"></span><span id="c3-err"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c3z" width="512" height="512" aria-label="Depth buffer and hierarchical Z pyramid"></canvas>
+        <div class="cap"><span id="c3z-read"></span><span id="c3z-frame"></span></div>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><span class="lab">Depth source</span><div class="seg" id="segHz" role="group" aria-label="Depth source"><button data-v="occ" aria-pressed="true">walls this frame</button><button data-v="last">everything, last frame</button><button data-v="two">two-pass</button></div></div>
+      <div class="ctl"><span class="lab">Frame</span><button class="btn" id="hz-step" type="button">render next frame</button></div>
+    </div>
+    <div class="below">
+      <div class="prose">
+        <p class="plain">Being inside the camera's wedge isn't enough to be seen; a wall in front hides everything behind it. <b>Occlusion culling skips those hidden objects.</b> It needs to know <b>how far away the nearest thing is</b> in each direction, and that information only exists after something has been drawn. That is why occlusion is <b>harder and later</b> than frustum culling, and sometimes <b>one frame stale</b>.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Left: the top-down world. The three white bars are walls you can drag, and the faint fan is what the camera can see past them. Amber objects are drawn and visible. Pale ones are correctly skipped. Blue ones are drawn but hidden: safe, but wasted. Red ones are visible but skipped anyway, the error that must not happen. The small number by each object is the pyramid level its test read.</p>
+        <p>Right: the depth buffer, a strip of 256 cells across the camera's view where each cell holds the distance to the nearest wall in that direction. Each row below halves the row above and keeps the farther of every pair. Brighter means nearer. The outlined boxes are the cells one object's test read.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Hover any object inside the wedge. The right panel prints its cell span, its level and the exact comparison.</li>
+          <li>Switch to everything, last frame and swing the aim point fast. Red objects appear: hidden last frame, visible now, skipped anyway. Press render next frame and they recover.</li>
+          <li>Switch to two-pass. Red never appears; the blue objects are what it costs.</li>
+        </ul>
+
+        <h3>The real version</h3>
+        <p>Occlusion needs depth. The occluders are rasterized, meaning drawn, into a depth buffer: here a 1D strip of 256 texels, where a texel is one cell of a texture. That buffer is reduced into a pyramid in which each texel of level L holds the farthest depth of the 2<sup>L</sup> base texels under it. This is the hierarchical Z buffer, or Hi-Z, since Z is the usual name for depth.</p>
+        <p>To test an object, project its bounds to a span of texels. Pick the level where that span covers at most two texels, read those two, and if the object's nearest point is farther than the larger of them, nothing of it can show. Two reads answer the question for an object of any screen size.</p>
+        <p>With only the three walls as occluders the test is correct every frame but weak: small things hide nothing. With <em>everything, last frame</em>, every drawn object becomes an occluder, at the cost of testing this frame's objects against last frame's depth. Move fast and objects that were hidden last frame but are visible now get culled anyway; they pop in a frame later.</p>
+        <p>The <em>two-pass</em> fix draws what was visible last frame first, builds the pyramid from that with the current camera, then tests only the remaining objects against it and draws the ones that pass. Depth always comes from the current camera, so nothing visible is ever culled. The price is the blue objects: drawn in pass one because they were visible before, hidden now.</p>
+      </div>
+      <div class="prose">
+        <p class="words">In words: turn the object into a strip of screen cells, jump to the pyramid row where that strip is two cells wide, and compare the object's nearest distance with the farther of those two cells.</p>
+        <div class="math">project:  z_v = (p − cam)·fwd,  x_v = (p − cam)·right
+          sx = x_v / (z_v · tan(fov/2))      ∈ [−1, 1]
+          texel = floor((sx + 1)/2 · 256)
+span:     w = t1 − t0 + 1 texels
+level:    L = ceil(log2(max(w, h)))          → covers ≤ 2 texels
+test:     occluded if  z_nearest &gt; max(HiZ[L][t0≫L], HiZ[L][t1≫L])
+build:    HiZ[L+1][i] = max(HiZ[L][2i], HiZ[L][2i+1])</div>
+        <p>p is a point on the object, cam the camera, fwd and right its two axes. z_v is depth and x_v the sideways offset as the camera sees them, sx is the screen position from −1 to 1, t0 and t1 are the first and last texel of the span, w and h its width and height, L the level, and ≫ shifts a texel index down to that level.</p>
+        <p class="words">What this code does: the first function builds one pyramid level from the level below it; the second reads four texels at the chosen level and compares.</p>
+        <pre class="code"><span class="c">// build: each pass halves the texture and keeps the farthest depth</span>
+<span class="k">float</span> hizReduce(sampler2D prev, ivec2 p) {
+  vec4 d = textureGather(prev, (vec2(p) * 2.0 + 1.0) * invPrevSize); <span class="c">// the 2×2 block</span>
+  <span class="k">return</span> max(max(d.x, d.y), max(d.z, d.w));   <span class="c">// min() instead if you use reversed Z</span>
+}
+<span class="c">// test: ssMin/ssMax = screen-space box of the bounds, z = nearest depth</span>
+<span class="k">bool</span> occluded(vec3 ssMin, vec3 ssMax) {
+  vec2 sizePx = (ssMax.xy - ssMin.xy) * hizSize;
+  <span class="k">int</span> level = <span class="k">int</span>(ceil(log2(max(sizePx.x, sizePx.y))));
+  ivec2 t0 = ivec2(ssMin.xy * hizSize) &gt;&gt; level, t1 = ivec2(ssMax.xy * hizSize) &gt;&gt; level;
+  <span class="k">float</span> farthest = max(max(texelFetch(hiz, t0, level).r, texelFetch(hiz, ivec2(t1.x, t0.y), level).r),
+                       max(texelFetch(hiz, ivec2(t0.x, t1.y), level).r, texelFetch(hiz, t1, level).r));
+  <span class="k">return</span> ssMin.z &gt; farthest;   <span class="c">// nearest point behind everything in those texels</span>
+}</pre>
+
+        <p class="tldr">Hi-Z answers "is something closer in front of this" with two texture reads, and the depth it reads must come from the current camera or it will drop visible things.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="portals">
+    <h2>Rooms, doorways and a lookup table</h2>
+    <p class="sub">Drag the camera between rooms, change its field of view, or click a doorway to close it.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c4" width="512" height="512" class="grab" aria-label="Indoor map with portal-clipped frustum and PVS"></canvas>
+        <div class="cap"><span id="c4-read"></span><span id="c4-pvs"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Indoors, <b>walls hide almost everything</b> and the doorways are the only openings. Portal culling starts in the camera's room and <b>squeezes the view through each doorway</b> into the next room; only rooms a squeezed view reaches are drawn. A PVS goes further and <b>works out the answer ahead of time</b>, so at runtime it is one bit lookup per room.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Nine rooms, twelve doorways. The amber fan is the view, clipped narrower each time it passes through a door. Rooms labelled <em>portal</em> are reached by the walk this frame.</p>
+        <p>Rooms shaded blue with the <em>pvs</em> label are in the precomputed set for the camera's room, but not reached from this exact spot and direction. Closed doors are red.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the camera into a corner room. Only two doorways lead anywhere, and most rooms go dark.</li>
+          <li>Click a doorway to close it. The fan stops there, and the matrix below rebuilds.</li>
+          <li>Push FOV to 150° and compare the portal count with the PVS count in the caption. The PVS is never the smaller set.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:6px">
+          <div class="ctl"><label for="fov4">FOV <span class="val" id="fov4v">70°</span></label><input type="range" id="fov4" min="30" max="150" step="1" value="70"></div>
+          <div class="ctl"><label for="showpvs"><input type="checkbox" id="showpvs" checked> shade PVS of the current room</label></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>Portal culling starts in the room the camera is in. For each doorway of that room it clips the current frustum down to the doorway's outline. If anything is left, the walk continues into the next room with the narrower frustum. Rooms that no wedge reaches are never touched. In this 2D world a frustum is a range of angles, so the clip is just the overlap of two ranges.</p>
+        <p>A PVS, a potentially visible set, precomputes the answer per room: which rooms can be seen from anywhere inside this one, looking in any direction. The bits below are computed live by walking the portals from a 12×12 grid of sample points in every room and taking the union. At runtime that is one bit lookup per room, which is why Quake could afford it in 1996.</p>
+        <p>The cost is that the PVS is a superset of the portal result (the blue rooms), and it is only valid while the doors stay where they were when it was built. Close a door and the whole matrix is rebuilt. Sampling can miss a sliver of visibility between two sample points, so offline tools such as Quake's vis clip portal against portal exactly instead of sampling.</p>
+        <p class="words">The matrix below: one row per room, and a 1 in each column for a room that might be seen from it.</p>
+        <div class="math" id="pvs-bits"></div>
+        <p class="words">In words: the view is a range of angles, a doorway is a range of angles, and what passes through is the overlap of the two.</p>
+        <div class="math">interval:  frustum = [θ − fov/2, θ + fov/2]
+door:      [min(a₁, a₂), max(a₁, a₂)],  aᵢ = atan2(dᵢ − eye)
+clip:      next = frustum ∩ door;  recurse only if next ≠ ∅
+PVS:       bits[room] = ∪ over samples s in room of walk(s, 360°)
+           9 rooms → 81 bits ≈ 11 bytes; N rooms → N²/8 bytes</div>
+        <p>θ is the camera's aim angle and fov its field of view. a₁ and a₂ are the angles from the eye to the two ends of a door, ∩ is the overlap of two ranges, ∅ means nothing left, and ∪ means combining the results of every sample. N is the number of rooms.</p>
+        <p class="words">What this code does: marks the room, then for every open door it can see through, narrows the view and steps into the next room. The last line is the whole runtime cost of a PVS.</p>
+        <pre class="code"><span class="k">void</span> walkRoom(<span class="k">int</span> room, Frustum f, Portal from) {
+  markVisible(room);
+  <span class="k">for</span> (Portal p : rooms[room].portals) {
+    <span class="k">if</span> (p == from || !p.open) <span class="k">continue</span>;
+    Poly door = clipPolygon(p.quad, f);        <span class="c">// door quad against the current planes</span>
+    <span class="k">if</span> (door.empty()) <span class="k">continue</span>;
+    Frustum g = planesThrough(eye, door);      <span class="c">// new side planes: eye through each door edge</span>
+    walkRoom(p.other(room), g, p);
+  }
+}
+<span class="c">// PVS at runtime replaces all of the above with one bit test:</span>
+<span class="k">bool</span> maybeVisible = pvs[cameraRoom][r >> 3] &amp; (1 &lt;&lt; (r &amp; 7));</pre>
+
+        <p class="tldr">Portals narrow the view through each door at runtime; a PVS trades exactness and movable doors for one bit test per room.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="gpu">
+    <h2>Drop specks, then let the GPU cull</h2>
+    <p class="sub">Slide the minimum size to drop tiny objects, then watch the GPU write its own draw list on the right.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c5" width="512" height="512" class="grab" aria-label="World with size-culled objects marked"></canvas>
+        <div class="cap"><span id="c5-read"></span><span id="c5-pick"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c5b" width="512" height="512" aria-label="Instance buffer, visible list and indirect draw arguments"></canvas>
+        <div class="cap"><span id="c5b-read"></span><span id="c5b-cost"></span></div>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><label for="px5">Min size <span class="val" id="px5v">12 px</span></label><input type="range" id="px5" min="1" max="40" step="1" value="12"></div>
+      <div class="ctl"><label for="n5">Instances <span class="val" id="n5v">1,000</span></label><input type="range" id="n5" min="150" max="5000" step="50" value="1000"></div>
+      <div class="ctl"><label for="fov5">FOV <span class="val" id="fov5v">60°</span></label><input type="range" id="fov5" min="30" max="120" step="1" value="60"></div>
+    </div>
+    <div class="below">
+      <div class="prose">
+        <p class="plain">A crate 300 m away is <b>smaller than a pixel</b>, and drawing it costs as much as drawing one up close. So <b>drop anything that projects too small</b>. Once every test is this cheap, <b>the GPU can run all of them itself</b>, one thread per object, and write its own list of what to draw. The CPU never waits for an answer.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Left: amber objects are drawn, grey ones are outside the wedge, and red-outlined ones are inside but too small on screen. The dashed circle marks one object with its screen size worked out in the caption; hover to pick another.</p>
+        <p>Right: the instance buffer with one square per object, the list of survivors, the draw arguments the GPU fills in itself, and two bars comparing CPU and GPU cull time against a 16.7 ms frame.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Slide min size to 40 px. The far half of the wedge turns red; those objects would be specks.</li>
+          <li>Push instances to 5,000. The CPU bar reaches 5 ms, almost a third of the frame; the GPU bar barely grows.</li>
+          <li>Widen FOV to 120°. Everything looks smaller on screen, so more objects fall under the threshold.</li>
+        </ul>
+
+        <h3>The real version</h3>
+        <p>A 2 m crate 300 m away is under a pixel wide on a 1080p screen. Drawing it costs a full draw, or a full instance (one copy of a shared mesh), for a speck that anti-aliasing will mostly remove. The projected radius follows from the bounding radius, the view depth and the vertical field of view, so the test is one division per object and it is usually folded into the same loop as the frustum test.</p>
+        <p>The threshold is a quality knob: 1 px is safe, 4 px is visibly aggressive on foliage. This 200 m world is too small for anything to fall under 2 px at 1080p, so the slider here goes far higher than a shipping threshold would.</p>
+        <p>Once the tests are this simple, there is no reason for the CPU to run them. The GPU-driven version keeps every instance in a buffer and runs one thread per instance in a compute shader, a GPU program that is not tied to drawing. Threads that pass append their index to a visible list with an atomic add, an add that many threads can do at once without stepping on each other, on the <code>instanceCount</code> field of the indirect arguments, the small record that tells the GPU how much to draw.</p>
+        <p>The CPU issues one <code>DrawIndexedIndirect</code> per mesh without knowing how many survived, and nothing is read back. At 1 µs per test the CPU side of 5,000 objects is 5 ms, almost a third of a 60 Hz frame; the compute pass is a few microseconds (estimate).</p>
+      </div>
+      <div class="prose">
+        <p class="words">In words: an object's radius in pixels is its real radius, shrunk by how far away it is and by how wide the lens is.</p>
+        <div class="math">r_px = r · (H / 2) / (d · tan(fov_y / 2)),  H = 1080
+drop if  2 · r_px &lt; threshold
+CPU estimate:  N · 1 µs per test
+GPU estimate:  N / (2 · 10⁹ instances per s)  +  ~20 µs dispatch (both estimates)</div>
+        <p>r is the bounding radius in metres, d the distance along the view direction, fov_y the vertical field of view, H the screen height in pixels and r_px the radius on screen. N is the instance count.</p>
+        <p class="words">What this code does: one thread per instance runs the frustum, size and Hi-Z tests, then grabs a slot in the visible list with one atomic add.</p>
+        <pre class="code">[numthreads(64, 1, 1)]
+<span class="k">void</span> CullCS(uint id : SV_DispatchThreadID) {
+  <span class="k">if</span> (id &gt;= instanceCount) <span class="k">return</span>;
+  Instance inst = instances[id];
+  <span class="k">float</span> z = mul(view, float4(inst.center, 1)).z;
+  <span class="k">float</span> rPx = inst.radius * (screenH * 0.5) / (z * tanHalfFovY);
+  <span class="k">if</span> (!sphereInFrustum(inst.center, inst.radius, planes)) <span class="k">return</span>;
+  <span class="k">if</span> (2.0 * rPx &lt; minPixels) <span class="k">return</span>;          <span class="c">// too small to matter</span>
+  <span class="k">if</span> (hizOccluded(inst.center, inst.radius)) <span class="k">return</span>;
+  uint slot;
+  <span class="c">// instanceCount lives inside the indirect args buffer; the add is the append</span>
+  InterlockedAdd(drawArgs[inst.meshId].instanceCount, 1, slot);
+  visibleInstances[drawArgs[inst.meshId].firstInstance + slot] = id;
+}
+<span class="c">// CPU: DrawIndexedIndirect(argsBuffer, meshId * 20)   no readback, no wait</span></pre>
+
+        <p class="tldr">Size culling is one division per object, and moving the whole cull into a compute shader removes both the CPU cost and the wait for an answer.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">Each row is one way to decide what not to draw; read across for what it costs and how sure it is.</p>
+    <p class="plain">You are choosing between <b>knowing now</b> (the CPU tests before it submits, same frame) and <b>knowing cheaply</b> (the GPU tests in bulk, sometimes a frame late). Every row is conservative: it keeps extras and never drops a visible object. <b>Cost figures are estimates</b> for a 1080p frame with a few thousand objects.</p>
+    <div class="tbl-wrap">
+    <table class="uses trade">
+      <thead><tr><th>Technique</th><th>How late the answer is</th><th>How exact</th><th>CPU cost</th><th>GPU cost</th><th>Moving objects</th><th>Pick it when</th></tr></thead>
+      <tbody>
+        <tr><td>CPU frustum test</td><td>none</td><td>wrap shape only; extras at frustum corners</td><td>~20–50 ns per test in SIMD C++ (estimate); 1 µs here for readability</td><td>none</td><td>free, the bounds are updated every frame anyway</td><td>always, as the first filter</td></tr>
+        <tr><td>Hierarchy (BVH, quadtree, octree)</td><td>none</td><td>same as above</td><td>O(log N + k) per frame, plus refitting nodes for objects that moved</td><td>none</td><td>refit or rebuild the nodes that moved</td><td>more than ~1,000 objects</td></tr>
+        <tr><td>Software occlusion (Umbra, Intel masked occlusion)</td><td>none, same frame</td><td>only as fine as the rough CPU depth image; conservative</td><td>~0.5–2 ms on one core (estimate); can be spread across threads</td><td>none</td><td>the blockers are redrawn into the depth image every frame; the objects tested are free</td><td>the CPU has spare cores, the big blockers don't move, and you need the answer before submitting draws</td></tr>
+        <tr><td>GPU Hi-Z, two-pass</td><td>none with two passes; one frame if you only reproject last frame's depth</td><td>as fine as the pyramid level it reads; conservative</td><td>~0</td><td>~0.1–0.3 ms for pyramid plus cull (estimate)</td><td>yes, everything is a blocker</td><td>GPU-driven pipelines, very high object counts</td></tr>
+        <tr><td>Hardware occlusion queries</td><td>1–2 frames, or the CPU waits</td><td>exact per pixel</td><td>ask the GPU, then check back for the answer</td><td>draws a stand-in shape per query</td><td>yes</td><td>a few big candidates: lights, portals, lens flares</td></tr>
+        <tr><td>PVS</td><td>none</td><td>a superset per room; only for geometry that never moves</td><td>one bit test</td><td>none</td><td>no; moving objects are tested against the visible rooms</td><td>indoor worlds that don't change, when an offline bake is acceptable</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">The same idea across three decades, from rooms to objects to clusters of triangles.</p>
+    <p class="plain">Each row says <b>what question the game asked</b>, <b>what data it had to keep</b> to answer it, and where it shipped. The question changes with the era: first which rooms, then which objects, now which clusters of triangles.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Use</th><th>What it asks</th><th>Data it keeps</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>PVS over a BSP</td><td>Which leaves (the smallest regions of a BSP tree, a world split up by planes) are visible from the leaf the camera is in, worked out offline.</td><td>A compressed row of bits per leaf</td><td>Quake (id Software, 1996) and its engine descendants</td></tr>
+        <tr><td>Portal culling</td><td>Clip the view through each doorway and step into the next zone.</td><td>Zones, with doorways placed by hand or generated</td><td>Unreal Engine 1 era zones and portals, Doom 3 (id Tech 4, 2004)</td></tr>
+        <tr><td>Software occlusion</td><td>Draw the big blockers into a depth image on the CPU, then test each object's bounds against it.</td><td>Baked blocker shapes, or a rough depth image</td><td>Umbra in Unity's built-in occlusion culling and many AAA titles; Intel's masked occlusion culling library (2016)</td></tr>
+        <tr><td>GPU-driven culling</td><td>A compute shader runs the frustum, size and Hi-Z tests per instance or cluster and writes the draw arguments itself.</td><td>Instance buffer, depth pyramid, indirect draw arguments</td><td>Assassin's Creed Unity (Haar and Aaltonen, "GPU-Driven Rendering Pipelines", SIGGRAPH 2015)</td></tr>
+        <tr><td>Two-pass Hi-Z at cluster level</td><td>Draw what was visible last frame, build the pyramid, test the rest against it.</td><td>Bounds per cluster (a small group of triangles), last frame's visibility</td><td>Unreal Engine 5 Nanite</td></tr>
+        <tr><td>Screen-size culling</td><td>Drop the object, or swap to a simpler version, when it is smaller than a threshold on screen.</td><td>Bounding radius per object</td><td>Many engines, usually as the last level of detail (LOD) step</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">One trap: occlusion culling only pays off when something big is in the way. An open field with a few trees hides almost nothing, so the depth pyramid, the extra pass or the CPU rasterizer costs the same every frame and removes nearly no draws; measure the culled count on your worst view before you keep it on. Frustum and size culling are nearly free and always worth it.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const W = 512, WORLD = 200, S = W / WORLD, SCREEN_H = 1080;
+  const AMBER = "#f2a341", BLUE = "#4aa3ff", WHITE = "#ffffff", GREEN = "#5ad48a", RED = "#ef5d5d";
+  const GROUND = "#0b0e13", GRID = "rgba(255,255,255,0.12)", DIM = "rgba(255,255,255,0.28)", DIMF = "rgba(255,255,255,0.10)";
+  const MONO = '11px "IBM Plex Mono", Menlo, Consolas, monospace';
+  const fmtN = n => n.toLocaleString("en-US");
+  const fmtMs = us => us >= 1000 ? (us / 1000).toFixed(2) + " ms" : us.toFixed(0) + " µs";
+
+  // ---------- deterministic scene ----------
+  function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  function makeObj(x, y, hx, hy, rot) {
+    const c = Math.cos(rot), s = Math.sin(rot);
+    const corners = [[hx, hy], [-hx, hy], [-hx, -hy], [hx, -hy]].map(([a, b]) => [x + a * c - b * s, y + a * s + b * c]);
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [px, py] of corners) { if (px < x0) x0 = px; if (px > x1) x1 = px; if (py < y0) y0 = py; if (py > y1) y1 = py; }
+    return { x, y, hx, hy, rot, c, s, r: Math.hypot(hx, hy), corners, x0, y0, x1, y1 };
+  }
+  const sceneCache = {};
+  function makeScene(n) {
+    if (sceneCache[n]) return sceneCache[n];
+    const R = rng(7), k = Math.min(1, Math.sqrt(150 / n)), out = [];
+    for (let i = 0; i < n; i++) {
+      const u = R(); let hx, hy;
+      if (u < 0.7) { hx = (0.8 + R() * 2.2) * k; hy = (0.8 + R() * 2.2) * k; }
+      else if (u < 0.9) { hx = (3 + R() * 5) * k; hy = (3 + R() * 5) * k; }
+      else { hx = (10 + R() * 14) * k; hy = (0.5 + R() * 0.7) * Math.max(k, 0.5); }
+      const rot = R() * Math.PI, m = Math.hypot(hx, hy);
+      out.push(makeObj(m + R() * (WORLD - 2 * m), m + R() * (WORLD - 2 * m), hx, hy, rot));
+    }
+    return (sceneCache[n] = out);
+  }
+  const SCENE = makeScene(150);
+
+  // ---------- camera and frustum ----------
+  function frustum(cam) {
+    const a = cam.ang, h = cam.fov * Math.PI / 360, th = Math.tan(h);
+    const fx = Math.cos(a), fy = Math.sin(a), rx = -fy, ry = fx;
+    const lx = Math.cos(a - h), ly = Math.sin(a - h), qx = Math.cos(a + h), qy = Math.sin(a + h);
+    const planes = [
+      { nx: fx, ny: fy, d: -(fx * cam.x + fy * cam.y) - cam.near },
+      { nx: -fx, ny: -fy, d: (fx * cam.x + fy * cam.y) + cam.far },
+      { nx: -ly, ny: lx, d: -(-ly * cam.x + lx * cam.y) },
+      { nx: qy, ny: -qx, d: -(qy * cam.x - qx * cam.y) },
+    ];
+    const nw = cam.near * th, fw = cam.far * th;
+    const poly = [
+      [cam.x + fx * cam.near - rx * nw, cam.y + fy * cam.near - ry * nw],
+      [cam.x + fx * cam.near + rx * nw, cam.y + fy * cam.near + ry * nw],
+      [cam.x + fx * cam.far + rx * fw, cam.y + fy * cam.far + ry * fw],
+      [cam.x + fx * cam.far - rx * fw, cam.y + fy * cam.far - ry * fw],
+    ];
+    return { planes, poly, fx, fy, rx, ry, th, h };
+  }
+  function testSphere(P, o) { for (const p of P) if (p.nx * o.x + p.ny * o.y + p.d < -o.r) return false; return true; }
+  function testAABB(P, b) { for (const p of P) { const px = p.nx >= 0 ? b.x1 : b.x0, py = p.ny >= 0 ? b.y1 : b.y0; if (p.nx * px + p.ny * py + p.d < 0) return false; } return true; }
+  function classifyAABB(P, b) {
+    let inside = true;
+    for (const p of P) {
+      const px = p.nx >= 0 ? b.x1 : b.x0, py = p.ny >= 0 ? b.y1 : b.y0;
+      if (p.nx * px + p.ny * py + p.d < 0) return 0;
+      const qx = p.nx >= 0 ? b.x0 : b.x1, qy = p.ny >= 0 ? b.y0 : b.y1;
+      if (p.nx * qx + p.ny * qy + p.d < 0) inside = false;
+    }
+    return inside ? 2 : 1;
+  }
+  function testOBB(P, o) {
+    for (const p of P) {
+      const dist = p.nx * o.x + p.ny * o.y + p.d;
+      const re = o.hx * Math.abs(p.nx * o.c + p.ny * o.s) + o.hy * Math.abs(-p.nx * o.s + p.ny * o.c);
+      if (dist < -re) return false;
+    }
+    return true;
+  }
+  function satOverlap(A, B) {
+    for (const P of [A, B]) for (let i = 0; i < P.length; i++) {
+      const p = P[i], q = P[(i + 1) % P.length], nx = -(q[1] - p[1]), ny = q[0] - p[0];
+      let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+      for (const v of A) { const d = v[0] * nx + v[1] * ny; if (d < a0) a0 = d; if (d > a1) a1 = d; }
+      for (const v of B) { const d = v[0] * nx + v[1] * ny; if (d < b0) b0 = d; if (d > b1) b1 = d; }
+      if (a1 < b0 || b1 < a0) return false;
+    }
+    return true;
+  }
+  function aimPos(cam) { const L = Math.min(cam.far, 40); return [cam.x + Math.cos(cam.ang) * L, cam.y + Math.sin(cam.ang) * L]; }
+
+  // ---------- drawing helpers ----------
+  function ctxOf(id) { const c = document.getElementById(id); return [c, c.getContext("2d")]; }
+  function clear(ctx) {
+    ctx.fillStyle = GROUND; ctx.fillRect(0, 0, W, W);
+    ctx.strokeStyle = GRID; ctx.lineWidth = 1; ctx.beginPath();
+    for (let m = 20; m < WORLD; m += 20) { const p = Math.round(m * S) + 0.5; ctx.moveTo(p, 0); ctx.lineTo(p, W); ctx.moveTo(0, p); ctx.lineTo(W, p); }
+    ctx.stroke();
+  }
+  function polyPath(path, pts) { path.moveTo(pts[0][0] * S, pts[0][1] * S); for (let i = 1; i < pts.length; i++) path.lineTo(pts[i][0] * S, pts[i][1] * S); path.closePath(); }
+  function objPath(path, o) { if (o.r * S < 1.6) path.rect(o.x * S - 1.3, o.y * S - 1.3, 2.6, 2.6); else polyPath(path, o.corners); }
+  function handle(ctx, x, y, r) {
+    ctx.beginPath(); ctx.arc(x * S, y * S, r, 0, Math.PI * 2);
+    ctx.fillStyle = WHITE; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = GROUND; ctx.stroke();
+  }
+  function drawFrustum(ctx, cam, F, showAim = true) {
+    const p = new Path2D(); polyPath(p, F.poly);
+    ctx.fillStyle = "rgba(255,255,255,0.05)"; ctx.fill(p);
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5; ctx.stroke(p);
+    if (showAim) {
+      const [ax, ay] = aimPos(cam);
+      ctx.setLineDash([3, 4]); ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cam.x * S, cam.y * S); ctx.lineTo(ax * S, ay * S); ctx.stroke(); ctx.setLineDash([]);
+      handle(ctx, ax, ay, 5);
+    }
+    handle(ctx, cam.x, cam.y, 7);
+  }
+  function label(ctx, text, x, y, color, align = "left") { ctx.font = MONO; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "middle"; ctx.fillText(text, x, y); }
+
+  function worldOf(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width * WORLD, (ev.clientY - r.top) / r.height * WORLD]; }
+  // handles in world coords; onMove(i,x,y); onHover(x,y) or (-1,-1); onClick(x,y) when no handle hit
+  function drag(canvas, getHandles, onMove, onHover, onClick) {
+    let active = -1, pending = null, raf = 0;
+    const flush = () => { raf = 0; if (!pending) return; const [x, y] = pending; pending = null; if (active >= 0) onMove(active, Math.max(0, Math.min(WORLD, x)), Math.max(0, Math.min(WORLD, y))); else if (onHover) onHover(x, y); };
+    canvas.addEventListener("pointerdown", ev => {
+      const [x, y] = worldOf(canvas, ev);
+      const hs = getHandles(); let best = -1, bd = 4.5;
+      hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
+      if (best >= 0) { active = best; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); }
+      else if (onClick) onClick(x, y);
+      ev.preventDefault();
+    });
+    canvas.addEventListener("pointermove", ev => { pending = worldOf(canvas, ev); if (!raf) raf = requestAnimationFrame(flush); });
+    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
+    canvas.addEventListener("pointerleave", () => { if (onHover && active < 0) onHover(-1, -1); });
+  }
+  function camHandles(cam) { return [[cam.x, cam.y], aimPos(cam)]; }
+  function camMove(cam, i, x, y) { if (i === 0) { cam.x = x; cam.y = y; } else if (i === 1) { const dx = x - cam.x, dy = y - cam.y; if (Math.hypot(dx, dy) > 0.5) cam.ang = Math.atan2(dy, dx); } }
+  function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
+  function onSeg(id, fn) { document.getElementById(id).addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; segOn(ev.currentTarget, b.dataset.v); fn(b.dataset.v); }); }
+  function onRange(id, fmt, fn) { const el = document.getElementById(id), v = document.getElementById(id + "v"); const upd = () => { v.textContent = fmt(+el.value); fn(+el.value); }; el.addEventListener("input", upd); return upd; }
+
+  // ============ 1. frustum culling ============
+  {
+    const [c1, x1] = ctxOf("c1");
+    const cam = { x: 84, y: 164, ang: -1.35, fov: 60, far: 120, near: 1 };
+    const st = { mode: "aabb" };
+    function draw() {
+      const F = frustum(cam), P = F.planes;
+      const res = { sphere: 0, aabb: 0, obb: 0 };
+      const acc = new Uint8Array(SCENE.length), exact = new Uint8Array(SCENE.length);
+      let drawn = 0, overlap = 0;
+      for (let i = 0; i < SCENE.length; i++) {
+        const o = SCENE[i];
+        const ex = satOverlap(F.poly, o.corners); exact[i] = ex ? 1 : 0; if (ex) overlap++;
+        const s = testSphere(P, o), a = testAABB(P, o), b = testOBB(P, o);
+        if (s && !ex) res.sphere++; if (a && !ex) res.aabb++; if (b && !ex) res.obb++;
+        acc[i] = (st.mode === "sphere" ? s : st.mode === "aabb" ? a : b) ? 1 : 0; if (acc[i]) drawn++;
+      }
+      clear(x1);
+      // bounds outlines
+      const bOut = new Path2D(), bAcc = new Path2D();
+      for (let i = 0; i < SCENE.length; i++) {
+        const o = SCENE[i], p = acc[i] ? bAcc : bOut;
+        if (st.mode === "sphere") { p.moveTo((o.x + o.r) * S, o.y * S); p.arc(o.x * S, o.y * S, o.r * S, 0, Math.PI * 2); }
+        else if (st.mode === "aabb") p.rect(o.x0 * S, o.y0 * S, (o.x1 - o.x0) * S, (o.y1 - o.y0) * S);
+        else polyPath(p, o.corners);
+      }
+      x1.lineWidth = 1; x1.strokeStyle = "rgba(255,255,255,0.14)"; x1.stroke(bOut);
+      x1.strokeStyle = "rgba(242,163,65,0.55)"; x1.stroke(bAcc);
+      // objects
+      const pOut = new Path2D(), pIn = new Path2D(), pFp = new Path2D();
+      for (let i = 0; i < SCENE.length; i++) objPath(!acc[i] ? pOut : exact[i] ? pIn : pFp, SCENE[i]);
+      x1.fillStyle = DIM; x1.fill(pOut); x1.fillStyle = AMBER; x1.fill(pIn); x1.fillStyle = BLUE; x1.fill(pFp);
+      drawFrustum(x1, cam, F);
+      label(x1, `fov ${cam.fov}° · far ${cam.far} m`, 8, W - 12, "rgba(255,255,255,0.6)");
+      document.getElementById("c1-read").innerHTML = `<strong>${drawn} drawn</strong> of ${SCENE.length} · ${overlap} overlap the frustum · ${drawn - overlap} false positives`;
+      document.getElementById("c1-cost").innerHTML = `${SCENE.length} tests ≈ <strong>${fmtMs(SCENE.length)}</strong> at 1 µs each`;
+      for (const m of ["sphere", "aabb", "obb"]) { const t = document.getElementById("t1-" + m); t.querySelector(".n").textContent = res[m]; t.classList.toggle("on", m === st.mode); }
+    }
+    drag(c1, () => camHandles(cam), (i, x, y) => { camMove(cam, i, x, y); draw(); });
+    onSeg("segBounds", v => { st.mode = v; draw(); });
+    onRange("fov1", v => v + "°", v => { cam.fov = v; draw(); });
+    onRange("far1", v => v + " m", v => { cam.far = v; draw(); });
+    draw();
+  }
+
+  // ============ 2. hierarchy ============
+  {
+    const [c2, x2] = ctxOf("c2");
+    const cam = { x: 46, y: 150, ang: -0.62, fov: 60, far: 120, near: 1 };
+    const st = { n: 1000, nodes: true };
+    const treeCache = {};
+    function buildTree(objs) {
+      const root = { x0: 0, y0: 0, x1: WORLD, y1: WORLD, items: objs.map((_, i) => i), depth: 0, children: null };
+      const stack = [root]; let count = 0;
+      while (stack.length) {
+        const n = stack.pop(); count++;
+        let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+        for (const i of n.items) { const o = objs[i]; if (o.x0 < bx0) bx0 = o.x0; if (o.y0 < by0) by0 = o.y0; if (o.x1 > bx1) bx1 = o.x1; if (o.y1 > by1) by1 = o.y1; }
+        n.b = { x0: bx0, y0: by0, x1: bx1, y1: by1 };
+        if (n.items.length <= 8 || n.depth >= 7) continue;
+        const mx = (n.x0 + n.x1) / 2, my = (n.y0 + n.y1) / 2;
+        const kids = [[n.x0, n.y0, mx, my], [mx, n.y0, n.x1, my], [n.x0, my, mx, n.y1], [mx, my, n.x1, n.y1]].map(([a, b, c, d]) => ({ x0: a, y0: b, x1: c, y1: d, items: [], depth: n.depth + 1, children: null }));
+        for (const i of n.items) { const o = objs[i]; kids[(o.x >= mx ? 1 : 0) + (o.y >= my ? 2 : 0)].items.push(i); }
+        n.children = kids.filter(k => k.items.length > 0);
+        for (const k of n.children) stack.push(k);
+      }
+      root.count = count;
+      return root;
+    }
+    function draw() {
+      const objs = makeScene(st.n);
+      const tree = treeCache[st.n] || (treeCache[st.n] = buildTree(objs));
+      const F = frustum(cam), P = F.planes;
+      const vis = new Uint8Array(objs.length);
+      let nodeTests = 0, objTests = 0;
+      const rejected = [], accepted = [], partial = [];
+      const walk = n => {
+        nodeTests++;
+        const c = classifyAABB(P, n.b);
+        if (c === 0) { rejected.push(n); return; }
+        if (c === 2) { accepted.push(n); for (const i of n.items) vis[i] = 1; return; }
+        partial.push(n);
+        if (!n.children) { for (const i of n.items) { objTests++; if (testAABB(P, objs[i])) vis[i] = 1; } }
+        else for (const k of n.children) walk(k);
+      };
+      walk(tree);
+      let drawn = 0; for (let i = 0; i < vis.length; i++) drawn += vis[i];
+      clear(x2);
+      const pOut = new Path2D(), pIn = new Path2D();
+      for (let i = 0; i < objs.length; i++) objPath(vis[i] ? pIn : pOut, objs[i]);
+      x2.fillStyle = DIM; x2.fill(pOut); x2.fillStyle = AMBER; x2.fill(pIn);
+      if (st.nodes) {
+        const rp = new Path2D(), ap = new Path2D(), pp = new Path2D();
+        for (const n of rejected) rp.rect(n.b.x0 * S + 0.5, n.b.y0 * S + 0.5, (n.b.x1 - n.b.x0) * S - 1, (n.b.y1 - n.b.y0) * S - 1);
+        for (const n of accepted) ap.rect(n.b.x0 * S + 0.5, n.b.y0 * S + 0.5, (n.b.x1 - n.b.x0) * S - 1, (n.b.y1 - n.b.y0) * S - 1);
+        for (const n of partial) pp.rect(n.b.x0 * S + 0.5, n.b.y0 * S + 0.5, (n.b.x1 - n.b.x0) * S - 1, (n.b.y1 - n.b.y0) * S - 1);
+        x2.lineWidth = 1; x2.strokeStyle = "rgba(255,255,255,0.22)"; x2.stroke(pp);
+        x2.strokeStyle = "rgba(239,93,93,0.85)"; x2.stroke(rp);
+        x2.strokeStyle = "rgba(90,212,138,0.9)"; x2.stroke(ap);
+      }
+      drawFrustum(x2, cam, F);
+      label(x2, `${fmtN(tree.count)} nodes · ${rejected.length} rejected whole · ${accepted.length} accepted whole`, 8, W - 12, "rgba(255,255,255,0.6)");
+      const total = nodeTests + objTests;
+      document.getElementById("c2-read").innerHTML = `<strong>${fmtN(drawn)} drawn</strong> of ${fmtN(objs.length)} · ${fmtN(total)} tests with hierarchy vs ${fmtN(objs.length)} brute force`;
+      document.getElementById("c2-cost").innerHTML = `<strong>${fmtMs(total)}</strong> vs ${fmtMs(objs.length)} at 1 µs`;
+      document.querySelector("#t2-node .n").textContent = fmtN(nodeTests);
+      document.querySelector("#t2-obj .n").textContent = fmtN(objTests);
+      document.querySelector("#t2-brute .n").textContent = fmtN(objs.length);
+    }
+    drag(c2, () => camHandles(cam), (i, x, y) => { camMove(cam, i, x, y); draw(); });
+    onRange("n2", v => fmtN(v), v => { st.n = v; draw(); });
+    document.getElementById("nodes2").addEventListener("change", ev => { st.nodes = ev.target.checked; draw(); });
+    draw();
+  }
+
+  // ============ 3. hierarchical Z ============
+  {
+    const [c3, x3] = ctxOf("c3"), [c3z, x3z] = ctxOf("c3z");
+    const NZ = 256, LEVELS = 9, NREF = 1024;
+    const cam = { x: 40, y: 152, ang: -0.6, fov: 60, far: 150, near: 1 };
+    const walls = [makeObj(62, 136, 9, 1.5, 0.95), makeObj(108, 96, 14, 1.5, 0.35), makeObj(90, 112, 8, 1.5, 1.35)];
+    const objs = walls.concat(SCENE);
+    const NW = walls.length;
+    const st = { mode: "occ", frame: 0, prevHZ: null, prevVisible: new Uint8Array(objs.length), hover: -1, sel: -1 };
+    function raySeg(ox, oy, dx, dy, p, q) {
+      const ex = q[0] - p[0], ey = q[1] - p[1], den = dx * ey - dy * ex;
+      if (Math.abs(den) < 1e-9) return Infinity;
+      const wx = p[0] - ox, wy = p[1] - oy;
+      const t = (wx * ey - wy * ex) / den, u = (wx * dy - wy * dx) / den;
+      return (t > 0 && u >= 0 && u <= 1) ? t : Infinity;
+    }
+    function span(F, o, N) {
+      let zmin = Infinity, sx0 = Infinity, sx1 = -Infinity;
+      for (const [px, py] of o.corners) {
+        const dx = px - cam.x, dy = py - cam.y, z = dx * F.fx + dy * F.fy, xv = dx * F.rx + dy * F.ry;
+        if (z < zmin) zmin = z;
+        if (z >= cam.near) { const sx = xv / (z * F.th); if (sx < sx0) sx0 = sx; if (sx > sx1) sx1 = sx; }
+      }
+      if (zmin < cam.near) return { t0: 0, t1: N - 1, zmin: Math.max(zmin, cam.near), nearCross: true };
+      let t0 = Math.floor((sx0 + 1) / 2 * N), t1 = Math.floor((sx1 + 1) / 2 * N);
+      if (t1 < 0 || t0 > N - 1) return null;
+      t0 = Math.max(0, t0); t1 = Math.min(N - 1, t1);
+      return { t0, t1, zmin, nearCross: false };
+    }
+    // depth along the forward axis; ray dir = fwd + right*sx*tan(h) so t == view z
+    function rasterize(F, list, N, wantIds) {
+      const depth = new Float32Array(N).fill(cam.far), ids = wantIds ? new Int32Array(N).fill(-1) : null;
+      for (const k of list) {
+        const o = objs[k], sp = span(F, o, N); if (!sp) continue;
+        for (let i = sp.t0; i <= sp.t1; i++) {
+          const sx = ((i + 0.5) / N) * 2 - 1, dx = F.fx + F.rx * sx * F.th, dy = F.fy + F.ry * sx * F.th;
+          let best = depth[i];
+          for (let e = 0; e < 4; e++) { const t = raySeg(cam.x, cam.y, dx, dy, o.corners[e], o.corners[(e + 1) & 3]); if (t > cam.near && t < best) { best = t; if (ids) ids[i] = k; } }
+          depth[i] = best;
+        }
+      }
+      return { depth, ids };
+    }
+    function buildHZ(depth) {
+      const hz = [depth];
+      for (let L = 1; L < LEVELS; L++) { const prev = hz[L - 1], cur = new Float32Array(prev.length >> 1); for (let i = 0; i < cur.length; i++) cur[i] = Math.max(prev[2 * i], prev[2 * i + 1]); hz.push(cur); }
+      return hz;
+    }
+    function hizTest(hz, sp) {
+      const w = sp.t1 - sp.t0 + 1, L = Math.min(LEVELS - 1, Math.ceil(Math.log2(w)));
+      const a = sp.t0 >> L, b = sp.t1 >> L, m = Math.max(hz[L][a], hz[L][b]);
+      return { L, a, b, m, w, occluded: sp.zmin > m };
+    }
+    let last = null;
+    function frame() {
+      st.frame++;
+      const F = frustum(cam), P = F.planes;
+      const inF = []; const spans = new Array(objs.length).fill(null);
+      for (let k = 0; k < objs.length; k++) if (testOBB(P, objs[k])) { const sp = span(F, objs[k], NZ); if (sp) { inF.push(k); spans[k] = sp; } }
+      // reference visibility: 1024-texel id buffer
+      const ref = rasterize(F, inF, NREF, true);
+      const trueVis = new Uint8Array(objs.length); for (let i = 0; i < NREF; i++) if (ref.ids[i] >= 0) trueVis[ref.ids[i]] = 1;
+      const drawn = new Uint8Array(objs.length), tested = new Array(objs.length).fill(null), pass1 = new Uint8Array(objs.length);
+      let hz, hzLabel;
+      if (st.mode === "occ") {
+        hz = buildHZ(rasterize(F, inF.filter(k => k < NW), NZ, false).depth); hzLabel = "Hi-Z from the 3 walls, this frame";
+        for (const k of inF) { if (k < NW) { drawn[k] = 1; continue; } const t = hizTest(hz, spans[k]); tested[k] = t; if (!t.occluded) drawn[k] = 1; }
+      } else if (st.mode === "last") {
+        hz = st.prevHZ || buildHZ(new Float32Array(NZ).fill(cam.far)); hzLabel = "Hi-Z from everything drawn last frame, at last frame's camera";
+        for (const k of inF) { const t = hizTest(hz, spans[k]); tested[k] = t; if (!t.occluded) drawn[k] = 1; }
+      } else {
+        const p1 = inF.filter(k => st.prevVisible[k]); for (const k of p1) { drawn[k] = 1; pass1[k] = 1; }
+        hz = buildHZ(rasterize(F, p1, NZ, false).depth); hzLabel = `Hi-Z from pass 1 (${p1.length} objects visible last frame), this camera`;
+        for (const k of inF) { if (pass1[k]) continue; const t = hizTest(hz, spans[k]); tested[k] = t; if (!t.occluded) drawn[k] = 1; }
+      }
+      let nDrawn = 0, nCulled = 0, nWrong = 0, nHidden = 0;
+      for (const k of inF) { if (drawn[k]) { nDrawn++; if (!trueVis[k]) nHidden++; } else { nCulled++; if (trueVis[k]) nWrong++; } }
+      // state for next frame
+      st.prevHZ = buildHZ(rasterize(F, inF.filter(k => drawn[k]), NZ, false).depth);
+      st.prevVisible = drawn;
+      last = { F, inF, spans, drawn, tested, pass1, trueVis, hz, hzLabel, nDrawn, nCulled, nWrong, nHidden, ref };
+      // default selection: a wrongly culled object, else an occluded one, else the first tested
+      if (st.hover < 0) {
+        let pick = -1;
+        for (const k of inF) if (!drawn[k] && trueVis[k]) { pick = k; break; }
+        if (pick < 0) for (const k of inF) if (tested[k] && tested[k].occluded) { pick = k; break; }
+        if (pick < 0) for (const k of inF) if (tested[k]) { pick = k; break; }
+        st.sel = pick;
+      }
+      render();
+    }
+    function render() {
+      const { F, inF, spans, drawn, tested, pass1, trueVis, hz, hzLabel, nDrawn, nCulled, nWrong, nHidden } = last;
+      clear(x3);
+      const pOut = new Path2D(), pIn = new Path2D(), pCull = new Path2D(), pWrong = new Path2D(), pHid = new Path2D(), pWall = new Path2D();
+      for (let k = 0; k < objs.length; k++) {
+        const o = objs[k];
+        if (k < NW) { objPath(pWall, o); continue; }
+        if (!spans[k]) { objPath(pOut, o); continue; }
+        if (drawn[k]) objPath(trueVis[k] ? pIn : pHid, o); else objPath(trueVis[k] ? pWrong : pCull, o);
+      }
+      x3.fillStyle = DIM; x3.fill(pOut);
+      x3.fillStyle = "rgba(255,255,255,0.35)"; x3.fill(pCull);
+      x3.fillStyle = AMBER; x3.fill(pIn); x3.fillStyle = BLUE; x3.fill(pHid); x3.fillStyle = RED; x3.fill(pWrong);
+      // walls: white with dim if out of frustum
+      x3.fillStyle = WHITE; x3.fill(pWall);
+      // shadow wedges behind walls in frustum (from the reference id buffer): draw the visible depth as a faint fan
+      x3.beginPath();
+      const ref = last.ref;
+      x3.moveTo(cam.x * S, cam.y * S);
+      for (let i = 0; i < NREF; i++) {
+        const sx = ((i + 0.5) / NREF) * 2 - 1, dx = F.fx + F.rx * sx * F.th, dy = F.fy + F.ry * sx * F.th, z = ref.depth[i];
+        x3.lineTo((cam.x + dx * z) * S, (cam.y + dy * z) * S);
+      }
+      x3.closePath(); x3.fillStyle = "rgba(255,255,255,0.05)"; x3.fill();
+      // mip level labels per tested object
+      for (const k of inF) {
+        const t = tested[k], o = objs[k];
+        if (!t || o.r * S < 2) continue;
+        const col = drawn[k] ? (trueVis[k] ? AMBER : BLUE) : (trueVis[k] ? RED : "rgba(255,255,255,0.55)");
+        label(x3, String(t.L), o.x * S + o.r * S + 3, o.y * S, col);
+      }
+      drawFrustum(x3, cam, F);
+      for (const wl of walls) handle(x3, wl.x, wl.y, 5);
+      if (st.sel >= 0) { const o = objs[st.sel]; x3.strokeStyle = WHITE; x3.lineWidth = 1.5; x3.setLineDash([2, 3]); x3.beginPath(); x3.arc(o.x * S, o.y * S, Math.max(o.r * S + 5, 9), 0, Math.PI * 2); x3.stroke(); x3.setLineDash([]); }
+      label(x3, `frame ${st.frame} · ${inF.length} in frustum`, 8, W - 12, "rgba(255,255,255,0.6)");
+      document.getElementById("c3-read").innerHTML = `<strong>${nDrawn} drawn</strong> · ${nCulled} occluded of ${inF.length} in frustum`;
+      document.getElementById("c3-err").innerHTML = nWrong > 0 ? `<span class="bad">${nWrong} wrongly culled</span> · ${nHidden} drawn but hidden` : `<span class="ok">0 wrongly culled</span> · ${nHidden} drawn but hidden`;
+
+      // ---- pyramid view ----
+      x3z.fillStyle = GROUND; x3z.fillRect(0, 0, W, W);
+      const top = 34, rowH = 24, gap = 4;
+      label(x3z, "depth buffer 256 texels → Hi-Z max pyramid, 9 levels", 8, 14, "rgba(255,255,255,0.7)");
+      for (let L = 0; L < LEVELS; L++) {
+        const row = hz[L], n = row.length, cw = W / n, y = top + L * (rowH + gap);
+        for (let i = 0; i < n; i++) {
+          const z = row[i], v = z >= cam.far ? 0 : 1 - z / cam.far;
+          x3z.fillStyle = z >= cam.far ? "rgba(255,255,255,0.07)" : `rgb(${Math.round(30 + 205 * v)},${Math.round(33 + 200 * v)},${Math.round(38 + 190 * v)})`;
+          x3z.fillRect(i * cw, y, Math.max(1, cw - (cw > 3 ? 1 : 0)), rowH);
+        }
+        label(x3z, `L${L}`, W - 6, y + rowH / 2, "rgba(255,255,255,0.7)", "right");
+        if (n <= 4) label(x3z, `${n} texel${n > 1 ? "s" : ""}`, 6, y + rowH / 2, "rgba(255,255,255,0.5)");
+      }
+      const ty = top + LEVELS * (rowH + gap) + 10;
+      if (st.sel >= 0 && spans[st.sel]) {
+        const k = st.sel, sp = spans[k], t = tested[k], o = objs[k];
+        const col = drawn[k] ? (trueVis[k] ? AMBER : BLUE) : (trueVis[k] ? RED : WHITE);
+        // span on level 0
+        x3z.strokeStyle = col; x3z.lineWidth = 2;
+        x3z.strokeRect(sp.t0 * (W / NZ), top - 2, (sp.t1 - sp.t0 + 1) * (W / NZ), rowH + 4);
+        if (t) {
+          const cw = W / hz[t.L].length, y = top + t.L * (rowH + gap);
+          x3z.strokeRect(t.a * cw, y - 2, (t.b - t.a + 1) * cw, rowH + 4);
+        }
+        const lines = [];
+        lines.push(`object ${k < NW ? "wall " + k : "#" + (k - NW)}  · ${(2 * o.hx).toFixed(1)} × ${(2 * o.hy).toFixed(1)} m · nearest z ${sp.zmin.toFixed(1)} m`);
+        if (t) {
+          lines.push(`span texels ${sp.t0}–${sp.t1}  (${t.w} wide) → level ${t.L} = ceil(log2(${t.w}))`);
+          lines.push(`Hi-Z[${t.L}][${t.a}${t.b !== t.a ? ".." + t.b : ""}] max = ${t.m >= cam.far ? "far (empty)" : t.m.toFixed(1) + " m"}`);
+          lines.push(`${sp.zmin.toFixed(1)} ${t.occluded ? ">" : "≤"} ${t.m >= cam.far ? cam.far.toFixed(0) : t.m.toFixed(1)}  →  ${t.occluded ? "OCCLUDED, not drawn" : "may be visible, drawn"}`);
+          if (t.occluded && trueVis[k]) lines.push("but the reference says visible: a stale-depth error");
+          if (!t.occluded && !trueVis[k]) lines.push("reference says hidden: a conservative false positive");
+        } else if (pass1[k]) lines.push("drawn in pass 1 (visible last frame), not tested");
+        else if (k < NW) lines.push("occluder, rasterized into the depth buffer");
+        lines.forEach((s, i) => label(x3z, s, 8, ty + i * 17, i === 3 ? col : "rgba(255,255,255,0.8)"));
+      } else label(x3z, "hover an object in the frustum to see its test", 8, ty, "rgba(255,255,255,0.6)");
+      document.getElementById("c3z-read").innerHTML = hzLabel;
+      document.getElementById("c3z-frame").innerHTML = `<strong>${LEVELS} levels</strong> · ${NZ * 4} B level 0`;
+    }
+    function hover(x, y) {
+      if (x < 0) { st.hover = -1; return; }
+      let best = -1, bd = 7;
+      for (const k of last.inF) { const o = objs[k]; const d = Math.hypot(o.x - x, o.y - y) - Math.min(o.r, 4); if (d < bd) { bd = d; best = k; } }
+      if (best >= 0 && best !== st.sel) { st.hover = best; st.sel = best; render(); }
+    }
+    drag(c3, () => camHandles(cam).concat(walls.map(w => [w.x, w.y])), (i, x, y) => {
+      if (i < 2) camMove(cam, i, x, y);
+      else { const w = walls[i - 2], n = makeObj(x, y, w.hx, w.hy, w.rot); Object.assign(w, n); }
+      frame();
+    }, hover);
+    onSeg("segHz", v => { st.mode = v; st.hover = -1; frame(); });
+    document.getElementById("hz-step").addEventListener("click", () => frame());
+    frame();
+  }
+
+  // ============ 4. portals and PVS ============
+  {
+    const [c4, x4] = ctxOf("c4");
+    const rooms = [
+      [0, 0, 60, 70], [60, 0, 140, 70], [140, 0, 200, 70],
+      [0, 70, 60, 130], [60, 70, 140, 130], [140, 70, 200, 130],
+      [0, 130, 60, 200], [60, 130, 140, 200], [140, 130, 200, 200],
+    ];
+    const doors = [
+      { a: 0, b: 1, p: [60, 50], q: [60, 58] }, { a: 1, b: 2, p: [140, 8], q: [140, 16] },
+      { a: 0, b: 3, p: [4, 70], q: [12, 70] }, { a: 1, b: 4, p: [120, 70], q: [130, 70] }, { a: 2, b: 5, p: [188, 70], q: [196, 70] },
+      { a: 3, b: 4, p: [60, 118], q: [60, 126] }, { a: 4, b: 5, p: [140, 74], q: [140, 82] },
+      { a: 3, b: 6, p: [50, 130], q: [58, 130] }, { a: 4, b: 7, p: [64, 130], q: [72, 130] }, { a: 5, b: 8, p: [182, 130], q: [190, 130] },
+      { a: 6, b: 7, p: [60, 136], q: [60, 144] }, { a: 7, b: 8, p: [140, 190], q: [140, 198] },
+    ].map(d => Object.assign(d, { open: true }));
+    const cam = { x: 98, y: 106, ang: -0.55, fov: 70 };
+    const st = { showPvs: true, pvs: null };
+    const roomOf = (x, y) => rooms.findIndex(r => x >= r[0] && x < r[2] && y >= r[1] && y < r[3]);
+    const TAU = Math.PI * 2;
+    const unwrap = (a, c) => c + ((((a - c + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
+    function walk(ex, ey, room, lo, hi, from, out, depth) {
+      out.rooms.add(room); out.wedges.push({ room, lo, hi, depth });
+      if (depth > 12) return;
+      const c = (lo + hi) / 2;
+      for (const d of doors) {
+        if (d === from || !d.open || (d.a !== room && d.b !== room)) continue;
+        out.tests++;
+        let a1 = unwrap(Math.atan2(d.p[1] - ey, d.p[0] - ex), c), a2 = unwrap(Math.atan2(d.q[1] - ey, d.q[0] - ex), c);
+        if (a1 > a2) { const t = a1; a1 = a2; a2 = t; }
+        const pieces = a2 - a1 > Math.PI ? [[a2, c + Math.PI], [c - Math.PI, a1]] : [[a1, a2]];
+        for (const [l, h] of pieces) {
+          const nl = Math.max(lo, l), nh = Math.min(hi, h);
+          if (nh - nl > 1e-4) walk(ex, ey, d.a === room ? d.b : d.a, nl, nh, d, out, depth + 1);
+        }
+      }
+    }
+    function buildPVS() {
+      const pvs = rooms.map(() => new Set()); let samples = 0;
+      rooms.forEach((r, i) => {
+        for (let j = 0; j < 12; j++) for (let k = 0; k < 12; k++) {
+          const x = r[0] + (r[2] - r[0]) * (j + 0.5) / 12, y = r[1] + (r[3] - r[1]) * (k + 0.5) / 12; samples++;
+          const out = { rooms: new Set(), wedges: [], tests: 0 };
+          walk(x, y, i, -Math.PI + 1e-6, Math.PI - 1e-6, null, out, 0);
+          out.rooms.forEach(v => pvs[i].add(v));
+        }
+      });
+      st.pvs = pvs;
+      document.getElementById("pvs-bits").textContent = "PVS matrix, one row per room (built from " + samples + " sample points)\n" +
+        pvs.map((s, i) => `R${i}: ` + rooms.map((_, j) => s.has(j) ? "1" : "0").join(" ") + `   ${s.size} rooms`).join("\n");
+    }
+    function fan(ctx, ex, ey, lo, hi, R) {
+      ctx.beginPath(); ctx.moveTo(ex * S, ey * S);
+      const n = Math.max(2, Math.ceil((hi - lo) / 0.2));
+      for (let i = 0; i <= n; i++) { const a = lo + (hi - lo) * i / n; ctx.lineTo((ex + Math.cos(a) * R) * S, (ey + Math.sin(a) * R) * S); }
+      ctx.closePath();
+    }
+    function draw() {
+      const room = roomOf(cam.x, cam.y);
+      const h = cam.fov * Math.PI / 360;
+      const out = { rooms: new Set(), wedges: [], tests: 0 };
+      if (room >= 0) walk(cam.x, cam.y, room, cam.ang - h, cam.ang + h, null, out, 0);
+      clear(x4);
+      // PVS shading
+      if (st.showPvs && room >= 0) {
+        x4.fillStyle = "rgba(74,163,255,0.16)";
+        for (const j of st.pvs[room]) { const r = rooms[j]; x4.fillRect(r[0] * S, r[1] * S, (r[2] - r[0]) * S, (r[3] - r[1]) * S); }
+      }
+      // wedges clipped to their room
+      for (const w of out.wedges) {
+        const r = rooms[w.room];
+        x4.save(); x4.beginPath(); x4.rect(r[0] * S, r[1] * S, (r[2] - r[0]) * S, (r[3] - r[1]) * S); x4.clip();
+        fan(x4, cam.x, cam.y, w.lo, w.hi, 400);
+        x4.fillStyle = `rgba(242,163,65,${Math.max(0.12, 0.34 - w.depth * 0.06)})`; x4.fill();
+        x4.strokeStyle = "rgba(242,163,65,0.8)"; x4.lineWidth = 1; x4.stroke();
+        x4.restore();
+      }
+      // walls
+      x4.strokeStyle = "rgba(255,255,255,0.75)"; x4.lineWidth = 3; x4.beginPath();
+      for (const r of rooms) x4.rect(r[0] * S, r[1] * S, (r[2] - r[0]) * S, (r[3] - r[1]) * S);
+      x4.stroke();
+      // doors: erase the wall segment, mark open/closed
+      for (const d of doors) {
+        x4.lineWidth = 5; x4.strokeStyle = d.open ? GROUND : RED; x4.beginPath(); x4.moveTo(d.p[0] * S, d.p[1] * S); x4.lineTo(d.q[0] * S, d.q[1] * S); x4.stroke();
+        if (d.open) { x4.lineWidth = 1.5; x4.strokeStyle = AMBER; x4.setLineDash([3, 3]); x4.beginPath(); x4.moveTo(d.p[0] * S, d.p[1] * S); x4.lineTo(d.q[0] * S, d.q[1] * S); x4.stroke(); x4.setLineDash([]); }
+      }
+      // room labels
+      rooms.forEach((r, i) => {
+        const inPvs = room >= 0 && st.pvs[room].has(i), seen = out.rooms.has(i);
+        label(x4, `R${i}${seen ? " · portal" : inPvs ? " · pvs" : ""}`, r[0] * S + 8, r[1] * S + 12, seen ? AMBER : inPvs ? BLUE : "rgba(255,255,255,0.45)");
+      });
+      // camera
+      const [ax, ay] = [cam.x + Math.cos(cam.ang) * 18, cam.y + Math.sin(cam.ang) * 18];
+      x4.setLineDash([3, 4]); x4.strokeStyle = "rgba(255,255,255,0.5)"; x4.lineWidth = 1; x4.beginPath(); x4.moveTo(cam.x * S, cam.y * S); x4.lineTo(ax * S, ay * S); x4.stroke(); x4.setLineDash([]);
+      handle(x4, ax, ay, 5); handle(x4, cam.x, cam.y, 7);
+      const closed = doors.filter(d => !d.open).length;
+      label(x4, `${doors.length - closed} doors open · click a doorway to toggle`, 8, W - 12, "rgba(255,255,255,0.6)");
+      document.getElementById("c4-read").innerHTML = room >= 0 ? `camera in R${room} · <strong>${out.rooms.size} of 9 rooms</strong> via portals · ${out.tests} door tests` : "camera outside";
+      document.getElementById("c4-pvs").innerHTML = room >= 0 ? `PVS[R${room}]: <strong>${st.pvs[room].size} rooms</strong>` : "";
+    }
+    drag(c4, () => [[cam.x, cam.y], [cam.x + Math.cos(cam.ang) * 18, cam.y + Math.sin(cam.ang) * 18]], (i, x, y) => {
+      if (i === 0) { if (roomOf(x, y) >= 0) { cam.x = x; cam.y = y; } } else { const dx = x - cam.x, dy = y - cam.y; if (Math.hypot(dx, dy) > 0.5) cam.ang = Math.atan2(dy, dx); }
+      draw();
+    }, null, (x, y) => {
+      let best = null, bd = 6;
+      for (const d of doors) { const mx = (d.p[0] + d.q[0]) / 2, my = (d.p[1] + d.q[1]) / 2; const dd = Math.hypot(mx - x, my - y); if (dd < bd) { bd = dd; best = d; } }
+      if (best) { best.open = !best.open; buildPVS(); draw(); }
+    });
+    onRange("fov4", v => v + "°", v => { cam.fov = v; draw(); });
+    document.getElementById("showpvs").addEventListener("change", ev => { st.showPvs = ev.target.checked; draw(); });
+    buildPVS(); draw();
+  }
+
+  // ============ 5. small objects and GPU-driven ============
+  {
+    const [c5, x5] = ctxOf("c5"), [c5b, x5b] = ctxOf("c5b");
+    const cam = { x: 30, y: 170, ang: -0.72, fov: 60, far: 200, near: 1 };
+    const st = { px: 12, n: 1000, hover: -1 };
+    function draw() {
+      const objs = makeScene(st.n), F = frustum(cam), P = F.planes, th = F.th;
+      const state = new Uint8Array(objs.length), rpx = new Float32Array(objs.length); // 0 frustum-culled, 1 size-culled, 2 visible
+      let nF = 0, nS = 0, nV = 0;
+      for (let i = 0; i < objs.length; i++) {
+        const o = objs[i];
+        const z = (o.x - cam.x) * F.fx + (o.y - cam.y) * F.fy;
+        rpx[i] = o.r * (SCREEN_H / 2) / (Math.max(z, cam.near) * th);
+        if (!testSphere(P, o)) { state[i] = 0; nF++; }
+        else if (2 * rpx[i] < st.px) { state[i] = 1; nS++; }
+        else { state[i] = 2; nV++; }
+      }
+      // pick: hovered, else the visible object closest to the threshold
+      let pick = st.hover;
+      if (pick < 0 || state[pick] === 0) { let bd = Infinity; for (let i = 0; i < objs.length; i++) if (state[i] > 0) { const d = Math.abs(2 * rpx[i] - st.px); if (d < bd) { bd = d; pick = i; } } }
+      clear(x5);
+      const pOut = new Path2D(), pSmall = new Path2D(), pIn = new Path2D();
+      for (let i = 0; i < objs.length; i++) objPath(state[i] === 0 ? pOut : state[i] === 1 ? pSmall : pIn, objs[i]);
+      x5.fillStyle = DIM; x5.fill(pOut); x5.fillStyle = AMBER; x5.fill(pIn);
+      x5.fillStyle = "rgba(239,93,93,0.35)"; x5.fill(pSmall); x5.strokeStyle = RED; x5.lineWidth = 1; x5.stroke(pSmall);
+      drawFrustum(x5, cam, F);
+      if (pick >= 0) {
+        const o = objs[pick], z = (o.x - cam.x) * F.fx + (o.y - cam.y) * F.fy;
+        x5.strokeStyle = WHITE; x5.lineWidth = 1; x5.setLineDash([2, 3]);
+        x5.beginPath(); x5.arc(o.x * S, o.y * S, o.r * S, 0, Math.PI * 2); x5.stroke();
+        x5.beginPath(); x5.moveTo(cam.x * S, cam.y * S); x5.lineTo(o.x * S, o.y * S); x5.stroke(); x5.setLineDash([]);
+        const col = state[pick] === 2 ? AMBER : RED;
+        const rightSide = o.x * S > W - 150;
+        label(x5, `r ${o.r.toFixed(1)} m · z ${z.toFixed(0)} m → ${(2 * rpx[pick]).toFixed(1)} px`, o.x * S + (rightSide ? -8 : 8), o.y * S - 10, col, rightSide ? "right" : "left");
+        document.getElementById("c5-pick").innerHTML = `picked: 2 · ${o.r.toFixed(2)} · 540 / (${z.toFixed(1)} · ${th.toFixed(3)}) = <strong>${(2 * rpx[pick]).toFixed(2)} px</strong> ${state[pick] === 2 ? "≥" : "<"} ${st.px.toFixed(1)}`;
+      }
+      label(x5, `1080p · fov ${cam.fov}° · min ${st.px.toFixed(1)} px`, 8, W - 12, "rgba(255,255,255,0.6)");
+      document.getElementById("c5-read").innerHTML = `<strong>${fmtN(nV)} drawn</strong> of ${fmtN(objs.length)} · ${fmtN(nF)} outside frustum · ${fmtN(nS)} too small`;
+
+      // ---- buffers ----
+      x5b.fillStyle = GROUND; x5b.fillRect(0, 0, W, W);
+      const N = objs.length;
+      function grid(y0, hgt, count, colorOf) {
+        const cs = Math.max(2, Math.floor(Math.sqrt((W - 16) * hgt / count))), cols = Math.floor((W - 16) / cs);
+        for (let i = 0; i < count; i++) { const cx = 8 + (i % cols) * cs, cy = y0 + Math.floor(i / cols) * cs; x5b.fillStyle = colorOf(i); x5b.fillRect(cx, cy, Math.max(1, cs - 1), Math.max(1, cs - 1)); }
+        return y0 + Math.ceil(count / cols) * cs;
+      }
+      label(x5b, `instances[] · ${fmtN(N)} × 64 B = ${fmtN(N * 64 / 1024 | 0)} KB · one thread each`, 8, 14, "rgba(255,255,255,0.7)");
+      let y = grid(26, 170, N, i => state[i] === 2 ? AMBER : state[i] === 1 ? "rgba(239,93,93,0.6)" : "rgba(255,255,255,0.14)");
+      y += 22;
+      label(x5b, `visibleInstances[] · append buffer · ${fmtN(nV)} × 4 B written`, 8, y, "rgba(255,255,255,0.7)");
+      const cw = Math.max(2, Math.floor(Math.sqrt((W - 16) * 70 / N)));
+      y = grid(y + 12, 70, N, i => i < nV ? AMBER : "rgba(255,255,255,0.06)");
+      y += 22;
+      const groups = Math.ceil(N / 64), gpuUs = N / 2000 + 20, cpuUs = N;
+      const lines = [
+        `DrawIndexedIndirectArgs {`,
+        `  indexCount    = 36        // one mesh, a box`,
+        `  instanceCount = ${String(nV).padEnd(8)}  // written by InterlockedAdd`,
+        `  firstIndex    = 0`,
+        `  baseVertex    = 0`,
+        `  firstInstance = 0`,
+        `}   dispatch ${groups} group${groups > 1 ? "s" : ""} × 64 threads`,
+      ];
+      lines.forEach((s, i) => label(x5b, s, 8, y + i * 16, i === 2 ? AMBER : "rgba(255,255,255,0.8)"));
+      y += lines.length * 16 + 12;
+      // budget bar
+      const budget = 16700, bw = W - 16;
+      label(x5b, `60 Hz frame budget 16.7 ms · cull cost, estimates`, 8, y, "rgba(255,255,255,0.7)"); y += 12;
+      x5b.fillStyle = "rgba(255,255,255,0.08)"; x5b.fillRect(8, y, bw, 12);
+      x5b.fillStyle = BLUE; x5b.fillRect(8, y, Math.max(2, bw * cpuUs / budget), 12);
+      label(x5b, `CPU  ${fmtMs(cpuUs)} at 1 µs per test`, 8 + Math.max(2, bw * cpuUs / budget) + 8, y + 6, "rgba(255,255,255,0.8)"); y += 18;
+      x5b.fillStyle = "rgba(255,255,255,0.08)"; x5b.fillRect(8, y, bw, 12);
+      x5b.fillStyle = AMBER; x5b.fillRect(8, y, Math.max(2, bw * gpuUs / budget), 12);
+      label(x5b, `GPU  ${fmtMs(gpuUs)} compute cull, estimate`, 8 + Math.max(2, bw * gpuUs / budget) + 8, y + 6, "rgba(255,255,255,0.8)");
+      document.getElementById("c5b-read").innerHTML = `<strong>${fmtN(nV)}</strong> instanceCount · ${fmtN(N - nV)} threads returned early`;
+      document.getElementById("c5b-cost").innerHTML = `CPU ${fmtMs(cpuUs)} vs GPU ~${fmtMs(gpuUs)} (estimates)`;
+    }
+    drag(c5, () => camHandles(cam), (i, x, y) => { camMove(cam, i, x, y); draw(); }, (x, y) => {
+      if (x < 0) { st.hover = -1; return; }
+      const objs = makeScene(st.n); let best = -1, bd = 6;
+      for (let i = 0; i < objs.length; i++) { const o = objs[i]; const d = Math.hypot(o.x - x, o.y - y) - Math.min(o.r, 3); if (d < bd) { bd = d; best = i; } }
+      if (best !== st.hover) { st.hover = best; draw(); }
+    });
+    onRange("px5", v => v + " px", v => { st.px = v; draw(); });
+    onRange("n5", v => fmtN(v), v => { st.n = v; st.hover = -1; draw(); });
+    onRange("fov5", v => v + "°", v => { cam.fov = v; draw(); });
+    draw();
+  }
+})();
+</script>

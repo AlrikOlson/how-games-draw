@@ -1,0 +1,1039 @@
+<title>Screen-Space Reflections</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas { aspect-ratio: 1; }
+.tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 480px) { .tiles.four { grid-template-columns: 1fr 1fr; } }
+.tile .n small { font-size: 13px; color: var(--muted); }
+.stats td.ok { color: #3f9f62; }
+.stats td.bad { color: #d84a4a; }
+.uses td:first-child { white-space: normal; min-width: 11ch; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">12.5 m side view · 70° camera at 6.5 m · 160-pixel screen · hover or drag along the floor</p>
+    <h1>Screen-Space Reflections</h1>
+    <p class="lead">A screen-space reflection, SSR for short, builds a mirror image out of pixels you already drew this frame. That makes it close to free next to rendering the scene a second time, and anything that moves reflects for nothing because it is already in the picture. The catch is that SSR can only reflect what the camera can see, so undersides, things behind the camera, and anything hidden by a nearer object come out missing. <b>The thing people get wrong</b> is treating SSR as a cheap ray tracer. It traces the picture, not the scene.</p>
+    <div class="key">
+      <span style="--sw:#f2a341">bounced ray, and where SSR found a hit</span>
+      <span style="--sw:#ffffff">camera's line of sight, drag handles</span>
+      <span style="--sw:#4aa3ff">backup color from the probe or the sky</span>
+      <span style="--sw:#5ad48a">matches the true reflection</span>
+      <span style="--sw:#ef5d5d">wrong hit, or ray passed behind something</span>
+      <span style="--sw:#1a1f27">miss, nothing stored there</span>
+    </div>
+    <dl class="terms">
+      <dt>color buffer</dt><dd>the finished picture, one color per pixel</dd>
+      <dt>depth buffer</dt><dd>for every pixel, how far away the thing drawn in it is</dd>
+      <dt>reflected ray</dt><dd>the camera's line of sight bounced off the mirror surface</dd>
+      <dt>march</dt><dd>walking along that bounced ray a few pixels at a time, checking the depth buffer at each stop</dd>
+      <dt>thickness</dt><dd>how far behind a stored surface the ray may go and still count as touching it</dd>
+      <dt>Hi-Z</dt><dd>a stack of shrunken depth buffers, each cell keeping the nearest depth of the pixels it covers</dd>
+      <dt>reflection probe</dt><dd>a snapshot of the scene in every direction, taken once from one spot</dd>
+      <dt>roughness</dt><dd>how blurry a surface's reflection is; 0 is a perfect mirror</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#idea"><span class="n">01</span>One pixel, one march</a></li><li><a href="#march"><span class="n">02</span>Fixed steps or smart jumps</a></li><li><a href="#failures"><span class="n">03</span>When the reflection isn't on screen</a></li><li><a href="#rough"><span class="n">04</span>Rough floors</a></li><li><a href="#thickness"><span class="n">05</span>How far behind still counts</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="idea">
+    <h2>One pixel, one march</h2>
+    <p class="sub">Hover or drag along the floor to pick a pixel and watch its reflection get found in the depth buffer.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c1" width="512" height="512" class="grab" aria-label="A reflected ray marched across a 1D depth buffer"></canvas>
+        <div class="cap"><span id="c1-read">hover the floor</span><span id="c1-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Pick one pixel of the mirror floor. To find its reflection, SSR <b>bounces the camera's line of sight off the floor</b>, then <b>walks along that bounced line a few screen pixels at a time</b>. At each stop it checks the depth buffer, the per-pixel record of how far away things are, to see whether the line has gone behind whatever the camera drew there. <b>The first pixel where it dips behind a surface is the hit</b>, and the color already stored at that pixel is the reflection.</p>
+
+        <h3>What you're seeing</h3>
+        <p>The big picture is the scene from the side: camera on the left, a mirror floor, an amber box, a blue sphere and a grey wall. The dashed white line is the camera looking at your chosen floor pixel. The amber line is the bounced ray, with a dot at every pixel it checked: white dots are still in front of everything, red dots went too far behind something, and the amber ring is the hit.</p>
+        <p>The strip at the top is the camera's 160-pixel screen laid flat: the color buffer, then the depth buffer as grey (bright is near), then a graph of depth per pixel. On the graph the white line is the stored depth, the amber curve is the ray's depth, and the faint amber band is the thickness allowance. Where the amber curve enters the band, the march stops.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Hover the floor left of the amber box. The bounced ray climbs past everything and off the top of the screen: a miss, because nothing was stored up there.</li>
+          <li>Hover between the box and the sphere and watch the readout. Some pixels catch the sphere's edge, others pass behind it (red dots) and land on the wall.</li>
+          <li>Watch the graph while you move. The hit is always where the amber curve first crosses into the white line's band.</li>
+        </ul>
+
+        <h3>The real version</h3>
+        <p>The camera sees the floor at pixel <code>u</code>. Its view ray <code>d</code> lands on floor point <code>p</code> with normal <code>n</code> (the direction the surface faces), and the mirror direction is <code>r = d − 2(n·d)n</code>. SSR does not trace <code>r</code> through the scene. It projects a segment of <code>r</code> back onto the screen, so the start and end become two pixel positions with a depth each, and visits the pixels between them in order.</p>
+        <p>At each visited pixel the ray has a depth <code>z_ray</code> and the buffer has <code>z_buf</code>, the depth of whatever the camera saw there. While <code>z_ray &lt; z_buf</code> the ray is still in front of everything. The first pixel where it goes behind is the hit, provided it went behind by less than a thickness <code>t</code>. Fetch the color at that pixel and that is the reflection.</p>
+        <p>Depth is not linear along the screen, but <code>1/z</code> is, so the ray is interpolated in <code>1/z</code> between its projected endpoints. Interpolating <code>z</code> directly bends the ray off its true path, which shows up as reflections that slide when the camera moves.</p>
+        <p class="words">In words: bounce the ray, turn its two ends into pixel positions, blend 1/depth between them, and call it a hit the first time the ray is behind the buffer by less than the thickness.</p>
+        <div class="math">r = d − 2 (n·d) n
+u = (0.5 − 0.5 · x_v / (z_v · tan(fov/2))) · N        <span class="c">// view space → pixel</span>
+1/z(u) = lerp(1/z_0, 1/z_1, (u − u_0) / (u_1 − u_0))  <span class="c">// linear on screen</span>
+hit  ⇔  z_ray &gt; z_buf(u)  &amp;&amp;  z_ray &lt; z_buf(u) + t</div>
+        <p><code>d</code> is the view ray, <code>n</code> the floor normal, <code>r</code> the bounced ray. <code>x_v</code> and <code>z_v</code> are a point's sideways and forward position as seen from the camera, <code>fov</code> is the camera's field of view, <code>N</code> the screen width in pixels. <code>z_0</code> and <code>z_1</code> are the depths at the two projected ends, <code>u_0</code> and <code>u_1</code> their pixel positions, <code>t</code> the thickness.</p>
+        <p class="words">What this code does: projects both ends of the bounced ray to the screen, then steps between them a few pixels at a time until the ray is behind the depth buffer by less than the thickness.</p>
+<pre class="code"><span class="c">// per reflective pixel, view space in, color out</span>
+vec3 r  = reflect(viewDir, n);
+vec3 p0 = posVS, p1 = posVS + r * uMaxDist;
+vec4 c0 = uProj * vec4(p0, 1.0), c1 = uProj * vec4(p1, 1.0);
+vec2 s0 = (c0.xy / c0.w * 0.5 + 0.5) * uRes;         <span class="c">// pixel coords</span>
+vec2 s1 = (c1.xy / c1.w * 0.5 + 0.5) * uRes;
+<span class="k">float</span> k0 = 1.0 / c0.w, k1 = 1.0 / c1.w;               <span class="c">// 1/z is linear on screen</span>
+<span class="k">float</span> len = length(s1 - s0);
+<span class="k">for</span> (<span class="k">float</span> i = 1.0; i &lt; len; i += uStepPx) {
+  <span class="k">float</span> w    = i / len;
+  vec2  px   = mix(s0, s1, w);
+  <span class="k">float</span> zRay = 1.0 / mix(k0, k1, w);
+  <span class="k">float</span> zBuf = linearDepth(texelFetch(uDepth, ivec2(px), 0).r);
+  <span class="k">if</span> (zRay &gt; zBuf &amp;&amp; zRay &lt; zBuf + uThickness)          <span class="c">// behind, but not far behind</span>
+    <span class="k">return</span> texelFetch(uColor, ivec2(px), 0).rgb;
+}
+<span class="k">return</span> vec3(0.0);                                    <span class="c">// miss: hand over to the fallback</span></pre>
+
+        <p class="tldr">SSR walks the bounced ray across the depth buffer and returns the color at the first pixel it dips behind; it never touches the actual geometry.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="march">
+    <h2>Fixed steps or smart jumps</h2>
+    <p class="sub">Pick a floor pixel, then switch between walking every few pixels and jumping over empty stretches of screen.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c2" width="512" height="512" class="grab" aria-label="Linear and hierarchical depth marching over a min-depth pyramid"></canvas>
+        <div class="cap"><span id="c2-read"></span><span id="c2-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Walking the ray one pixel at a time is exact but slow. <b>Bigger fixed steps are faster but can step right over a thin object.</b> Hi-Z is the other approach: keep a stack of shrunken copies of the depth buffer, each cell storing the nearest depth of the pixels it covers, and <b>jump over a whole block of screen whenever the ray stays in front of everything in it</b>. <b>Empty screen then costs one check per block instead of one per pixel.</b></p>
+
+        <h3>What you're seeing</h3>
+        <p>The pyramid at the top is the depth buffer shrunk five times, each level keeping the nearer of two cells below it (bright is near). In linear mode, the ticks on the bottom row are the pixels the march sampled: white in front, red behind, amber the hit. In Hi-Z mode, a white box is a cell the ray jumped over, an amber box is a cell it had to zoom into, and the filled cell on the bottom row is the hit.</p>
+        <p>The tiles count how many depth reads each method spent on this pixel, and how far the linear hit is from the exact crossing point.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Set the linear step to 16 px. The fetch count drops, the hit error climbs, and on some pixels the ray steps clean past a surface.</li>
+          <li>Turn binary refine up to 6. The error shrinks to a fraction of a pixel for six extra reads.</li>
+          <li>Switch to Hi-Z. Where the ray crosses empty screen the count falls; where it runs behind the sphere, it does not.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><span class="lab">March</span><div class="seg" id="seg2" role="group" aria-label="March mode"><button data-v="linear" aria-pressed="true">linear</button><button data-v="hiz">Hi-Z</button></div></div>
+          <div class="ctl"><label for="step2">Linear step <span class="val" id="step2v">4 px</span></label><input type="range" id="step2" min="1" max="16" step="1" value="4"></div>
+          <div class="ctl"><label for="ref2">Binary refine <span class="val" id="ref2v">0 iterations</span></label><input type="range" id="ref2" min="0" max="6" step="1" value="0"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile" id="t2-lin"><div class="n">–</div><div class="l">linear fetches</div></div>
+          <div class="tile" id="t2-hiz"><div class="n">–</div><div class="l">Hi-Z fetches</div></div>
+          <div class="tile" id="t2-err"><div class="n">–</div><div class="l">linear hit error</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>A fixed step of <code>s</code> pixels costs distance/<code>s</code> fetches and only locates the hit to within <code>s</code> pixels. Small steps are accurate and slow; big steps walk straight over thin objects.</p>
+        <p>A binary search between the last pixel in front and the first pixel behind (halve the gap, check which side, repeat) recovers sub-pixel accuracy for <code>log2(s)</code> extra fetches. That is why most linear marchers step coarse and then refine.</p>
+        <p>Hi-Z tracing replaces the fixed step with a test. In the coarsest level whose cell the ray is in, it checks whether the ray stays in front of the cell's minimum depth all the way to the cell's edge. If yes, jump to that edge and go one level coarser. If no, go one level finer without leaving the cell.</p>
+        <p>The march spends single steps on empty screen and only reaches level 0 next to a surface. The pyramid costs one min-reduction pass per frame and a third more depth memory. Its weak case is a ray running behind something, the sphere here: every pixel of that stretch fails the skip test and costs a fetch or two, which is why the Hi-Z count is not always the smaller one.</p>
+        <p>The level-0 hit is the exact crossing of the ray with that pixel's depth, so Hi-Z gives sub-pixel hits without a refinement loop. The error readout compares each method against that exact crossing.</p>
+        <p class="words">In words: build each level by keeping the nearer of two cells; at each step, skip the cell if the ray stays in front of its nearest depth, otherwise zoom in one level; a hit is a level-0 cell the ray is behind by less than the thickness.</p>
+        <div class="math">hiz[L][i] = min(hiz[L−1][2i], hiz[L−1][2i+1])
+cell   = floor(u / 2^L),  u_exit = (cell + 1) · 2^L        <span class="c">// moving +u</span>
+skip    ⇔ max(z(u), z(u_exit)) &lt; hiz[L][cell]   → u = u_exit, L = L + 1
+descend ⇔ otherwise                              → u = u where z(u) = hiz[L][cell], L = L − 1
+hit     ⇔ L = 0 and z(u) &lt; z_buf + t</div>
+        <p><code>hiz[L][i]</code> is cell <code>i</code> of level <code>L</code>, <code>u</code> the ray's current pixel, <code>u_exit</code> the pixel where it leaves the cell, <code>z(u)</code> the ray's depth at a pixel, <code>t</code> the thickness.</p>
+        <p class="words">What this code does: one step of the Hi-Z walk. It finds where the ray leaves the current cell, finds where the ray would reach the cell's nearest depth, and either jumps out and coarsens, or moves to that depth and refines.</p>
+<pre class="code"><span class="c">// one Hi-Z step; uHiZ is the min-depth mip chain</span>
+<span class="k">float</span> cellSize = exp2(<span class="k">float</span>(level));
+vec2  cell     = floor(px / cellSize);
+vec2  edge     = (cell + step(0.0, dir)) * cellSize;     <span class="c">// exit edge along dir</span>
+<span class="k">float</span> tEdge    = min((edge.x - px.x) / dir.x, (edge.y - px.y) / dir.y);
+<span class="k">float</span> zMin     = textureLod(uHiZ, cell * cellSize / uRes, <span class="k">float</span>(level)).r;
+<span class="k">float</span> tPlane   = (1.0 / zMin - k) / dk;                    <span class="c">// where 1/z hits the cell's min plane</span>
+<span class="k">if</span> (tPlane &gt; tEdge) { px += dir * (tEdge + 0.01); level = min(level + 1, uMaxLevel); }
+<span class="k">else</span>                { px += dir * max(tPlane, 0.0);  level -= 1; }  <span class="c">// -1 at level 0 means hit</span></pre>
+
+        <p class="tldr">Fixed steps trade accuracy for speed; Hi-Z jumps over empty screen in big blocks and only slows down next to a surface.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="failures">
+    <h2>When the reflection isn't on screen</h2>
+    <p class="sub">Drag the sphere off the top of the frame, or move the slab, and watch what fills the hole SSR leaves.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c3" width="512" height="512" class="grab" aria-label="SSR failure cases with a reflection probe and sky fallback"></canvas>
+        <div class="cap"><span id="c3-read">hover the floor</span><span id="c3-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">SSR can only reflect what was drawn. <b>If the thing you'd see in the mirror is off screen, hidden behind something, or facing away from the camera, there is nothing to look up.</b> Every engine keeps a backup for that: <b>a reflection probe, a snapshot of the scene taken in every direction from one spot</b>, and past that, the sky. <b>Each pixel blends between SSR and the backup by how much it trusts the SSR hit.</b></p>
+
+        <h3>What you're seeing</h3>
+        <p>Four strips at the top: the true reflection each floor pixel should show, what SSR found on its own, what the probe (the blue ring in the scene) or the sky would give instead, and the blend the pixel gets. The thin bar under them is green where SSR won and blue where the backup took over. Pixels that are not floor just show the color buffer.</p>
+        <p>In the scene, the green dashed line is the true reflection ray for your chosen pixel, the amber line is the SSR march, and the blue dashed line from the ring is the probe's guess for the same direction. The tiles count how many floor pixels ended up using each source.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Drag the sphere up until the caption says off screen. Its reflection vanishes from the SSR strip and the probe fills in, at slightly the wrong place.</li>
+          <li>Drag the slab so it sits between the camera and the wall. Floor pixels whose ray passes behind it lose their hit and turn blue in the bar.</li>
+          <li>Widen the edge fade. Pixels whose hit lands near the top of the screen shift toward the backup before they would pop.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><label for="fade3">Edge fade width <span class="val" id="fade3v">0.10 of screen</span></label><input type="range" id="fade3" min="0" max="0.3" step="0.01" value="0.10"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile" id="t3-ssr"><div class="n">–</div><div class="l">floor px from SSR</div></div>
+          <div class="tile" id="t3-probe"><div class="n">–</div><div class="l">from the probe</div></div>
+          <div class="tile" id="t3-sky"><div class="n">–</div><div class="l">from the sky</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>SSR has one failure with three faces. The reflected object is off screen: nothing was stored, so nothing can be found. The object is on screen but its reflected side is not: the ray passes behind the sphere, keeps going, and lands on the wall, so the sphere's reflection is a patch of wall. Something in the foreground covers the target: the slab's depth is nearer than the ray at those pixels, so the ray counts as behind it and walks on into nothing.</p>
+        <p>A reflection probe is a cubemap, six square images covering every direction, captured from one point (the ring in the scene, 128 directions here). Sampling it with <code>r</code> gives a plausible color at the wrong parallax, meaning the reflection sits in slightly the wrong place because the probe was not captured from where the floor pixel is. Beyond the probe, the sky.</p>
+        <p>The blend weight is the SSR confidence: zero on a miss, and faded toward zero near the screen edge so the hole does not pop into view when the camera turns.</p>
+        <p class="words">In words: measure how close the hit is to the nearest screen edge, turn that into a weight between 0 and 1, and mix the SSR color with the probe (or sky) by that weight.</p>
+        <div class="math">e = min(uv_hit.x, 1 − uv_hit.x, uv_hit.y, 1 − uv_hit.y)
+w = hit ? smoothstep(0, f, e) : 0                  <span class="c">// edge fade, f ≈ 0.1</span>
+color = w · ssr + (1 − w) · (probe(r).a &gt; 0 ? probe(r).rgb : sky(r))</div>
+        <p><code>uv_hit</code> is the hit's screen position from 0 to 1, <code>e</code> its distance to the nearest edge, <code>f</code> the fade width, <code>w</code> the weight, and <code>probe(r).a</code> is zero where the probe saw sky.</p>
+        <p class="words">What this code does: reads the SSR hit, computes the edge fade, looks up the probe with a direction corrected for the probe's position, and mixes the three sources.</p>
+<pre class="code"><span class="c">// resolve: SSR result carries its hit uv in .xy and a hit flag in .w</span>
+vec4  h    = texelFetch(uSSR, px, 0);
+<span class="k">float</span> edge = min(min(h.x, 1.0 - h.x), min(h.y, 1.0 - h.y));
+<span class="k">float</span> w    = h.w * smoothstep(0.0, uFade, edge);        <span class="c">// 0 on miss, fades near edges</span>
+vec3  ssr  = texelFetch(uColor, ivec2(h.xy * uRes), 0).rgb;
+vec3  rP   = parallaxCorrect(r, posWS, uProbeBox);       <span class="c">// box-projected lookup dir</span>
+vec4  pr   = textureLod(uProbe, rP, roughness * uMips);
+vec3  fb   = mix(sky(r), pr.rgb, pr.a);                  <span class="c">// alpha 0 where the probe saw sky</span>
+<span class="k">return</span> mix(fb, ssr, w);</pre>
+
+        <p class="tldr">Every SSR miss is the same miss, the target was never drawn, and a probe or the sky fills the hole with a weight that fades out near the screen edge.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="rough">
+    <h2>Rough floors: scatter the rays</h2>
+    <p class="sub">Turn up roughness and rays per pixel, and watch the noise get averaged away over frames.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c4" width="512" height="512" class="grab" aria-label="Stochastic GGX reflection rays with temporal accumulation and a roughness-weighted blur"></canvas>
+        <div class="cap"><span id="c4-read">hover the floor</span><span id="c4-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">A mirror bounces light in one direction. A rough surface, like a wet road or brushed metal, <b>scatters it into a cone</b>, so its reflection is blurry. To render that, SSR <b>fires rays in random directions inside the cone</b> and averages what they find. One ray per pixel gives <b>the right answer on average and speckled noise everywhere</b>, so engines <b>average across frames and blur across neighbours</b> to hide it.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Three strips: what this frame's rays returned, the running average over up to 48 frames, and a blur of this frame alone. The amber bars under them are the blur radius per pixel. The amber fan in the scene is the cone of likely ray directions for your chosen pixel, and the thin amber lines are the rays fired this frame.</p>
+        <p>The tiles count rays and depth reads, and estimate the cost at 1080p if every pixel on screen did the same.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Set roughness to 0. The fan collapses to a single line and all three strips agree.</li>
+          <li>Set roughness to 0.6 with 1 ray per pixel. The top strip is speckle; watch the temporal strip settle over a second or two.</li>
+          <li>Switch to 8 rays per pixel. The top strip cleans up in one frame and the estimated milliseconds climb with it.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><label for="rough4">Roughness <span class="val" id="rough4v">0.30</span></label><input type="range" id="rough4" min="0" max="0.7" step="0.01" value="0.30"></div>
+          <div class="ctl"><span class="lab">Rays per pixel</span><div class="seg" id="seg4" role="group" aria-label="Rays per pixel"><button data-v="1" aria-pressed="true">1</button><button data-v="2">2</button><button data-v="4">4</button><button data-v="8">8</button></div></div>
+        </div>
+        <div class="tiles">
+          <div class="tile" id="t4-rays"><div class="n">–</div><div class="l">rays this frame</div></div>
+          <div class="tile" id="t4-steps"><div class="n">–</div><div class="l">fetches per ray, avg</div></div>
+          <div class="tile" id="t4-ms"><div class="n">–</div><div class="l">est. ms at 1080p</div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>A mirror needs one ray. A rough surface reflects a cone of directions weighted by the GGX lobe, the standard curve for how much light a rough surface sends each way. The correct way to render that is to sample it: draw a half vector <code>h</code> (the direction halfway between the incoming and outgoing rays) from the distribution, reflect <code>d</code> about it, march. One ray per pixel gives the right answer on average and noise everywhere.</p>
+        <p>Two things hide the noise. Temporal accumulation averages each frame into a history buffer, which is last frame's result shifted to line up with this frame's camera. After a few dozen frames the estimate converges; move the camera and it starts over.</p>
+        <p>A spatial blur whose radius grows with roughness and with the distance to the hit does it in one frame, at the cost of smearing detail. Production SSR does both and reuses each ray's hit for several neighbouring pixels (Frostbite's stochastic SSR, 2015).</p>
+        <p>The blur radius growing with hit distance is the physical effect, not a trick: the lobe's footprint at the hit grows linearly with the length of the reflected ray, so a rough floor reflects the near box sharply and the far wall softly.</p>
+        <p class="words">In words: pick a random tilt for the bounce, with rougher surfaces allowing bigger tilts; blend each new frame into the running average; size the blur by roughness times distance to the hit.</p>
+        <div class="math">α = roughness²
+cos θ_h = sqrt((1 − ξ₁) / (1 + (α² − 1) ξ₁)),  φ = 2π ξ₂     <span class="c">// GGX half vector</span>
+r = reflect(d, h)
+hist_n = lerp(hist_n−1, cur, 1 / min(n, 48))                 <span class="c">// temporal blend</span>
+blur_px ≈ α · |hit − p| · N / (2 · z_hit · tan(fov/2))       <span class="c">// lobe footprint on screen</span></div>
+        <p><code>α</code> is the lobe width, <code>ξ₁</code> and <code>ξ₂</code> are two random numbers from 0 to 1, <code>θ_h</code> and <code>φ</code> are the tilt and spin of the half vector, <code>hist_n</code> the running average after <code>n</code> frames, <code>|hit − p|</code> the distance from the floor point to the hit, <code>z_hit</code> the hit's depth.</p>
+        <p class="words">What this code does: turns two random numbers into a tilted half vector, bounces the view ray off it, marches that ray as in section 1, and blends the result into the history.</p>
+<pre class="code"><span class="c">// importance-sample the GGX normal distribution in tangent space</span>
+<span class="k">float</span> a     = roughness * roughness;
+vec2  xi    = blueNoise(px, frame);                      <span class="c">// decorrelated per pixel and frame</span>
+<span class="k">float</span> cosT  = sqrt((1.0 - xi.x) / (1.0 + (a * a - 1.0) * xi.x));
+<span class="k">float</span> sinT  = sqrt(1.0 - cosT * cosT);
+<span class="k">float</span> phi   = 6.2831853 * xi.y;
+vec3  h     = tbn * vec3(sinT * cos(phi), sinT * sin(phi), cosT);
+vec3  r     = reflect(viewDir, h);
+<span class="k">if</span> (dot(r, n) &lt;= 0.0) <span class="k">return</span> vec4(0.0);                 <span class="c">// sample went into the surface</span>
+vec4  hit   = marchSSR(posVS, r);                        <span class="c">// as in section 1</span>
+<span class="k">float</span> w     = 1.0 / max(pdfGGX(h, a), 1e-4);            <span class="c">// weight for the resolve pass</span>
+hist = mix(hist, hit, 1.0 / min(frameCount, 48.0));      <span class="c">// after reprojection</span></pre>
+
+        <p class="tldr">Rough surfaces need many random rays; one per pixel is right on average but noisy, so average over frames and blur by roughness times hit distance.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="thickness">
+    <h2>How far behind still counts</h2>
+    <p class="sub">Change the thickness allowance and the step size, and see which floor pixels get the right reflection.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5" width="512" height="512" class="grab" aria-label="Thickness too small, too large, and derived per pixel from the depth derivative"></canvas>
+        <div class="cap"><span id="c5-read">hover the floor</span><span id="c5-cap"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">The march samples the ray every few pixels, so it never lands exactly on a surface. <b>Thickness is the allowance</b>: how far behind a stored surface the ray may be and still count as touching it. <b>Too thin, and rays step past real surfaces</b> and leave holes. <b>Too thick, and rays get stopped by things they should pass under</b>, like the floating plate here. The fix is to <b>set the allowance per pixel from how steeply the depth changes</b> there.</p>
+
+        <h3>What you're seeing</h3>
+        <p>Four strips: the true reflection, then SSR with a fixed thickness, with a thickness taken from how much the ray's own depth changes per step, and with a thickness taken from the depth buffer's slope. Under each SSR strip a bar marks every floor pixel: green if the hit is within 0.25 m of the true one, red for a wrong hit, dim for a miss. The table counts them.</p>
+        <p>In the scene, the amber ray is the fixed-thickness march for your chosen pixel and the green ring is where the reflection should land. The tiles show the ray's depth change per pixel at that spot and the thickness the slope rule would pick.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Set fixed thickness to 0.02 m. Holes open on the box front and the wall as rays step past them.</li>
+          <li>Push it to 2 m. The plate starts catching rays that should pass under it, and the red count climbs.</li>
+          <li>Set the step to 12 px and compare the three rows of the table. Only the fixed rule ignores the bigger step.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:14px">
+          <div class="ctl"><label for="th5">Fixed thickness <span class="val" id="th5v">0.05 m</span></label><input type="range" id="th5" min="0.02" max="2" step="0.01" value="0.05"></div>
+          <div class="ctl"><label for="step5">Step <span class="val" id="step5v">6 px</span></label><input type="range" id="step5" min="1" max="12" step="1" value="6"></div>
+        </div>
+        <div class="tiles">
+          <div class="tile" id="t5-dz"><div class="n">–</div><div class="l">ray depth per px at hover</div></div>
+          <div class="tile" id="t5-th"><div class="n">–</div><div class="l">derived t at hover</div></div>
+          <div class="tile" id="t5-steps"><div class="n">–</div><div class="l">fetches, fixed t</div></div>
+        </div>
+        <div class="tbl-wrap">
+        <table class="stats" id="stats5">
+          <thead><tr><th id="s5-n">floor pixels</th><th>Correct</th><th>False hit</th><th>Miss</th><th>Mean hit error</th></tr></thead>
+          <tbody>
+            <tr><td>Fixed t</td><td id="s5-f-ok" class="ok"></td><td id="s5-f-bad" class="bad"></td><td id="s5-f-miss"></td><td id="s5-f-err"></td></tr>
+            <tr><td>Ray Δz per step</td><td id="s5-r-ok" class="ok"></td><td id="s5-r-bad" class="bad"></td><td id="s5-r-miss"></td><td id="s5-r-err"></td></tr>
+            <tr><td>Depth derivative</td><td id="s5-d-ok" class="ok"></td><td id="s5-d-bad" class="bad"></td><td id="s5-d-miss"></td><td id="s5-d-err"></td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The thickness <code>t</code> says how far behind a stored surface the ray may be and still count as a hit. Too small, and the first sample past a surface lands beyond it by more than <code>t</code>, so the march reports "passed behind" and walks on into nothing: holes on the box front and the wall. Too large, and a ray that really did pass under and behind the plate is stopped by it, painting the plate into reflections of the wall.</p>
+        <p>The right <code>t</code> is not a constant. One screen pixel of a surface seen at a grazing angle (nearly edge-on) covers a long range of depth. That is where the smearing near the horizon comes from: the ray moves a fraction of a pixel per metre of depth and either misses the surface or hits a long streak of the same color.</p>
+        <p>Deriving <code>t</code> per pixel from the depth buffer's own slope, or from the ray's depth change per step, gives a thickness that fits the surface it is testing.</p>
+        <p>Read the table with care. A hit on the sphere's rim counts as a false hit because the true reflection is its underside, which no thickness rule can find; the derivative rule catches that rim (a grazing surface) where the fixed rule walks past it. The green count is the number to compare.</p>
+        <p class="words">In words: the fixed rule uses one number; the ray rule allows as much as the ray's depth changes in one step; the slope rule allows as much as the buffer's depth changes across one step, taking the gentler of the two sides so silhouettes stay thin.</p>
+        <div class="math">fixed:       t = t_0
+ray step:    t = t_min + |z(u + Δu) − z(u)|                    <span class="c">// never step over a surface</span>
+derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <span class="c">// one-sided: silhouettes stay thin</span></div>
+        <p><code>t_0</code> is the fixed value, <code>t_min</code> a small floor on the thickness, <code>Δu</code> the step in pixels, <code>z(u)</code> the ray's depth, and <code>∂z_buf/∂u</code> the buffer's depth change per pixel, measured to the right (₊) and to the left (₋).</p>
+        <p class="words">What this code does: reads the depth at the ray's pixel and its two neighbours, takes the smaller of the two differences as the slope, and sizes the thickness from it.</p>
+<pre class="code"><span class="c">// per-pixel thickness from the depth buffer's slope, sampled at the ray's pixel</span>
+<span class="k">float</span> z0 = linearDepth(texelFetch(uDepth, px, 0).r);
+<span class="k">float</span> zL = linearDepth(texelFetch(uDepth, px - ivec2(1, 0), 0).r);
+<span class="k">float</span> zR = linearDepth(texelFetch(uDepth, px + ivec2(1, 0), 0).r);
+<span class="k">float</span> slope = min(abs(zR - z0), abs(z0 - zL));         <span class="c">// smaller side: an edge has one steep side</span>
+<span class="k">float</span> t = uThicknessMin + slope * uStepPx;
+<span class="k">bool</span>  hit = zRay &gt; z0 &amp;&amp; zRay &lt; z0 + t;</pre>
+
+        <p class="tldr">Thickness is how far behind a surface the ray may go and still count; one fixed number is always wrong somewhere, so size it per pixel from the depth slope.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">Five ways to put a reflection on a surface, compared on what they cost and what they can show.</p>
+    <p class="plain">Each row is one way to make a reflection. You are choosing between <b>how much frame time it costs</b>, <b>what it can and cannot reflect</b>, and <b>how much memory it needs</b>. Costs are order-of-magnitude estimates for a 1920×1080 target on a current console-class GPU, not measurements.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Way to do it</th><th>Cost at 1080p (estimate)</th><th>What it can reflect</th><th>Moving objects</th><th>Blurry surfaces</th><th>Memory</th></tr></thead>
+      <tbody>
+        <tr><td>Screen-space reflections</td><td>0.5–2 ms, grows with rays × steps</td><td>Only what the camera already sees; no undersides, nothing behind the camera</td><td>Free, they are already in the frame</td><td>Yes, with random rays and a denoiser</td><td>None beyond the frame; Hi-Z adds a third of the depth buffer</td></tr>
+        <tr><td>Planar reflections</td><td>One extra scene render per plane, 2–8 ms</td><td>Everything, but for one flat surface at a time</td><td>Yes</td><td>Mirror only; blur afterwards</td><td>A second color and depth target per plane</td></tr>
+        <tr><td>Reflection probes</td><td>Under 0.1 ms, one cubemap fetch</td><td>The scene as it was when the snapshot was taken, from slightly the wrong spot</td><td>Only if re-captured, which costs six renders</td><td>Yes, pre-blurred copies per roughness level</td><td>6 × 128² RGBA16F ≈ 0.75 MB per probe, hundreds per level</td></tr>
+        <tr><td>SDF-traced (Lumen software)</td><td>2–5 ms, shared with GI</td><td>Rough shapes through distance fields and a surface cache; fills SSR holes</td><td>Yes, with a frame or two of lag</td><td>Yes</td><td>Global distance field plus surface cache, tens of MB</td></tr>
+        <tr><td>Hardware ray tracing</td><td>1–5 ms plus a denoiser</td><td>Everything, including off-screen</td><td>Yes, BVH refit per frame</td><td>Yes, needs a denoiser</td><td>BVH, tens to hundreds of MB</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">SSR is rarely used alone. The usual stack is SSR first, a reflection probe or SDF trace where it misses, and hardware ray tracing on top when the platform has it. Each pixel picks a layer by the confidence weight of the one above it.</p>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">The march is the same in each row. What differs is how many rays, how the miss is filled, and what buffers the pass reads.</p>
+    <p class="plain">Each row is one job SSR does in a real game. Read across to see <b>what question the pass asks</b>, <b>what it needs to have in memory</b>, and <b>a game or engine known to do it that way</b>.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Use</th><th>What gets asked</th><th>What it reads</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>Wet streets, polished floors</td><td>One mirror ray per pixel, walked across the screen with a coarse step and then refined.</td><td>Depth and color of the current frame</td><td>Crysis 2 (Crytek, 2011), Killzone Shadow Fall (Valient, GDC 2014)</td></tr>
+        <tr><td>Hierarchical march</td><td>Walk a stack of shrunken depth buffers, skipping whole cells the ray stays in front of.</td><td>Depth pyramid built each frame</td><td>Uludag, GPU Pro 5 (2014); many engines</td></tr>
+        <tr><td>Glossy surfaces</td><td>Random rays inside the GGX cone, then a pass that reuses neighbours' hits and a blend with last frame.</td><td>Depth, color, normal and roughness buffers, history and motion vectors</td><td>Frostbite (Stachowiak, SIGGRAPH 2015), Unreal Engine SSR at high quality</td></tr>
+        <tr><td>Filling the holes</td><td>Blend toward a position-corrected probe, or trace a distance field where SSR missed.</td><td>Baked pre-blurred cubemaps; global SDF and surface cache</td><td>Reflection probes in most engines; Unreal Engine 5 Lumen reflections</td></tr>
+        <tr><td>Replacing the march</td><td>A hardware ray per pixel against the BVH, denoised, often still with SSR for the cheap cases.</td><td>Acceleration structure, materials for hit shading</td><td>Battlefield V (2018), Cyberpunk 2077 (2020)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">One naming trap: "screen-space reflection" sounds like a reflection of the scene worked out in screen space. It is a lookup into the picture you already drew. SSR never shows the underside of anything, what is behind the camera, or what a nearer object covers, because none of that was written to the frame it reads. If a reflection has to contain those, the technique is the wrong one, not the tuning.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  // ---------- camera and screen: 2D side view, 1D screen of N pixels ----------
+  const N = 160, FOV = 70 * Math.PI / 180, TANH = Math.tan(FOV / 2), FAR = 60, ZNEAR = 0.2;
+  const W = 512, H = 512, TOP = 130, S = W / 12.5, PXW = W / N;
+  const CAM = { x: 0.8, y: 6.5, pitch: -30 * Math.PI / 180 };
+  const FWD = [Math.cos(CAM.pitch), Math.sin(CAM.pitch)], UP = [-FWD[1], FWD[0]];
+  const FLOOR_Y = 0.6, WALL_X = 12.0;
+  const AMBER = [242, 163, 65], BLUE = [74, 163, 255], WHITE = [236, 238, 242], GREY = [196, 202, 212];
+  const SKY = [26, 32, 44], FLOORC = [72, 78, 90], GREEN = "#5ad48a", RED = "#ef5d5d";
+  const MONO = '"IBM Plex Mono", Menlo, Consolas, monospace';
+  const LIGHT = (() => { const l = Math.hypot(-0.35, 1); return [-0.35 / l, 1 / l]; })();
+  const rgb = c => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+  const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+  const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+  function project(x, y) {
+    const dx = x - CAM.x, dy = y - CAM.y;
+    const z = dx * FWD[0] + dy * FWD[1], xv = dx * UP[0] + dy * UP[1];
+    return { z, u: (0.5 - 0.5 * xv / (z * TANH)) * N };
+  }
+  function pixelDir(u) {
+    const a = CAM.pitch + Math.atan((1 - 2 * (u + 0.5) / N) * TANH);
+    return [Math.cos(a), Math.sin(a)];
+  }
+  function floorXAt(u) { const d = pixelDir(u); return d[1] < 0 ? CAM.x + (FLOOR_Y - CAM.y) * d[0] / d[1] : Infinity; }
+
+  // ---------- scene ----------
+  function makeScene(o = {}) {
+    const s = [
+      { id: 1, name: "floor", type: "box", x0: 0, y0: FLOOR_Y - 0.3, x1: WALL_X, y1: FLOOR_Y, col: FLOORC, floor: true },
+      { id: 2, name: "box", type: "box", x0: 5.0, y0: FLOOR_Y, x1: 6.2, y1: 1.5, col: AMBER },
+      { id: 3, name: "sphere", type: "circle", cx: 10.2, cy: 2.6, r: 0.6, col: BLUE, drag: !!o.dragSphere },
+      { id: 4, name: "wall", type: "box", x0: WALL_X, y0: FLOOR_Y - 0.3, x1: WALL_X + 0.5, y1: 6.5, col: GREY }
+    ];
+    if (o.slab) s.push({ id: 5, name: "slab", type: "box", x0: 3.6, y0: 5.5, x1: 3.8, y1: 5.58, col: GREY, drag: true });
+    if (o.plate) s.push({ id: 6, name: "plate", type: "box", x0: 8.8, y0: 1.7, x1: 9.6, y1: 1.85, col: WHITE });
+    return s;
+  }
+  function shade(col, nx, ny) { const s = 0.42 + 0.58 * Math.max(0, nx * LIGHT[0] + ny * LIGHT[1]); return [col[0] * s, col[1] * s, col[2] * s]; }
+  function hitBox(ox, oy, dx, dy, b) {
+    let tmin = -Infinity, tmax = Infinity, nx = 0, ny = 0;
+    if (Math.abs(dx) < 1e-9) { if (ox < b.x0 || ox > b.x1) return null; }
+    else { let t1 = (b.x0 - ox) / dx, t2 = (b.x1 - ox) / dx, n1 = -1; if (t1 > t2) { [t1, t2] = [t2, t1]; n1 = 1; } if (t1 > tmin) { tmin = t1; nx = n1; ny = 0; } tmax = Math.min(tmax, t2); }
+    if (Math.abs(dy) < 1e-9) { if (oy < b.y0 || oy > b.y1) return null; }
+    else { let t1 = (b.y0 - oy) / dy, t2 = (b.y1 - oy) / dy, n1 = -1; if (t1 > t2) { [t1, t2] = [t2, t1]; n1 = 1; } if (t1 > tmin) { tmin = t1; nx = 0; ny = n1; } tmax = Math.min(tmax, t2); }
+    if (tmax < tmin || tmin < 1e-6) return null;
+    return { t: tmin, nx, ny };
+  }
+  function hitCircle(ox, oy, dx, dy, c) {
+    const fx = ox - c.cx, fy = oy - c.cy, b = fx * dx + fy * dy, cc = fx * fx + fy * fy - c.r * c.r, disc = b * b - cc;
+    if (disc < 0) return null; const t = -b - Math.sqrt(disc); if (t < 1e-6) return null;
+    return { t, nx: (ox + dx * t - c.cx) / c.r, ny: (oy + dy * t - c.cy) / c.r };
+  }
+  function trace(scene, ox, oy, dx, dy) {
+    let best = null;
+    for (const o of scene) { const h = o.type === "box" ? hitBox(ox, oy, dx, dy, o) : hitCircle(ox, oy, dx, dy, o); if (h && (!best || h.t < best.t)) best = { t: h.t, nx: h.nx, ny: h.ny, obj: o }; }
+    if (best) { best.x = ox + dx * best.t; best.y = oy + dy * best.t; best.col = shade(best.obj.col, best.nx, best.ny); }
+    return best;
+  }
+  // render the 1D frame: depth, color, ids, hit points, and the min-depth pyramid
+  function renderView(scene) {
+    const z = new Float32Array(N), col = new Float32Array(N * 3), id = new Int8Array(N), px = new Float32Array(N), py = new Float32Array(N), floorU = [];
+    for (let u = 0; u < N; u++) {
+      const d = pixelDir(u), h = trace(scene, CAM.x, CAM.y, d[0], d[1]);
+      if (h) { z[u] = h.t * (d[0] * FWD[0] + d[1] * FWD[1]); col.set(h.col, u * 3); id[u] = h.obj.id; px[u] = h.x; py[u] = h.y; if (h.obj.floor) floorU.push(u); }
+      else { z[u] = FAR; col.set(SKY, u * 3); }
+    }
+    const pyr = [z];
+    for (let L = 1; L <= 5; L++) { const p = pyr[L - 1], n = Math.ceil(p.length / 2), c = new Float32Array(n); for (let i = 0; i < n; i++) c[i] = Math.min(p[2 * i], p[Math.min(2 * i + 1, p.length - 1)]); pyr.push(c); }
+    return { z, col, id, px, py, floorU, pyr, colAt: u => [col[u * 3], col[u * 3 + 1], col[u * 3 + 2]] };
+  }
+  function nearestFloorPixel(buf, x) { let best = buf.floorU[0], bd = Infinity; for (const u of buf.floorU) { const d = Math.abs(buf.px[u] - x); if (d < bd) { bd = d; best = u; } } return best; }
+  function reflectDir(u) { const d = pixelDir(u); return [d[0], -d[1]]; }
+
+  // ---------- the screen-space ray: endpoints projected, 1/z linear between them ----------
+  function screenRay(P, r) {
+    const ox = P[0] + r[0] * 0.02, oy = P[1] + r[1] * 0.02, rz = r[0] * FWD[0] + r[1] * FWD[1];
+    const a = project(ox, oy);
+    let s = 40; if (rz < 0) s = Math.min(s, (a.z - ZNEAR) / (-rz));
+    const ex = ox + r[0] * s, ey = oy + r[1] * s, b = project(ex, ey);
+    const iz0 = 1 / a.z, iz1 = 1 / b.z, du = b.u - a.u;
+    return {
+      u0: a.u, u1: b.u, z0: a.z, du, dir: du >= 0 ? 1 : -1, ox, oy, ex, ey, r, len: s,
+      zAt: u => 1 / (iz0 + (iz1 - iz0) * ((u - a.u) / du)),
+      pointAt: u => { const w = (u - a.u) / du, iz = iz0 + (iz1 - iz0) * w; return [(ox * iz0 * (1 - w) + ex * iz1 * w) / iz, (oy * iz0 * (1 - w) + ey * iz1 * w) / iz]; },
+      uCross: zt => a.u + du * ((1 / zt - iz0) / (iz1 - iz0))
+    };
+  }
+  // cfg: { mode:'linear'|'hiz', step, thick: number | (ui, dzStep) => t, refine, maxSteps }
+  function march(buf, ray, cfg) {
+    const res = { hit: false, steps: 0, refineSteps: 0, samples: [], reason: "", u: 0, z: 0, ui: -1, behind: [], col: null, P: null };
+    const { u0, u1, dir } = ray, past = u => dir > 0 ? u > u1 : u < u1, inScreen = u => u >= 0 && u < N;
+    const thickAt = (ui, dz) => typeof cfg.thick === "function" ? cfg.thick(ui, dz) : cfg.thick;
+    const startPixel = Math.floor(u0), maxSteps = cfg.maxSteps || 256;
+    const noteBehind = ui => { const id = buf.id[ui]; if (id && res.behind[res.behind.length - 1] !== id) res.behind.push(id); };
+    const finish = (u, z) => { res.hit = true; res.u = u; res.z = z; res.ui = Math.floor(u); res.col = buf.colAt(res.ui); res.P = ray.pointAt(u); res.reason = "hit"; };
+    if (Math.abs(ray.du) < 1e-3) { res.reason = "no screen motion"; return res; }
+    if (cfg.mode !== "hiz") {
+      let uPrev = u0, zPrev = -Infinity, u = u0 + dir * cfg.step;
+      while (Math.floor(u) === startPixel && !past(u)) u += dir * cfg.step;
+      while (inScreen(u) && !past(u) && res.steps < maxSteps) {
+        res.steps++;
+        const ui = Math.floor(u), z = ray.zAt(u), zb = buf.z[ui], th = thickAt(ui, Math.abs(z - (zPrev === -Infinity ? ray.z0 : zPrev)));
+        let state = z < zb ? "front" : (z <= zb + th ? "hit" : "behind");
+        const smp = { u, z, zb, th, state }; res.samples.push(smp);
+        if (state === "hit" || (state === "behind" && cfg.refine > 0 && zPrev < buf.z[Math.floor(uPrev)])) {
+          let ua = uPrev, ub = u;
+          for (let k = 0; k < cfg.refine; k++) { res.refineSteps++; const um = (ua + ub) / 2, zm = ray.zAt(um); res.samples.push({ u: um, z: zm, zb: buf.z[Math.floor(um)], state: "refine" }); if (zm < buf.z[Math.floor(um)]) ua = um; else ub = um; }
+          const uf = ub, zf = ray.zAt(uf), uif = Math.floor(uf), zbf = buf.z[uif], thf = thickAt(uif, Math.abs(zf - ray.zAt(ua)));
+          if (zf <= zbf + thf) { smp.state = "hit"; finish(uf, zf); return res; }
+          state = smp.state = "behind";
+        }
+        if (state === "behind") noteBehind(ui);
+        uPrev = u; zPrev = z; u += dir * cfg.step;
+      }
+      res.reason = !inScreen(u) ? "left the screen" : (res.steps >= maxSteps ? "step budget" : "ray ended");
+      return res;
+    }
+    // Hi-Z: min pyramid traversal
+    const maxL = buf.pyr.length - 1;
+    let level = 0, u = u0 + dir;
+    while (Math.floor(u) === startPixel && !past(u)) u += dir * 0.5;
+    while (inScreen(u) && !past(u) && res.steps < maxSteps) {
+      res.steps++;
+      const cs = 1 << level, ci = Math.floor(u / cs);
+      let uB = dir > 0 ? (ci + 1) * cs : ci * cs; if (past(uB)) uB = u1;
+      const zA = ray.zAt(u), zB = ray.zAt(uB), mz = buf.pyr[level][ci];
+      const s = { level, ci, u, uB, state: "" }; res.samples.push(s);
+      if (Math.max(zA, zB) < mz) { s.state = "skip"; u = uB + dir * 1e-3; if (level < maxL) level++; continue; }
+      if (level > 0) {
+        s.state = "descend";
+        if (zA < mz) { const uc = ray.uCross(mz); u = dir > 0 ? Math.min(Math.max(uc, u), uB) : Math.max(Math.min(uc, u), uB); }
+        level--; continue;
+      }
+      let uc = u;
+      if (zA < mz) { const x = ray.uCross(mz); uc = dir > 0 ? Math.min(Math.max(x, u), uB) : Math.max(Math.min(x, u), uB); }
+      const zc = ray.zAt(uc), th = thickAt(ci, Math.abs(zB - zA));
+      if (zc <= mz + th) { s.state = "hit"; finish(uc, zc); return res; }
+      s.state = "behind"; noteBehind(ci); u = uB + dir * 1e-3; if (level < maxL) level++;
+    }
+    res.reason = !inScreen(u) ? "left the screen" : (res.steps >= maxSteps ? "step budget" : "ray ended");
+    return res;
+  }
+  function exactCrossing(buf, ray) { // fine linear search + bisection, used as the reference hit
+    const m = march(buf, ray, { mode: "linear", step: 0.05, thick: 0.6, refine: 12, maxSteps: 20000 });
+    return m.hit ? m : null;
+  }
+  function truthHit(scene, ray) { return trace(scene, ray.ox, ray.oy, ray.r[0], ray.r[1]); }
+
+  // ---------- drawing ----------
+  const wx = x => x * S, wy = y => H - y * S;
+  function drawWorld(ctx, scene) {
+    ctx.fillStyle = "#0b0e13"; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = 1; x < 12.5; x++) { ctx.moveTo(wx(x) + 0.5, TOP); ctx.lineTo(wx(x) + 0.5, H); }
+    for (let y = 1; y * S < H - TOP; y++) { ctx.moveTo(0, wy(y) + 0.5); ctx.lineTo(W, wy(y) + 0.5); }
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.beginPath(); ctx.moveTo(0, TOP - 0.5); ctx.lineTo(W, TOP - 0.5); ctx.stroke();
+    // frustum wedge
+    const d0 = pixelDir(-0.5), d1 = pixelDir(N - 0.5), L = 16;
+    ctx.fillStyle = "rgba(255,255,255,0.03)"; ctx.beginPath(); ctx.moveTo(wx(CAM.x), wy(CAM.y)); ctx.lineTo(wx(CAM.x + d0[0] * L), wy(CAM.y + d0[1] * L)); ctx.lineTo(wx(CAM.x + d1[0] * L), wy(CAM.y + d1[1] * L)); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.22)"; ctx.setLineDash([3, 4]); ctx.beginPath();
+    for (const d of [d0, d1]) { ctx.moveTo(wx(CAM.x), wy(CAM.y)); ctx.lineTo(wx(CAM.x + d[0] * L), wy(CAM.y + d[1] * L)); }
+    ctx.stroke(); ctx.setLineDash([]);
+    // objects
+    for (const o of scene) {
+      ctx.fillStyle = rgba(o.col, o.floor ? 0.5 : 0.28); ctx.strokeStyle = rgba(o.col, 0.9); ctx.lineWidth = 1.5;
+      if (o.type === "box") { ctx.beginPath(); ctx.rect(wx(o.x0), wy(o.y1), (o.x1 - o.x0) * S, (o.y1 - o.y0) * S); ctx.fill(); if (!o.floor) ctx.stroke(); }
+      else { ctx.beginPath(); ctx.arc(wx(o.cx), wy(o.cy), o.r * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+    }
+    ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(0, wy(FLOOR_Y)); ctx.lineTo(wx(WALL_X), wy(FLOOR_Y)); ctx.stroke();
+    // camera and image plane
+    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(wx(CAM.x), wy(CAM.y), 4, 0, Math.PI * 2); ctx.fill();
+    const p0 = [CAM.x + d0[0] * 1.0, CAM.y + d0[1] * 1.0], p1 = [CAM.x + d1[0] * 1.0, CAM.y + d1[1] * 1.0];
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(wx(p0[0]), wy(p0[1])); ctx.lineTo(wx(p1[0]), wy(p1[1])); ctx.stroke();
+    ctx.font = "10px " + MONO; ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.textBaseline = "alphabetic";
+    ctx.fillText("camera", wx(CAM.x) - 18, wy(CAM.y) - 9); ctx.fillText("screen, 160 px", wx(p1[0]) + 6, wy(p1[1]) + 4);
+    ctx.fillText("mirror floor", wx(0.2), wy(FLOOR_Y) + 14);
+    for (const o of scene) if (!o.floor) { const cx = o.type === "box" ? (o.x0 + o.x1) / 2 : o.cx, top = o.type === "box" ? o.y1 : o.cy + o.r, tw = ctx.measureText(o.name).width; ctx.fillText(o.name, Math.min(W - tw - 4, wx(cx) - tw / 2), wy(top) - 5); }
+  }
+  function strip(ctx, y, h, colFn) { for (let u = 0; u < N; u++) { const c = colFn(u); if (!c) continue; ctx.fillStyle = rgb(c); ctx.fillRect(u * PXW, y, PXW + 0.3, h); } }
+  function rowLabel(ctx, y, h, text) {
+    ctx.font = "10px " + MONO; ctx.textBaseline = "middle"; const w = ctx.measureText(text).width + 8;
+    ctx.fillStyle = "rgba(11,14,19,0.78)"; ctx.fillRect(2, y + 1, w, h - 2); ctx.fillStyle = "rgba(255,255,255,0.75)"; ctx.fillText(text, 6, y + h / 2 + 0.5); ctx.textBaseline = "alphabetic";
+  }
+  function depthGrey(z) { const v = z >= FAR ? 0 : 1 - Math.min(1, z / 16); const g = 34 + 210 * v; return [g, g, g]; }
+  function handle(ctx, x, y, r = 6) { ctx.beginPath(); ctx.arc(wx(x), wy(y), r, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b0e13"; ctx.stroke(); }
+  function pixelTick(ctx, u, y, h, color = "#fff") { ctx.fillStyle = color; ctx.fillRect(u * PXW, y, PXW, h); }
+  // what each floor pixel shows, drawn as a band under the floor line
+  function floorBand(ctx, buf, colFn, y0 = 0.08, y1 = 0.28) {
+    for (const u of buf.floorU) { const c = colFn(u); if (!c) continue; const xa = Math.min(floorXAt(u - 0.5), WALL_X), xb = Math.min(floorXAt(u + 0.5), WALL_X); ctx.fillStyle = rgb(c); ctx.fillRect(wx(Math.min(xa, xb)) - 0.3, wy(FLOOR_Y - y0), Math.abs(xa - xb) * S + 0.6, (y1 - y0) * S); }
+  }
+  function drawRay(ctx, ray, m, opts = {}) {
+    const end = m.hit ? m.P : (m.samples.length ? ray.pointAt(m.samples[m.samples.length - 1].u !== undefined ? m.samples[m.samples.length - 1].u : ray.u0) : [ray.ex, ray.ey]);
+    const vis = m.samples.length ? end : [ray.ox + ray.r[0] * 3, ray.oy + ray.r[1] * 3];
+    ctx.strokeStyle = opts.color || "#f2a341"; ctx.lineWidth = opts.width || 1.5; ctx.beginPath(); ctx.moveTo(wx(ray.ox), wy(ray.oy)); ctx.lineTo(wx(vis[0]), wy(vis[1])); ctx.stroke();
+    if (opts.dots !== false) for (const s of m.samples) {
+      if (s.state === "refine") continue;
+      const p = ray.pointAt(s.u); ctx.beginPath(); ctx.arc(wx(p[0]), wy(p[1]), s.state === "skip" ? 3 : 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = s.state === "behind" ? RED : (s.state === "hit" ? "#f2a341" : (s.state === "descend" ? "rgba(242,163,65,0.8)" : "#fff")); ctx.fill();
+    }
+    if (m.hit) { ctx.beginPath(); ctx.arc(wx(m.P[0]), wy(m.P[1]), 6, 0, Math.PI * 2); ctx.strokeStyle = "#f2a341"; ctx.lineWidth = 2; ctx.stroke(); }
+  }
+  function viewRay(ctx, P) { ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(wx(CAM.x), wy(CAM.y)); ctx.lineTo(wx(P[0]), wy(P[1])); ctx.stroke(); ctx.setLineDash([]); handle(ctx, P[0], P[1], 5); }
+
+  // pointer: handles first, then "pick a floor pixel" anywhere else
+  function pointer(canvas, o) {
+    let active = -1, pending = null;
+    const toWorld = ev => { const r = canvas.getBoundingClientRect(); const px = (ev.clientX - r.left) / r.width * W, py = (ev.clientY - r.top) / r.height * H; return [px / S, (H - py) / S, px, py]; };
+    const flush = () => { if (!pending) return; const p = pending; pending = null; if (p.i >= 0) o.drag(p.i, p.x, p.y); else o.point(p.x, p.y, p.px, p.py); };
+    const queue = (i, w) => { const first = !pending; pending = { i, x: w[0], y: w[1], px: w[2], py: w[3] }; if (first) requestAnimationFrame(flush); };
+    canvas.addEventListener("pointerdown", ev => {
+      const w = toWorld(ev); let best = -1, bd = 0.5;
+      (o.handles ? o.handles() : []).forEach((h, i) => { const d = Math.hypot(h[0] - w[0], h[1] - w[1]); if (d < bd) { bd = d; best = i; } });
+      active = best; if (best >= 0) canvas.setPointerCapture(ev.pointerId); queue(best, w);
+    });
+    canvas.addEventListener("pointermove", ev => queue(active, toWorld(ev)));
+    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
+  }
+  function pickFloor(buf, x, px, py) { if (py < TOP) { const u = Math.floor(px / PXW); return buf.id[u] === 1 ? u : -1; } return nearestFloorPixel(buf, x); }
+  function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
+  function onSeg(id, fn) { document.getElementById(id).addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; segOn(ev.currentTarget, b.dataset.v); fn(b.dataset.v); }); }
+  const fmt = (v, d = 2) => v.toFixed(d);
+
+  // ================= 1. one pixel, one march =================
+  const scene1 = makeScene(), buf1 = renderView(scene1);
+  const c1 = document.getElementById("c1"), x1 = c1.getContext("2d");
+  const st1 = { u: nearestFloorPixel(buf1, 8.8), thick: 0.3, step: 2 };
+  const G_Y = 30, G_H = 96, G_MAX = 14;
+  const gy = z => G_Y + G_H - Math.min(z, G_MAX) / G_MAX * G_H;
+  function draw1() {
+    const u = st1.u, P = [buf1.px[u], buf1.py[u]], r = reflectDir(u), ray = screenRay(P, r);
+    const m = march(buf1, ray, { mode: "linear", step: st1.step, thick: st1.thick, refine: 0 });
+    drawWorld(x1, scene1);
+    strip(x1, 0, 13, v => buf1.colAt(v)); rowLabel(x1, 0, 13, "color");
+    strip(x1, 14, 13, v => depthGrey(buf1.z[v])); rowLabel(x1, 14, 13, "depth");
+    // graph: buffer depth with the thickness band, ray depth over it
+    x1.fillStyle = "rgba(255,255,255,0.04)"; x1.fillRect(0, G_Y, W, G_H);
+    x1.fillStyle = "rgba(242,163,65,0.16)";
+    for (let v = 0; v < N; v++) { const z = buf1.z[v]; if (z >= FAR) continue; const ya = gy(z + st1.thick), yb = gy(z); x1.fillRect(v * PXW, ya, PXW + 0.3, yb - ya); }
+    x1.strokeStyle = "rgba(255,255,255,0.7)"; x1.lineWidth = 1.2; x1.beginPath();
+    for (let v = 0; v < N; v++) { const y = gy(buf1.z[v]); if (v === 0) x1.moveTo(0, y); else x1.lineTo(v * PXW, y); x1.lineTo((v + 1) * PXW, y); }
+    x1.stroke();
+    const uEnd = m.hit ? m.u : (m.samples.length ? m.samples[m.samples.length - 1].u : ray.u0);
+    x1.strokeStyle = "#f2a341"; x1.lineWidth = 1.5; x1.beginPath();
+    for (let k = 0; k <= 40; k++) { const uu = ray.u0 + (uEnd - ray.u0) * k / 40; const y = gy(ray.zAt(uu)); if (k === 0) x1.moveTo(uu * PXW, y); else x1.lineTo(uu * PXW, y); }
+    x1.stroke();
+    for (const s of m.samples) { x1.beginPath(); x1.arc(s.u * PXW, gy(s.z), s.state === "hit" ? 4 : 2, 0, Math.PI * 2); x1.fillStyle = s.state === "hit" ? "#f2a341" : (s.state === "behind" ? RED : "#fff"); x1.fill(); }
+    x1.font = "10px " + MONO; x1.fillStyle = "rgba(255,255,255,0.55)"; x1.fillText("z per pixel, 0–14 m", 6, G_Y + G_H - 30); x1.fillText("white: buffer", 6, G_Y + G_H - 18);
+    x1.fillStyle = "#f2a341"; x1.fillText("amber: ray · band = thickness " + fmt(st1.thick, 1) + " m", 6, G_Y + G_H - 6);
+    pixelTick(x1, u, 0, 27, "rgba(255,255,255,0.9)");
+    if (m.hit) { pixelTick(x1, m.ui, 0, 27, "#f2a341"); x1.strokeStyle = "rgba(242,163,65,0.5)"; x1.setLineDash([2, 3]); x1.beginPath(); x1.moveTo(m.ui * PXW + PXW / 2, 27); x1.lineTo(m.u * PXW, gy(m.z)); x1.stroke(); x1.setLineDash([]); }
+    // world
+    viewRay(x1, P); drawRay(x1, ray, m);
+    x1.strokeStyle = "rgba(255,255,255,0.5)"; x1.beginPath(); x1.moveTo(wx(P[0]), wy(P[1])); x1.lineTo(wx(P[0]), wy(P[1] + 0.6)); x1.stroke();
+    x1.font = "10px " + MONO; x1.fillStyle = "rgba(255,255,255,0.6)"; x1.fillText("n", wx(P[0]) + 4, wy(P[1] + 0.6) + 3);
+    x1.fillStyle = "#f2a341"; const mid = m.hit ? [(ray.ox + m.P[0]) / 2, (ray.oy + m.P[1]) / 2] : [ray.ox + r[0], ray.oy + r[1]]; x1.fillText("r", wx(mid[0]) + 6, wy(mid[1]));
+    if (m.hit) { x1.fillStyle = rgb(m.col); x1.fillRect(wx(m.P[0]) + 10, wy(m.P[1]) - 22, 16, 16); x1.strokeStyle = "#fff"; x1.lineWidth = 1; x1.strokeRect(wx(m.P[0]) + 10.5, wy(m.P[1]) - 21.5, 15, 15); x1.fillStyle = "rgba(255,255,255,0.7)"; x1.fillText("fetched px " + m.ui, wx(m.P[0]) + 30, wy(m.P[1]) - 10); }
+    const last = m.samples[m.samples.length - 1];
+    const test = last ? `z_ray ${fmt(last.z)} m vs z_buf ${fmt(last.zb)} m` : "";
+    document.getElementById("c1-read").innerHTML = m.hit ? `px ${u} · <strong>hit at px ${m.ui} after ${m.steps} steps</strong> · ${test} · Δ ${fmt(m.z - last.zb)} &lt; t ${fmt(st1.thick, 1)}` : `px ${u} · <strong>miss, ${m.reason}</strong> after ${m.steps} steps${m.behind.length ? " · passed behind " + m.behind.map(i => scene1.find(o => o.id === i).name).join(", ") : ""}`;
+    document.getElementById("c1-cap").textContent = `${st1.step} px step · floor at ${fmt(P[0], 1)} m`;
+  }
+  pointer(c1, { point: (x, y, px, py) => { const u = pickFloor(buf1, x, px, py); if (u >= 0) { st1.u = u; draw1(); } } });
+  draw1();
+
+  // ================= 2. linear vs Hi-Z =================
+  const scene2 = scene1, buf2 = buf1;
+  const c2 = document.getElementById("c2"), x2 = c2.getContext("2d");
+  const st2 = { u: nearestFloorPixel(buf1, 9.0), mode: "linear", step: 4, refine: 0, thick: 0.6 };
+  const LV_Y = [0, 16, 30, 42, 54, 66], LV_H = [14, 12, 10, 10, 10, 10];
+  function draw2() {
+    const u = st2.u, P = [buf2.px[u], buf2.py[u]], r = reflectDir(u), ray = screenRay(P, r);
+    const lin = march(buf2, ray, { mode: "linear", step: st2.step, thick: st2.thick, refine: st2.refine });
+    const hiz = march(buf2, ray, { mode: "hiz", thick: st2.thick });
+    const ref = exactCrossing(buf2, ray);
+    const m = st2.mode === "hiz" ? hiz : lin;
+    drawWorld(x2, scene2);
+    for (let L = 0; L <= 5; L++) { const cs = 1 << L, lv = buf2.pyr[L]; for (let i = 0; i < lv.length; i++) { x2.fillStyle = rgb(depthGrey(lv[i])); x2.fillRect(i * cs * PXW, LV_Y[L], Math.min(cs, N - i * cs) * PXW - 0.6, LV_H[L]); } }
+    pixelTick(x2, u, 0, 14, "rgba(255,255,255,0.9)");
+    if (st2.mode === "hiz") {
+      for (const s of hiz.samples) {
+        const cs = 1 << s.level, xa = s.ci * cs * PXW, ww = Math.min(cs, N - s.ci * cs) * PXW;
+        x2.lineWidth = 1.5; x2.strokeStyle = s.state === "skip" ? "rgba(255,255,255,0.85)" : "#f2a341";
+        if (s.state === "hit") { x2.fillStyle = "#f2a341"; x2.fillRect(xa, LV_Y[0], ww, LV_H[0]); }
+        else if (s.state === "behind") { x2.fillStyle = RED; x2.fillRect(xa, LV_Y[0], ww, LV_H[0]); }
+        else x2.strokeRect(xa + 0.75, LV_Y[s.level] + 0.75, ww - 1.5, LV_H[s.level] - 1.5);
+      }
+    } else {
+      for (const s of lin.samples) pixelTick(x2, Math.floor(s.u), 0, 14, s.state === "hit" ? "#f2a341" : (s.state === "behind" ? RED : (s.state === "refine" ? "rgba(242,163,65,0.55)" : "rgba(255,255,255,0.85)")));
+    }
+    for (let L = 0; L <= 5; L++) rowLabel(x2, LV_Y[L], LV_H[L], L === 0 ? "depth L0" : "L" + L + " min");
+    x2.font = "10px " + MONO; x2.fillStyle = "rgba(255,255,255,0.55)"; x2.fillText(st2.mode === "hiz" ? "white box: cell skipped · amber box: descend · fill: hit" : "ticks: samples · amber: hit · red: passed behind", 6, 90);
+    x2.fillText(`u = 0 is the top of the frame, ${N} the bottom`, 6, 104);
+    viewRay(x2, P); drawRay(x2, ray, m);
+    const errPx = (mm) => (mm.hit && ref) ? Math.abs(mm.u - ref.u) : null;
+    const eLin = errPx(lin), eHiz = errPx(hiz);
+    document.getElementById("t2-lin").querySelector(".n").innerHTML = lin.steps + (lin.refineSteps ? ` <small>+ ${lin.refineSteps} refine</small>` : "") + (lin.hit ? "" : " <small>miss</small>");
+    document.getElementById("t2-hiz").querySelector(".n").innerHTML = hiz.steps + (hiz.hit ? "" : " <small>miss</small>");
+    document.getElementById("t2-err").querySelector(".n").innerHTML = eLin === null ? "–" : fmt(eLin, 2) + " <small>px</small>";
+    document.getElementById("t2-lin").classList.toggle("on", st2.mode === "linear"); document.getElementById("t2-hiz").classList.toggle("on", st2.mode === "hiz");
+    const skipped = hiz.samples.filter(s => s.state === "skip").reduce((a, s) => a + Math.abs(s.uB - s.u), 0);
+    document.getElementById("c2-read").innerHTML = m.hit ? `<strong>${st2.mode === "hiz" ? "Hi-Z" : "linear"}: hit px ${m.ui} in ${m.steps} fetches</strong> · error ${fmt((st2.mode === "hiz" ? eHiz : eLin) || 0, 2)} px vs exact crossing` : `<strong>${st2.mode === "hiz" ? "Hi-Z" : "linear"}: miss, ${m.reason}</strong> after ${m.steps} fetches`;
+    document.getElementById("c2-cap").textContent = `march spans ${fmt(Math.abs((m.hit ? m.u : ray.u1) - ray.u0), 0)} px · Hi-Z skipped ${fmt(skipped, 0)} px in ${hiz.samples.filter(s => s.state === "skip").length} jumps`;
+  }
+  pointer(c2, { point: (x, y, px, py) => { const u = pickFloor(buf2, x, px, py); if (u >= 0) { st2.u = u; draw2(); } } });
+  onSeg("seg2", v => { st2.mode = v; draw2(); });
+  const step2 = document.getElementById("step2"); step2.addEventListener("input", () => { st2.step = +step2.value; document.getElementById("step2v").textContent = step2.value + " px"; draw2(); });
+  const ref2 = document.getElementById("ref2"); ref2.addEventListener("input", () => { st2.refine = +ref2.value; document.getElementById("ref2v").textContent = ref2.value + (ref2.value === "1" ? " iteration" : " iterations"); draw2(); });
+  draw2();
+
+  // ================= 3. misses and the fallback chain =================
+  const scene3 = makeScene({ dragSphere: true, slab: true });
+  const sphere3 = scene3.find(o => o.name === "sphere"), slab3 = scene3.find(o => o.name === "slab");
+  const PROBE = { x: 7.4, y: 3.9, n: 128 };
+  const c3 = document.getElementById("c3"), x3 = c3.getContext("2d");
+  const st3 = { u: -1, fade: 0.10, buf: null, ring: null, rows: null };
+  function probeRing(scene) { const ring = []; for (let i = 0; i < PROBE.n; i++) { const a = i / PROBE.n * Math.PI * 2, h = trace(scene, PROBE.x, PROBE.y, Math.cos(a), Math.sin(a)); ring.push(h ? { col: h.col, hit: true, t: h.t } : { col: null, hit: false }); } return ring; }
+  function probeLookup(ring, r) { let a = Math.atan2(r[1], r[0]); if (a < 0) a += Math.PI * 2; return ring[Math.round(a / (Math.PI * 2) * PROBE.n) % PROBE.n]; }
+  function skyColor(r) { const t = Math.max(0, r[1]); return [SKY[0] + 20 * t, SKY[1] + 34 * t, SKY[2] + 60 * t]; }
+  function build3() {
+    st3.buf = renderView(scene3); st3.ring = probeRing(scene3);
+    const buf = st3.buf, rows = [];
+    for (const u of buf.floorU) {
+      const P = [buf.px[u], buf.py[u]], r = reflectDir(u), ray = screenRay(P, r);
+      const m = march(buf, ray, { mode: "linear", step: 2, thick: 0.35, refine: 4 });
+      const t = truthHit(scene3, ray), pr = probeLookup(st3.ring, r);
+      const edge = m.hit ? Math.min(m.u / N, 1 - m.u / N) : 0;
+      const w = m.hit ? smooth(0, Math.max(st3.fade, 1e-4), edge) : 0;
+      const fb = pr.hit ? pr.col : skyColor(r);
+      const final = m.hit ? [0, 1, 2].map(i => w * m.col[i] + (1 - w) * fb[i]) : fb;
+      rows[u] = { m, ray, r, truth: t ? t.col : skyColor(r), truthObj: t ? t.obj.name : "sky", fb, src: m.hit && w > 0.999 ? "ssr" : (m.hit && w > 0 ? "ssr+" : (pr.hit ? "probe" : "sky")), w, final };
+    }
+    st3.rows = rows;
+    if (st3.u < 0 || buf.id[st3.u] !== 1) st3.u = nearestFloorPixel(buf, 8.0);
+  }
+  function draw3() {
+    const buf = st3.buf, rows = st3.rows, u = st3.u, R = rows[u];
+    drawWorld(x3, scene3);
+    const ys = [0, 16, 32, 48], hh = 14;
+    strip(x3, ys[0], hh, v => rows[v] ? rows[v].truth : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[0], hh, "true reflection");
+    strip(x3, ys[1], hh, v => rows[v] ? (rows[v].m.hit ? rows[v].m.col : [24, 28, 36]) : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[1], hh, "SSR");
+    strip(x3, ys[2], hh, v => rows[v] ? rows[v].fb : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[2], hh, "probe → sky");
+    strip(x3, ys[3], hh, v => rows[v] ? rows[v].final : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[3], hh, "blend, w = fade");
+    for (const v of buf.floorU) { const rr = rows[v]; x3.fillStyle = rr.m.hit ? `rgba(90,212,138,${0.25 + 0.75 * rr.w})` : "rgba(74,163,255,0.8)"; x3.fillRect(v * PXW, 63, PXW + 0.3, 3); }
+    x3.font = "10px " + MONO; x3.fillStyle = "rgba(255,255,255,0.55)"; x3.fillText("green: SSR weight w · blue: fallback", 6, 78);
+    x3.fillText("non-floor pixels show the color buffer", 6, 92);
+    pixelTick(x3, u, 0, 62, "rgba(255,255,255,0.9)");
+    // probe ring
+    const pr = 15;
+    for (let i = 0; i < PROBE.n; i++) { const s = st3.ring[i], a0 = i / PROBE.n * Math.PI * 2, a1 = (i + 1) / PROBE.n * Math.PI * 2; x3.beginPath(); x3.arc(wx(PROBE.x), wy(PROBE.y), pr, -a1, -a0); x3.strokeStyle = s.hit ? rgb(s.col) : rgb(skyColor([Math.cos(a0), Math.sin(a0)])); x3.lineWidth = 6; x3.stroke(); }
+    x3.beginPath(); x3.arc(wx(PROBE.x), wy(PROBE.y), 3, 0, Math.PI * 2); x3.fillStyle = "#4aa3ff"; x3.fill();
+    x3.font = "10px " + MONO; x3.fillStyle = "rgba(255,255,255,0.6)"; x3.fillText("probe, 128 dirs", wx(PROBE.x) + 20, wy(PROBE.y) + 4);
+    // rays for the hovered pixel
+    const P = [buf.px[u], buf.py[u]];
+    floorBand(x3, buf, v => rows[v].final);
+    viewRay(x3, P); drawRay(x3, R.ray, R.m);
+    if (!R.m.hit || R.w < 0.999) {
+      const look = probeLookup(st3.ring, R.r), L = look.hit ? look.t : 3;
+      x3.strokeStyle = "rgba(74,163,255,0.9)"; x3.lineWidth = 1.5; x3.setLineDash([3, 3]); x3.beginPath(); x3.moveTo(wx(PROBE.x), wy(PROBE.y)); x3.lineTo(wx(PROBE.x + R.r[0] * L), wy(PROBE.y + R.r[1] * L)); x3.stroke(); x3.setLineDash([]);
+      x3.fillStyle = "rgba(74,163,255,0.9)"; x3.fillText(look.hit ? "probe sees this" : "probe sees sky", wx(PROBE.x + R.r[0] * L) + 6, wy(PROBE.y + R.r[1] * L) - 4);
+    }
+    // true hit marker
+    const t = truthHit(scene3, R.ray);
+    if (t) { x3.strokeStyle = GREEN; x3.lineWidth = 1.5; x3.setLineDash([2, 3]); x3.beginPath(); x3.moveTo(wx(R.ray.ox), wy(R.ray.oy)); x3.lineTo(wx(t.x), wy(t.y)); x3.stroke(); x3.setLineDash([]); x3.beginPath(); x3.arc(wx(t.x), wy(t.y), 4, 0, Math.PI * 2); x3.strokeStyle = GREEN; x3.stroke(); }
+    handle(x3, sphere3.cx, sphere3.cy, 7); handle(x3, (slab3.x0 + slab3.x1) / 2, (slab3.y0 + slab3.y1) / 2, 7);
+    const cnt = { ssr: 0, probe: 0, sky: 0 }; for (const v of buf.floorU) cnt[rows[v].src === "ssr+" ? "ssr" : rows[v].src]++;
+    const nF = buf.floorU.length;
+    document.getElementById("t3-ssr").querySelector(".n").innerHTML = `${cnt.ssr} <small>of ${nF}</small>`;
+    document.getElementById("t3-probe").querySelector(".n").innerHTML = `${cnt.probe} <small>of ${nF}</small>`;
+    document.getElementById("t3-sky").querySelector(".n").innerHTML = `${cnt.sky} <small>of ${nF}</small>`;
+    const names = R.m.behind.map(i => scene3.find(o => o.id === i).name);
+    const why = R.m.hit ? `px ${R.m.ui} (${scene3.find(o => o.id === buf.id[R.m.ui]).name})` : `${R.m.reason}${names.length ? " after passing behind " + names.join(", ") : ""}`;
+    document.getElementById("c3-read").innerHTML = `px ${u} · truth: ${R.truthObj} · <strong>SSR ${R.m.hit ? "hit" : "miss"}</strong>: ${why} · w = ${fmt(R.w)} · ${R.m.hit && R.w > 0.999 ? "no fallback" : "fallback: " + (R.src === "sky" ? "sky" : "probe")}`;
+    const off = sphere3.cy - sphere3.r > CAM.y + (sphere3.cx - CAM.x) * Math.tan(CAM.pitch + FOV / 2);
+    document.getElementById("c3-cap").textContent = `sphere ${off ? "off screen" : "on screen"} · slab at ${fmt((slab3.x0 + slab3.x1) / 2, 1)}, ${fmt((slab3.y0 + slab3.y1) / 2, 1)} m`;
+  }
+  build3();
+  pointer(c3, {
+    handles: () => [[sphere3.cx, sphere3.cy], [(slab3.x0 + slab3.x1) / 2, (slab3.y0 + slab3.y1) / 2]],
+    drag: (i, x, y) => {
+      if (i === 0) { sphere3.cx = Math.max(5.6, Math.min(11.3, x)); sphere3.cy = Math.max(FLOOR_Y + sphere3.r, Math.min(9.0, y)); }
+      else { const hw = (slab3.x1 - slab3.x0) / 2, hh = (slab3.y1 - slab3.y0) / 2; const cx = Math.max(1.5 + hw, Math.min(6.5, x)), cy = Math.max(2.4, Math.min(7.2, y)); slab3.x0 = cx - hw; slab3.x1 = cx + hw; slab3.y0 = cy - hh; slab3.y1 = cy + hh; }
+      build3(); draw3();
+    },
+    point: (x, y, px, py) => { const u = pickFloor(st3.buf, x, px, py); if (u >= 0) { st3.u = u; draw3(); } }
+  });
+  const fade3 = document.getElementById("fade3"); fade3.addEventListener("input", () => { st3.fade = +fade3.value; document.getElementById("fade3v").textContent = fmt(st3.fade) + " of screen"; build3(); draw3(); });
+  draw3();
+
+  // ================= 4. rough surfaces =================
+  const scene4 = scene1, buf4 = buf1;
+  const c4 = document.getElementById("c4"), x4 = c4.getContext("2d");
+  const st4 = { u: nearestFloorPixel(buf1, 8.6), rough: 0.30, spp: 1, frame: 0, hist: new Array(N).fill(null), cur: new Array(N).fill(null), blur: new Array(N).fill(null), rays: {}, steps: 0, raysN: 0, radius: new Float32Array(N), running: false };
+  const MAXF = 64;
+  function ggxDir(d, alpha) {
+    const xi1 = Math.random(), xi2 = Math.random();
+    const cosT = Math.sqrt((1 - xi1) / (1 + (alpha * alpha - 1) * xi1)), sinT = Math.sqrt(Math.max(0, 1 - cosT * cosT));
+    const tilt = Math.atan2(sinT * Math.cos(2 * Math.PI * xi2), cosT), h = [Math.sin(tilt), Math.cos(tilt)];
+    const dh = d[0] * h[0] + d[1] * h[1], r = [d[0] - 2 * dh * h[0], d[1] - 2 * dh * h[1]];
+    return r[1] > 0.02 ? r : null;
+  }
+  function frame4() {
+    const alpha = Math.max(1e-3, st4.rough * st4.rough), n = st4.frame + 1, k = 1 / Math.min(n, 48);
+    let steps = 0, rays = 0; const rayLog = {};
+    for (const u of buf4.floorU) {
+      const P = [buf4.px[u], buf4.py[u]], d = pixelDir(u); const acc = [0, 0, 0]; let radius = 0, cnt = 0; const log = [];
+      for (let s = 0; s < st4.spp; s++) {
+        let r = alpha < 0.002 ? [d[0], -d[1]] : ggxDir(d, alpha); if (!r) r = [d[0], -d[1]];
+        const ray = screenRay(P, r), m = march(buf4, ray, { mode: "linear", step: 2, thick: 0.35, refine: 3 });
+        steps += m.steps + m.refineSteps; rays++; cnt++;
+        const c = m.hit ? m.col : skyColor(r); acc[0] += c[0]; acc[1] += c[1]; acc[2] += c[2];
+        if (m.hit) radius += alpha * Math.hypot(m.P[0] - P[0], m.P[1] - P[1]) * N / (2 * m.z * TANH); else radius += 3;
+        log.push({ ray, m });
+      }
+      const c = acc.map(v => v / cnt); st4.cur[u] = c; rayLog[u] = log; st4.radius[u] = Math.min(28, radius / cnt);
+      st4.hist[u] = st4.hist[u] ? st4.hist[u].map((h, i) => h + (c[i] - h) * k) : c;
+    }
+    // roughness-weighted blur of this frame only, radius per pixel from the lobe footprint at its hit
+    const fl = buf4.floorU, lo = fl[0], hi = fl[fl.length - 1];
+    for (const u of fl) { const rad = Math.round(st4.radius[u]); const a = [0, 0, 0]; let cnt = 0; for (let v = Math.max(lo, u - rad); v <= Math.min(hi, u + rad); v++) { const c = st4.cur[v]; if (!c) continue; a[0] += c[0]; a[1] += c[1]; a[2] += c[2]; cnt++; } st4.blur[u] = a.map(v => v / cnt); }
+    st4.frame = n; st4.rays = rayLog; st4.steps = steps; st4.raysN = rays;
+  }
+  function draw4() {
+    const u = st4.u, P = [buf4.px[u], buf4.py[u]];
+    drawWorld(x4, scene4);
+    const ys = [0, 16, 32], hh = 14, other = v => buf4.id[v] === 1 ? null : buf4.colAt(v);
+    strip(x4, ys[0], hh, v => st4.cur[v] || other(v)); rowLabel(x4, ys[0], hh, `this frame, ${st4.spp} ray${st4.spp > 1 ? "s" : ""}/px`);
+    strip(x4, ys[1], hh, v => st4.hist[v] || other(v)); rowLabel(x4, ys[1], hh, `temporal, ${st4.frame} frame${st4.frame > 1 ? "s" : ""}`);
+    strip(x4, ys[2], hh, v => st4.blur[v] || other(v)); rowLabel(x4, ys[2], hh, "blur of this frame");
+    for (const v of buf4.floorU) { x4.fillStyle = "rgba(242,163,65,0.8)"; const h = Math.min(20, st4.radius[v] * 0.8); x4.fillRect(v * PXW, 68 - h, PXW + 0.3, h); }
+    x4.font = "10px " + MONO; x4.fillStyle = "rgba(255,255,255,0.55)"; x4.fillText("blur radius per pixel, px (grows with hit distance)", 6, 82);
+    x4.fillText(`roughness ${fmt(st4.rough)} → α = ${fmt(st4.rough * st4.rough, 3)}`, 6, 96);
+    pixelTick(x4, u, 0, 46, "rgba(255,255,255,0.9)");
+    floorBand(x4, buf4, v => st4.hist[v]);
+    // lobe fan: the GGX pdf over angle, drawn as a wedge of length by density
+    const d = pixelDir(u), alpha = Math.max(1e-3, st4.rough * st4.rough), r0 = [d[0], -d[1]], a0 = Math.atan2(r0[1], r0[0]);
+    x4.beginPath(); x4.moveTo(wx(P[0]), wy(P[1]));
+    for (let k = -40; k <= 40; k++) { const th = k / 40 * Math.PI / 2; const c = Math.cos(th / 2); const D = alpha * alpha / (Math.PI * Math.pow(c * c * (alpha * alpha - 1) + 1, 2)); const L = 1.6 * Math.min(1, D / (1 / (Math.PI * alpha * alpha)) ) + 0.05; const a = a0 + th; x4.lineTo(wx(P[0] + Math.cos(a) * L), wy(P[1] + Math.sin(a) * L)); }
+    x4.closePath(); x4.fillStyle = "rgba(242,163,65,0.14)"; x4.fill();
+    viewRay(x4, P);
+    const log = st4.rays[u] || [];
+    for (const { ray, m } of log) drawRay(x4, ray, m, { dots: false, width: 1 });
+    const est = (1920 * 1080) * st4.spp * (st4.steps / Math.max(1, st4.raysN));
+    document.getElementById("t4-rays").querySelector(".n").innerHTML = `${st4.raysN} <small>${buf4.floorU.length}×${st4.spp}</small>`;
+    document.getElementById("t4-steps").querySelector(".n").textContent = fmt(st4.steps / Math.max(1, st4.raysN), 1);
+    document.getElementById("t4-ms").querySelector(".n").innerHTML = `${fmt(est / 250e9 * 1000, 2)} <small>${fmt(est / 1e6, 0)} M fetches</small>`;
+    const hits = log.filter(l => l.m.hit).length;
+    document.getElementById("c4-read").innerHTML = `px ${u} · <strong>${log.length} ray${log.length !== 1 ? "s" : ""}, ${hits} hit</strong> · blur radius ${fmt(st4.radius[u], 1)} px · history blend 1/${Math.min(st4.frame, 48)}`;
+    document.getElementById("c4-cap").textContent = `est. assumes 250 G depth fetches/s, full-screen coverage`;
+  }
+  function loop4() { if (st4.frame >= MAXF) { st4.running = false; return; } frame4(); draw4(); requestAnimationFrame(loop4); }
+  function restart4() { st4.frame = 0; st4.hist.fill(null); if (!st4.running) { st4.running = true; loop4(); } }
+  pointer(c4, { point: (x, y, px, py) => { const u = pickFloor(buf4, x, px, py); if (u >= 0) { st4.u = u; draw4(); } } });
+  const rough4 = document.getElementById("rough4"); rough4.addEventListener("input", () => { st4.rough = +rough4.value; document.getElementById("rough4v").textContent = fmt(st4.rough); restart4(); });
+  onSeg("seg4", v => { st4.spp = +v; restart4(); });
+  restart4();
+
+  // ================= 5. thickness =================
+  const scene5 = makeScene({ plate: true }), buf5 = renderView(scene5);
+  const c5 = document.getElementById("c5"), x5 = c5.getContext("2d");
+  const st5 = { u: nearestFloorPixel(buf5, 8.6), t0: 0.05, step: 6, rows: null };
+  const T_MIN = 0.02;
+  const derivThick = (buf, step) => ui => { const z = buf.z, zl = z[Math.max(0, ui - 1)], zr = z[Math.min(N - 1, ui + 1)]; return T_MIN + Math.min(Math.abs(zr - z[ui]), Math.abs(z[ui] - zl)) * step; };
+  const MODES5 = [["f", "fixed t"], ["r", "ray Δz/step"], ["d", "∂z/∂u · Δu"]];
+  function build5() {
+    const cfgs = { f: { mode: "linear", step: st5.step, thick: st5.t0, refine: 0 }, r: { mode: "linear", step: st5.step, thick: (ui, dz) => T_MIN + dz, refine: 0 }, d: { mode: "linear", step: st5.step, thick: derivThick(buf5, st5.step), refine: 0 } };
+    const rows = [], stats = {};
+    for (const [k] of MODES5) stats[k] = { ok: 0, bad: 0, miss: 0, err: 0, nerr: 0 };
+    for (const u of buf5.floorU) {
+      const P = [buf5.px[u], buf5.py[u]], r = reflectDir(u), ray = screenRay(P, r), t = truthHit(scene5, ray);
+      const row = { ray, truth: t ? t.col : skyColor(r), truthP: t ? [t.x, t.y] : null, res: {} };
+      for (const [k] of MODES5) {
+        const m = march(buf5, ray, cfgs[k]); let verdict;
+        if (m.hit) { const e = row.truthP ? Math.hypot(m.P[0] - row.truthP[0], m.P[1] - row.truthP[1]) : Infinity; verdict = e < 0.25 ? "ok" : "bad"; if (verdict === "ok") { stats[k].err += e; stats[k].nerr++; } }
+        else verdict = row.truthP ? "miss" : "ok";
+        stats[k][verdict]++; row.res[k] = { m, verdict };
+      }
+      rows[u] = row;
+    }
+    st5.rows = rows; st5.stats = stats;
+  }
+  function draw5() {
+    const u = st5.u, rows = st5.rows, R = rows[u], P = [buf5.px[u], buf5.py[u]];
+    drawWorld(x5, scene5);
+    const other = v => buf5.id[v] === 1 ? null : buf5.colAt(v), hh = 12;
+    strip(x5, 0, hh, v => rows[v] ? rows[v].truth : other(v)); rowLabel(x5, 0, hh, "true reflection");
+    MODES5.forEach(([k, label], i) => {
+      const y = 16 + i * 20;
+      strip(x5, y, hh, v => rows[v] ? (rows[v].res[k].m.hit ? rows[v].res[k].m.col : [24, 28, 36]) : other(v)); rowLabel(x5, y, hh, label);
+      for (const v of buf5.floorU) { const vd = rows[v].res[k].verdict; x5.fillStyle = vd === "ok" ? GREEN : (vd === "bad" ? RED : "rgba(255,255,255,0.18)"); x5.fillRect(v * PXW, y + hh + 1, PXW + 0.3, 3); }
+    });
+    x5.font = "10px " + MONO; x5.fillStyle = "rgba(255,255,255,0.55)"; x5.fillText("green: within 0.25 m of the true hit · red: false hit · dim: miss", 6, 90);
+    x5.fillText(`fixed t = ${fmt(st5.t0)} m · step ${st5.step} px · no refinement`, 6, 104);
+    pixelTick(x5, u, 0, 76, "rgba(255,255,255,0.9)");
+    floorBand(x5, buf5, v => rows[v].res.f.m.hit ? rows[v].res.f.m.col : [24, 28, 36]);
+    viewRay(x5, P);
+    const F = R.res.f.m, D = R.res.d.m;
+    drawRay(x5, R.ray, F);
+    if (R.truthP) { x5.beginPath(); x5.arc(wx(R.truthP[0]), wy(R.truthP[1]), 4, 0, Math.PI * 2); x5.strokeStyle = GREEN; x5.lineWidth = 1.5; x5.stroke(); }
+    // hover numbers: depth per pixel along the ray, derived t at the pixel the fixed march stopped on
+    const dzdu = Math.abs(R.ray.zAt(R.ray.u0 + R.ray.dir) - R.ray.z0);
+    const uiRef = F.hit ? F.ui : (D.hit ? D.ui : Math.floor(R.ray.u0 + R.ray.dir * 2));
+    const tDer = derivThick(buf5, st5.step)(Math.max(0, Math.min(N - 1, uiRef)));
+    document.getElementById("t5-dz").querySelector(".n").innerHTML = `${fmt(dzdu, 3)} <small>m/px</small>`;
+    document.getElementById("t5-th").querySelector(".n").innerHTML = `${fmt(tDer, 2)} <small>m, px ${uiRef}</small>`;
+    document.getElementById("t5-steps").querySelector(".n").innerHTML = `${F.steps} <small>${F.hit ? "hit" : "miss"}</small>`;
+    document.getElementById("s5-n").textContent = buf5.floorU.length + " floor pixels";
+    for (const [k] of MODES5) { const s = st5.stats[k]; document.getElementById(`s5-${k}-ok`).textContent = s.ok; document.getElementById(`s5-${k}-bad`).textContent = s.bad; document.getElementById(`s5-${k}-miss`).textContent = s.miss; document.getElementById(`s5-${k}-err`).textContent = s.nerr ? fmt(s.err / s.nerr, 3) + " m" : "–"; }
+    const vs = MODES5.map(([k, label]) => `${label}: ${R.res[k].verdict === "ok" ? "correct" : R.res[k].verdict === "bad" ? "false hit" : "miss"}`).join(" · ");
+    const first = F.samples.find(s => s.state === "behind" || s.state === "hit");
+    document.getElementById("c5-read").innerHTML = `px ${u} · <strong>${vs}</strong>`;
+    document.getElementById("c5-cap").textContent = first ? `fixed t, first sample past a surface: z_ray ${fmt(first.z)} m, z_buf ${fmt(first.zb)} m, Δ ${fmt(first.z - first.zb)} m ${first.state === "hit" ? "<" : ">"} t ${fmt(st5.t0)}` : "fixed t: no sample went behind a surface";
+  }
+  build5();
+  pointer(c5, { point: (x, y, px, py) => { const u = pickFloor(buf5, x, px, py); if (u >= 0) { st5.u = u; draw5(); } } });
+  const th5 = document.getElementById("th5"); th5.addEventListener("input", () => { st5.t0 = +th5.value; document.getElementById("th5v").textContent = fmt(st5.t0) + " m"; build5(); draw5(); });
+  const step5 = document.getElementById("step5"); step5.addEventListener("input", () => { st5.step = +step5.value; document.getElementById("step5v").textContent = step5.value + " px"; build5(); draw5(); });
+  draw5();
+})();
+</script>

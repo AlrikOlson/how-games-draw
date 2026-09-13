@@ -1,0 +1,1020 @@
+<title>Anti-Aliasing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Rendering Library shared theme. Paste this whole block into a <style> at the top of every page, verbatim. Add page-specific rules AFTER it. */
+:root {
+  --bg: #f3f1ec; --surface: #ffffff; --ink: #171a1f; --muted: #5b6270; --line: #d8d5cc;
+  --accent: #b86f0e; --inside: #1f6fcc; --chip: #ebe8e0; --chip-on: #171a1f; --chip-on-ink: #f3f1ec;
+  --code-bg: #ebe8e0; --code-ink: #23262c; --band: #ebe8e0;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: clamp(20px, 4vw, 64px);
+  --vp-max: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+    --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+    --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #151920; --ink: #e7eaef; --muted: #8d95a3; --line: #262c36;
+  --accent: #f2a341; --inside: #4aa3ff; --chip: #1c212a; --chip-on: #e7eaef; --chip-on-ink: #0e1116;
+  --code-bg: #10141a; --code-ink: #d6dbe3; --band: #12161c;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 17px; line-height: 1.6; padding-inline: var(--gutter); padding-block: 28px 140px; counter-reset: demo; }
+.wrap { max-width: 1640px; margin: 0 auto; }
+.back { display: inline-block; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; margin-bottom: 40px; }
+.back:hover { color: var(--accent); }
+
+/* header: title block on the left, the words box on the right */
+header { margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 32px clamp(32px, 5vw, 96px); align-items: start; }
+header > * { grid-column: 1; }
+header .terms { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin-top: 8px; }
+@media (max-width: 1000px) { header { grid-template-columns: minmax(0, 1fr); } header .terms { grid-column: 1; grid-row: auto; } }
+.eyebrow { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+h1 { font-size: clamp(44px, 6.5vw, 88px); line-height: 0.98; margin: 0 0 28px; font-weight: 760; letter-spacing: -0.025em; font-variation-settings: "wdth" 86; text-wrap: balance; }
+.lead { font-size: clamp(19px, 1.5vw, 23px); line-height: 1.5; margin: 0; max-width: 62ch; }
+.lead b { font-weight: 650; }
+.key { display: flex; gap: 12px 24px; flex-wrap: wrap; margin-top: 26px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.key span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; background: var(--sw, #888); }
+.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin: 0; padding: 18px 20px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 15px; line-height: 1.5; }
+.terms::before { content: "Words on this page"; grid-column: 1 / -1; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.terms dt { font-family: var(--font-mono); font-size: 13.5px; color: var(--accent); margin: 0; padding-top: 2px; }
+.terms dd { margin: 0; color: var(--ink); }
+@media (max-width: 560px) { .terms { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .terms dd { margin-bottom: 10px; } }
+
+/* on this page: numbered jump list, inserted after the header */
+.toc { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 0 0 24px; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 13px; }
+.toc li { margin: 0; }
+.toc .toc-lab { color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; margin-right: 6px; }
+.toc a { display: inline-block; color: var(--ink); text-decoration: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.toc a:hover { border-color: var(--accent); color: var(--accent); }
+.toc a .n { color: var(--accent); margin-right: 6px; }
+.toc a.dim { color: var(--muted); }
+
+/* sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:has(.cols) { counter-increment: demo; }
+section h2 { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.1; margin: 0 0 10px; font-weight: 720; letter-spacing: -0.02em; font-variation-settings: "wdth" 88; text-wrap: balance; max-width: 30ch; }
+section:has(.cols) h2::before { content: counter(demo, decimal-leading-zero); display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 10px; font-variation-settings: normal; }
+section h3 { font-size: 13px; margin: 32px 0 12px; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.sub { color: var(--muted); margin: 0 0 32px; font-size: 17px; max-width: 70ch; }
+
+/* demo grid: canvas left, words right; the canvas column stays on screen while you read */
+.cols { display: grid; grid-template-columns: minmax(0, min(56%, var(--vp-max))) minmax(340px, 1fr); gap: clamp(28px, 4vw, 72px); align-items: start; }
+.cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cols.wide { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .cols, .cols.two { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1100px) { .cols:not(.wide):not(.two) > .vp:first-child { position: sticky; top: 20px; } }
+.vp { position: relative; min-width: 0; }
+.vp canvas { display: block; width: 100%; height: auto; max-width: 100%; background: #0b0e13; border: 1px solid var(--line); border-radius: 8px; touch-action: none; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.vp canvas.grab { cursor: grab; }
+.vp .cap { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 10px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vp .cap strong { color: var(--ink); font-weight: 500; }
+.prose { min-width: 0; }
+.prose p { margin: 0 0 16px; max-width: 68ch; }
+.prose p:last-child { margin-bottom: 0; }
+.prose code, td code, li code { font-family: var(--font-mono); font-size: 0.9em; background: var(--chip); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.prose p, .prose li, .plain, .tldr, .terms dd, .uses td, .note { overflow-wrap: break-word; }
+.prose h3:first-of-type { margin-top: 0; }
+.plain { font-size: 18.5px; line-height: 1.55; max-width: 62ch; margin: 0 0 24px; padding: 16px 20px; border-left: 4px solid var(--inside); background: var(--surface); border-radius: 0 8px 8px 0; }
+.plain b { font-weight: 650; }
+.try { margin: 0 0 22px; padding: 0; list-style: none; max-width: 62ch; }
+.try li { position: relative; padding-left: 26px; margin-bottom: 10px; font-size: 16px; line-height: 1.5; }
+.try li::before { content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-family: var(--font-mono); }
+.words { font-size: 14.5px; color: var(--muted); margin: 20px 0 0; max-width: 62ch; font-style: italic; }
+.words + .math, .words + pre.code { margin-top: 8px; }
+.tldr { margin: 26px 0 0; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 8px; font-size: 16px; max-width: 62ch; background: var(--surface); }
+.tldr::before { content: "Remember"; display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+
+/* math and code */
+pre.code { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 0; max-width: 100%; }
+pre.code .c { color: var(--muted); }
+pre.code .k { color: var(--accent); }
+.math { font-family: var(--font-mono); font-size: 14px; line-height: 1.65; background: var(--code-bg); color: var(--code-ink); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0 0; overflow-x: auto; white-space: pre; }
+
+/* controls */
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin-top: 22px; align-items: end; }
+.ctl { display: flex; flex-direction: column; gap: 7px; }
+.ctl label, .ctl .lab { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-wrap: wrap; }
+.seg button { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 7px 13px; background: var(--chip); color: var(--ink); border: 0; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
+.seg button:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible, .back:focus-visible, .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 220px; max-width: 100%; accent-color: var(--accent); margin: 0; }
+input[type=checkbox] { accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+
+/* live numbers */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.tile.on { border-color: var(--accent); }
+.tile .n { font-family: var(--font-mono); font-size: 28px; line-height: 1.1; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 5px; }
+@media (max-width: 480px) { .tiles { grid-template-columns: 1fr; } }
+
+/* tables */
+.stats { margin-top: 22px; width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.stats th, .stats td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; font-family: var(--font-display); font-size: 15px; }
+.stats thead th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.stats .hi { color: var(--accent); font-weight: 500; }
+.tbl-wrap { overflow-x: auto; }
+.uses { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+.uses th, .uses td { text-align: left; vertical-align: top; padding: 14px 18px 14px 0; border-bottom: 1px solid var(--line); }
+.uses th { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.uses td:first-child { font-weight: 650; white-space: nowrap; }
+.uses td:nth-child(2) { max-width: 44ch; }
+.note { font-size: 15px; color: var(--muted); max-width: 70ch; margin-top: 24px; }
+section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76ch; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+/* page-specific */
+.vp canvas.r169 { aspect-ratio: 16 / 9; }
+.tri { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 820px) { .tri { grid-template-columns: minmax(0, 1fr); } }
+.tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 820px) { .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .tiles.four { grid-template-columns: 1fr; } }
+.tiles.four .tile .n { font-size: 20px; }
+.tile .n small { font-size: 13px; color: var(--muted); font-weight: 400; }
+.chk { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 13px; color: var(--ink); padding-bottom: 6px; }
+.below { margin-top: 28px; }
+.below p { max-width: 70ch; }
+.key span[style*="#ffffff"]::before { outline: 1px solid var(--line); }
+.uses.wide { min-width: 760px; font-size: 14px; }
+.uses.wide td:nth-child(2) { max-width: none; }
+.uses td:first-child { white-space: normal; min-width: 11ch; }
+.stats.gen td:first-child { white-space: nowrap; }
+.prose .math + p { margin-top: 10px; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="../index.html">← Rendering Library</a>
+  <header>
+    <p class="eyebrow">160×90 frame · D3D sample patterns · Halton(2,3) jitter · drag the handles</p>
+    <h1>Anti-Aliasing</h1>
+    <p class="lead">Your screen is a grid of small squares, and the GPU picks each square's colour by checking one point inside it. Anti-aliasing fixes the jagged edges and shimmer that one point per pixel produces, and each fix pays differently: MSAA in memory, FXAA in blur, TAA in ghost trails. <b>The thing people get wrong:</b> MSAA does not fix all jaggies. It only smooths triangle edges; shimmer inside a surface needs the shader itself to run more than once per pixel.</p>
+    <div class="key">
+      <span style="--sw:#f2a341">the triangle · edges that run sideways · the moving disc</span>
+      <span style="--sw:#4aa3ff">floor tiles · edges that run up and down</span>
+      <span style="--sw:#ffffff">test point · drag handle · thin line</span>
+      <span style="--sw:#5ad48a">test point inside the triangle</span>
+      <span style="--sw:#ef5d5d">pixel the line missed · history that got clamped</span>
+    </div>
+    <dl class="terms">
+      <dt>pixel</dt><dd>one square of the screen; it has area, but the GPU tests a point inside it</dd>
+      <dt>sample</dt><dd>one test point inside a pixel; more samples, smoother edges</dd>
+      <dt>rasterizer</dt><dd>the GPU stage that decides which pixels a triangle touches</dd>
+      <dt>fragment shader</dt><dd>the program that works out a pixel's colour; usually the expensive part</dd>
+      <dt>resolve</dt><dd>averaging a pixel's samples into one final colour</dd>
+      <dt>luma</dt><dd>a pixel's brightness, a weighted mix of its red, green and blue</dd>
+      <dt>history buffer</dt><dd>last frame's finished picture, kept so this frame can blend with it</dd>
+      <dt>motion vector</dt><dd>how far each pixel moved since last frame, in pixels</dd>
+    </dl>
+  </header>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#samples"><span class="n">01</span>One pixel, many test points</a></li><li><a href="#shading"><span class="n">02</span>Two kinds of jaggies</a></li><li><a href="#fxaa"><span class="n">03</span>FXAA</a></li><li><a href="#taa"><span class="n">04</span>TAA</a></li><li><a href="#cost"><span class="n">05</span>What each method costs</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+
+  <section id="samples">
+    <h2>One pixel, many test points</h2>
+    <p class="sub">Drag the triangle's corners and hover a pixel to see how many of its test points land inside.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c1" width="640" height="360" class="grab r169" aria-label="A triangle over a 16 by 9 pixel grid showing multisample positions and coverage"></canvas>
+        <div class="cap"><span id="c1-read"></span><span id="c1-pat"></span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">A pixel is a small square, but the GPU decides whether a triangle covers it by <b>checking a single point</b> in the middle. That is why a slanted edge turns into a <b>staircase</b>. MSAA (multisample anti-aliasing) checks <b>several points per pixel</b> and averages them, so a pixel half covered by the triangle comes out half amber. The <b>shader still runs once per pixel</b>, which is what keeps it cheap.</p>
+
+        <h3>What you're seeing</h3>
+        <p>A 16 by 9 pixel picture, zoomed 40 times. The white outline is the triangle. Each small dot is a test point, and it turns green when it sits inside the triangle.</p>
+        <p>A pixel's amber brightness is the share of its dots that are green. The readout under the picture shows that share for the outlined pixel.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Click 1×. Every pixel is either fully amber or black, and the edges are stair steps.</li>
+          <li>Click 8×. Edge pixels now take in-between shades instead of jumping straight from black to amber.</li>
+          <li>Drag a corner slowly. The "partially covered pixels" tile counts the only pixels where the extra points changed anything.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:6px">
+          <div class="ctl"><span class="lab">Samples per pixel</span><div class="seg" id="seg1" role="group" aria-label="Sample count"><button data-v="1">1×</button><button data-v="2">2×</button><button data-v="4" aria-pressed="true">4×</button><button data-v="8">8×</button></div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>The rasterizer, the GPU stage that decides which pixels a triangle touches, tests coverage at points, not areas. With one sample per pixel that point is the pixel center. An edge either covers it or does not, so the edge renders as a staircase of whole pixels.</p>
+        <p>Multisampling adds more test points per pixel and stores a colour and a depth for each one. The resolve, the step that averages a pixel's samples into one colour, turns 3 of 4 covered into 3/4 triangle colour.</p>
+        <p>What runs once and what runs N times is the whole trick. Coverage and the depth test run per sample. The fragment shader, the program that computes the colour, runs once per pixel per triangle at the pixel center, and its one result is copied into every covered sample.</p>
+        <p>Shading is usually the expensive part, so MSAA 4× costs far less than four 1× frames. Supersampling (SSAA) is the same machinery with the shader forced to run at every sample.</p>
+        <p>The sample positions are not a square grid. Direct3D's standard 4× and 8× patterns are rotated grids, so a near-horizontal or near-vertical edge crosses the samples at different heights. A 2×2 grid gives a horizontal edge only three coverage levels; the rotated 4× pattern gives five.</p>
+        <p class="words">In words: a pixel's coverage is the share of its test points inside the triangle, and its final colour is the average of its stored samples. The last two lines are the Direct3D sample offsets, in sixteenths of a pixel.</p>
+        <div class="math">coverage(p) = (1/N) · Σ_i inside(tri, c_p + o_i)        o_i in 1/16 px
+resolve(p)  = (1/N) · Σ_i color_i(p)                   color_i = shade(c_p) if covered, else clear
+D3D 2×: (4,4) (−4,−4)        4×: (−2,−6) (6,−2) (−6,2) (2,6)
+D3D 8×: (1,−3) (−1,3) (5,1) (−3,−5) (−5,5) (−7,−1) (3,7) (7,−7)</div>
+        <p>p is the pixel, c_p its center, o_i the offset of sample i, and N the number of samples. inside() is 1 when the point lands in the triangle and 0 otherwise.</p>
+        <p class="words">What this code does: gets one bit per sample from the rasterizer, runs the shader once if any bit is set, copies that colour into every covered sample, then averages the samples at the end.</p>
+<pre class="code"><span class="c">// rasterizer side: N coverage bits per pixel, one shader invocation per covered pixel</span>
+<span class="k">uint</span> mask = coverageMask(tri, p);              <span class="c">// bit i set if sample i is inside</span>
+<span class="k">if</span> (mask != 0u) {
+  vec4 c = fragShader(centerOf(p));           <span class="c">// once, at the pixel center</span>
+  <span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; N; i++)
+    <span class="k">if</span> ((mask &gt;&gt; i) &amp; 1u) msaaColor[p][i] = c;  <span class="c">// same color into every covered sample</span>
+}
+<span class="c">// resolve pass: one texelFetch per sample, averaged, once at the end of the pass</span>
+vec4 resolve(ivec2 p) {
+  vec4 sum = vec4(0.0);
+  <span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; N; i++) sum += texelFetch(msaaColor, p, i);
+  <span class="k">return</span> sum / <span class="k">float</span>(N);
+}</pre>
+        <p class="tldr">MSAA tests several points per pixel but shades once, so edges smooth out for much less than the full cost of the extra samples.</p>
+      </div>
+    </div>
+    <div class="tiles four">
+      <div class="tile on"><div class="n" id="t1-inv">—</div><div class="l">shader invocations (MSAA)</div></div>
+      <div class="tile"><div class="n" id="t1-samp">—</div><div class="l">color samples stored</div></div>
+      <div class="tile"><div class="n" id="t1-ssaa">—</div><div class="l">invocations if SSAA</div></div>
+      <div class="tile"><div class="n" id="t1-part">—</div><div class="l">partially covered pixels</div></div>
+    </div>
+  </section>
+
+  <section id="shading">
+    <h2>Two kinds of jaggies</h2>
+    <p class="sub">The same scene at one sample per pixel and at four. Drag the line's ends and change the checker size.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c2a" width="640" height="360" class="grab r169" aria-label="Frame rendered with one sample per pixel"></canvas>
+        <div class="cap"><strong>1 sample / px</strong><span id="c2a-cap"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c2b" width="640" height="360" class="grab r169" aria-label="Frame rendered with 4x multisampling or supersampling"></canvas>
+        <div class="cap"><strong id="c2b-lab">MSAA 4×</strong><span id="c2b-cap"></span></div>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><span class="lab">Right view</span><div class="seg" id="seg2" role="group" aria-label="Anti-aliasing mode"><button data-v="msaa" aria-pressed="true">MSAA 4×</button><button data-v="ssaa">SSAA 4×</button></div></div>
+      <div class="ctl"><label for="freq2">Checker frequency <span class="val" id="freq2v">1.0×</span></label><input type="range" id="freq2" min="0.5" max="3" step="0.1" value="1"></div>
+      <div class="ctl"><label for="lw2">Line width <span class="val" id="lw2v">0.6 px</span></label><input type="range" id="lw2" min="0.2" max="2.5" step="0.1" value="0.6"></div>
+      <div class="ctl"><label class="chk"><input type="checkbox" id="drop2" checked> mark pixels the 1× raster dropped</label></div>
+    </div>
+    <div class="tiles four">
+      <div class="tile"><div class="n" id="t2-1x">—</div><div class="l">invocations, 1×</div></div>
+      <div class="tile on"><div class="n" id="t2-ms">—</div><div class="l">invocations, MSAA 4×</div></div>
+      <div class="tile"><div class="n" id="t2-ss">—</div><div class="l">invocations, SSAA 4×</div></div>
+      <div class="tile"><div class="n" id="t2-drop">—</div><div class="l">line pixels missed at 1×</div></div>
+    </div>
+    <div class="prose below">
+      <p class="plain">Jaggies come in two kinds. <b>Edge jaggies</b> live where one triangle stops and another starts, like the thin white line and the floor's horizon. <b>Shading jaggies</b> live inside a surface, where the pattern the shader draws is finer than a pixel, like the checker near the horizon. <b>MSAA fixes the first kind only.</b> The second kind needs the shader itself to run more than once per pixel, which is what supersampling does.</p>
+
+      <h3>What you're seeing</h3>
+      <p>Left is the frame at one sample per pixel: a tilted checker floor with a shiny highlight, and a thin white line. Red boxes mark pixels where the line passed through but missed the pixel's centre, so nothing was drawn.</p>
+      <p>Right is the same frame at 4× MSAA or 4× SSAA. Near the horizon the checker tiles get smaller than a pixel and turn into wavy bands. Those bands are called moiré.</p>
+
+      <h3>Try this</h3>
+      <ul class="try">
+        <li>Compare the line and the horizon on both sides. MSAA smooths both, because they are edges.</li>
+        <li>Look at the moiré bands in the highlight. They are the same on the MSAA side. Click SSAA 4× and they soften.</li>
+        <li>Push checker frequency to 3×. The bands get worse at 1× and under MSAA; only SSAA holds up, at four times the shader work in the tiles above.</li>
+      </ul>
+
+      <h3>The real version</h3>
+      <p>Geometric aliasing lives on triangle edges. The line drops out wherever its 0.6 px width misses the pixel center, and the floor's horizon is a staircase.</p>
+      <p>Shading aliasing lives inside triangles. The checker's tiles shrink toward the horizon until a tile is smaller than a pixel, and the shader, run at one point, returns whichever tile happens to sit under that point. The result is the moiré band across the highlight.</p>
+      <p>With MSAA 4× the line and the horizon get coverage-blended, because coverage is tested per sample. The moiré does not move: the shader still ran once per pixel at the center, and all four samples inside the floor received that one colour. SSAA 4× runs the shader at each sample, and the moiré softens at four times the shading cost.</p>
+      <p>Anything a shader computes can alias this way: specular highlights on normal-mapped surfaces, procedural patterns, foliage drawn with a cut-out mask (alpha test), shadow-map edges. Textures escape only because mipmapping, which keeps pre-shrunk copies of every texture, has already averaged them down to the pixel's size.</p>
+      <p>This is the case MSAA cannot help with. It is the main reason deferred renderers, which draw all the geometry first and light it afterwards, and physically based renderers moved to temporal methods.</p>
+      <p class="words">In words: at one sample per pixel, any pattern that repeats faster than every 2 pixels cannot be drawn correctly and shows up as a slower, false pattern instead. The last two lines are the only difference between MSAA and SSAA: where shade() is called.</p>
+      <div class="math">sampling rate f_s = 1 sample / px       detail with period P &lt; 2 px cannot be represented
+a checker of period P aliases to a period of 1 / |1/P − round(1/P)| px  (moiré)
+MSAA: color(p, i) = covered_i ? shade(c_p)       : clear    <span class="c">// one shade() per pixel per triangle</span>
+SSAA: color(p, i) = covered_i ? shade(c_p + o_i) : clear    <span class="c">// N shade() per pixel</span></div>
+      <p>f_s is the sampling rate, P the checker's repeat length in pixels, c_p the pixel center, o_i the offset of sample i, and covered_i whether sample i is inside the triangle.</p>
+      <p class="words">What this code does: shows the two shader keywords that change where shading happens. centroid moves the interpolation point inside the covered samples; reading the sample index forces the shader to run once per sample.</p>
+<pre class="code"><span class="c">// MSAA interpolates attributes at the pixel center even when the center is outside the triangle.</span>
+<span class="c">// 'centroid' snaps the interpolation point inside the covered samples, fixing edge sparkle only.</span>
+<span class="k">centroid in</span> vec2 uv;                           <span class="c">// HLSL: centroid float2 uv : TEXCOORD0</span>
+
+<span class="c">// Forcing per-sample shading turns MSAA into SSAA for this draw:</span>
+<span class="c">// GL:  glEnable(GL_SAMPLE_SHADING); glMinSampleShading(1.0);</span>
+<span class="c">// D3D: read SV_SampleIndex in the pixel shader</span>
+<span class="k">in int</span> gl_SampleID;                             <span class="c">// reading this alone forces one invocation per sample</span>
+vec3 c = shadeFloor(uv);                        <span class="c">// now evaluated at sample i, not at the center</span></pre>
+      <p class="tldr">MSAA smooths edges. Shimmer inside a surface needs the shader to run more than once per pixel, or a temporal method.</p>
+    </div>
+  </section>
+
+  <section id="fxaa">
+    <h2>FXAA: fix it after the fact</h2>
+    <p class="sub">No extra samples. FXAA finds edges in the finished picture and blurs across them. Drag the line's ends in the left view.</p>
+    <div class="tri">
+      <div class="vp">
+        <canvas id="c3a" width="640" height="360" class="grab r169" aria-label="Source frame at one sample per pixel with small text and a thin line"></canvas>
+        <div class="cap"><strong>Source, 1×</strong><span id="c3a-cap"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c3b" width="640" height="360" class="r169" aria-label="FXAA edge mask: horizontal edges in amber, vertical in blue"></canvas>
+        <div class="cap"><strong>Edge mask</strong><span id="c3b-cap"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c3c" width="640" height="360" class="r169" aria-label="FXAA output"></canvas>
+        <div class="cap"><strong>FXAA output</strong><span id="c3c-cap"></span></div>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><label for="thr3">Edge threshold <span class="val" id="thr3v">0.125</span></label><input type="range" id="thr3" min="0.03" max="0.5" step="0.005" value="0.125"></div>
+      <div class="ctl"><label for="sub3">Sub-pixel blend <span class="val" id="sub3v">0.75</span></label><input type="range" id="sub3" min="0" max="1" step="0.05" value="0.75"></div>
+      <div class="ctl"><label for="lw3">Line width <span class="val" id="lw3v">0.5 px</span></label><input type="range" id="lw3" min="0.2" max="2.5" step="0.1" value="0.5"></div>
+    </div>
+    <div class="tiles four">
+      <div class="tile on"><div class="n" id="t3-edge">—</div><div class="l">edge pixels</div></div>
+      <div class="tile"><div class="n" id="t3-pct">—</div><div class="l">of the frame</div></div>
+      <div class="tile"><div class="n" id="t3-taps">—</div><div class="l">texture taps, whole pass</div></div>
+      <div class="tile"><div class="n" id="t3-ms">—</div><div class="l">this JS pass</div></div>
+    </div>
+    <div class="prose below">
+      <p class="plain">FXAA does not touch the rendering at all. It takes the <b>finished picture</b>, looks for <b>sharp jumps in brightness</b> between neighbouring pixels, and <b>blends across them</b>. It is nearly free and works on any image. The catch is that it <b>cannot tell a jaggy from real detail</b>, so small text softens, and it cannot bring back parts of a thin line that were never drawn.</p>
+
+      <h3>What you're seeing</h3>
+      <p>Left is the source frame at one sample per pixel, with 9 px and 7 px text and a 0.5 px line. Middle is the edge mask: the pixels FXAA decided are edges, amber where the edge runs sideways and blue where it runs up and down.</p>
+      <p>Right is the output after the blend. The tiles above count how many pixels were treated and how many texture reads (taps) the whole pass used.</p>
+
+      <h3>Try this</h3>
+      <ul class="try">
+        <li>Drag the edge threshold down to 0.03. More pixels light up in the mask and the text on the right goes soft.</li>
+        <li>Look at the 0.5 px line on the right. The gaps stay: where the rasterizer skipped it, there is nothing to blend.</li>
+        <li>Raise the line width to 1.5 px. Now the line survives the raster and FXAA smooths it well.</li>
+      </ul>
+
+      <h3>The real version</h3>
+      <p>FXAA (Lottes, NVIDIA, 2009) never sees a triangle. It reads the finished frame and converts each pixel to luma, its brightness as a weighted mix of red, green and blue. It flags a pixel as an edge when its contrast to the four neighbors exceeds a threshold that scales with local brightness. Most pixels fail that test and exit in a few instructions.</p>
+      <p>For each edge pixel it decides whether the edge runs horizontally or vertically from a 3×3 second-derivative estimate, a measure of how sharply brightness bends across the block. It picks the steeper side, then walks along the edge in both directions until the luma changes, to find the edge's ends.</p>
+      <p>The distance to the nearer end sets how far to shift the texture fetch across the edge. The bilinear filter, the GPU's built-in blend between neighbouring pixels, does the mixing.</p>
+      <p>It is one full-screen pass, well under a millisecond at 1080p on any GPU from the last decade, and it works on any image, including deferred output where MSAA is expensive. The cost is that it cannot tell an aliased edge from wanted detail. Lower the threshold and the text softens.</p>
+      <p>The 0.5 px line is worse. Where the rasterizer dropped it, the frame contains no information to recover, so FXAA blurs the fragments that survived and leaves the gaps.</p>
+      <p>SMAA (Jimenez et al., 2012) keeps the luma edge detection but replaces the blend. It classifies the edge shape (L, U and Z patterns) with a precomputed area table and computes the exact coverage that shape would have had, which keeps far more sharpness. It costs three passes and two small render targets, the images a GPU draws into, instead of one pass.</p>
+      <p class="words">In words: measure brightness, compare a pixel to its four neighbours, call it an edge if the difference is big enough, decide which way the edge runs, then shift the read across the edge by an amount set by how close the edge's end is.</p>
+      <div class="math">luma  = dot(rgb, (0.299, 0.587, 0.114))
+range = max(l_M, l_N, l_S, l_E, l_W) − min(l_M, l_N, l_S, l_E, l_W)
+edge  = range ≥ max(0.0312, thr · max)             thr = 0.166 default, 0.125 high quality
+horizontal edge if  |l_NW − 2l_W + l_SW| + 2|l_N − 2l_M + l_S| + |l_NE − 2l_E + l_SE|
+                  ≥ |l_NW − 2l_N + l_NE| + 2|l_W − 2l_M + l_E| + |l_SW − 2l_S + l_SE|
+offset = 0.5 − d_near / (d_near + d_far)           px, across the edge toward the steeper side</div>
+      <p>l_M is the luma of the pixel itself; N, S, E, W and the corner letters are its neighbours. thr is the edge threshold slider. d_near and d_far are the distances to the two ends of the edge.</p>
+      <p class="words">What this code does: computes the five lumas, returns the pixel untouched if the contrast is low, works out the edge direction from second derivatives, then reads the image slightly across the edge so the hardware blend does the smoothing.</p>
+<pre class="code"><span class="c">// FXAA edge test, per pixel, on the tone-mapped image</span>
+<span class="k">float</span> lM = luma(tex(uv)), lN = luma(tex(uv + vec2( 0,-1) * px));
+<span class="k">float</span> lS = luma(tex(uv + vec2( 0, 1) * px)), lE = luma(tex(uv + vec2( 1, 0) * px));
+<span class="k">float</span> lW = luma(tex(uv + vec2(-1, 0) * px));
+<span class="k">float</span> lMax = max(lM, max(max(lN, lS), max(lE, lW)));
+<span class="k">float</span> lMin = min(lM, min(min(lN, lS), min(lE, lW)));
+<span class="k">if</span> (lMax - lMin &lt; max(EDGE_THRESHOLD_MIN, lMax * EDGE_THRESHOLD))
+  <span class="k">return</span> tex(uv);                             <span class="c">// early out: most of the frame</span>
+<span class="c">// orientation from second derivatives over the 3x3 block</span>
+<span class="k">float</span> edgeH = abs(lNW - 2.0*lW + lSW) + 2.0*abs(lN - 2.0*lM + lS) + abs(lNE - 2.0*lE + lSE);
+<span class="k">float</span> edgeV = abs(lNW - 2.0*lN + lNE) + 2.0*abs(lW - 2.0*lM + lE) + abs(lSW - 2.0*lS + lSE);
+<span class="k">bool</span> horizontal = edgeH &gt;= edgeV;
+<span class="c">// ... pick the steeper side, walk along the edge to both ends, compute offset ...</span>
+vec2 n = horizontal ? vec2(0.0, side) : vec2(side, 0.0);
+<span class="k">return</span> tex(uv + n * offset * px);              <span class="c">// bilinear filtering is the blend</span></pre>
+      <p class="tldr">FXAA is a cheap blur that only fires on high-contrast edges; it fixes the jaggies it can see and cannot fix detail that was never drawn.</p>
+    </div>
+  </section>
+
+  <section id="taa">
+    <h2>TAA: spread the samples over time</h2>
+    <p class="sub">One sample per pixel per frame, nudged to a new spot each frame and blended with the frames before it. Watch the disc.</p>
+    <div class="cols two">
+      <div class="vp">
+        <canvas id="c4a" width="640" height="360" class="r169" aria-label="Current jittered frame with the jitter sequence inset"></canvas>
+        <div class="cap"><strong>Current frame</strong><span id="c4a-cap"></span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c4b" width="640" height="360" class="r169" aria-label="TAA resolved output with motion vectors drawn"></canvas>
+        <div class="cap"><strong>History after resolve</strong><span id="c4b-cap"></span></div>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><span class="lab">Playback</span><div class="seg" id="seg4p" role="group" aria-label="Playback"><button data-v="play" aria-pressed="true">play</button><button data-v="pause">pause</button><button data-v="step">step 1 frame</button></div></div>
+      <div class="ctl"><label for="alpha4">Blend α <span class="val" id="alpha4v">0.10</span></label><input type="range" id="alpha4" min="0.05" max="0.5" step="0.01" value="0.1"></div>
+      <div class="ctl"><label for="speed4">Disc speed <span class="val" id="speed4v">2.0 px / frame</span></label><input type="range" id="speed4" min="0" max="6" step="0.5" value="2"></div>
+      <div class="ctl"><span class="lab">History rejection</span><div class="seg" id="seg4r" role="group" aria-label="History rejection"><button data-v="none" aria-pressed="true">none</button><button data-v="rgb">clamp RGB</button><button data-v="ycocg">clamp YCoCg</button></div></div>
+      <div class="ctl"><label class="chk"><input type="checkbox" id="rep4"> reproject with motion vectors</label></div>
+      <div class="ctl"><label class="chk"><input type="checkbox" id="clm4"> tint clamped pixels</label></div>
+    </div>
+    <div class="tiles four">
+      <div class="tile on"><div class="n" id="t4-eff">—</div><div class="l">effective samples (2−α)/α</div></div>
+      <div class="tile"><div class="n" id="t4-conv">—</div><div class="l">frames to 90 % converged</div></div>
+      <div class="tile"><div class="n" id="t4-clamp">—</div><div class="l">pixels clamped this frame</div></div>
+      <div class="tile"><div class="n" id="t4-err">—</div><div class="l">mean error vs 4× SSAA</div></div>
+    </div>
+    <div class="prose below">
+      <p class="plain">TAA takes the extra samples MSAA would put inside one pixel and <b>spreads them across frames</b>. Each frame the camera is <b>nudged by a fraction of a pixel</b>, and the result is <b>blended into last frame's picture</b>. After a few frames a still scene looks like it was rendered with many samples, for the price of one. The catch is <b>movement</b>: last frame's picture is out of date wherever something moved, and blending it in leaves a <b>ghost trail</b>.</p>
+
+      <h3>What you're seeing</h3>
+      <p>Left is the current frame. The inset shows the eight positions the sample moves through inside one pixel; the amber dot is this frame's position.</p>
+      <p>Right is the blended history. White arrows are motion vectors, which record how far each pixel moved since last frame. Red tint, when you turn it on, marks pixels where the history had to be corrected.</p>
+
+      <h3>Try this</h3>
+      <ul class="try">
+        <li>Set disc speed to 0. The still scene sharpens over a few frames and the "mean error" tile drops.</li>
+        <li>Set speed back to 2. The disc leaves a trail. Turn on "reproject with motion vectors" and the front of the trail goes away.</li>
+        <li>Set history rejection to "clamp YCoCg". The rest of the trail disappears. Turn on "tint clamped pixels" to see where the fix is doing its work.</li>
+      </ul>
+
+      <h3>The real version</h3>
+      <p>Each frame the projection matrix is offset by a sub-pixel jitter, so the one sample per pixel lands somewhere new. The offsets come from the Halton(2,3) sequence, a fixed list of points that fills the pixel evenly no matter how many of them you have used so far.</p>
+      <p>The frame is blended into a history buffer, last frame's finished picture, with weight α. After eight frames the history holds a weighted average of eight sample positions: close to 8× supersampling for the price of 1×, plus one full-screen resolve.</p>
+      <p>The catch is that the history was rendered from the previous camera with the previous object positions. Reprojection handles anything that moved coherently: each pixel writes a motion vector, and the resolve reads history at <code>uv − motion</code> instead of <code>uv</code>. The disc's leading edge stops smearing, because the pixels it newly covers now fetch history from where the disc was.</p>
+      <p>What reprojection cannot fix is disocclusion, the background that was hidden behind the disc a frame ago. That history is wrong, and blending it in leaves the trail.</p>
+      <p>Neighborhood clamping is the fix nearly every shipped TAA uses. Take the 3×3 block of pixels around the current one, find the range of colours in it, and clamp the history sample into that range before blending. History that could not plausibly have produced the current pixel's surroundings gets pulled to the nearest plausible colour.</p>
+      <p>YCoCg is a colour space that separates brightness from tint. Clamping in it makes the box tighter along the brightness axis, where ghosts are most visible, at the cost of some flicker on high-contrast detail.</p>
+      <p class="words">In words: pick this frame's jitter from the Halton list, read the history where this surface was last frame, clamp it to the range of colours around the current pixel, then mix a little of the new frame into it.</p>
+      <div class="math">halton(i, b):  f = 1, r = 0;  while i &gt; 0:  f /= b;  r += f · (i mod b);  i = ⌊i / b⌋
+jitter_n = ( halton(n, 2) − 0.5,  halton(n, 3) − 0.5 )      px, n = 1..8, then repeat
+uv_prev  = uv − motion(uv)                                   motion = uv_now − uv_prev of the surface
+box      = [min, max] of current over the 3×3 neighborhood, in RGB or YCoCg
+c_hist'  = clamp(history(uv_prev), box.min, box.max)
+c_out    = lerp(c_hist', c_curr, α)                          frame k ago weighs α(1−α)^k
+effective samples ≈ (2 − α) / α                              α = 0.1 → 19</div>
+      <p>halton(i, b) is the i-th point of the sequence in base b, and n is the frame number. motion(uv) is the motion vector at that pixel. α is the blend slider: the share of the new frame in the output, which is why a smaller α means more effective samples.</p>
+      <p class="words">What this code does: reads the motion vector, fetches history from where the pixel came from, builds the 3×3 colour box in YCoCg, clamps the history into it, and blends. History from off screen is thrown away.</p>
+<pre class="code"><span class="c">// TAA resolve, one pass. Output becomes next frame's history.</span>
+vec2 mv   = texture(motionTex, uv).xy;              <span class="c">// written by the geometry pass, unjittered</span>
+vec3 cur  = texture(colorTex, uv).rgb;
+vec3 hist = texture(historyTex, uv - mv).rgb;       <span class="c">// reprojection: read where this surface was</span>
+vec3 mn = vec3(1e9), mx = vec3(-1e9);
+<span class="k">for</span> (<span class="k">int</span> j = -1; j &lt;= 1; j++) <span class="k">for</span> (<span class="k">int</span> i = -1; i &lt;= 1; i++) {
+  vec3 c = rgb2ycocg(texelFetchOffset(colorTex, ivec2(gl_FragCoord.xy), 0, ivec2(i, j)).rgb);
+  mn = min(mn, c); mx = max(mx, c);
+}
+hist = ycocg2rgb(clamp(rgb2ycocg(hist), mn, mx));   <span class="c">// reject what the neighborhood cannot explain</span>
+<span class="k">float</span> a = alpha;
+<span class="k">if</span> (any(lessThan(uv - mv, vec2(0))) || any(greaterThan(uv - mv, vec2(1)))) a = 1.0; <span class="c">// off screen: no history</span>
+outColor = mix(hist, cur, a);</pre>
+      <p class="tldr">TAA gets many samples per pixel for the price of one by blending frames; motion vectors and clamping are what stop the old frames from ghosting.</p>
+    </div>
+  </section>
+
+  <section id="cost">
+    <h2>What each method costs</h2>
+    <p class="sub">Memory each method needs per frame, at the output size you choose.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5" width="640" height="360" class="r169" aria-label="Bar chart of render target memory per anti-aliasing method"></canvas>
+        <div class="cap"><span id="c5-cap"></span><span>RGBA8 color, D24S8 depth, RGBA16F for TAA</span></div>
+      </div>
+      <div class="prose">
+        <p class="plain">Every method pays somewhere. <b>MSAA pays in memory</b>: four colours and four depths per pixel. <b>TAA pays in history</b>: two extra full-size pictures plus motion vectors. <b>FXAA pays almost nothing</b>, one pass over the finished picture. SSAA pays four times for everything.</p>
+
+        <h3>What you're seeing</h3>
+        <p>One bar per method. Amber is the colour buffer, blue is depth, and white is everything else the method adds: resolve target, history, motion vectors, edge textures. The numbers are megabytes at the chosen output size, with 1 MB = 10⁶ bytes.</p>
+
+        <h3>Try this</h3>
+        <ul class="try">
+          <li>Click 4K. MSAA 4× reaches 265 MB while FXAA barely moves.</li>
+          <li>Compare TAA with TAA + upscale. The history stays at output size, so the memory hardly shrinks even though the render is smaller.</li>
+          <li>Read the table below. The "shader invocations" column is where SSAA's cost shows; the byte columns are what hits your memory budget.</li>
+        </ul>
+
+        <div class="controls" style="margin-top:6px">
+          <div class="ctl"><label for="res5">Output width <span class="val" id="res5v">1920 × 1080</span></label><input type="range" id="res5" min="1280" max="3840" step="128" value="1920"></div>
+          <div class="ctl"><span class="lab">Preset</span><div class="seg" id="seg5" role="group" aria-label="Resolution preset"><button data-v="1920" aria-pressed="true">1080p</button><button data-v="2560">1440p</button><button data-v="3840">4K</button></div></div>
+        </div>
+
+        <h3>The real version</h3>
+        <p>MSAA spends memory and rasterizer bandwidth: N colour and N depth samples per pixel, so a 4× target at 4K with 32-bit colour and depth is 265 MB before the resolve target. Hardware compresses samples that share a colour, so real bandwidth is lower than the allocation, but the allocation is real.</p>
+        <p>On a tile-based mobile GPU, which renders the screen in small blocks kept on chip, the samples stay on chip and never touch that memory.</p>
+        <p>TAA spends memory on history: two RGBA16F buffers (16 bits per colour channel) to swap between, a motion-vector target, and a resolve pass that reads all of them plus a 3×3 neighbourhood every frame. FXAA spends almost nothing: one pass, one input, five taps for the early-out and up to about thirty on an edge pixel. SSAA spends everything four times.</p>
+        <p>TAA with upscaling, the DLSS 2, FSR 2 and Unreal TSR shape, renders at a lower internal resolution and lets the jitter accumulate detail at output resolution. Its history lives at output resolution, so memory does not shrink with the render scale, but shading does.</p>
+        <p class="words">In words: bytes are width times height times samples times bytes per sample. The three lines below work that out at 1080p.</p>
+        <div class="math">bytes = W · H · samples · bytes_per_sample
+MSAA 4× at 1080p: 1920·1080·4·(4 + 4) = 66.4 MB, + 8.3 MB resolve target
+TAA history:      1920·1080·2·8       = 33.2 MB, + 8.3 MB RG16F motion
+FXAA:             1 pass, reads 8.3 MB, writes 8.3 MB, 0 extra allocations</div>
+        <p>W and H are the output size in pixels. bytes_per_sample is 4 for colour plus 4 for depth in the MSAA line, and 8 per RGBA16F pixel in the TAA line.</p>
+        <p class="tldr">MSAA costs memory, TAA costs history buffers, FXAA costs one cheap pass, and SSAA costs four of everything.</p>
+      </div>
+    </div>
+    <div class="tiles four">
+      <div class="tile on"><div class="n" id="t5-msaa">—</div><div class="l">MSAA 4× color + depth</div></div>
+      <div class="tile"><div class="n" id="t5-taa">—</div><div class="l">TAA history + motion</div></div>
+      <div class="tile"><div class="n" id="t5-fxaa">—</div><div class="l">FXAA pass, read + write</div></div>
+      <div class="tile"><div class="n" id="t5-samp">—</div><div class="l">samples / frame at MSAA 4×</div></div>
+    </div>
+    <p class="note">How to read the table: bytes per pixel counts colour, depth and anything extra the method adds. The 1080p, 4K and custom columns multiply that by the pixel count, and the custom column plus the last three follow the slider.</p>
+    <div class="tbl-wrap">
+    <table class="stats gen">
+      <thead><tr><th>Method</th><th>Bytes / px</th><th>1080p</th><th>4K</th><th id="th5-custom">Custom</th><th>Shader invocations</th><th>Samples tested</th><th>Passes</th></tr></thead>
+      <tbody id="tb5"></tbody>
+    </table>
+    </div>
+    <p class="note">Assumptions: RGBA8 colour and D24S8 depth for the non-temporal methods. TAA uses RGBA16F colour and history plus RG16F motion vectors, because it runs before tone mapping, the step that converts the high-range lit image to screen colours. SMAA adds an RG8 edge texture and an RGBA8 weight texture. Invocation counts ignore overdraw, pixels drawn more than once.</p>
+  </section>
+
+  <section id="tradeoffs">
+    <h2>Tradeoffs</h2>
+    <p class="sub">Each row is one method. You are choosing between shader cost, memory, blur and ghosting.</p>
+    <p class="note">How to read it: extra memory is per output pixel, on top of the 8 bytes a plain colour plus depth target already costs. Blur and ghosting are the two ways a method can look wrong. The "works with deferred" column says whether the method fits a deferred renderer, one that draws all geometry first and lights it afterwards.</p>
+    <div class="tbl-wrap">
+    <table class="uses wide">
+      <thead><tr><th>Method</th><th>Shader cost</th><th>Extra memory</th><th>Blur</th><th>Ghosting</th><th>Works with deferred</th><th>Pick it when</th></tr></thead>
+      <tbody>
+        <tr><td>SSAA 4×</td><td>4× everything</td><td>+28 B (4× colour, 4× depth, downsample target)</td><td>None</td><td>None</td><td>Yes</td><td>Screenshots, a reference image, or a target so small you can afford it</td></tr>
+        <tr><td>MSAA 4×</td><td>1×, plus a second shader run on edge pixels; 4× depth and coverage tests</td><td>+28 B (4× colour, 4× depth, resolve target); near zero on tile GPUs</td><td>None on edges; none inside triangles either, which is the problem</td><td>None</td><td>Painful: every intermediate image must be multisampled, and edges get lit per sample</td><td>Forward renderers, mobile, VR, anything where edge quality and zero delay matter more than shading shimmer</td></tr>
+        <tr><td>FXAA</td><td>1 pass, 5 to ~30 taps</td><td>+4 B output target</td><td>Mild everywhere, worst on text and thin lines</td><td>None</td><td>Yes</td><td>Lowest budget, no motion vectors available, last resort</td></tr>
+        <tr><td>SMAA 1x</td><td>3 passes</td><td>+10 B (edges RG8, weights RGBA8, output), plus 0.2 MB of lookup tables</td><td>Low</td><td>None</td><td>Yes</td><td>When a temporal pass is unavailable and FXAA is too soft</td></tr>
+        <tr><td>TAA</td><td>1 pass, ~10 taps, plus motion vectors from the geometry pass</td><td>+20 B (2× RGBA16F history, RG16F motion)</td><td>Depends on the clamp and how history is filtered; needs a sharpening step</td><td>Yes, where things were hidden a frame ago and on transparent objects and particles</td><td>Yes, and it fixes shading shimmer too</td><td>Deferred or physically based renderers; the default almost everywhere since 2015</td></tr>
+        <tr><td>TAA + upscale</td><td>Shading × scale², resolve at output size</td><td>+20 B at output resolution</td><td>As TAA; every shipped version includes sharpening</td><td>As TAA, worse at low scales</td><td>Yes</td><td>GPU-bound at native resolution; 4K output from a 1440p render</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section id="uses">
+    <h2>Where it shows up in shipped games</h2>
+    <p class="sub">Every row samples more than once per pixel. What differs is where the samples come from and what has to be stored to get them.</p>
+    <p class="note">How to read it: the second column says what the method computes for each pixel, the third what it has to keep in memory to do that, and the last where it has shipped.</p>
+    <div class="tbl-wrap">
+    <table class="uses">
+      <thead><tr><th>Use</th><th>What it does per pixel</th><th>What it stores</th><th>Seen in</th></tr></thead>
+      <tbody>
+        <tr><td>MSAA in forward renderers</td><td>Tests coverage per sample in the rasterizer, shades once per pixel, averages at the end of the pass. On tile-based GPUs the samples live on chip and are averaged before write-out, so 4× is close to free in bandwidth.</td><td>N-sample colour and depth images</td><td>Most mobile titles on Unity and Unreal's forward paths, most VR titles, where TAA's motion smear is uncomfortable</td></tr>
+        <tr><td>FXAA</td><td>Compares brightness against four neighbours, gets the edge direction from a 3×3 block, searches for the end of the edge, then does one shifted bilinear read.</td><td>The final LDR image only</td><td>Lottes, NVIDIA (2009); Battlefield 3 and Skyrim (2011) shipped it as the cheap option; still the fallback in many engines</td></tr>
+        <tr><td>SMAA</td><td>Same edge detection, then matches the edge shape against a lookup table and computes a blend weight per pixel, applied in a third pass.</td><td>Edge texture, blend-weight texture, area and search lookup tables</td><td>Jimenez et al. (2012); Crysis 3 (2013) and Crytek and Frostbite titles of that era, often as the temporal SMAA T2x variant</td></tr>
+        <tr><td>TAA</td><td>Jitters the projection, reprojects history through motion vectors, clamps it to the neighbourhood (or clips it by variance), then blends a small share of the new frame.</td><td>Two history buffers, motion vectors, depth for reprojection</td><td>Unreal Engine 4 default since 2014 (Karis, SIGGRAPH 2014), Inside (Playdead, 2016 GDC talk), Unity HDRP, Frostbite, most engines since</td></tr>
+        <tr><td>TAA as upscaler</td><td>Same accumulation with the rendered frame smaller than the history, so the jitter fills in the missing output pixels over time.</td><td>Low-res colour, depth and motion; full-res history</td><td>DLSS 2 (NVIDIA, 2020), FSR 2 (AMD, 2022), XeSS (Intel, 2022), Unreal Engine 5 TSR</td></tr>
+        <tr><td>Alpha-to-coverage</td><td>Turns the transparency of cut-out foliage into an MSAA coverage mask, so a leaf edge gets partial coverage instead of a hard cutout.</td><td>An MSAA target</td><td>Forward renderers with foliage; many engines</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">People say temporal AA is blurry. That describes a bad implementation, not the method: the softness comes from three fixable places, bilinear resampling of the history every frame (use a Catmull-Rom or similar fetch), a clamp that is too loose and lets stale history in, and a missing sharpening pass after the resolve. Every shipped upscaler includes all three fixes, which is why DLSS 2 output at 67 % scale often looks sharper than a naive native-resolution TAA.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const AMB = "#f2a341", BLU = "#4aa3ff", WHT = "#ffffff", GRN = "#5ad48a", RED = "#ef5d5d", GND = "#0b0e13", GRID = "rgba(255,255,255,0.12)";
+  const AMBv = [242 / 255, 163 / 255, 65 / 255], GNDv = [11 / 255, 14 / 255, 19 / 255];
+  const MONO = '13px "IBM Plex Mono", Menlo, Consolas, monospace';
+  const fmtN = n => Math.round(n).toLocaleString("en-US");
+  const fmtMB = b => (b / 1e6).toFixed(1) + " MB";
+
+  function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
+  function onSeg(id, fn) { const el = $(id); el.addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; segOn(el, b.dataset.v); fn(b.dataset.v); }); }
+  function ptr(cv, ev) { const r = cv.getBoundingClientRect(); return [(ev.clientX - r.left) * cv.width / r.width, (ev.clientY - r.top) * cv.height / r.height]; }
+  function drag(cv, handles, onMove, onHover) {
+    let active = -1;
+    cv.addEventListener("pointerdown", ev => {
+      const [x, y] = ptr(cv, ev); const hs = handles(); let best = -1, bd = 26;
+      hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
+      if (best >= 0) { active = best; cv.setPointerCapture(ev.pointerId); onMove(best, x, y); }
+      else if (onHover) onHover(x, y, true);
+    });
+    cv.addEventListener("pointermove", ev => {
+      const [x, y] = ptr(cv, ev);
+      if (active >= 0) onMove(active, clamp(x, 0, cv.width), clamp(y, 0, cv.height));
+      else if (onHover) onHover(x, y, false);
+    });
+    const end = ev => { if (active >= 0) { active = -1; try { cv.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
+    cv.addEventListener("pointerleave", () => { if (onHover) onHover(-1, -1, false); });
+  }
+  function throttle(fn) { let p = false; return () => { if (p) return; p = true; requestAnimationFrame(() => { p = false; fn(); }); }; }
+  function Blit(w, h) {
+    const off = document.createElement("canvas"); off.width = w; off.height = h;
+    const ox = off.getContext("2d"); const img = ox.createImageData(w, h);
+    return { data: img.data, put(ctx) { ox.putImageData(img, 0, 0); ctx.imageSmoothingEnabled = false; ctx.drawImage(off, 0, 0, ctx.canvas.width, ctx.canvas.height); } };
+  }
+  function toRGBA(buf, data, n) {
+    for (let i = 0; i < n; i++) {
+      data[i * 4] = clamp(buf[i * 3] * 255 + 0.5, 0, 255) | 0;
+      data[i * 4 + 1] = clamp(buf[i * 3 + 1] * 255 + 0.5, 0, 255) | 0;
+      data[i * 4 + 2] = clamp(buf[i * 3 + 2] * 255 + 0.5, 0, 255) | 0;
+      data[i * 4 + 3] = 255;
+    }
+  }
+  function handleDot(ctx, x, y, r = 6) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = WHT; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = GND; ctx.stroke(); }
+  // bilinear fetch, texel centers at integer + 0.5
+  function bilinear(arr, nch, ch, W, H, fx, fy) {
+    const gx = clamp(fx - 0.5, 0, W - 1), gy = clamp(fy - 0.5, 0, H - 1);
+    const x0 = Math.floor(gx), y0 = Math.floor(gy), x1 = Math.min(x0 + 1, W - 1), y1 = Math.min(y0 + 1, H - 1);
+    const tx = gx - x0, ty = gy - y0;
+    const a = arr[(y0 * W + x0) * nch + ch], b = arr[(y0 * W + x1) * nch + ch], c = arr[(y1 * W + x0) * nch + ch], d = arr[(y1 * W + x1) * nch + ch];
+    return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+  }
+
+  // D3D standard sample patterns, units of 1/16 px, y down
+  const PAT = {
+    1: [[0, 0]],
+    2: [[4, 4], [-4, -4]],
+    4: [[-2, -6], [6, -2], [-6, 2], [2, 6]],
+    8: [[1, -3], [-1, 3], [5, 1], [-3, -5], [-5, 5], [-7, -1], [3, 7], [7, -7]]
+  };
+
+  // ---------- 1. one pixel, N samples ----------
+  const c1 = $("c1"), x1 = c1.getContext("2d"), GW = 16, GH = 9, CS = 40;
+  const d1 = { v: [[1.7, 1.3], [14.4, 2.6], [6.2, 8.3]], N: 4, hover: null };
+  function triIn(v, x, y) {
+    const e = (p, q) => (x - p[0]) * (q[1] - p[1]) - (y - p[1]) * (q[0] - p[0]);
+    const e0 = e(v[0], v[1]), e1 = e(v[1], v[2]), e2 = e(v[2], v[0]);
+    return (e0 >= 0 && e1 >= 0 && e2 >= 0) || (e0 <= 0 && e1 <= 0 && e2 <= 0);
+  }
+  function draw1() {
+    const pat = PAT[d1.N], N = pat.length;
+    const cnt = new Uint8Array(GW * GH); let inv = 0, part = 0, covered = 0;
+    for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {
+      let n = 0;
+      for (let s = 0; s < N; s++) if (triIn(d1.v, i + 0.5 + pat[s][0] / 16, j + 0.5 + pat[s][1] / 16)) n++;
+      cnt[j * GW + i] = n; if (n > 0) inv++; if (n > 0 && n < N) part++; covered += n;
+    }
+    x1.fillStyle = GND; x1.fillRect(0, 0, 640, 360);
+    for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {
+      const c = cnt[j * GW + i] / N; if (c === 0) continue;
+      const r = GNDv[0] + (AMBv[0] - GNDv[0]) * c, g = GNDv[1] + (AMBv[1] - GNDv[1]) * c, b = GNDv[2] + (AMBv[2] - GNDv[2]) * c;
+      x1.fillStyle = `rgb(${r * 255 | 0},${g * 255 | 0},${b * 255 | 0})`; x1.fillRect(i * CS, j * CS, CS, CS);
+    }
+    x1.strokeStyle = GRID; x1.lineWidth = 1; x1.beginPath();
+    for (let i = 1; i < GW; i++) { x1.moveTo(i * CS + 0.5, 0); x1.lineTo(i * CS + 0.5, 360); }
+    for (let j = 1; j < GH; j++) { x1.moveTo(0, j * CS + 0.5); x1.lineTo(640, j * CS + 0.5); }
+    x1.stroke();
+    // sample dots
+    for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) for (let s = 0; s < N; s++) {
+      const px = (i + 0.5 + pat[s][0] / 16) * CS, py = (j + 0.5 + pat[s][1] / 16) * CS;
+      const inside = triIn(d1.v, i + 0.5 + pat[s][0] / 16, j + 0.5 + pat[s][1] / 16);
+      x1.beginPath(); x1.arc(px, py, inside ? 3.2 : 2.6, 0, Math.PI * 2);
+      if (inside) { x1.fillStyle = GRN; x1.fill(); } else { x1.strokeStyle = "rgba(255,255,255,0.45)"; x1.lineWidth = 1; x1.stroke(); }
+    }
+    // triangle outline
+    x1.beginPath(); x1.moveTo(d1.v[0][0] * CS, d1.v[0][1] * CS); x1.lineTo(d1.v[1][0] * CS, d1.v[1][1] * CS); x1.lineTo(d1.v[2][0] * CS, d1.v[2][1] * CS); x1.closePath();
+    x1.strokeStyle = "rgba(255,255,255,0.85)"; x1.lineWidth = 1.5; x1.stroke();
+    // pick pixel: hovered, else the partial pixel nearest the center
+    let pick = d1.hover;
+    if (!pick) { let bd = 1e9; for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) { const n = cnt[j * GW + i]; if (n > 0 && n < N) { const d = Math.hypot(i - 7.5, j - 4); if (d < bd) { bd = d; pick = [i, j]; } } } }
+    let read = "no pixel";
+    if (pick) {
+      const n = cnt[pick[1] * GW + pick[0]], c = n / N;
+      x1.strokeStyle = WHT; x1.lineWidth = 2; x1.strokeRect(pick[0] * CS + 1, pick[1] * CS + 1, CS - 2, CS - 2);
+      const r = Math.round((GNDv[0] + (AMBv[0] - GNDv[0]) * c) * 255), g = Math.round((GNDv[1] + (AMBv[1] - GNDv[1]) * c) * 255), b = Math.round((GNDv[2] + (AMBv[2] - GNDv[2]) * c) * 255);
+      read = `pixel (${pick[0]}, ${pick[1]}): <strong>${n} / ${N} inside · coverage ${(c * 100).toFixed(0)} %</strong> · resolved rgb(${r}, ${g}, ${b})`;
+    }
+    for (const v of d1.v) handleDot(x1, v[0] * CS, v[1] * CS);
+    $("c1-read").innerHTML = read;
+    $("c1-pat").textContent = N === 1 ? "1 sample at the center" : `${N} samples · D3D rotated grid`;
+    $("t1-inv").textContent = fmtN(inv);
+    $("t1-samp").innerHTML = `${fmtN(GW * GH * N)} <small>${(GW * GH * N * 4 / 1024).toFixed(1)} KB RGBA8</small>`;
+    $("t1-ssaa").textContent = fmtN(covered);
+    $("t1-part").textContent = fmtN(part);
+  }
+  drag(c1, () => d1.v.map(v => [v[0] * CS, v[1] * CS]),
+    (i, x, y) => { d1.v[i][0] = clamp(x / CS, 0.1, GW - 0.1); d1.v[i][1] = clamp(y / CS, 0.1, GH - 0.1); draw1(); },
+    (x, y) => { d1.hover = x < 0 ? null : [clamp(Math.floor(x / CS), 0, GW - 1), clamp(Math.floor(y / CS), 0, GH - 1)]; draw1(); });
+  onSeg("seg1", v => { d1.N = +v; draw1(); });
+  draw1();
+
+  // ---------- shared 160×90 scene: tilted floor with a specular checker, a thin line, an optional disc ----------
+  const SW = 160, SH = 90, SN = SW * SH;
+  const TILT = 6 * Math.PI / 180, CT = Math.cos(TILT), ST = Math.sin(TILT);
+  function makeScene() { return { hy: 40, freq: 1, line: { a: [6, 80], b: [154, 10], w: 0.6 }, disc: null }; }
+  function sky(y) { const t = 1 - y / SH; return [0.043 + 0.03 * t, 0.055 + 0.032 * t, 0.075 + 0.045 * t]; }
+  function floorD(sc, x, y) { return -ST * x + CT * (y - sc.hy); }
+  function floorShade(sc, x, y) {
+    const dy = y - sc.hy, d = -ST * x + CT * dy, along = CT * x + ST * dy;
+    if (d <= 0.01) return [0.06, 0.07, 0.09];
+    const u = along / d * 4 * sc.freq, v = 200 / d * sc.freq;
+    const cell = (Math.floor(u) + Math.floor(v)) & 1;
+    const ex = along - 92, ed = d - 20, spec = Math.exp(-(ex * ex / 2600 + ed * ed / 260));
+    if (cell) return [0.14 + 0.82 * spec, 0.26 + 0.42 * spec, 0.46 - 0.18 * spec];
+    return [0.06 + 0.10 * spec, 0.07 + 0.09 * spec, 0.09 + 0.07 * spec];
+  }
+  function lineIn(sc, x, y) {
+    const [ax, ay] = sc.line.a, [bx, by] = sc.line.b, px = x - ax, py = y - ay, vx = bx - ax, vy = by - ay;
+    const h = clamp((px * vx + py * vy) / (vx * vx + vy * vy || 1), 0, 1);
+    return Math.hypot(px - vx * h, py - vy * h) <= sc.line.w * 0.5;
+  }
+  function discIn(sc, x, y) { const dx = x - sc.disc.x, dy = y - sc.disc.y; return dx * dx + dy * dy <= sc.disc.r * sc.disc.r; }
+  function discShade(sc, x, y) {
+    const nx = (x - sc.disc.x) / sc.disc.r, ny = (y - sc.disc.y) / sc.disc.r;
+    const l = 0.4 + 0.6 * Math.max(0, -0.5 * nx - 0.85 * ny + 0.35);
+    return [AMBv[0] * l, AMBv[1] * l, AMBv[2] * l];
+  }
+  function topPrim(sc, x, y) { if (lineIn(sc, x, y)) return 2; if (sc.disc && discIn(sc, x, y)) return 1; if (floorD(sc, x, y) > 0) return 0; return -1; }
+  function shadeAt(sc, i, x, y) { return i === 2 ? [0.96, 0.96, 0.96] : i === 1 ? discShade(sc, x, y) : i === 0 ? floorShade(sc, x, y) : sky(y); }
+  // pat: sample offsets in 1/16 px. perSample: shade at each sample (SSAA) instead of once at the center (MSAA).
+  function render(sc, out, pat, perSample, x0 = 0, y0 = 0, x1 = SW, y1 = SH) {
+    const N = pat.length; let inv = 0; const cache = [null, null, null];
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const cx = x + 0.5, cy = y + 0.5; let r = 0, g = 0, b = 0;
+      cache[0] = cache[1] = cache[2] = null;
+      for (let s = 0; s < N; s++) {
+        const sx = cx + pat[s][0] / 16, sy = cy + pat[s][1] / 16;
+        const i = topPrim(sc, sx, sy); let c;
+        if (i < 0) c = sky(sy);
+        else if (perSample) { c = shadeAt(sc, i, sx, sy); inv++; }
+        else { if (!cache[i]) { cache[i] = shadeAt(sc, i, cx, cy); inv++; } c = cache[i]; }
+        r += c[0]; g += c[1]; b += c[2];
+      }
+      const o = (y * SW + x) * 3; out[o] = r / N; out[o + 1] = g / N; out[o + 2] = b / N;
+    }
+    return inv;
+  }
+
+  // ---------- 2. geometric vs shading aliasing ----------
+  const c2a = $("c2a"), c2b = $("c2b"), x2a = c2a.getContext("2d"), x2b = c2b.getContext("2d");
+  const sc2 = makeScene(); const d2 = { mode: "msaa", drop: true };
+  const buf2a = new Float32Array(SN * 3), buf2b = new Float32Array(SN * 3), buf2c = new Float32Array(SN * 3);
+  const bl2a = Blit(SW, SH), bl2b = Blit(SW, SH);
+  const dropped = new Uint8Array(SN);
+  function draw2() {
+    const inv1 = render(sc2, buf2a, PAT[1], false);
+    const invM = render(sc2, buf2b, PAT[4], false);
+    const invS = render(sc2, buf2c, PAT[4], true);
+    let nd = 0;
+    for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) {
+      const cx = x + 0.5, cy = y + 0.5; let any = false;
+      for (let s = 0; s < 8 && !any; s++) any = lineIn(sc2, cx + PAT[8][s][0] / 16, cy + PAT[8][s][1] / 16);
+      const d = any && !lineIn(sc2, cx, cy); dropped[y * SW + x] = d ? 1 : 0; if (d) nd++;
+    }
+    toRGBA(buf2a, bl2a.data, SN); bl2a.put(x2a);
+    toRGBA(d2.mode === "msaa" ? buf2b : buf2c, bl2b.data, SN); bl2b.put(x2b);
+    if (d2.drop) {
+      x2a.strokeStyle = RED; x2a.lineWidth = 1; x2a.beginPath();
+      for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) if (dropped[y * SW + x]) x2a.rect(x * 4 + 0.5, y * 4 + 0.5, 3, 3);
+      x2a.stroke();
+    }
+    for (const ctx of [x2a, x2b]) { handleDot(ctx, sc2.line.a[0] * 4, sc2.line.a[1] * 4); handleDot(ctx, sc2.line.b[0] * 4, sc2.line.b[1] * 4); }
+    $("c2a-cap").innerHTML = `<strong>${fmtN(inv1)}</strong> shader invocations`;
+    $("c2b-lab").textContent = d2.mode === "msaa" ? "MSAA 4×" : "SSAA 4×";
+    $("c2b-cap").innerHTML = `<strong>${fmtN(d2.mode === "msaa" ? invM : invS)}</strong> invocations · ${fmtN(SN * 4)} samples`;
+    $("t2-1x").textContent = fmtN(inv1); $("t2-ms").textContent = fmtN(invM); $("t2-ss").textContent = fmtN(invS); $("t2-drop").textContent = fmtN(nd);
+  }
+  const req2 = throttle(draw2);
+  for (const cv of [c2a, c2b]) drag(cv, () => [[sc2.line.a[0] * 4, sc2.line.a[1] * 4], [sc2.line.b[0] * 4, sc2.line.b[1] * 4]],
+    (i, x, y) => { const p = i === 0 ? sc2.line.a : sc2.line.b; p[0] = x / 4; p[1] = y / 4; req2(); });
+  onSeg("seg2", v => { d2.mode = v; draw2(); });
+  $("freq2").addEventListener("input", ev => { sc2.freq = +ev.target.value; $("freq2v").textContent = sc2.freq.toFixed(1) + "×"; req2(); });
+  $("lw2").addEventListener("input", ev => { sc2.line.w = +ev.target.value; $("lw2v").textContent = sc2.line.w.toFixed(1) + " px"; req2(); });
+  $("drop2").addEventListener("change", ev => { d2.drop = ev.target.checked; draw2(); });
+  draw2();
+
+  // ---------- 3. FXAA ----------
+  const c3a = $("c3a"), c3b = $("c3b"), c3c = $("c3c"), x3a = c3a.getContext("2d"), x3b = c3b.getContext("2d"), x3c = c3c.getContext("2d");
+  const sc3 = makeScene(); sc3.freq = 0.6; sc3.line = { a: [10, 84], b: [150, 22], w: 0.5 };
+  const d3 = { thr: 0.125, subpix: 0.75 };
+  const src3 = new Float32Array(SN * 3), luma3 = new Float32Array(SN), out3 = new Float32Array(SN * 3), mask3 = new Uint8Array(SN);
+  const bl3a = Blit(SW, SH), bl3b = Blit(SW, SH), bl3c = Blit(SW, SH);
+  const tcv = document.createElement("canvas"); tcv.width = SW; tcv.height = SH; const tcx = tcv.getContext("2d");
+  function textLayer() {
+    tcx.clearRect(0, 0, SW, SH); tcx.fillStyle = "#ffffff"; tcx.textBaseline = "alphabetic";
+    tcx.font = '500 9px "IBM Plex Mono", Menlo, Consolas, monospace'; tcx.fillText("thin text 9 px", 5, 13);
+    tcx.font = '500 7px "IBM Plex Mono", Menlo, Consolas, monospace'; tcx.fillText("7 px ui label", 5, 24);
+    return tcx.getImageData(0, 0, SW, SH).data;
+  }
+  const QUAL = [1, 1, 1, 1, 1, 1.5, 2, 2, 2, 2, 4, 8], EDGE_MIN = 0.0312;
+  function fxaa(src, luma, out, mask, thr, subpix) {
+    const W = SW, H = SH; let edges = 0, taps = 0;
+    const L = (x, y) => luma[(y < 0 ? 0 : y >= H ? H - 1 : y) * W + (x < 0 ? 0 : x >= W ? W - 1 : x)];
+    const bl = (fx, fy) => bilinear(luma, 1, 0, W, H, fx, fy);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const o = y * W + x, o3 = o * 3;
+      const lM = luma[o], lN = L(x, y - 1), lS = L(x, y + 1), lE = L(x + 1, y), lW = L(x - 1, y);
+      const lMax = Math.max(lM, lN, lS, lE, lW), lMin = Math.min(lM, lN, lS, lE, lW), range = lMax - lMin;
+      taps += 5;
+      if (range < Math.max(EDGE_MIN, lMax * thr)) { out[o3] = src[o3]; out[o3 + 1] = src[o3 + 1]; out[o3 + 2] = src[o3 + 2]; mask[o] = 0; continue; }
+      edges++; taps += 4;
+      const lNW = L(x - 1, y - 1), lNE = L(x + 1, y - 1), lSW = L(x - 1, y + 1), lSE = L(x + 1, y + 1);
+      const lNS = lN + lS, lWE = lW + lE, lWC = lNW + lSW, lSC = lSW + lSE, lEC = lNE + lSE, lNC = lNW + lNE;
+      const eH = Math.abs(-2 * lW + lWC) + Math.abs(-2 * lM + lNS) * 2 + Math.abs(-2 * lE + lEC);
+      const eV = Math.abs(-2 * lN + lNC) + Math.abs(-2 * lM + lWE) * 2 + Math.abs(-2 * lS + lSC);
+      const horiz = eH >= eV; mask[o] = horiz ? 1 : 2;
+      // side 1 is +y (S) for a horizontal edge, −x (W) for a vertical one
+      const l1 = horiz ? lS : lW, l2 = horiz ? lN : lE;
+      const g1 = l1 - lM, g2 = l2 - lM, s1 = Math.abs(g1) >= Math.abs(g2);
+      const gScaled = 0.25 * Math.max(Math.abs(g1), Math.abs(g2));
+      const lAvg = 0.5 * ((s1 ? l1 : l2) + lM);
+      let nx = 0, ny = 0; if (horiz) ny = s1 ? 1 : -1; else nx = s1 ? -1 : 1;
+      const cx = x + 0.5, cy = y + 0.5, px = cx + nx * 0.5, py = cy + ny * 0.5, tx = horiz ? 1 : 0, ty = horiz ? 0 : 1;
+      let ax = px - tx, ay = py - ty, bx = px + tx, by = py + ty;
+      let e1 = bl(ax, ay) - lAvg, e2 = bl(bx, by) - lAvg; taps += 2;
+      let r1 = Math.abs(e1) >= gScaled, r2 = Math.abs(e2) >= gScaled;
+      for (let i = 1; i < 12 && !(r1 && r2); i++) {
+        if (!r1) { ax -= tx * QUAL[i]; ay -= ty * QUAL[i]; e1 = bl(ax, ay) - lAvg; r1 = Math.abs(e1) >= gScaled; taps++; }
+        if (!r2) { bx += tx * QUAL[i]; by += ty * QUAL[i]; e2 = bl(bx, by) - lAvg; r2 = Math.abs(e2) >= gScaled; taps++; }
+      }
+      const dA = horiz ? cx - ax : cy - ay, dB = horiz ? bx - cx : by - cy;
+      const dir1 = dA < dB, dFinal = Math.min(dA, dB), thick = dA + dB;
+      const smaller = lM < lAvg;
+      const correct = ((dir1 ? e1 : e2) < 0) !== smaller;
+      let off = correct ? (0.5 - dFinal / thick) : 0;
+      const lA = (1 / 12) * (2 * (lNS + lWE) + lWC + lEC);
+      let sp = clamp(Math.abs(lA - lM) / range, 0, 1); sp = (-2 * sp + 3) * sp * sp; sp = sp * sp * subpix;
+      off = Math.max(off, sp);
+      const fx = cx + nx * off, fy = cy + ny * off; taps++;
+      out[o3] = bilinear(src, 3, 0, W, H, fx, fy); out[o3 + 1] = bilinear(src, 3, 1, W, H, fx, fy); out[o3 + 2] = bilinear(src, 3, 2, W, H, fx, fy);
+    }
+    return { edges, taps };
+  }
+  function draw3() {
+    render(sc3, src3, PAT[1], false);
+    const tl = textLayer();
+    for (let i = 0; i < SN; i++) { const a = tl[i * 4 + 3] / 255; if (a > 0) { src3[i * 3] += (1 - src3[i * 3]) * a; src3[i * 3 + 1] += (1 - src3[i * 3 + 1]) * a; src3[i * 3 + 2] += (1 - src3[i * 3 + 2]) * a; } }
+    for (let i = 0; i < SN; i++) luma3[i] = 0.299 * src3[i * 3] + 0.587 * src3[i * 3 + 1] + 0.114 * src3[i * 3 + 2];
+    const t0 = performance.now();
+    const st = fxaa(src3, luma3, out3, mask3, d3.thr, d3.subpix);
+    const ms = performance.now() - t0;
+    toRGBA(src3, bl3a.data, SN); bl3a.put(x3a);
+    handleDot(x3a, sc3.line.a[0] * 4, sc3.line.a[1] * 4); handleDot(x3a, sc3.line.b[0] * 4, sc3.line.b[1] * 4);
+    const d = bl3b.data;
+    for (let i = 0; i < SN; i++) {
+      const m = mask3[i], l = luma3[i] * 0.35 * 255;
+      if (m === 1) { d[i * 4] = 242; d[i * 4 + 1] = 163; d[i * 4 + 2] = 65; }
+      else if (m === 2) { d[i * 4] = 74; d[i * 4 + 1] = 163; d[i * 4 + 2] = 255; }
+      else { d[i * 4] = 11 + l; d[i * 4 + 1] = 14 + l; d[i * 4 + 2] = 19 + l; }
+      d[i * 4 + 3] = 255;
+    }
+    bl3b.put(x3b);
+    toRGBA(out3, bl3c.data, SN); bl3c.put(x3c);
+    $("c3a-cap").textContent = `luma = 0.299 r + 0.587 g + 0.114 b`;
+    $("c3b-cap").innerHTML = `<strong>${fmtN(st.edges)}</strong> edge px · amber horizontal, blue vertical`;
+    $("c3c-cap").innerHTML = `threshold <strong>${d3.thr.toFixed(3)}</strong> · ${(st.taps / SN).toFixed(1)} taps / px avg`;
+    $("t3-edge").textContent = fmtN(st.edges);
+    $("t3-pct").textContent = (100 * st.edges / SN).toFixed(1) + " %";
+    $("t3-taps").innerHTML = `${fmtN(st.taps)} <small>${(st.taps / SN).toFixed(1)} / px</small>`;
+    $("t3-ms").textContent = ms.toFixed(2) + " ms";
+  }
+  const req3 = throttle(draw3);
+  drag(c3a, () => [[sc3.line.a[0] * 4, sc3.line.a[1] * 4], [sc3.line.b[0] * 4, sc3.line.b[1] * 4]],
+    (i, x, y) => { const p = i === 0 ? sc3.line.a : sc3.line.b; p[0] = x / 4; p[1] = y / 4; req3(); });
+  $("thr3").addEventListener("input", ev => { d3.thr = +ev.target.value; $("thr3v").textContent = d3.thr.toFixed(3); req3(); });
+  $("sub3").addEventListener("input", ev => { d3.subpix = +ev.target.value; $("sub3v").textContent = d3.subpix.toFixed(2); req3(); });
+  $("lw3").addEventListener("input", ev => { sc3.line.w = +ev.target.value; $("lw3v").textContent = sc3.line.w.toFixed(1) + " px"; req3(); });
+  draw3();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => draw3());
+
+  // ---------- 4. TAA ----------
+  const c4a = $("c4a"), c4b = $("c4b"), x4a = c4a.getContext("2d"), x4b = c4b.getContext("2d");
+  const sc4 = makeScene(); sc4.line = { a: [8, 82], b: [152, 14], w: 0.8 };
+  const disc = { x: 60, y: 54, r: 9, dir: 1, dx: 0 };
+  const t4 = { alpha: 0.1, speed: 2, mode: "none", reproj: false, showClamp: false, playing: true, n: 0, last: 0 };
+  function halton(i, b) { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; }
+  const JIT = []; for (let i = 1; i <= 8; i++) JIT.push([halton(i, 2) - 0.5, halton(i, 3) - 0.5]);
+  const cur4 = new Float32Array(SN * 3), hist4 = new Float32Array(SN * 3), out4 = new Float32Array(SN * 3), ref4 = new Float32Array(SN * 3);
+  const mv4 = new Float32Array(SN * 2), clampMask = new Uint8Array(SN);
+  const bl4a = Blit(SW, SH), bl4b = Blit(SW, SH);
+  // static background cached per jitter index, and a 4× SSAA reference of the background
+  const curStatic = [], refStatic = new Float32Array(SN * 3);
+  render(sc4, refStatic, PAT[4], true);
+  function staticFor(k) { if (!curStatic[k]) { curStatic[k] = new Float32Array(SN * 3); render(sc4, curStatic[k], [[JIT[k][0] * 16, JIT[k][1] * 16]], false); } return curStatic[k]; }
+  let stats4 = { clamped: 0, miss: 0, err: 0, change: 0 };
+  function tick() {
+    t4.n++; const k = (t4.n - 1) % 8, j = JIT[k];
+    const step = t4.speed * disc.dir; let nx = disc.x + step;
+    if (nx > 132) { nx = 132; disc.dir = -1; } else if (nx < 28) { nx = 28; disc.dir = 1; }
+    disc.dx = nx - disc.x; disc.x = nx;
+    cur4.set(staticFor(k)); ref4.set(refStatic); mv4.fill(0);
+    const m = disc.r + Math.abs(disc.dx) + 2;
+    const x0 = clamp(Math.floor(disc.x - m), 0, SW), x1 = clamp(Math.ceil(disc.x + m), 0, SW), y0 = clamp(Math.floor(disc.y - m), 0, SH), y1 = clamp(Math.ceil(disc.y + m), 0, SH);
+    sc4.disc = disc;
+    render(sc4, cur4, [[j[0] * 16, j[1] * 16]], false, x0, y0, x1, y1);
+    render(sc4, ref4, PAT[4], true, x0, y0, x1, y1);
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (topPrim(sc4, x + 0.5 + j[0], y + 0.5 + j[1]) === 1) { const o = (y * SW + x) * 2; mv4[o] = disc.dx; mv4[o + 1] = 0; }
+    sc4.disc = null;
+    if (t4.n === 1) hist4.set(cur4);
+    resolve4();
+    let err = 0, change = 0;
+    for (let i = 0; i < SN * 3; i++) { err += Math.abs(out4[i] - ref4[i]); change += Math.abs(out4[i] - hist4[i]); }
+    stats4.err = err / (SN * 3); stats4.change = change / (SN * 3);
+    hist4.set(out4);
+  }
+  function resolve4() {
+    const a = t4.alpha, mode = t4.mode, yc = mode === "ycocg", box = mode !== "none"; let clamped = 0, miss = 0;
+    for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) {
+      const o = y * SW + x, o3 = o * 3; let px = x + 0.5, py = y + 0.5;
+      if (t4.reproj) { px -= mv4[o * 2]; py -= mv4[o * 2 + 1]; }
+      let h0, h1, h2, aa = a;
+      if (px < 0 || py < 0 || px > SW || py > SH) { h0 = cur4[o3]; h1 = cur4[o3 + 1]; h2 = cur4[o3 + 2]; miss++; aa = 1; }
+      else { h0 = bilinear(hist4, 3, 0, SW, SH, px, py); h1 = bilinear(hist4, 3, 1, SW, SH, px, py); h2 = bilinear(hist4, 3, 2, SW, SH, px, py); }
+      clampMask[o] = 0;
+      if (box) {
+        let mn0 = 1e9, mn1 = 1e9, mn2 = 1e9, mx0 = -1e9, mx1 = -1e9, mx2 = -1e9;
+        for (let jj = -1; jj <= 1; jj++) for (let ii = -1; ii <= 1; ii++) {
+          const q = (clamp(y + jj, 0, SH - 1) * SW + clamp(x + ii, 0, SW - 1)) * 3;
+          let c0 = cur4[q], c1 = cur4[q + 1], c2 = cur4[q + 2];
+          if (yc) { const Y = (c0 + 2 * c1 + c2) * 0.25, Co = (c0 - c2) * 0.5, Cg = (2 * c1 - c0 - c2) * 0.25; c0 = Y; c1 = Co; c2 = Cg; }
+          if (c0 < mn0) mn0 = c0; if (c0 > mx0) mx0 = c0; if (c1 < mn1) mn1 = c1; if (c1 > mx1) mx1 = c1; if (c2 < mn2) mn2 = c2; if (c2 > mx2) mx2 = c2;
+        }
+        let k0 = h0, k1 = h1, k2 = h2;
+        if (yc) { const Y = (h0 + 2 * h1 + h2) * 0.25, Co = (h0 - h2) * 0.5, Cg = (2 * h1 - h0 - h2) * 0.25; k0 = Y; k1 = Co; k2 = Cg; }
+        const c0 = clamp(k0, mn0, mx0), c1 = clamp(k1, mn1, mx1), c2 = clamp(k2, mn2, mx2);
+        if (c0 !== k0 || c1 !== k1 || c2 !== k2) { clamped++; clampMask[o] = 1; }
+        if (yc) { const tmp = c0 - c2; h0 = tmp + c1; h1 = c0 + c2; h2 = tmp - c1; } else { h0 = c0; h1 = c1; h2 = c2; }
+      }
+      out4[o3] = h0 + (cur4[o3] - h0) * aa; out4[o3 + 1] = h1 + (cur4[o3 + 1] - h1) * aa; out4[o3 + 2] = h2 + (cur4[o3 + 2] - h2) * aa;
+    }
+    stats4.clamped = clamped; stats4.miss = miss;
+  }
+  function draw4() {
+    const k = (t4.n - 1 + 8) % 8, j = JIT[k];
+    toRGBA(cur4, bl4a.data, SN); bl4a.put(x4a);
+    // jitter inset: one pixel at 96× zoom
+    const bx = 640 - 112, by = 12, bs = 96;
+    x4a.fillStyle = "rgba(11,14,19,0.85)"; x4a.fillRect(bx - 6, by - 6, bs + 12, bs + 30);
+    x4a.strokeStyle = "rgba(255,255,255,0.6)"; x4a.lineWidth = 1; x4a.strokeRect(bx + 0.5, by + 0.5, bs - 1, bs - 1);
+    x4a.strokeStyle = GRID; x4a.beginPath(); x4a.moveTo(bx + bs / 2, by); x4a.lineTo(bx + bs / 2, by + bs); x4a.moveTo(bx, by + bs / 2); x4a.lineTo(bx + bs, by + bs / 2); x4a.stroke();
+    x4a.font = '11px "IBM Plex Mono", Menlo, Consolas, monospace'; x4a.textBaseline = "middle";
+    for (let i = 0; i < 8; i++) {
+      const px = bx + (JIT[i][0] + 0.5) * bs, py = by + (JIT[i][1] + 0.5) * bs, on = i === k;
+      x4a.beginPath(); x4a.arc(px, py, on ? 5 : 3, 0, Math.PI * 2); x4a.fillStyle = on ? AMB : "rgba(255,255,255,0.7)"; x4a.fill();
+      x4a.fillStyle = on ? AMB : "rgba(255,255,255,0.55)"; x4a.textAlign = "left"; x4a.fillText(String(i + 1), px + 7, py - 1);
+    }
+    x4a.fillStyle = "rgba(255,255,255,0.75)"; x4a.textAlign = "left"; x4a.fillText(`halton ${k + 1}/8`, bx, by + bs + 12);
+    // output
+    const d = bl4b.data; toRGBA(out4, d, SN);
+    if (t4.showClamp) for (let i = 0; i < SN; i++) if (clampMask[i]) { d[i * 4] = (d[i * 4] + 239 * 2) / 3 | 0; d[i * 4 + 1] = (d[i * 4 + 1] + 93 * 2) / 3 | 0; d[i * 4 + 2] = (d[i * 4 + 2] + 93 * 2) / 3 | 0; }
+    bl4b.put(x4b);
+    // motion vectors, one arrow per 8×8 block, ×3 length
+    x4b.strokeStyle = WHT; x4b.fillStyle = WHT; x4b.lineWidth = 1.5;
+    for (let by2 = 0; by2 < SH; by2 += 8) for (let bx2 = 0; bx2 < SW; bx2 += 8) {
+      let sx = 0, sy = 0, n = 0;
+      for (let yy = by2; yy < Math.min(by2 + 8, SH); yy++) for (let xx = bx2; xx < Math.min(bx2 + 8, SW); xx++) { const o = (yy * SW + xx) * 2; if (mv4[o] !== 0 || mv4[o + 1] !== 0) { sx += mv4[o]; sy += mv4[o + 1]; n++; } }
+      if (n < 8) continue;
+      const vx = sx / n * 4 * 3, vy = sy / n * 4 * 3, ox = (bx2 + 4) * 4, oy = (by2 + 4) * 4;
+      const len = Math.hypot(vx, vy); if (len < 1) continue;
+      const ux = vx / len, uy = vy / len;
+      x4b.beginPath(); x4b.moveTo(ox, oy); x4b.lineTo(ox + vx, oy + vy); x4b.stroke();
+      x4b.beginPath(); x4b.moveTo(ox + vx, oy + vy); x4b.lineTo(ox + vx - ux * 5 - uy * 3, oy + vy - uy * 5 + ux * 3); x4b.lineTo(ox + vx - ux * 5 + uy * 3, oy + vy - uy * 5 - ux * 3); x4b.closePath(); x4b.fill();
+    }
+    $("c4a-cap").innerHTML = `frame <strong>${t4.n}</strong> · jitter (${j[0] >= 0 ? "+" : "−"}${Math.abs(j[0]).toFixed(3)}, ${j[1] >= 0 ? "+" : "−"}${Math.abs(j[1]).toFixed(3)}) px`;
+    $("c4b-cap").innerHTML = `α <strong>${t4.alpha.toFixed(2)}</strong> · reprojection ${t4.reproj ? "on" : "off"} · ${t4.mode === "none" ? "no rejection" : "clamp " + (t4.mode === "rgb" ? "RGB" : "YCoCg")} · arrows ×3`;
+    $("t4-eff").textContent = ((2 - t4.alpha) / t4.alpha).toFixed(1);
+    $("t4-conv").textContent = String(Math.ceil(Math.log(0.1) / Math.log(1 - t4.alpha)));
+    $("t4-clamp").innerHTML = `${fmtN(stats4.clamped)} <small>${(100 * stats4.clamped / SN).toFixed(1)} %</small>`;
+    $("t4-err").innerHTML = `${stats4.err.toFixed(4)} <small>Δ frame ${stats4.change.toFixed(4)}</small>`;
+  }
+  function loop(ts) { if (t4.playing && ts - t4.last >= 48) { t4.last = ts; tick(); draw4(); } requestAnimationFrame(loop); }
+  onSeg("seg4p", v => { if (v === "step") { t4.playing = false; tick(); draw4(); segOn($("seg4p"), "pause"); } else t4.playing = v === "play"; });
+  $("alpha4").addEventListener("input", ev => { t4.alpha = +ev.target.value; $("alpha4v").textContent = t4.alpha.toFixed(2); if (!t4.playing) { resolve4(); draw4(); } });
+  $("speed4").addEventListener("input", ev => { t4.speed = +ev.target.value; $("speed4v").textContent = t4.speed.toFixed(1) + " px / frame"; });
+  onSeg("seg4r", v => { t4.mode = v; if (!t4.playing) { resolve4(); draw4(); } });
+  $("rep4").addEventListener("change", ev => { t4.reproj = ev.target.checked; if (!t4.playing) { resolve4(); draw4(); } });
+  $("clm4").addEventListener("change", ev => { t4.showClamp = ev.target.checked; draw4(); });
+  tick(); draw4();
+  requestAnimationFrame(loop);
+
+  // ---------- 5. cost and memory ----------
+  const c5 = $("c5"), x5 = c5.getContext("2d");
+  const UP = 0.67 * 0.67;
+  const TECH = [
+    { name: "No AA", color: 4, depth: 4, extra: 0, fixed: 0, shade: 1, samples: 1, passes: 0 },
+    { name: "FXAA", color: 4, depth: 4, extra: 4, fixed: 0, shade: 1, samples: 1, passes: 1 },
+    { name: "SMAA 1x", color: 4, depth: 4, extra: 10, fixed: 180e3, shade: 1, samples: 1, passes: 3 },
+    { name: "MSAA 4×", color: 16, depth: 16, extra: 4, fixed: 0, shade: 1, samples: 4, passes: 1 },
+    { name: "SSAA 4×", color: 16, depth: 16, extra: 4, fixed: 0, shade: 4, samples: 4, passes: 1 },
+    { name: "TAA", color: 8, depth: 4, extra: 20, fixed: 0, shade: 1, samples: 1, passes: 1 },
+    { name: "TAA + upscale 67 %", color: 8 * UP, depth: 4 * UP, extra: 4 * UP + 16, fixed: 0, shade: UP, samples: UP, passes: 1 }
+  ];
+  const st5 = { w: 1920 };
+  function memAt(t, px) { return (t.color + t.depth + t.extra) * px + t.fixed; }
+  function draw5() {
+    const W = st5.w, H = Math.round(W * 9 / 16), px = W * H;
+    x5.fillStyle = GND; x5.fillRect(0, 0, 640, 360);
+    const maxB = Math.max(...TECH.map(t => memAt(t, px)));
+    const L = 168, R = 552, top = 16, rh = 42;
+    x5.font = MONO; x5.textBaseline = "middle";
+    TECH.forEach((t, i) => {
+      const y = top + i * rh;
+      x5.fillStyle = "rgba(255,255,255,0.85)"; x5.textAlign = "left"; x5.fillText(t.name, 14, y + 12);
+      let xx = L;
+      for (const [v, c] of [[t.color * px, AMB], [t.depth * px, BLU], [t.extra * px + t.fixed, "rgba(255,255,255,0.55)"]]) {
+        const w = v / maxB * (R - L); if (w > 0) { x5.fillStyle = c; x5.fillRect(xx, y, w, 24); } xx += w;
+      }
+      x5.fillStyle = WHT; x5.fillText(fmtMB(memAt(t, px)), xx + 8, y + 12);
+    });
+    const ly = top + TECH.length * rh + 14;
+    let lx = 14;
+    for (const [lab, c] of [["color", AMB], ["depth", BLU], ["resolve · history · motion · edges", "rgba(255,255,255,0.55)"]]) {
+      x5.fillStyle = c; x5.fillRect(lx, ly - 5, 10, 10); x5.fillStyle = "rgba(255,255,255,0.7)"; x5.fillText(lab, lx + 16, ly); lx += 16 + x5.measureText(lab).width + 22;
+    }
+    $("c5-cap").innerHTML = `<strong>${W} × ${H}</strong> · ${fmtN(px)} px`;
+    $("res5v").textContent = `${W} × ${H}`;
+    $("th5-custom").textContent = `${W}×${H}`;
+    const p1 = 1920 * 1080, p4 = 3840 * 2160;
+    $("tb5").innerHTML = TECH.map(t => `<tr><td>${t.name}</td><td>${(t.color + t.depth + t.extra).toFixed(t.shade === UP ? 1 : 0)}</td><td>${fmtMB(memAt(t, p1))}</td><td>${fmtMB(memAt(t, p4))}</td><td class="hi">${fmtMB(memAt(t, px))}</td><td>${fmtN(px * t.shade)}</td><td>${fmtN(px * t.samples)}</td><td>${t.passes}</td></tr>`).join("");
+    $("t5-msaa").textContent = fmtMB(px * 32);
+    $("t5-taa").textContent = fmtMB(px * 20);
+    $("t5-fxaa").textContent = fmtMB(px * 8);
+    $("t5-samp").textContent = fmtN(px * 4);
+  }
+  $("res5").addEventListener("input", ev => { st5.w = +ev.target.value; segOn($("seg5"), st5.w); draw5(); });
+  onSeg("seg5", v => { st5.w = +v; $("res5").value = v; draw5(); });
+  draw5();
+})();
+</script>
