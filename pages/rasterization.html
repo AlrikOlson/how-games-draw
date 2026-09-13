@@ -158,15 +158,15 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">1920×1080 target · 60° fov · 24-bit depth · drag the vertices</p>
+    <p class="eyebrow">a knight's camp outside a castle · 1920×1080 target · 60° fov · 24-bit depth · drag the corners</p>
     <h1>Rasterization &amp; Depth</h1>
     <p class="lead">Rasterization is the step where the GPU turns a triangle into the list of pixels it covers, and the depth buffer is the step that decides which triangle wins when several land on the same pixel. Both are cheap, and this page is about why they are cheap and where they break. <b>The thing people get wrong:</b> the depth buffer does not store distance from the camera. It stores z divided by w, a squashed value that spends most of its precision in the first metre, so depth bugs are almost always a near-plane problem, not a bit-count problem.</p>
     <div class="key">
-      <span style="--sw:#f2a341">triangle A, or a shaded pixel</span>
-      <span style="--sw:#4aa3ff">triangle B, or a tile</span>
-      <span style="--sw:#ffffff">pixel center, drag handle</span>
+      <span style="--sw:#f2a341">the triangle being drawn: tent, shield half A, castle wall</span>
+      <span style="--sw:#4aa3ff">the second triangle: shield half B, banner, a tile an edge crosses</span>
+      <span style="--sw:#ffffff">camera, pixel center, drag handle</span>
       <span style="--sw:#5ad48a">depth test passes</span>
-      <span style="--sw:#ef5d5d">fails, or claimed by both triangles</span>
+      <span style="--sw:#ef5d5d">fails, thrown out, or claimed by both triangles</span>
     </div>
     <dl class="terms">
       <dt>vertex</dt><dd>one corner of a triangle, stored as a position in 3D</dd>
@@ -183,19 +183,19 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 
   <section id="pipeline">
     <h2>Three views of one triangle</h2>
-    <p class="sub">Drag a corner in the left view and watch it move through the other two views on its way to the screen.</p>
+    <p class="sub">A knight has pitched a tent at his camp. Drag a corner of the tent canvas in the top-down view and watch that one triangle travel to the player's screen.</p>
     <div class="cols wide">
       <div class="tri">
         <div class="vp">
-          <canvas id="c1w" width="512" height="512" class="grab sq" aria-label="Top-down camera-space view of the triangle and frustum"></canvas>
+          <canvas id="c1w" width="512" height="512" class="grab sq" aria-label="Top-down view of the camp: camera at the bottom, its view wedge, trees, a knight, a farmhouse and the draggable tent triangle"></canvas>
           <div class="cap"><span id="c1w-cap"></span></div>
         </div>
         <div class="vp">
-          <canvas id="c1n" width="512" height="512" class="sq" aria-label="Normalized device coordinates after the perspective divide"></canvas>
+          <canvas id="c1n" width="512" height="512" class="sq" aria-label="The same camp after the perspective divide, inside the minus one to plus one square the screen maps to"></canvas>
           <div class="cap"><span id="c1n-cap"></span></div>
         </div>
         <div class="vp">
-          <canvas id="c1v" width="512" height="512" class="sq" aria-label="Viewport pixel coordinates"></canvas>
+          <canvas id="c1v" width="512" height="512" class="sq" aria-label="What the player sees: the camp on a 1920 by 1080 screen with the tent triangle placed in pixels"></canvas>
           <div class="cap"><span id="c1v-cap"></span></div>
         </div>
       </div>
@@ -203,14 +203,14 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
         <p class="plain">Every triangle starts as <b>three points in 3D</b>. Before the GPU can colour a single pixel it has to work out <b>where those points land on the screen</b>. That takes three steps: measure each point from the camera, divide by its distance so far things come out small, then map the result to a pixel position. <b>The divide is the whole of perspective</b>.</p>
 
         <h3>What you're seeing</h3>
-        <p>Left: the camera sits at the bottom and looks up the page. The dashed lines are the edges of what it can see, the short white line is the near plane, and the amber triangle is the one you drag.</p>
-        <p>Middle: the same triangle after the divide, inside the square the screen maps to. Anything outside the white square gets cut off. Right: the 1920×1080 screen with the triangle placed in pixels.</p>
+        <p>Left: the camp from above. The camera sits at the bottom and looks up the page, the dashed lines are the edges of what it can see, and the short white line is the near plane. The amber triangle is the tent canvas: two pegs on the ground and a peak 2.8 m up. The knight, the campfire, the trees and the farmhouse are there so you can find the same things in all three views.</p>
+        <p>Middle: the same camp after the divide, squeezed into the square the screen maps to. Anything outside the white square gets cut off. Right: what the player sees, the 1920×1080 screen with the tent placed in pixels.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Drag a corner down toward the near plane. In the middle view it flies off the square while the other two corners barely move.</li>
-          <li>Drag a corner far up the page. Its dot in the middle view creeps toward the centre and the depth in the right-hand caption climbs toward 1.</li>
-          <li>Drag a corner outside the dashed lines. The right-hand caption reports it as off screen.</li>
+          <li>Drag a peg down toward the near plane. In the middle view it flies off the square while the other two corners barely move, and on the player's screen the tent swallows the bottom of the picture.</li>
+          <li>Drag the peak far up the page, past the farmhouse. Its dot in the middle view creeps toward the centre and the depth in the right-hand caption climbs toward 1.</li>
+          <li>Drag a peg outside the dashed lines. The right-hand caption reports it as off screen, and the player sees the tent run off the edge.</li>
         </ul>
 
         <h3>The real version</h3>
@@ -242,10 +242,10 @@ float zb = ndc.z * 0.5 + 0.5;                <span class="c">// GL range [-1,1] 
 
   <section id="coverage">
     <h2>Which pixels a triangle covers</h2>
-    <p class="sub">Drag the four corners and hover a pixel to see the three numbers that decide whether it is covered.</p>
+    <p class="sub">The knight's shield is two triangles drawn on a tiny 24×16 screen. Drag its corners and hover a pixel to see the three numbers that decide whether the shield covers it.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" width="768" height="512" class="grab r32" aria-label="Pixel grid with two triangles sharing an edge, covered pixel centers marked"></canvas>
+        <canvas id="c2" width="768" height="512" class="grab r32" aria-label="A 24 by 16 pixel screen showing a kite shield made of two triangles that share a vertical seam; covered pixel centers are marked, and an inset shows the shield as drawn"></canvas>
         <div class="cap"><span id="c2-read">hover a pixel</span></div>
         <div class="cap"><span id="c2-count"></span></div>
       </div>
@@ -253,14 +253,14 @@ float zb = ndc.z * 0.5 + 0.5;                <span class="c">// GL range [-1,1] 
         <p class="plain">A pixel is covered when its <b>center point sits inside the triangle</b>. The GPU checks that with three cheap tests, one per edge, each saying which side of the edge the point is on. When two triangles share an edge, a center sitting exactly on the line needs a <b>tie-break rule</b>, or it gets drawn twice or not at all. That rule is called <b>top-left</b>.</p>
 
         <h3>What you're seeing</h3>
-        <p>A 24×16 grid of pixels, each with a white dot at its center. Triangle A is amber, and its covered pixels are tinted by how close they sit to each corner. Triangle B is blue and shares an edge with A.</p>
-        <p>A red pixel along the shared edge is one that both triangles claimed, or that neither did. The counts under the canvas track both cases.</p>
+        <p>A 24×16 screen, each pixel with a white dot at its center, and the knight's camp faint behind it. The shield is a kite: the left half is triangle A in amber, with its covered pixels tinted by how close they sit to each corner, and the right half is triangle B in blue. The two halves share the vertical seam down the middle, and ten pixel centers sit exactly on that seam.</p>
+        <p>A red pixel along the seam is one that both triangles claimed, or that neither did. The "on screen" inset is the shield as the player would see it: a gap where a pixel was missed, a bright pixel where it was drawn twice. The counts under the canvas track both cases.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Switch the tie rule to E ≥ 0 both. Red pixels appear along the shared edge and the double-covered count goes up.</li>
-          <li>Hover a pixel just inside an edge of A. All three E values are positive. Hover the pixel next to it, outside, and one goes negative.</li>
-          <li>Drag a corner of A so an edge runs straight through a row of centers. With top-left on, each of those centers goes to exactly one triangle.</li>
+          <li>Switch the tie rule to E ≥ 0 both. A column of red pixels appears down the seam, the double-covered count jumps to 10, and the inset shows a bright stripe through the shield.</li>
+          <li>Hover a pixel just inside the left edge of the shield. All three E values are positive. Hover the pixel next to it, outside, and one goes negative.</li>
+          <li>Drag the top corner one pixel sideways so the seam leans. Now no center sits exactly on it, and the tie rule stops mattering.</li>
         </ul>
         <div class="controls" style="margin-top:14px">
           <div class="ctl"><span class="lab">Shared-edge tie</span><div class="seg" id="segTL" role="group" aria-label="Tie rule on shared edges"><button data-v="tl" aria-pressed="true">top-left rule</button><button data-v="ge">E ≥ 0 both</button></div></div>
@@ -303,20 +303,20 @@ attr = λ0·a0 + λ1·a1 + λ2·a2</div>
     </div>
     <div class="cols below">
       <div class="vp">
-        <canvas id="c2q" width="512" height="512" class="sq" aria-label="Checkerboard quad interpolated with affine versus perspective-correct weights"></canvas>
+        <canvas id="c2q" width="512" height="512" class="sq" aria-label="A flagstone courtyard running away from the camera toward a knight, a tree and a farmhouse; the tiles kink at the triangle seam when interpolation is affine"></canvas>
         <div class="cap"><span id="c2q-read"></span></div>
       </div>
       <div class="prose">
         <p class="plain">Blending values across a triangle with the screen-space weights is <b>wrong for anything in 3D</b>. Far parts of a surface are squashed on screen, so equal steps across the pixels are not equal steps across the surface. The fix is to <b>divide by w before blending and undo it after</b>. Hardware does this for you; you only see the bug in software rasterizers and PlayStation 1 games.</p>
 
         <h3>What you're seeing</h3>
-        <p>A flat quad on the floor, running away from the camera, with an 8×8 checkerboard painted on it. The quad is two triangles and the dashed line is the seam between them. With affine blending the checker kinks at the seam and the far rows come out too tall.</p>
+        <p>A courtyard of light and dark flagstones running away from the camera, with the knight standing at its far edge and the farmhouse beyond. The floor is one flat quad made of two triangles, and the dashed line is the seam between them. With affine blending the flagstones kink at the seam and the far rows come out too tall, so the floor looks folded.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Switch to perspective-correct. The kink at the seam vanishes and the far rows shrink the way a real floor would.</li>
-          <li>Choose split. The left half is affine and the right half is correct, so you can compare them on one image.</li>
-          <li>Push Quad depth to 30 m. The w ratio in the caption climbs and the affine kink gets worse.</li>
+          <li>Switch to perspective-correct. The kink at the seam vanishes and the far flagstones shrink toward the knight the way a real floor would.</li>
+          <li>Choose split. The left half is affine and the right half is correct, so you can compare them on one courtyard.</li>
+          <li>Push Quad depth to 30 m. The knight walks off into the distance, the w ratio in the caption climbs and the affine kink gets worse.</li>
         </ul>
         <div class="controls" style="margin-top:14px">
           <div class="ctl"><span class="lab">Interpolation</span><div class="seg" id="segPC" role="group" aria-label="Interpolation mode"><button data-v="affine" aria-pressed="true">affine</button><button data-v="persp">perspective-correct</button><button data-v="split">split</button></div></div>
@@ -338,10 +338,10 @@ u_correct = (λ0·u0/w0 + λ1·u1/w1 + λ2·u2/w2) / (λ0/w0 + λ1/w1 + λ2/w2)<
 
   <section id="depth">
     <h2>The depth buffer and z-fighting</h2>
-    <p class="sub">Two surfaces a few millimetres apart fight over the same pixels; change the format and the near plane to see who wins.</p>
+    <p class="sub">A banner hangs 5 mm in front of a castle wall 30 m away. Change the depth format and the near plane to see whether the wall or the banner wins each pixel.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c3" width="512" height="512" class="sq" aria-label="64 by 64 depth buffer heatmap with two overlapping triangles"></canvas>
+        <canvas id="c3" width="512" height="512" class="sq" aria-label="A 64 by 64 depth buffer drawn as a heatmap: a castle wall with merlons in amber and a banner in blue a few millimetres in front of it, with an inset showing the wall and banner as the player sees them"></canvas>
         <div class="cap"><span id="c3-read">hover a pixel</span></div>
         <div class="cap"><span id="c3-count"></span></div>
       </div>
@@ -349,26 +349,26 @@ u_correct = (λ0·u0/w0 + λ1·u1/w1 + λ2·u2/w2) / (λ0/w0 + λ1/w1 + λ2/w2)<
         <p class="plain">The depth buffer is <b>one number per pixel</b> saying how far away the nearest thing drawn so far is. Each new fragment compares against it and is thrown away if something nearer is already there. The stored number is <b>not metres</b>: it is squashed so that most of its steps land close to the camera. Two surfaces closer together than one step at their distance <b>round to the same value</b>, and the result is the flickering stripes called <b>z-fighting</b>.</p>
 
         <h3>What you're seeing</h3>
-        <p>A 64×64 depth buffer drawn as a heatmap. Plane A is drawn first in amber, plane B second in blue, and B sits a few millimetres in front of or behind A. Brightness is the stored value, colour is which plane owns the pixel.</p>
-        <p>Where the two planes overlap, stripes mean the buffer could not tell them apart and draw order decided. The four tiles show the step size at plane A's distance for each format.</p>
+        <p>A 64×64 patch of the depth buffer drawn as a heatmap. The castle wall is plane A, drawn first in amber; the banner is plane B, drawn second in blue, a few millimetres in front of or behind the stone. Brightness is the stored value, colour is which surface owns the pixel. The dark strip on the right is sky: nothing was drawn there, so the buffer still holds its cleared far value.</p>
+        <p>Where the banner covers the wall, stripes mean the buffer could not tell them apart and draw order decided. The "player's view" inset shows the result: stone showing through the banner in bands. The four tiles show the step size at the wall's distance for each format.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>At the default settings the overlap is already striped: the D16 step at 30 m is about 137 mm, far bigger than the 5 mm gap. Switch to D24 and the stripes go away.</li>
-          <li>With D24 selected, drag Plane A depth toward 120 m. Once the step in the D24 tile passes the 5 mm gap, the stripes come back.</li>
+          <li>At the default settings the banner is already striped: the D16 step at 30 m is about 137 mm, far bigger than the 5 mm gap. Switch to D24 and the banner comes out whole.</li>
+          <li>With D24 selected, drag Wall distance toward 120 m. Once the step in the D24 tile passes the 5 mm gap, the stripes come back.</li>
           <li>Drag Near plane down to 0.01 m. The D16 and D24 tiles grow about ten times, at every distance.</li>
         </ul>
         <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="dA">Plane A depth <span class="val" id="dAv">30 m</span></label><input type="range" id="dA" min="1" max="120" step="0.5" value="30"></div>
-          <div class="ctl"><label for="dB">Plane B offset <span class="val" id="dBv">−5 mm</span></label><input type="range" id="dB" min="-150" max="150" step="0.5" value="-5"></div>
+          <div class="ctl"><label for="dA">Wall distance <span class="val" id="dAv">30 m</span></label><input type="range" id="dA" min="1" max="120" step="0.5" value="30"></div>
+          <div class="ctl"><label for="dB">Banner offset <span class="val" id="dBv">−5 mm</span></label><input type="range" id="dB" min="-150" max="150" step="0.5" value="-5"></div>
           <div class="ctl"><label for="dNear">Near plane <span class="val" id="dNearv">0.10 m</span></label><input type="range" id="dNear" min="0.01" max="2" step="0.01" value="0.1"></div>
           <div class="ctl"><span class="lab">Format</span><div class="seg" id="segBits" role="group" aria-label="Depth buffer format"><button data-v="16" aria-pressed="true">D16</button><button data-v="24">D24</button><button data-v="32">D32F</button><button data-v="32r">D32F reversed</button></div></div>
           <div class="ctl"><span class="lab">Test</span><div class="seg" id="segTest" role="group" aria-label="Depth test function"><button data-v="less" aria-pressed="true">LESS</button><button data-v="greater">GREATER</button></div></div>
         </div>
         <div class="tiles four">
-          <div class="tile" id="t3-16"><div class="n">—</div><div class="l">D16 step at A</div></div>
-          <div class="tile" id="t3-24"><div class="n">—</div><div class="l">D24 step at A</div></div>
-          <div class="tile" id="t3-32"><div class="n">—</div><div class="l">D32F step at A</div></div>
+          <div class="tile" id="t3-16"><div class="n">—</div><div class="l">D16 step at the wall</div></div>
+          <div class="tile" id="t3-24"><div class="n">—</div><div class="l">D24 step at the wall</div></div>
+          <div class="tile" id="t3-32"><div class="n">—</div><div class="l">D32F step at the wall</div></div>
           <div class="tile" id="t3-32r"><div class="n">—</div><div class="l">D32F reversed</div></div>
         </div>
 
@@ -400,24 +400,24 @@ depthBuffer[px] = zq;                            <span class="c">// unless depth
 
   <section id="overdraw">
     <h2>Early-Z: skipping hidden pixels</h2>
-    <p class="sub">Drag the five quads and change the draw order to see how many times each pixel gets shaded.</p>
+    <p class="sub">Five trees stand in front of each other at the edge of the camp. Drag them and change the draw order to see how many times each pixel gets shaded.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" width="640" height="360" class="grab r169" aria-label="Overdraw heatmap of five overlapping quads"></canvas>
+        <canvas id="c4" width="640" height="360" class="grab r169" aria-label="Overdraw heatmap of five overlapping trees on a 64 by 36 grid, with an inset showing the trees as the player sees them"></canvas>
         <div class="cap"><span id="c4-read"></span></div>
       </div>
       <div class="prose">
         <p class="plain">Every pixel the shader colours that ends up hidden behind something else is <b>wasted work</b>. Overdraw is how many times a pixel gets drawn in one frame. Early-Z is the hardware trick of <b>running the depth test before the shader</b> instead of after, so a hidden fragment is dropped before it costs anything. It only helps if <b>something nearer is already in the buffer</b>, so draw order matters.</p>
 
         <h3>What you're seeing</h3>
-        <p>Five opaque quads on a 64×36 grid, drawn as a heatmap of how many times the shader ran on each pixel. Dark is zero, blue is once, amber and white are three or more. The label next to each handle is its depth and its place in the draw order.</p>
+        <p>Five trees on a 64×36 grid, drawn as a heatmap of how many times the shader ran on each pixel. Dark is zero, blue is once, amber and white are three or more. The white outlines are the trees' shapes, the nearest one biggest and lowest on screen, and the label next to each handle is its depth and its place in the draw order. The inset in the corner is the forest as the player sees it, which looks the same whatever the order.</p>
         <p>The tiles scale the shaded count up to a 1920×1080 frame, in millions of fragments.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Switch to front-to-back. The nearest quad goes first, everything behind it fails the depth test cheaply, and the shaded count drops.</li>
+          <li>Switch to front-to-back. The nearest tree goes first, everything behind it fails the depth test cheaply, and the shaded count drops.</li>
           <li>Untick the early-Z box. Every fragment is shaded whatever the order, and the count matches the early-Z off tile.</li>
-          <li>Drag a quad so it no longer overlaps the others. The overdraw number in the caption falls.</li>
+          <li>Drag the big near tree away so it no longer overlaps the others. The overdraw number in the caption falls.</li>
         </ul>
         <div class="controls" style="margin-top:14px">
           <div class="ctl"><span class="lab">Draw order</span><div class="seg" id="segOrder" role="group" aria-label="Draw order"><button data-v="ftb">front-to-back</button><button data-v="btf" aria-pressed="true">back-to-front</button></div></div>
@@ -455,24 +455,24 @@ drawOpaque(fullPixelShader);
 
   <section id="hier">
     <h2>Testing tiles before pixels</h2>
-    <p class="sub">Drag the triangle and change the tile size to see how many per-pixel tests the GPU skips.</p>
+    <p class="sub">The tent canvas again, now a big triangle on a 64×64 patch of the screen. Drag its corners and change the tile size to see how many per-pixel tests the GPU skips.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="512" height="512" class="grab sq" aria-label="Tile-level trivial reject and accept before per-pixel coverage tests"></canvas>
+        <canvas id="c5" width="512" height="512" class="grab sq" aria-label="The tent triangle over a 64 by 64 pixel patch of the camp, divided into tiles: rejected tiles faint red, fully covered tiles amber, edge-crossing tiles outlined blue with every pixel center tested"></canvas>
         <div class="cap"><span id="c5-read"></span></div>
       </div>
       <div class="prose">
         <p class="plain">A big triangle covers thousands of pixels, and testing each one is slow. The GPU first checks <b>whole tiles of pixels at once</b>: a tile fully outside the triangle is thrown out, a tile fully inside is accepted whole, and <b>only tiles the edges cross</b> go on to per-pixel tests. This is why <b>big triangles are cheap per pixel and tiny ones are not</b>.</p>
 
         <h3>What you're seeing</h3>
-        <p>A 64×64 pixel region divided into tiles. Faint red tiles were rejected after four tests per edge. Solid amber tiles were accepted whole, with no per-pixel tests. Blue-outlined tiles are the ones an edge crosses; inside them every pixel center is tested and covered centers show as amber squares.</p>
+        <p>A 64×64 pixel patch of the screen with the tent canvas across it, and the knight and campfire faint behind. Faint red tiles were thrown out after four tests per edge. Solid amber tiles were accepted whole, with no per-pixel tests. Blue-outlined tiles are the ones a tent edge crosses; inside them every pixel center is tested and covered centers show as amber squares.</p>
         <p>The dashed box is the triangle's bounding box, the smallest rectangle around it. The tiles compare the work done at each level.</p>
 
         <h3>Try this</h3>
         <ul class="try">
           <li>Switch to 16×16. Fewer tile tests, but more pixel tests, because the edges cross bigger tiles.</li>
           <li>Switch to 4×4. Tile tests go up, pixel tests go down.</li>
-          <li>Drag two corners close together to make a sliver. Almost every tile it touches becomes partial, so the tile stage saves nothing.</li>
+          <li>Drag the peak down next to a peg to squash the tent into a sliver. Almost every tile it touches becomes partial, so the tile stage saves nothing.</li>
         </ul>
         <div class="controls" style="margin-top:14px">
           <div class="ctl"><span class="lab">Tile size</span><div class="seg" id="segTile" role="group" aria-label="Tile size in pixels"><button data-v="4">4×4</button><button data-v="8" aria-pressed="true">8×8</button><button data-v="16">16×16</button></div></div>
@@ -552,6 +552,120 @@ drawOpaque(fullPixelShader);
 </div>
 
 <script>
+// Rendering Library scene kit. Paste this whole block at the top of a page's <script> (no external
+// scripts are allowed). Small, flat, readable game-world props for 2D canvas demos. Every function
+// takes a ctx and draws in the current transform; sizes are in canvas pixels. Keep the mechanism
+// overlay (frustum lines, rays, samples, tests) in the library palette on top of these props.
+const KIT = {
+  // scene palette: props only; the mechanism overlay keeps amber / blue / white / green / red
+  grass: '#1f3a2a', grassLite: '#2a4d37', dirt: '#3b2f25', stone: '#4c5563', stoneLite: '#6b7585',
+  wood: '#7a4f2a', woodLite: '#a06a38', leaf: '#3f8f4a', leafLite: '#5ab562', roof: '#a5433a',
+  wallCol: '#c9c2b2', window: '#f5d67a', skin: '#e8b98a', shirt: '#4aa3ff', pants: '#2f3a55',
+  metal: '#8d95a3', flame: '#f2a341', sky: '#0b0e13', skyLite: '#141a26', water: '#1d4d73', cloud: '#c7cdd8',
+  shadow: 'rgba(0,0,0,0.35)'
+};
+// horizon band: dark sky above, ground below (side-view scenes)
+function kitGround(ctx, w, h, horizon) {
+  const g = ctx.createLinearGradient(0, 0, 0, horizon); g.addColorStop(0, KIT.sky); g.addColorStop(1, KIT.skyLite);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, horizon);
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, horizon, w, h - horizon);
+  ctx.fillStyle = KIT.grassLite; ctx.fillRect(0, horizon, w, 3);
+}
+// top-down ground with faint tile grid (top-down scenes)
+function kitTopGround(ctx, w, h, cell) {
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.beginPath();
+  for (let x = 0; x <= w; x += cell) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, h); }
+  for (let y = 0; y <= h; y += cell) { ctx.moveTo(0, y + 0.5); ctx.lineTo(w, y + 0.5); }
+  ctx.stroke();
+}
+// round tree, base at (x, y), s = trunk height
+function kitTree(ctx, x, y, s, tint) {
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, s * 0.55, s * 0.18, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.09, y - s, s * 0.18, s);
+  ctx.fillStyle = tint || KIT.leaf; ctx.beginPath(); ctx.arc(x, y - s * 1.25, s * 0.62, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.leafLite; ctx.beginPath(); ctx.arc(x - s * 0.2, y - s * 1.45, s * 0.3, 0, Math.PI * 2); ctx.fill();
+}
+// pine tree, base at (x, y)
+function kitPine(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.07, y - s * 0.4, s * 0.14, s * 0.4);
+  ctx.fillStyle = KIT.leaf;
+  for (let i = 0; i < 3; i++) { const yy = y - s * 0.35 - i * s * 0.42, ww = s * (0.7 - i * 0.16);
+    ctx.beginPath(); ctx.moveTo(x - ww, yy); ctx.lineTo(x + ww, yy); ctx.lineTo(x, yy - s * 0.55); ctx.closePath(); ctx.fill(); }
+}
+// house, bottom-left corner at (x, y), width w, wall height h
+function kitHouse(ctx, x, y, w, h, roofCol) {
+  ctx.fillStyle = KIT.wallCol; ctx.fillRect(x, y - h, w, h);
+  ctx.fillStyle = roofCol || KIT.roof; ctx.beginPath(); ctx.moveTo(x - w * 0.08, y - h); ctx.lineTo(x + w * 1.08, y - h); ctx.lineTo(x + w / 2, y - h - w * 0.45); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + w * 0.15, y - h * 0.75, w * 0.22, h * 0.3);
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x + w * 0.6, y - h * 0.6, w * 0.22, h * 0.6);
+}
+// wooden crate, centre (x, y), size s
+function kitCrate(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s / 2, y - s / 2, s, s);
+  ctx.strokeStyle = KIT.woodLite; ctx.lineWidth = Math.max(1, s * 0.08);
+  ctx.strokeRect(x - s / 2 + 1, y - s / 2 + 1, s - 2, s - 2);
+  ctx.beginPath(); ctx.moveTo(x - s / 2, y - s / 2); ctx.lineTo(x + s / 2, y + s / 2); ctx.moveTo(x + s / 2, y - s / 2); ctx.lineTo(x - s / 2, y + s / 2); ctx.stroke();
+}
+// stone wall segment from (x1, y1) to (x2, y2), thickness t (top-down or side)
+function kitWall(ctx, x1, y1, x2, y2, t) {
+  ctx.strokeStyle = KIT.stone; ctx.lineWidth = t; ctx.lineCap = 'butt'; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.strokeStyle = KIT.stoneLite; ctx.lineWidth = Math.max(1, t * 0.25); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+}
+// little player figure, feet at (x, y), height h, facing +1 right / -1 left
+function kitPlayer(ctx, x, y, h, facing) {
+  const f = facing || 1;
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, h * 0.28, h * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.pants; ctx.fillRect(x - h * 0.16, y - h * 0.42, h * 0.32, h * 0.42);
+  ctx.fillStyle = KIT.shirt; ctx.fillRect(x - h * 0.2, y - h * 0.78, h * 0.4, h * 0.38);
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y - h * 0.9, h * 0.14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#171a1f'; ctx.fillRect(x + f * h * 0.04, y - h * 0.93, h * 0.05, h * 0.04);
+}
+// top-down player: a circle with a facing wedge, centre (x, y), radius r, angle a (radians)
+function kitPlayerTop(ctx, x, y, r, a) {
+  ctx.fillStyle = KIT.shirt; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * r * 1.6, y + Math.sin(a) * r * 1.6); ctx.stroke();
+}
+// lamp post / torch, base at (x, y), height h; glow radius g (0 = none)
+function kitLamp(ctx, x, y, h, g) {
+  if (g > 0) { const gr = ctx.createRadialGradient(x, y - h, 0, x, y - h, g); gr.addColorStop(0, 'rgba(242,163,65,0.35)'); gr.addColorStop(1, 'rgba(242,163,65,0)'); ctx.fillStyle = gr; ctx.fillRect(x - g, y - h - g, g * 2, g * 2); }
+  ctx.fillStyle = KIT.metal; ctx.fillRect(x - h * 0.04, y - h, h * 0.08, h);
+  ctx.fillStyle = KIT.flame; ctx.beginPath(); ctx.arc(x, y - h, h * 0.12, 0, Math.PI * 2); ctx.fill();
+}
+// simple side-view car, bottom-left at (x, y), length L
+function kitCar(ctx, x, y, L, col) {
+  ctx.fillStyle = col || '#d8493f'; ctx.fillRect(x, y - L * 0.22, L, L * 0.2);
+  ctx.fillRect(x + L * 0.22, y - L * 0.4, L * 0.5, L * 0.2);
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + L * 0.26, y - L * 0.38, L * 0.42, L * 0.14);
+  ctx.fillStyle = '#171a1f'; ctx.beginPath(); ctx.arc(x + L * 0.22, y, L * 0.09, 0, Math.PI * 2); ctx.arc(x + L * 0.78, y, L * 0.09, 0, Math.PI * 2); ctx.fill();
+}
+// cloud, centre (x, y), width w
+function kitCloud(ctx, x, y, w, alpha) {
+  ctx.fillStyle = 'rgba(199,205,216,' + (alpha == null ? 0.35 : alpha) + ')';
+  ctx.beginPath(); ctx.arc(x - w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.arc(x, y - w * 0.08, w * 0.28, 0, Math.PI * 2); ctx.arc(x + w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.fill();
+}
+// plain-word label on the canvas with a dark pill behind it; anchor 'left' | 'center' | 'right'
+function kitLabel(ctx, text, x, y, anchor, col) {
+  ctx.font = '12px "IBM Plex Mono", Menlo, Consolas, monospace';
+  const w = ctx.measureText(text).width + 12, h = 18;
+  const x0 = anchor === 'center' ? x - w / 2 : anchor === 'right' ? x - w : x;
+  ctx.fillStyle = 'rgba(11,14,19,0.82)'; ctx.fillRect(x0, y - h / 2, w, h);
+  ctx.fillStyle = col || '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(text, x0 + 6, y + 1);
+}
+// arrow from (x1, y1) to (x2, y2) in a colour, for callouts
+function kitArrow(ctx, x1, y1, x2, y2, col, width) {
+  const a = Math.atan2(y2 - y1, x2 - x1), s = 7;
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = width || 1.5;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - s * Math.cos(a - 0.4), y2 - s * Math.sin(a - 0.4)); ctx.lineTo(x2 - s * Math.cos(a + 0.4), y2 - s * Math.sin(a + 0.4)); ctx.closePath(); ctx.fill();
+}
+// "what the player sees" inset frame: draws a titled box at (x, y, w, h); draw the picture inside afterwards
+function kitInset(ctx, x, y, w, h, title) {
+  ctx.fillStyle = 'rgba(11,14,19,0.92)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
+}
 (() => {
   const AMB = "#f2a341", BLU = "#4aa3ff", WHT = "#ffffff", GRN = "#5ad48a", RED = "#ef5d5d", GRID = "rgba(255,255,255,0.12)", GROUND = "#0b0e13";
   const $ = id => document.getElementById(id);
@@ -562,7 +676,7 @@ drawOpaque(fullPixelShader);
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fillStyle = on ? AMB : WHT; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = GROUND; ctx.stroke();
   }
-  function label(ctx, t, x, y, c = "rgba(255,255,255,0.7)", align = "left") { ctx.font = "12px IBM Plex Mono, Menlo, monospace"; ctx.fillStyle = c; ctx.textAlign = align; ctx.fillText(t, x, y); ctx.textAlign = "left"; }
+  function label(ctx, t, x, y, c = "rgba(255,255,255,0.7)", align = "left") { ctx.font = "12px IBM Plex Mono, Menlo, monospace"; ctx.fillStyle = c; ctx.textAlign = align; ctx.textBaseline = "alphabetic"; ctx.fillText(t, x, y); ctx.textAlign = "left"; }
   // pointer -> canvas pixel coords
   function pos(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) * canvas.width / r.width, (ev.clientY - r.top) * canvas.height / r.height]; }
   function drag(canvas, getHandles, onMove, onHover, radius = 18) {
@@ -587,9 +701,43 @@ drawOpaque(fullPixelShader);
   function topLeft(a, b) { const dx = b[0] - a[0], dy = b[1] - a[1]; return dy > 0 || (dy === 0 && dx < 0); }
   function orient(v0, v1, v2) { return edge(v0, v1, v2[0], v2[1]) < 0 ? [v0, v2, v1] : [v0, v1, v2]; }
 
-  // ---------- 1. vertex pipeline ----------
+  // extra props in the kit's flat style
+  // top-down tree: shadow, canopy, lighter crown; centre (x, y), canopy radius r
+  function kitTreeTop(ctx, x, y, r) {
+    ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.arc(x + r * 0.25, y + r * 0.25, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = KIT.leaf; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = KIT.leafLite; ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.45, 0, Math.PI * 2); ctx.fill();
+  }
+  // top-down house: roof seen from above with a ridge line; top-left (x, y), size w × d
+  function kitHouseTop(ctx, x, y, w, d) {
+    ctx.fillStyle = KIT.roof; ctx.fillRect(x, y, w, d);
+    ctx.strokeStyle = KIT.wallCol; ctx.lineWidth = 1.5; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, d - 1);
+    ctx.beginPath(); ctx.moveTo(x, y + d / 2); ctx.lineTo(x + w, y + d / 2); ctx.stroke();
+  }
+  // campfire: two logs, a flame, a warm glow; base centre (x, y), height h
+  function kitFire(ctx, x, y, h) {
+    const g = ctx.createRadialGradient(x, y - h * 0.4, 0, x, y - h * 0.4, h * 2.2); g.addColorStop(0, "rgba(242,163,65,0.35)"); g.addColorStop(1, "rgba(242,163,65,0)");
+    ctx.fillStyle = g; ctx.fillRect(x - h * 2.2, y - h * 2.6, h * 4.4, h * 4.4);
+    ctx.fillStyle = KIT.wood; ctx.fillRect(x - h * 0.6, y - h * 0.18, h * 1.2, h * 0.16);
+    ctx.fillStyle = KIT.flame; ctx.beginPath(); ctx.moveTo(x - h * 0.3, y - h * 0.15); ctx.lineTo(x + h * 0.3, y - h * 0.15); ctx.lineTo(x, y - h); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#ffd27a"; ctx.beginPath(); ctx.moveTo(x - h * 0.12, y - h * 0.15); ctx.lineTo(x + h * 0.12, y - h * 0.15); ctx.lineTo(x, y - h * 0.55); ctx.closePath(); ctx.fill();
+  }
+  // top-down campfire: glow plus a small flame dot
+  function kitFireTop(ctx, x, y, r) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r * 3); g.addColorStop(0, "rgba(242,163,65,0.4)"); g.addColorStop(1, "rgba(242,163,65,0)");
+    ctx.fillStyle = g; ctx.fillRect(x - r * 3, y - r * 3, r * 6, r * 6);
+    ctx.fillStyle = KIT.wood; ctx.fillRect(x - r * 1.4, y - r * 0.25, r * 2.8, r * 0.5);
+    ctx.fillStyle = KIT.flame; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // ---------- 1. vertex pipeline: the tent at the knight's camp ----------
   const P1 = { fov: 60, aspect: 16 / 9, near: 0.5, far: 50 };
-  const V1 = [[-2.6, 1.1, -4.0], [2.2, -0.7, -3.2], [1.4, 1.6, -9.5]];
+  const EYE = 1.2; // camera height above the ground in metres; ground is y = -EYE in view space
+  const V1 = [[-2.4, -1.1, -4.2], [2.0, -1.1, -3.4], [0.6, 1.6, -7.5]]; // tent canvas: two pegs on the ground, one peak
+  const VNAME = ["left peg", "right peg", "tent peak"];
+  const PROPS1 = [
+    { k: "tree", x: -4.2, z: -9.5, h: 4.5 }, { k: "tree", x: 4.6, z: -12, h: 5 }, { k: "tree", x: -2.8, z: -15, h: 4 },
+    { k: "house", x: 3.0, z: -14, w: 4, d: 2.5, h: 2.6 }, { k: "knight", x: 2.8, z: -5.2, h: 1.8 }, { k: "fire", x: -1.0, z: -6.5, h: 0.6 }];
   let sel1 = 0;
   const S1 = 28, CX = 256, CY = 470; // px per metre, camera position in the top view
   function project(v) {
@@ -600,63 +748,101 @@ drawOpaque(fullPixelShader);
   }
   const c1w = $("c1w"), x1w = c1w.getContext("2d"), c1n = $("c1n"), x1n = c1n.getContext("2d"), c1v = $("c1v"), x1v = c1v.getContext("2d");
   const wpx = v => [CX + v[0] * S1, CY + v[2] * S1];
+  // draw the camp as the camera would see it; map takes a view-space point and returns canvas coords
+  function drawCamp(ctx, map, alpha) {
+    ctx.save(); ctx.globalAlpha = alpha;
+    const list = PROPS1.slice().sort((a, b) => a.z - b.z); // far first
+    for (const p of list) {
+      const base = map([p.x, -EYE, p.z]), top = map([p.x, -EYE + p.h, p.z]), hpx = base[1] - top[1];
+      if (p.k === "tree") kitTree(ctx, base[0], base[1], hpx / 1.87);
+      else if (p.k === "knight") kitPlayer(ctx, base[0], base[1], hpx, -1);
+      else if (p.k === "fire") kitFire(ctx, base[0], base[1], hpx);
+      else if (p.k === "house") { const l = map([p.x - p.w / 2, -EYE, p.z]), r = map([p.x + p.w / 2, -EYE, p.z]); kitHouse(ctx, l[0], base[1], r[0] - l[0], hpx); }
+    }
+    ctx.restore();
+  }
   function draw1() {
     const pr = V1.map(project);
-    // world / camera view
-    x1w.fillStyle = GROUND; x1w.fillRect(0, 0, 512, 512);
+    // top view of the camp, camera at the bottom looking up the page
+    x1w.fillStyle = KIT.grass; x1w.fillRect(0, 0, 512, 512);
     x1w.strokeStyle = GRID; x1w.lineWidth = 1; x1w.beginPath();
     for (let m = -9; m <= 9; m++) { const x = CX + m * S1 + 0.5; x1w.moveTo(x, 0); x1w.lineTo(x, 512); }
     for (let m = 0; m <= 17; m++) { const y = CY - m * S1 + 0.5; x1w.moveTo(0, y); x1w.lineTo(512, y); }
     x1w.stroke();
+    for (const p of PROPS1) {
+      const q = wpx([p.x, 0, p.z]);
+      if (p.k === "tree") kitTreeTop(x1w, q[0], q[1], p.h * 0.3 * S1);
+      else if (p.k === "house") kitHouseTop(x1w, q[0] - p.w / 2 * S1, q[1] - p.d * S1, p.w * S1, p.d * S1);
+      else if (p.k === "fire") kitFireTop(x1w, q[0], q[1], 5);
+      else if (p.k === "knight") kitPlayerTop(x1w, q[0], q[1], 8, Math.PI / 2);
+    }
     const th = Math.tan(P1.fov * Math.PI / 360) * P1.aspect;
-    x1w.strokeStyle = "rgba(255,255,255,0.35)"; x1w.setLineDash([4, 4]); x1w.beginPath();
+    x1w.strokeStyle = "rgba(255,255,255,0.45)"; x1w.setLineDash([4, 4]); x1w.beginPath();
     x1w.moveTo(CX, CY); x1w.lineTo(CX - 20 * th * S1, CY - 20 * S1); x1w.moveTo(CX, CY); x1w.lineTo(CX + 20 * th * S1, CY - 20 * S1); x1w.stroke(); x1w.setLineDash([]);
-    x1w.strokeStyle = WHT; x1w.beginPath(); x1w.moveTo(CX - P1.near * th * S1, CY - P1.near * S1); x1w.lineTo(CX + P1.near * th * S1, CY - P1.near * S1); x1w.stroke();
-    label(x1w, "camera", CX + 8, CY + 4); label(x1w, "near 0.5 m", CX + 20, CY - P1.near * S1 - 6);
-    label(x1w, "horizontal fov " + (2 * Math.atan(th) * 180 / Math.PI).toFixed(0) + "°", 500, 20, "rgba(255,255,255,0.7)", "right");
-    for (let m = 2; m <= 16; m += 2) label(x1w, m + " m", 6, CY - m * S1 - 3, "rgba(255,255,255,0.4)");
+    x1w.strokeStyle = WHT; x1w.lineWidth = 1.5; x1w.beginPath(); x1w.moveTo(CX - P1.near * th * S1, CY - P1.near * S1); x1w.lineTo(CX + P1.near * th * S1, CY - P1.near * S1); x1w.stroke();
     const wp = V1.map(wpx);
-    x1w.fillStyle = "rgba(242,163,65,0.25)"; x1w.strokeStyle = AMB; x1w.lineWidth = 2; x1w.beginPath();
+    x1w.fillStyle = "rgba(242,163,65,0.35)"; x1w.strokeStyle = AMB; x1w.lineWidth = 2; x1w.beginPath();
     x1w.moveTo(wp[0][0], wp[0][1]); x1w.lineTo(wp[1][0], wp[1][1]); x1w.lineTo(wp[2][0], wp[2][1]); x1w.closePath(); x1w.fill(); x1w.stroke();
-    wp.forEach((p, i) => { handle(x1w, p[0], p[1], 7, i === sel1); label(x1w, "v" + i + " (y " + V1[i][1].toFixed(1) + " m)", p[0] + 10, p[1] - 8); });
-    // NDC view
+    handle(x1w, CX, CY, 7);
+    wp.forEach((p, i) => { handle(x1w, p[0], p[1], 7, i === sel1); });
+    for (let m = 4; m <= 16; m += 4) label(x1w, m + " m", 6, CY - m * S1 - 3, "rgba(255,255,255,0.5)");
+    kitLabel(x1w, "camera: the player's eye", CX + 12, CY - 2, "left");
+    kitLabel(x1w, "near plane 0.5 m", CX + 24, CY - P1.near * S1 - 14, "left", "#c7cdd8");
+    kitLabel(x1w, "what it can see: " + (2 * Math.atan(th) * 180 / Math.PI).toFixed(0) + "° wide", 506, 498, "right", "#c7cdd8");
+    const tc = [(wp[0][0] + wp[1][0] + wp[2][0]) / 3, (wp[0][1] + wp[1][1] + wp[2][1]) / 3];
+    kitLabel(x1w, "tent canvas: one triangle, drag a corner", tc[0], tc[1] + 26, "center", AMB);
+    const kq = wpx([2.8, 0, -5.2]); kitLabel(x1w, "knight", kq[0] + 12, kq[1] - 12, "left");
+    const hq = wpx([3.0, 0, -14]); kitLabel(x1w, "farmhouse", hq[0], hq[1] + 14, "center");
+    // NDC view: the screen as a -1 … +1 square
     x1n.fillStyle = GROUND; x1n.fillRect(0, 0, 512, 512);
     const n2s = n => [40 + (n[0] + 1) * 216, 40 + (1 - n[1]) * 216];
     x1n.strokeStyle = GRID; x1n.beginPath(); for (let k = -1; k <= 1; k += 0.5) { const p = n2s([k, k]); x1n.moveTo(p[0], 0); x1n.lineTo(p[0], 512); x1n.moveTo(0, p[1]); x1n.lineTo(512, p[1]); } x1n.stroke();
     const np = pr.map(p => n2s(p.ndc));
     x1n.save(); x1n.beginPath(); x1n.rect(40, 40, 432, 432); x1n.clip();
-    x1n.fillStyle = "rgba(74,163,255,0.28)"; x1n.strokeStyle = BLU; x1n.lineWidth = 2; x1n.beginPath(); x1n.moveTo(np[0][0], np[0][1]); x1n.lineTo(np[1][0], np[1][1]); x1n.lineTo(np[2][0], np[2][1]); x1n.closePath(); x1n.fill(); x1n.stroke();
+    x1n.fillStyle = "#12161d"; x1n.fillRect(40, 40, 432, 432);
+    drawCamp(x1n, v => n2s(project(v).ndc), 0.35);
+    x1n.fillStyle = "rgba(74,163,255,0.3)"; x1n.strokeStyle = BLU; x1n.lineWidth = 2; x1n.beginPath(); x1n.moveTo(np[0][0], np[0][1]); x1n.lineTo(np[1][0], np[1][1]); x1n.lineTo(np[2][0], np[2][1]); x1n.closePath(); x1n.fill(); x1n.stroke();
     x1n.restore();
     x1n.strokeStyle = "rgba(74,163,255,0.35)"; x1n.setLineDash([3, 4]); x1n.beginPath(); x1n.moveTo(np[0][0], np[0][1]); x1n.lineTo(np[1][0], np[1][1]); x1n.lineTo(np[2][0], np[2][1]); x1n.closePath(); x1n.stroke(); x1n.setLineDash([]);
     x1n.strokeStyle = WHT; x1n.lineWidth = 1; x1n.strokeRect(40.5, 40.5, 432, 432);
-    label(x1n, "−1", 22, 480, "rgba(255,255,255,0.5)"); label(x1n, "+1", 458, 32, "rgba(255,255,255,0.5)"); label(x1n, "ndc x", 236, 492, "rgba(255,255,255,0.5)"); label(x1n, "clipped outside the square", 44, 30, "rgba(255,255,255,0.5)");
+    label(x1n, "−1", 22, 480, "rgba(255,255,255,0.5)"); label(x1n, "+1", 458, 32, "rgba(255,255,255,0.5)"); label(x1n, "ndc x", 236, 492, "rgba(255,255,255,0.5)");
+    kitLabel(x1n, "the screen as a −1 … +1 square", 44, 26, "left", "#c7cdd8");
+    kitLabel(x1n, "outside the square: cut off", 468, 490, "right", "#c7cdd8");
     np.forEach((p, i) => { const q = [clamp(p[0], 8, 504), clamp(p[1], 8, 504)]; handle(x1n, q[0], q[1], 6, i === sel1); label(x1n, "z " + pr[i].ndc[2].toFixed(3), q[0] + 9, q[1] + 4); });
-    // viewport
+    // viewport: what the player sees at 1920×1080
     x1v.fillStyle = GROUND; x1v.fillRect(0, 0, 512, 512);
     const v2s = v => [v[0] / 1920 * 512, 112 + v[1] / 1080 * 288];
-    x1v.fillStyle = "#12161d"; x1v.fillRect(0, 112, 512, 288);
-    x1v.strokeStyle = GRID; x1v.beginPath(); for (let k = 240; k < 1920; k += 240) { const x = k / 1920 * 512 + 0.5; x1v.moveTo(x, 112); x1v.lineTo(x, 400); } for (let k = 270; k < 1080; k += 270) { const y = 112 + k / 1080 * 288 + 0.5; x1v.moveTo(0, y); x1v.lineTo(512, y); } x1v.stroke();
-    const vp = pr.map(p => v2s(p.vp));
     x1v.save(); x1v.beginPath(); x1v.rect(0, 112, 512, 288); x1v.clip();
-    x1v.fillStyle = "rgba(242,163,65,0.3)"; x1v.strokeStyle = AMB; x1v.lineWidth = 2; x1v.beginPath(); x1v.moveTo(vp[0][0], vp[0][1]); x1v.lineTo(vp[1][0], vp[1][1]); x1v.lineTo(vp[2][0], vp[2][1]); x1v.closePath(); x1v.fill(); x1v.stroke();
+    x1v.translate(0, 112); kitGround(x1v, 512, 288, 144); x1v.translate(0, -112);
+    drawCamp(x1v, v => v2s(project(v).vp), 1);
+    const vp = pr.map(p => v2s(p.vp));
+    x1v.fillStyle = "rgba(242,163,65,0.35)"; x1v.strokeStyle = AMB; x1v.lineWidth = 2; x1v.beginPath(); x1v.moveTo(vp[0][0], vp[0][1]); x1v.lineTo(vp[1][0], vp[1][1]); x1v.lineTo(vp[2][0], vp[2][1]); x1v.closePath(); x1v.fill(); x1v.stroke();
+    x1v.strokeStyle = GRID; x1v.beginPath(); for (let k = 240; k < 1920; k += 240) { const x = k / 1920 * 512 + 0.5; x1v.moveTo(x, 112); x1v.lineTo(x, 400); } for (let k = 270; k < 1080; k += 270) { const y = 112 + k / 1080 * 288 + 0.5; x1v.moveTo(0, y); x1v.lineTo(512, y); } x1v.stroke();
     x1v.restore();
-    x1v.strokeStyle = WHT; x1v.strokeRect(0.5, 112.5, 511, 288);
-    label(x1v, "(0, 0)", 6, 106, "rgba(255,255,255,0.5)"); label(x1v, "(1920, 1080)", 506, 416, "rgba(255,255,255,0.5)", "right");
+    x1v.strokeStyle = WHT; x1v.lineWidth = 1; x1v.strokeRect(0.5, 112.5, 511, 288);
+    label(x1v, "(0, 0) px", 6, 106, "rgba(255,255,255,0.5)"); label(x1v, "(1920, 1080) px", 506, 416, "rgba(255,255,255,0.5)", "right");
+    kitLabel(x1v, "what the player sees", 256, 96, "center", "#c7cdd8");
+    kitLabel(x1v, "the tent, placed in pixels", 256, 440, "center", AMB);
     vp.forEach((p, i) => { const q = [clamp(p[0], 8, 504), clamp(p[1], 120, 392)]; handle(x1v, q[0], q[1], 6, i === sel1); });
     const s = pr[sel1], v = V1[sel1];
-    $("c1w-cap").innerHTML = `v${sel1} view = <strong>(${v[0].toFixed(2)}, ${v[1].toFixed(2)}, ${v[2].toFixed(2)}) m</strong>`;
+    $("c1w-cap").innerHTML = `${VNAME[sel1]} = <strong>(${v[0].toFixed(2)}, ${v[1].toFixed(2)}, ${v[2].toFixed(2)}) m</strong> from the camera`;
     $("c1n-cap").innerHTML = `clip w = <strong>${s.clip[3].toFixed(2)}</strong> · ndc = <strong>(${s.ndc[0].toFixed(3)}, ${s.ndc[1].toFixed(3)}, ${s.ndc[2].toFixed(4)})</strong>`;
     const inside = Math.abs(s.ndc[0]) <= 1 && Math.abs(s.ndc[1]) <= 1;
-    $("c1v-cap").innerHTML = `viewport = <strong>(${s.vp[0].toFixed(0)}, ${s.vp[1].toFixed(0)}) px</strong> · depth ${(s.ndc[2] * 0.5 + 0.5).toFixed(5)}${inside ? "" : " · off screen"}`;
+    $("c1v-cap").innerHTML = `pixel = <strong>(${s.vp[0].toFixed(0)}, ${s.vp[1].toFixed(0)})</strong> · depth ${(s.ndc[2] * 0.5 + 0.5).toFixed(5)}${inside ? "" : " · off screen"}`;
   }
   drag(c1w, () => V1.map(wpx), (i, x, y) => { sel1 = i; V1[i][0] = clamp((x - CX) / S1, -8.5, 8.5); V1[i][2] = clamp((y - CY) / S1, -16, -0.55); draw1(); });
   draw1();
 
-  // ---------- 2. coverage ----------
+  // ---------- 2. coverage: the knight's shield on a 24×16 screen ----------
   const GW = 24, GH = 16, CS = 32;
   const c2 = $("c2"), x2 = c2.getContext("2d");
-  const T2 = { v: [[3.5, 4.5], [12.5, 2.5], [12.5, 13.5], [21.5, 8.5]], rule: "tl", hover: null };
+  // a kite shield: left point, top, bottom, right point; the two triangles share the vertical seam v1–v2
+  const T2 = { v: [[5.5, 7.5], [12.5, 2.5], [12.5, 13.5], [19.5, 7.5]], rule: "tl", hover: null };
   const VC = [[242, 163, 65], [74, 163, 255], [255, 255, 255]];
+  const back2 = document.createElement("canvas"); back2.width = 768; back2.height = 512;
+  { const b = back2.getContext("2d"); kitGround(b, 768, 512, 320); kitTree(b, 60, 330, 48); kitTree(b, 720, 340, 40); kitPlayer(b, 690, 480, 90, -1); kitFire(b, 110, 470, 26);
+    b.fillStyle = "rgba(11,14,19,0.72)"; b.fillRect(0, 0, 768, 512); }
+  const off2 = document.createElement("canvas"); off2.width = GW; off2.height = GH;
   function coverage(tri, px, py, rule) {
     const [a, b, c] = tri, e = [edge(b, c, px, py), edge(c, a, px, py), edge(a, b, px, py)];
     const tl = [topLeft(b, c), topLeft(c, a), topLeft(a, b)];
@@ -666,19 +852,23 @@ drawOpaque(fullPixelShader);
   }
   function draw2() {
     const A = orient(T2.v[0], T2.v[1], T2.v[2]), B = orient(T2.v[1], T2.v[2], T2.v[3]);
-    x2.fillStyle = GROUND; x2.fillRect(0, 0, 768, 512);
+    x2.drawImage(back2, 0, 0);
     let nA = 0, nB = 0, nOn = 0, nDouble = 0, nMiss = 0;
     const s1 = T2.v[1], s2 = T2.v[2];
+    const img = new ImageData(GW, GH), d = img.data;
     for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) {
       const px = i + 0.5, py = j + 0.5, ca = coverage(A, px, py, T2.rule), cb = coverage(B, px, py, T2.rule);
       const onShared = edge(s1, s2, px, py) === 0 && px >= Math.min(s1[0], s2[0]) && px <= Math.max(s1[0], s2[0]) && py >= Math.min(s1[1], s2[1]) && py <= Math.max(s1[1], s2[1]) && !(px === s1[0] && py === s1[1]) && !(px === s2[0] && py === s2[1]);
-      let fill = null;
-      if (ca.inside && cb.inside) { fill = RED; nDouble++; }
-      else if (ca.inside) { const l = ca.e.map(v => v / ca.area); const c = [0, 1, 2].map(k => 0.7 * (l[0] * VC[0][k] + l[1] * VC[1][k] + l[2] * VC[2][k])); fill = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`; }
-      else if (cb.inside) fill = "rgba(74,163,255,0.35)";
+      let fill = null, seen = null;
+      if (ca.inside && cb.inside) { fill = RED; nDouble++; seen = [255, 235, 200]; }
+      else if (ca.inside) { const l = ca.e.map(v => v / ca.area); const c = [0, 1, 2].map(k => 0.7 * (l[0] * VC[0][k] + l[1] * VC[1][k] + l[2] * VC[2][k])); fill = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`; seen = [165, 67, 58]; }
+      else if (cb.inside) { fill = "rgba(74,163,255,0.4)"; seen = [74, 163, 255]; }
       if (ca.inside) nA++; if (cb.inside) nB++;
-      if (onShared) { nOn++; if (!ca.inside && !cb.inside) { nMiss++; fill = RED; } }
+      if (onShared) { nOn++; if (!ca.inside && !cb.inside) { nMiss++; fill = RED; seen = null; } }
       if (fill) { x2.fillStyle = fill; x2.fillRect(i * CS + 1, j * CS + 1, CS - 2, CS - 2); }
+      const o = (j * GW + i) * 4;
+      if (seen) { d[o] = seen[0]; d[o + 1] = seen[1]; d[o + 2] = seen[2]; d[o + 3] = 255; }
+      else { const sky = j < 10; d[o] = sky ? 20 : 31; d[o + 1] = sky ? 26 : 58; d[o + 2] = sky ? 38 : 42; d[o + 3] = 255; }
     }
     x2.strokeStyle = GRID; x2.lineWidth = 1; x2.beginPath();
     for (let i = 0; i <= GW; i++) { x2.moveTo(i * CS + 0.5, 0); x2.lineTo(i * CS + 0.5, 512); }
@@ -690,7 +880,15 @@ drawOpaque(fullPixelShader);
     tri(B, BLU); tri(A, AMB);
     if (T2.hover) { const [i, j] = T2.hover; x2.strokeStyle = WHT; x2.lineWidth = 2; x2.strokeRect(i * CS + 1.5, j * CS + 1.5, CS - 3, CS - 3); }
     T2.v.forEach((v, i) => handle(x2, v[0] * CS, v[1] * CS, 7, i === 1 || i === 2));
-    label(x2, "A", T2.v[0][0] * CS + 12, T2.v[0][1] * CS + 4, AMB); label(x2, "B", T2.v[3][0] * CS - 12, T2.v[3][1] * CS + 4, BLU, "right");
+    kitLabel(x2, "shield, left half (A)", T2.v[0][0] * CS, T2.v[0][1] * CS - 16, "left", AMB);
+    kitLabel(x2, "right half (B)", T2.v[3][0] * CS, T2.v[3][1] * CS + 18, "right", BLU);
+    kitLabel(x2, "shared edge: whose pixel?", (s1[0] + s2[0]) / 2 * CS, Math.min(s1[1], s2[1]) * CS - 14, "center");
+    kitArrow(x2, 2 * CS + 6, 2 * CS + 6, 2.5 * CS - 3, 2.5 * CS - 3, WHT); kitLabel(x2, "pixel center", 0.5 * CS, 1.5 * CS, "left");
+    kitLabel(x2, "the screen: 24×16 pixels", 762, 14, "right", "#c7cdd8");
+    // what the player sees: the shield as drawn, 4 px per screen pixel
+    off2.getContext("2d").putImageData(img, 0, 0);
+    kitInset(x2, 660, 418, 104, 90, "on screen");
+    x2.imageSmoothingEnabled = false; x2.drawImage(off2, 664, 440, 96, 64);
     $("c2-count").innerHTML = `A <strong>${nA} px</strong> · B <strong>${nB} px</strong> · centers exactly on the shared edge <strong>${nOn}</strong> · double-covered <strong style="color:${nDouble ? RED : "inherit"}">${nDouble}</strong> · missed <strong style="color:${nMiss ? RED : "inherit"}">${nMiss}</strong>`;
     if (T2.hover) {
       const [i, j] = T2.hover, ca = coverage(A, i + 0.5, j + 0.5, T2.rule), l = ca.e.map(v => v / ca.area);
@@ -703,7 +901,7 @@ drawOpaque(fullPixelShader);
   onSeg("segTL", v => { T2.rule = v; draw2(); });
   draw2();
 
-  // ---------- 2b. perspective-correct interpolation ----------
+  // ---------- 2b. perspective-correct interpolation: the flagstone courtyard ----------
   const c2q = $("c2q"), x2q = c2q.getContext("2d"), RQ = 256;
   const Q = { mode: "affine", depth: 8 };
   const offQ = document.createElement("canvas"); offQ.width = RQ; offQ.height = RQ;
@@ -727,26 +925,43 @@ drawOpaque(fullPixelShader);
         if (persp) { const iw = l0 / a.w + l1 / b.w + l2 / c.w; u = (l0 * a.uv[0] / a.w + l1 * b.uv[0] / b.w + l2 * c.uv[0] / c.w) / iw; v = (l0 * a.uv[1] / a.w + l1 * b.uv[1] / b.w + l2 * c.uv[1] / c.w) / iw; }
         else { u = l0 * a.uv[0] + l1 * b.uv[0] + l2 * c.uv[0]; v = l0 * a.uv[1] + l1 * b.uv[1] + l2 * c.uv[1]; }
         const ck = ((Math.floor(u * 8) + Math.floor(v * 8)) & 1) === 0, o = (y * RQ + x) * 4;
-        if (ck) { d[o] = 206; d[o + 1] = 139; d[o + 2] = 55; } else { d[o] = 44; d[o + 1] = 50; d[o + 2] = 62; }
+        if (ck) { d[o] = 107; d[o + 1] = 117; d[o + 2] = 133; } else { d[o] = 59; d[o + 1] = 47; d[o + 2] = 37; } // light and dark flagstones
         d[o + 3] = 255;
       }
     }
     offQ.getContext("2d").putImageData(img, 0, 0);
-    x2q.fillStyle = GROUND; x2q.fillRect(0, 0, 512, 512); x2q.imageSmoothingEnabled = false; x2q.drawImage(offQ, 0, 0, 512, 512);
+    // the courtyard scene: sky and grass, then the floor, then the knight and the buildings past the far edge
+    kitGround(x2q, 512, 512, 256);
+    x2q.imageSmoothingEnabled = false; x2q.drawImage(offQ, 0, 0, 512, 512);
+    const sp = (x, y, z) => [(f * x / z * 0.5 + 0.5) * 512, (0.5 - f * y / z * 0.5) * 512];
+    const props = [{ k: "tree", x: 3.6, z: zf + 7, h: 4.5 }, { k: "house", x: 2.2, z: zf + 4, w: 3, h: 2.2 }, { k: "tree", x: -2.4, z: zf + 2.5, h: 4 }, { k: "knight", x: 0, z: zf + 0.3, h: 1.8 }];
+    for (const p of props) {
+      const base = sp(p.x, -0.8, p.z), top = sp(p.x, -0.8 + p.h, p.z), hpx = base[1] - top[1];
+      if (p.k === "tree") kitTree(x2q, base[0], base[1], hpx / 1.87);
+      else if (p.k === "knight") kitPlayer(x2q, base[0], base[1], hpx, 1);
+      else { const l = sp(p.x - p.w / 2, -0.8, p.z), r = sp(p.x + p.w / 2, -0.8, p.z); kitHouse(x2q, l[0], base[1], r[0] - l[0], hpx); }
+    }
     x2q.strokeStyle = "rgba(255,255,255,0.7)"; x2q.setLineDash([4, 4]); x2q.lineWidth = 1; x2q.beginPath(); x2q.moveTo(sv[0].p[0] * 2, sv[0].p[1] * 2); x2q.lineTo(sv[2].p[0] * 2, sv[2].p[1] * 2); x2q.stroke(); x2q.setLineDash([]);
-    if (Q.mode === "split") { x2q.strokeStyle = WHT; x2q.beginPath(); x2q.moveTo(256.5, 0); x2q.lineTo(256.5, 512); x2q.stroke(); label(x2q, "affine", 246, 20, WHT, "right"); label(x2q, "perspective-correct", 266, 20, WHT); }
-    label(x2q, "triangle seam", sv[2].p[0] * 2 + 8, sv[2].p[1] * 2 - 6);
-    $("c2q-read").innerHTML = `w_near = <strong>${zn.toFixed(1)}</strong> · w_far = <strong>${zf.toFixed(1)}</strong> · ratio <strong>${(zf / zn).toFixed(1)}×</strong> · 8×8 checker on a 1.8 m wide quad`;
+    if (Q.mode === "split") { x2q.strokeStyle = WHT; x2q.beginPath(); x2q.moveTo(256.5, 0); x2q.lineTo(256.5, 512); x2q.stroke(); kitLabel(x2q, "affine", 246, 20, "right"); kitLabel(x2q, "perspective-correct", 266, 20, "left"); }
+    else kitLabel(x2q, Q.mode === "affine" ? "affine: the tiles kink at the seam" : "perspective-correct: tiles line up", 256, 20, "center");
+    const mid = [(sv[0].p[0] + sv[2].p[0]), (sv[0].p[1] + sv[2].p[1])];
+    kitLabel(x2q, "seam between the two triangles", mid[0] + 14, mid[1], "left");
+    kitLabel(x2q, "flagstone courtyard, 8×8 tiles", 8, 500, "left", "#c7cdd8");
+    const kb = sp(0, -0.8, zf + 0.3); kitLabel(x2q, "knight at the far edge", kb[0] - 14, kb[1] - 30, "right");
+    $("c2q-read").innerHTML = `w_near = <strong>${zn.toFixed(1)}</strong> · w_far = <strong>${zf.toFixed(1)}</strong> · ratio <strong>${(zf / zn).toFixed(1)}×</strong> · 8×8 flagstones on a 1.8 m wide courtyard`;
   }
   onSeg("segPC", v => { Q.mode = v; drawQ(); });
   $("qdepth").addEventListener("input", () => { Q.depth = +$("qdepth").value; $("qdepthv").textContent = Q.depth + " m"; drawQ(); });
   drawQ();
 
-  // ---------- 3. depth buffer ----------
+  // ---------- 3. depth buffer: a banner on the castle wall ----------
   const c3 = $("c3"), x3 = c3.getContext("2d"), R3 = 64, FAR3 = 500;
   const D3 = { dA: 30, dB: -5, near: 0.1, bits: "16", test: "less", hover: null };
-  const TA3 = orient([5, 8], [46, 5], [19, 59]), TB3 = orient([22, 16], [61, 29], [35, 61]);
+  // plane A: the castle wall, a body plus five merlons along the top. Plane B: a banner hung on it, a pentagon.
+  const WALL3 = [[0, 14, 46, 64], [2, 8, 8, 14], [12, 8, 18, 14], [22, 8, 28, 14], [32, 8, 38, 14], [42, 8, 46, 14]];
+  const BAN3 = [[16, 20], [30, 20], [30, 46], [23, 54], [16, 46]];
   const off3 = document.createElement("canvas"); off3.width = R3; off3.height = R3;
+  const see3 = document.createElement("canvas"); see3.width = R3; see3.height = R3;
   const z01 = (z, near) => FAR3 * (z - near) / (z * (FAR3 - near));
   const ulp = v => { v = Math.abs(v); return v === 0 ? Math.pow(2, -149) : Math.pow(2, Math.floor(Math.log2(v)) - 23); };
   function quant(z, bits) {
@@ -762,7 +977,12 @@ drawOpaque(fullPixelShader);
   }
   const fmtMM = m => { const mm = m * 1000; return mm >= 100 ? mm.toFixed(0) + " mm" : mm >= 1 ? mm.toFixed(1) + " mm" : mm >= 0.001 ? mm.toFixed(3) + " mm" : (mm * 1000).toFixed(2) + " µm"; };
   const zA3 = (x, y) => D3.dA * (1 + 0.1 * (x / R3 - 0.5) + 0.05 * (y / R3 - 0.5));
-  function inside3(t, px, py) { return edge(t[1], t[2], px, py) >= 0 && edge(t[2], t[0], px, py) >= 0 && edge(t[0], t[1], px, py) >= 0; }
+  const insideWall = (px, py) => WALL3.some(r => px > r[0] && px < r[2] && py > r[1] && py < r[3]);
+  function insidePoly(poly, px, py) { // convex polygon, edge functions all the same sign
+    let sgn = 0;
+    for (let i = 0; i < poly.length; i++) { const e = edge(poly[i], poly[(i + 1) % poly.length], px, py); if (e === 0) continue; if (sgn === 0) sgn = Math.sign(e); else if (Math.sign(e) !== sgn) return false; }
+    return true;
+  }
   function draw3() {
     const pass = (n, s) => D3.test === "less" ? n < s : n > s;
     const clear = D3.test === "less" ? Infinity : -Infinity;
@@ -770,34 +990,43 @@ drawOpaque(fullPixelShader);
     let lo = Infinity, hi = -Infinity, winA = 0, winB = 0;
     for (let j = 0; j < R3; j++) for (let i = 0; i < R3; i++) {
       const px = i + 0.5, py = j + 0.5, k = j * R3 + i; let s = clear, o = 0;
-      const a = inside3(TA3, px, py), b = inside3(TB3, px, py);
+      const a = insideWall(px, py), b = insidePoly(BAN3, px, py);
       if (a) { const q = quant(z01(zA3(px, py), D3.near), D3.bits); if (pass(q, s)) { s = q; o = 1; } }
       if (b) { const q = quant(z01(zA3(px, py) + D3.dB / 1000, D3.near), D3.bits); if (pass(q, s)) { s = q; o = 2; } }
       owner[k] = o; stored[k] = s;
       if (o) { lo = Math.min(lo, s); hi = Math.max(hi, s); }
       if (a && b) { if (o === 1) winA++; else if (o === 2) winB++; }
     }
-    const img = new ImageData(R3, R3), d = img.data;
+    const img = new ImageData(R3, R3), d = img.data, see = new ImageData(R3, R3), sd = see.data;
     for (let k = 0; k < R3 * R3; k++) {
-      const o = owner[k], p = k * 4;
-      if (!o) { d[p] = 11; d[p + 1] = 14; d[p + 2] = 19; d[p + 3] = 255; continue; }
-      const t = hi > lo ? 0.3 + 0.7 * (stored[k] - lo) / (hi - lo) : 0.75, c = o === 1 ? [242, 163, 65] : [74, 163, 255];
-      d[p] = c[0] * t; d[p + 1] = c[1] * t; d[p + 2] = c[2] * t; d[p + 3] = 255;
+      const o = owner[k], p = k * 4, j = (k / R3) | 0;
+      // heatmap: colour is the owner, brightness the stored value
+      if (!o) { d[p] = 11; d[p + 1] = 14; d[p + 2] = 19; d[p + 3] = 255; }
+      else { const t = hi > lo ? 0.3 + 0.7 * (stored[k] - lo) / (hi - lo) : 0.75, c = o === 1 ? [242, 163, 65] : [74, 163, 255]; d[p] = c[0] * t; d[p + 1] = c[1] * t; d[p + 2] = c[2] * t; d[p + 3] = 255; }
+      // what the player sees: stone, banner red, sky
+      const sc = o === 1 ? (((k % R3) + j) % 7 === 0 ? [92, 102, 118] : [76, 85, 99]) : o === 2 ? [165, 67, 58] : j < 40 ? [20, 26, 38] : [31, 58, 42];
+      sd[p] = sc[0]; sd[p + 1] = sc[1]; sd[p + 2] = sc[2]; sd[p + 3] = 255;
     }
-    off3.getContext("2d").putImageData(img, 0, 0);
+    off3.getContext("2d").putImageData(img, 0, 0); see3.getContext("2d").putImageData(see, 0, 0);
     x3.imageSmoothingEnabled = false; x3.drawImage(off3, 0, 0, 512, 512);
-    const outline = (t, col) => { x3.strokeStyle = col; x3.lineWidth = 1.5; x3.beginPath(); x3.moveTo(t[0][0] * 8, t[0][1] * 8); x3.lineTo(t[1][0] * 8, t[1][1] * 8); x3.lineTo(t[2][0] * 8, t[2][1] * 8); x3.closePath(); x3.stroke(); };
-    outline(TA3, "rgba(242,163,65,0.8)"); outline(TB3, "rgba(74,163,255,0.8)");
-    label(x3, "A drawn first", 44, 32, AMB); label(x3, "B second, " + (D3.dB >= 0 ? "+" : "−") + Math.abs(D3.dB) + " mm", 504, 500, BLU, "right");
+    x3.strokeStyle = "rgba(242,163,65,0.8)"; x3.lineWidth = 1.5;
+    for (const r of WALL3) x3.strokeRect(r[0] * 8 + 0.5, r[1] * 8 + 0.5, (r[2] - r[0]) * 8, (r[3] - r[1]) * 8);
+    x3.strokeStyle = "rgba(74,163,255,0.9)"; x3.beginPath(); BAN3.forEach((p, i) => i ? x3.lineTo(p[0] * 8, p[1] * 8) : x3.moveTo(p[0] * 8, p[1] * 8)); x3.closePath(); x3.stroke();
+    kitLabel(x3, "castle wall, drawn first (A)", 8, 130, "left", AMB);
+    kitLabel(x3, "banner, " + (D3.dB >= 0 ? "+" : "−") + Math.abs(D3.dB) + " mm, drawn second (B)", 8, 480, "left", BLU);
+    kitLabel(x3, "sky: nothing drawn,", 508, 184, "right", "#c7cdd8"); kitLabel(x3, "depth stays at far", 508, 204, "right", "#c7cdd8");
+    if (winA > 0 && winB > 0) kitLabel(x3, "stripes: both round to one value", 184, 300, "center");
+    kitInset(x3, 374, 8, 132, 154, "player's view");
+    x3.drawImage(see3, 378, 32, 124, 124);
     if (D3.hover) { const [i, j] = D3.hover; x3.strokeStyle = WHT; x3.lineWidth = 2; x3.strokeRect(i * 8 + 0.5, j * 8 + 0.5, 8, 8); }
-    $("c3-count").innerHTML = `overlap: A keeps <strong>${winA} px</strong>, B wins <strong>${winB} px</strong> · stored range ${isFinite(lo) ? lo.toFixed(7) + " … " + hi.toFixed(7) : "—"}`;
+    $("c3-count").innerHTML = `where the banner covers the wall: wall keeps <strong>${winA} px</strong>, banner wins <strong>${winB} px</strong> · stored range ${isFinite(lo) ? lo.toFixed(7) + " … " + hi.toFixed(7) : "—"}`;
     for (const b of ["16", "24", "32", "32r"]) { const el = $("t3-" + b); el.querySelector(".n").textContent = fmtMM(stepAt(D3.dA, b)); el.classList.toggle("on", b === D3.bits); }
     if (D3.hover) {
-      const [i, j] = D3.hover, px = i + 0.5, py = j + 0.5, k = j * R3 + i, a = inside3(TA3, px, py), b = inside3(TB3, px, py);
+      const [i, j] = D3.hover, px = i + 0.5, py = j + 0.5, k = j * R3 + i, a = insideWall(px, py), b = insidePoly(BAN3, px, py);
       const za = zA3(px, py), zb = za + D3.dB / 1000, qa = quant(z01(za, D3.near), D3.bits), qb = quant(z01(zb, D3.near), D3.bits);
       const fmtQ = q => D3.bits === "16" ? Math.round(q * 65535) : D3.bits === "24" ? Math.round(q * 16777215) : q.toPrecision(8);
-      let verdict = !a && !b ? "not covered" : !b ? "only A" : !a ? "only B" : qa === qb ? `same quantum, B ${D3.test === "less" ? "fails LESS, A stays" : "fails GREATER, A stays"}` : (owner[k] === 2 ? "B passes" : "B fails");
-      $("c3-read").innerHTML = `px (${i}, ${j}): z_A ${a ? za.toFixed(4) + " m → " + fmtQ(qa) : "—"} · z_B ${b ? zb.toFixed(4) + " m → " + fmtQ(qb) : "—"} · <strong style="color:${owner[k] === 2 ? GRN : (a && b ? RED : "inherit")}">${verdict}</strong>`;
+      let verdict = !a && !b ? "not covered" : !b ? "only the wall" : !a ? "only the banner" : qa === qb ? `same quantum, banner ${D3.test === "less" ? "fails LESS, wall stays" : "fails GREATER, wall stays"}` : (owner[k] === 2 ? "banner passes" : "banner fails");
+      $("c3-read").innerHTML = `px (${i}, ${j}): z_wall ${a ? za.toFixed(4) + " m → " + fmtQ(qa) : "—"} · z_banner ${b ? zb.toFixed(4) + " m → " + fmtQ(qb) : "—"} · <strong style="color:${owner[k] === 2 ? GRN : (a && b ? RED : "inherit")}">${verdict}</strong>`;
     } else $("c3-read").textContent = "hover a pixel to see both depths and the stored quantum";
   }
   c3.addEventListener("pointermove", ev => { const [x, y] = pos(c3, ev); const h = [clamp(Math.floor(x / 8), 0, 63), clamp(Math.floor(y / 8), 0, 63)]; if (String(h) !== String(D3.hover)) { D3.hover = h; draw3(); } });
@@ -809,17 +1038,28 @@ drawOpaque(fullPixelShader);
   onSeg("segTest", v => { D3.test = v; draw3(); });
   draw3();
 
-  // ---------- 4. early-Z and overdraw ----------
+  // ---------- 4. early-Z and overdraw: five trees in front of each other ----------
   const c4 = $("c4"), x4 = c4.getContext("2d"), G4W = 64, G4H = 36, C4 = 10, SCALE4 = 1920 * 1080 / (G4W * G4H);
   const O4 = { order: "btf", early: true, draws: 5 };
+  // each tree: cell box (x, y, w, h) and its depth z; nearer trees are bigger and stand lower on screen
   const quads = [
-    { x: 4, y: 2, w: 38, h: 24, z: 0.90 }, { x: 14, y: 8, w: 36, h: 22, z: 0.70 }, { x: 24, y: 3, w: 34, h: 24, z: 0.50 },
-    { x: 8, y: 14, w: 40, h: 20, z: 0.30 }, { x: 28, y: 11, w: 32, h: 22, z: 0.15 }];
+    { x: 30, y: 16, w: 8, h: 11, z: 0.90 }, { x: 40, y: 14, w: 11, h: 15, z: 0.70 }, { x: 20, y: 12, w: 14, h: 19, z: 0.50 },
+    { x: 34, y: 9, w: 18, h: 24, z: 0.30 }, { x: 8, y: 6, w: 22, h: 30, z: 0.15 }];
+  // a tree's footprint on the cell grid: a canopy ellipse plus a trunk, computed once per size
+  for (const q of quads) {
+    q.mask = new Uint8Array(q.w * q.h); q.cells = 0;
+    for (let j = 0; j < q.h; j++) for (let i = 0; i < q.w; i++) {
+      const u = (i + 0.5) / q.w - 0.5, v = (j + 0.5) / q.h;
+      const canopy = (u * u) / 0.25 + ((v - 0.36) * (v - 0.36)) / (0.36 * 0.36) <= 1, trunk = Math.abs(u) < 0.1 && v > 0.55;
+      if (canopy || trunk) { q.mask[j * q.w + i] = 1; q.cells++; }
+    }
+  }
   function sim4(order, early, n) {
     const list = quads.slice().sort((a, b) => order === "ftb" ? a.z - b.z : b.z - a.z).slice(0, n);
     const depth = new Float32Array(G4W * G4H).fill(1), shaded = new Uint8Array(G4W * G4H); let ras = 0, sh = 0;
-    for (const q of list) for (let j = q.y; j < q.y + q.h; j++) for (let i = q.x; i < q.x + q.w; i++) {
-      const k = j * G4W + i; ras++;
+    for (const q of list) for (let j = 0; j < q.h; j++) for (let i = 0; i < q.w; i++) {
+      if (!q.mask[j * q.w + i]) continue;
+      const k = (q.y + j) * G4W + q.x + i; ras++;
       const passes = q.z < depth[k];
       if (early) { if (passes) { sh++; shaded[k]++; depth[k] = q.z; } }
       else { sh++; shaded[k]++; if (passes) depth[k] = q.z; }
@@ -827,6 +1067,11 @@ drawOpaque(fullPixelShader);
     return { shaded, ras, sh };
   }
   const off4 = document.createElement("canvas"); off4.width = G4W; off4.height = G4H;
+  function treeOutline(ctx, q) {
+    const cx = (q.x + q.w / 2) * C4, cy = (q.y + q.h * 0.36) * C4;
+    ctx.beginPath(); ctx.ellipse(cx, cy, q.w / 2 * C4, q.h * 0.36 * C4, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeRect((q.x + q.w / 2 - q.w * 0.1) * C4, (q.y + q.h * 0.55) * C4, q.w * 0.2 * C4, q.h * 0.45 * C4);
+  }
   function draw4() {
     const r = sim4(O4.order, O4.early, O4.draws);
     const img = new ImageData(G4W, G4H), d = img.data, ramp = [[11, 14, 19], [36, 80, 128], [74, 163, 255], [242, 163, 65], [255, 210, 120], [255, 255, 255]];
@@ -840,14 +1085,19 @@ drawOpaque(fullPixelShader);
     const list = quads.slice().sort((a, b) => O4.order === "ftb" ? a.z - b.z : b.z - a.z).slice(0, O4.draws);
     quads.forEach((q, i) => {
       const drawn = list.includes(q);
-      x4.strokeStyle = drawn ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.25)"; x4.lineWidth = 1.5; x4.strokeRect(q.x * C4 + 0.5, q.y * C4 + 0.5, q.w * C4, q.h * C4);
+      x4.strokeStyle = drawn ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.25)"; x4.lineWidth = 1.5; treeOutline(x4, q);
       handle(x4, (q.x + q.w / 2) * C4, (q.y + q.h / 2) * C4, 7);
-      const txt = "z " + q.z.toFixed(2) + (drawn ? " · draw #" + (list.indexOf(q) + 1) : " · not issued"), lx = (q.x + q.w / 2) * C4 + 11, ly = (q.y + q.h / 2) * C4 + 4;
-      x4.font = "12px IBM Plex Mono, Menlo, monospace"; x4.fillStyle = "rgba(11,14,19,0.8)"; x4.fillRect(lx - 3, ly - 11, x4.measureText(txt).width + 6, 15);
-      label(x4, txt, lx, ly, drawn ? WHT : "rgba(255,255,255,0.5)");
+      const txt = "tree z " + q.z.toFixed(2) + (drawn ? " · draw #" + (list.indexOf(q) + 1) : " · not issued");
+      kitLabel(x4, txt, (q.x + q.w / 2) * C4 + 11, (q.y + q.h / 2) * C4 + [-40, 40, 0, 20, -20][i], "left", drawn ? WHT : "rgba(255,255,255,0.5)");
     });
     for (let k = 0; k <= 5; k++) { x4.fillStyle = `rgb(${ramp[k].join(",")})`; x4.fillRect(8 + k * 16, 342, 14, 10); x4.strokeStyle = "rgba(255,255,255,0.4)"; x4.strokeRect(8.5 + k * 16, 342.5, 14, 10); }
     label(x4, "shader runs per pixel: 0 … 5", 110, 351, "rgba(255,255,255,0.7)");
+    // what the player sees: the five trees in depth order, one fifth scale
+    kitInset(x4, 470, 8, 162, 96, "player's view");
+    x4.save(); x4.beginPath(); x4.rect(472, 26, 158, 76); x4.clip(); x4.translate(487, 30); x4.scale(0.2, 0.2);
+    kitGround(x4, 640, 360, 250);
+    quads.slice().sort((a, b) => b.z - a.z).forEach(q => kitTree(x4, (q.x + q.w / 2) * C4, (q.y + q.h) * C4, q.h * C4 / 1.87));
+    x4.restore();
     const M = v => (v * SCALE4 / 1e6).toFixed(2);
     $("c4-read").innerHTML = `${fmtN(G4W * G4H)} cells · rasterized <strong>${fmtN(r.ras)}</strong> fragments (${(r.ras / (G4W * G4H)).toFixed(2)}× overdraw) · shaded <strong>${fmtN(r.sh)}</strong> → <strong>${M(r.sh)} M</strong> at 1080p`;
     $("t4-cur").querySelector(".n").textContent = M(r.sh);
@@ -860,25 +1110,29 @@ drawOpaque(fullPixelShader);
   $("draws").addEventListener("input", () => { O4.draws = +$("draws").value; $("drawsv").textContent = O4.draws; draw4(); });
   draw4();
 
-  // ---------- 5. hierarchical rasterization ----------
+  // ---------- 5. hierarchical rasterization: the tent on a 64×64 patch of the screen ----------
   const c5 = $("c5"), x5 = c5.getContext("2d"), N5 = 64, PX5 = 8;
-  const H5 = { T: 8, v: [[6, 10], [58, 22], [20, 58]] };
+  const H5 = { T: 8, v: [[5, 52], [59, 47], [30, 7]] };
+  const back5 = document.createElement("canvas"); back5.width = 512; back5.height = 512;
+  { const b = back5.getContext("2d"); kitGround(b, 512, 512, 392); kitTree(b, 40, 400, 40); kitPlayer(b, 470, 470, 64, -1); kitFire(b, 400, 470, 18);
+    b.fillStyle = "rgba(11,14,19,0.6)"; b.fillRect(0, 0, 512, 512); }
   function draw5() {
     const T = H5.T, tri = orient(H5.v[0], H5.v[1], H5.v[2]), E = [[tri[1], tri[2]], [tri[2], tri[0]], [tri[0], tri[1]]];
-    x5.fillStyle = GROUND; x5.fillRect(0, 0, 512, 512);
+    x5.drawImage(back5, 0, 0);
     const xs = tri.map(v => v[0]), ys = tri.map(v => v[1]);
     const minX = clamp(Math.floor(Math.min(...xs)), 0, N5 - 1), maxX = clamp(Math.ceil(Math.max(...xs)) - 1, 0, N5 - 1), minY = clamp(Math.floor(Math.min(...ys)), 0, N5 - 1), maxY = clamp(Math.ceil(Math.max(...ys)) - 1, 0, N5 - 1);
     const bbox = (maxX - minX + 1) * (maxY - minY + 1);
     let tiles = 0, rej = 0, full = 0, part = 0, pxTests = 0, covered = 0;
+    const exR = [], exF = [], exP = [];
     for (let ty = Math.floor(minY / T); ty <= Math.floor(maxY / T); ty++) for (let tx = Math.floor(minX / T); tx <= Math.floor(maxX / T); tx++) {
       tiles++;
       const x0 = tx * T + 0.5, x1 = tx * T + T - 0.5, y0 = ty * T + 0.5, y1 = ty * T + T - 0.5;
       let out = false, all = true;
       for (const [a, b] of E) { const c = [edge(a, b, x0, y0), edge(a, b, x1, y0), edge(a, b, x0, y1), edge(a, b, x1, y1)]; if (Math.max(...c) < 0) out = true; if (Math.min(...c) < 0) all = false; }
       const sx = tx * T * PX5, sy = ty * T * PX5, sw = T * PX5;
-      if (out) { rej++; x5.fillStyle = "rgba(239,93,93,0.10)"; x5.fillRect(sx + 1, sy + 1, sw - 2, sw - 2); continue; }
-      if (all) { full++; covered += T * T; x5.fillStyle = "rgba(242,163,65,0.45)"; x5.fillRect(sx + 1, sy + 1, sw - 2, sw - 2); continue; }
-      part++; pxTests += T * T;
+      if (out) { rej++; exR.push([sx, sy]); x5.fillStyle = "rgba(239,93,93,0.14)"; x5.fillRect(sx + 1, sy + 1, sw - 2, sw - 2); continue; }
+      if (all) { full++; exF.push([sx, sy]); covered += T * T; x5.fillStyle = "rgba(242,163,65,0.5)"; x5.fillRect(sx + 1, sy + 1, sw - 2, sw - 2); continue; }
+      part++; pxTests += T * T; exP.push([sx, sy]);
       x5.strokeStyle = BLU; x5.lineWidth = 1.5; x5.strokeRect(sx + 1.5, sy + 1.5, sw - 3, sw - 3);
       for (let j = 0; j < T; j++) for (let i = 0; i < T; i++) {
         const px = tx * T + i + 0.5, py = ty * T + j + 0.5;
@@ -893,6 +1147,14 @@ drawOpaque(fullPixelShader);
     x5.strokeStyle = "rgba(255,255,255,0.3)"; x5.setLineDash([3, 3]); x5.strokeRect(minX * PX5 + 0.5, minY * PX5 + 0.5, (maxX - minX + 1) * PX5, (maxY - minY + 1) * PX5); x5.setLineDash([]);
     x5.strokeStyle = WHT; x5.lineWidth = 1.5; x5.beginPath(); x5.moveTo(tri[0][0] * PX5, tri[0][1] * PX5); x5.lineTo(tri[1][0] * PX5, tri[1][1] * PX5); x5.lineTo(tri[2][0] * PX5, tri[2][1] * PX5); x5.closePath(); x5.stroke();
     H5.v.forEach(v => handle(x5, v[0] * PX5, v[1] * PX5, 7));
+    // plain-word callouts on one tile of each kind
+    const sw = T * PX5, pick = (l, at) => l.length ? l[Math.min(l.length - 1, Math.floor(l.length * at))] : null;
+    const r0 = pick(exR, 0.15), f0 = pick(exF, 0.5), p0 = pick(exP, 0.3);
+    if (r0) { kitArrow(x5, r0[0] + sw / 2, 30, r0[0] + sw / 2, r0[1] + 4, RED); kitLabel(x5, "thrown out: all 4 corners outside", clamp(r0[0] + sw / 2, 130, 382), 20, "center", RED); }
+    if (f0) kitLabel(x5, "accepted whole: no pixel tests", f0[0] + sw / 2, f0[1] + sw / 2, "center", AMB);
+    if (p0) kitLabel(x5, "edge crosses: every pixel tested", clamp(p0[0] + sw / 2, 130, 382), p0[1] + sw + 12, "center", BLU);
+    kitLabel(x5, "tent canvas: one big triangle", 8, 500, "left", "#c7cdd8");
+    kitLabel(x5, "knight", 470, 392, "center");
     const total = (N5 / T) * (N5 / T);
     $("c5-read").innerHTML = `${tiles} of ${total} tiles inside the bounding box: <strong style="color:${RED}">${rej} rejected</strong> · <strong style="color:${AMB}">${full} full</strong> · <strong style="color:${BLU}">${part} partial</strong> · ${fmtN(covered)} px covered`;
     $("t5-tiles").querySelector(".n").textContent = fmtN(tiles);

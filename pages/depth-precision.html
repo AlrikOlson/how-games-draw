@@ -153,15 +153,15 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">near 0.1 m · far 1000 m · 24-bit integer vs float32 depth · every number is computed live</p>
+    <p class="eyebrow">one road at night · lamp posts at 1, 10, 100 and 1000 m · near 0.1 m · far 1000 m · 24-bit integer vs float32 depth · every number is computed live</p>
     <h1>Depth Precision</h1>
     <p class="lead">A depth buffer is the GPU's per-pixel record of how far away the nearest surface is, and it decides which object draws in front. It stores a function of <b>1/z</b>, not the distance itself, so with a 0.1 m near plane <b>90% of a 24-bit buffer describes the first metre</b> and far objects get scraps. <b>Reverse-Z</b> flips the mapping so far objects land near 0.0, which is where a float32 has its densest values. The part people get wrong: the flip only pays off with a float buffer, and on a 24-bit integer buffer it changes almost nothing.</p>
     <div class="key">
       <span style="--sw:#4aa3ff">standard Z, 0 at the near plane</span>
       <span style="--sw:#f2a341">reverse Z, 1 at the near plane</span>
-      <span style="--sw:#ffffff">handle you can drag, cursor</span>
-      <span style="--sw:#5ad48a">decal wins the pixel</span>
-      <span style="--sw:#ef5d5d">decal loses, floor shows through</span>
+      <span style="--sw:#ffffff">near and far planes, handles, the player's view</span>
+      <span style="--sw:#5ad48a">the poster wins the pixel</span>
+      <span style="--sw:#ef5d5d">the wall shows through the poster</span>
     </div>
     <dl class="terms">
       <dt>depth buffer</dt><dd>one number per pixel saying how far the nearest surface is; a new pixel only draws if it is closer</dd>
@@ -174,27 +174,27 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
       <dt>decal</dt><dd>a flat detail, like a poster or a bullet hole, drawn a hair above a surface</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#codes"><span class="n">01</span>Where the codes go</a></li><li><a href="#near"><span class="n">02</span>The near plane sets everything</a></li><li><a href="#reverse"><span class="n">03</span>Reverse-Z</a></li><li><a href="#fight"><span class="n">04</span>Z-fighting simulator</a></li><li><a href="#readback"><span class="n">05</span>Reading the buffer back</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#codes"><span class="n">01</span>Where the codes go</a></li><li><a href="#near"><span class="n">02</span>The near plane sets everything</a></li><li><a href="#reverse"><span class="n">03</span>Reverse-Z</a></li><li><a href="#fight"><span class="n">04</span>Z-fighting: the flickering poster</a></li><li><a href="#readback"><span class="n">05</span>Reading the buffer back</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
   <section id="codes">
     <h2>Where the codes go</h2>
-    <p class="sub">Move the near and far planes and watch which distances get the 16,777,215 steps of a 24-bit buffer.</p>
+    <p class="sub">A player stands at the start of a night road with lamp posts at 1, 10, 100 and 1000 m. Move the near and far planes and see which stretch of road gets the buffer's 16,777,215 steps.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c1" width="512" height="512" aria-label="Stored depth against view distance and codes per decade"></canvas>
+        <canvas id="c1" width="512" height="512" aria-label="A night road seen from the side with a player and lamp posts at 1, 10, 100 and 1000 metres on a log distance axis, the depth buffer as a grey strip under the road, the stored depth curve, and bars counting codes per decade of distance"></canvas>
         <div class="cap"><span id="c1-cap"></span></div>
       </div>
       <div class="prose">
         <p class="plain">The depth buffer doesn't store distance. It stores a value that <b>rises fast near the camera and then flattens out</b>, so <b>half of its codes are used up by twice the near distance</b>. Move the near plane in and the first few centimetres eat everything. <b>Every 10× further out gets a tenth as many codes</b>.</p>
 
         <h3>What you're seeing</h3>
-        <p>The top plot is the value the buffer stores, against the real distance on a log axis. The white dots sit at 1, 10, 100 and 1000 m, each labelled with the smallest distance step the buffer can tell apart there.</p>
-        <p>The bottom bars count how many codes land in each decade of distance: 1 cm to 10 cm, 10 cm to 1 m, and so on out to 10 km. Bar height is on a log scale, so a bar half as tall has far fewer than half the codes.</p>
+        <p>The top band is the road seen from the side, with distance squashed onto a log scale so 1 m and 1 km both fit. The white dashed lines are the near and far planes, and each lamp post carries the smallest distance step the buffer can tell apart there. The grey strip under the road is the depth buffer itself: black is 0, white is 1. It is bright white by the 10 m lamp, because the value has nearly nowhere left to go.</p>
+        <p>The middle plot is that same stored value as a graph. The bars at the bottom count how many codes land in each decade of the road: 1 cm to 10 cm, 10 cm to 1 m, and so on out to 10 km. Bar height is on a log scale, so a bar half as tall has far fewer than half the codes.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Drag Near down to 1 cm. The step at 1000 m in the tiles gets 10× worse, and the 1 cm to 10 cm bar fills up.</li>
-          <li>Drag Far up to 10 km. The step numbers barely move. The far plane hardly matters.</li>
+          <li>Drag Near down to 1 cm. The step on the 1000 m lamp gets 10× worse, and the 1 cm to 10 cm bar fills up.</li>
+          <li>Drag Far up to 10 km. The lamp steps barely move. The far plane hardly matters.</li>
           <li>Switch to D16. Every step gets about 256× worse, which is what dropping from 24 bits to 16 costs.</li>
         </ul>
 
@@ -212,7 +212,7 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 
         <h3>The real version</h3>
         <p>The vertex shader outputs a clip-space z and a w, where w is the view depth: the straight-line distance in front of the camera. The rasterizer divides z by w, and that divide is what bends the curve. What lands in the buffer is a hyperbola in z, steep at the near plane and flat for the rest of the scene. Half of the codes sit below <code>2n</code> no matter where far is.</p>
-        <p>The smallest step the buffer can tell apart at distance z is the slope of that curve divided by the code count, and it grows with z². At 1 m you resolve fractions of a micrometre. At 1000 m two surfaces must be half a metre apart to get different codes.</p>
+        <p>The smallest step the buffer can tell apart at distance z is the slope of that curve divided by the code count, and it grows with z². At the 1 m lamp you resolve fractions of a micrometre. At the 1000 m lamp two surfaces must be half a metre apart to get different codes.</p>
         <p class="words">In words: stored depth is a 1/z curve, and the step at any distance is that curve's slope there divided by the number of codes.</p>
         <div class="math">z_ndc = f·(z − n) / (z·(f − n))          <span class="c">z_ndc ∈ [0,1], 0 at near: D3D, Vulkan, Metal</span>
 dz_view/dz_ndc = z²·(f − n) / (n·f)       metres per unit of stored depth
@@ -237,22 +237,22 @@ dz_view/dz_ndc = z²·(f − n) / (n·f)       metres per unit of stored depth
 
   <section id="near">
     <h2>The near plane sets everything</h2>
-    <p class="sub">Two sliders, one plot each: see how much the step at 100 m cares about the near plane, and how little it cares about the far plane.</p>
+    <p class="sub">The same road. The near plane is the white line just in front of the player, the far plane the one past the last lamp. Slide each and watch the step at the 100 m lamp.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" width="512" height="512" aria-label="Depth step at 100 metres as a function of near and far plane"></canvas>
+        <canvas id="c2" width="512" height="512" aria-label="The night road from the side with the near and far planes marked and the 100 metre lamp highlighted, above two plots of the depth step at 100 metres as the near plane and then the far plane sweep"></canvas>
         <div class="cap"><span id="c2-cap"></span></div>
       </div>
       <div class="prose">
         <p class="plain">If your scene flickers in the distance, the fix is to <b>push the near plane out</b>, not pull the far plane in. <b>Halving the near plane halves your precision everywhere.</b> Multiplying the far plane by 100 costs under 1%. <b>The far slider is close to a placebo.</b></p>
 
         <h3>What you're seeing</h3>
-        <p>Both plots show the step size at 100 m on a D24 buffer, on log axes. The top one sweeps the near plane from 1 cm to 1 m; the bottom one sweeps the far plane from 100 m to 100 km. The white handle marks your current setting on each.</p>
+        <p>The road band shows where the two planes sit and rings the 100 m lamp in amber with its current step. Both plots below show that step on a D24 buffer, on log axes. The top one sweeps the near plane from 1 cm to 1 m; the bottom one sweeps the far plane from 100 m to 100 km. The white handle marks your current setting on each.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Drag Near from 10 cm to 1 m. The step at 50 m tile drops by 10× and the codes-below-1-m tile falls.</li>
-          <li>Drag Far across its whole range. The handle on the bottom plot rides an almost flat line.</li>
+          <li>Drag Near from 10 cm to 1 m. The near line walks past the 1 m lamp, the step at 50 m tile drops by 10× and the codes-below-1-m tile falls.</li>
+          <li>Drag Far across its whole range. The far line runs off past the village and the handle on the bottom plot rides an almost flat line.</li>
           <li>Read the third tile: the near plane you would need for a 1 mm step at 100 m. It is 0.6 m, too far out for a first-person camera.</li>
         </ul>
 
@@ -292,17 +292,17 @@ n_needed = z² / (Δz_wanted · 2²⁴)   near plane that keeps Δz at z</div>
 
   <section id="reverse">
     <h2>Reverse-Z: flip it, then use floats</h2>
-    <p class="sub">Compare the stored value and the step size for standard and reverse-Z, on integer and float buffers.</p>
+    <p class="sub">The same road stored two ways. Under the road are two depth buffers, standard and reverse; below them, the step size for integer and float buffers.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c3" width="512" height="512" aria-label="Standard and reverse depth mapping, and step size for four buffer configurations"></canvas>
+        <canvas id="c3" width="512" height="512" aria-label="The night road from the side with two depth buffer strips under it, blue for standard and amber for reverse Z, then a plot of both stored values over float32 exponent bands and a plot of metres per code for four buffer setups"></canvas>
         <div class="cap"><span id="c3-cap"></span></div>
       </div>
       <div class="prose">
         <p class="plain">A <b>float32 packs its values tightest near zero</b>. Standard Z puts almost the whole scene near 1.0, where floats are no denser than a 24-bit integer. <b>Reverse-Z sends far objects toward 0.0</b>, where the float's tightening cancels the curve's flattening. The result is <b>steps that grow with z instead of z²</b>.</p>
 
         <h3>What you're seeing</h3>
-        <p>The top plot is the stored value for both conventions: blue for standard (0 at near), amber for reverse (1 at near). Each shaded band is one float32 exponent, and every band holds the same 2²³ codes, so the narrow bands near 0 are where values are dense.</p>
+        <p>The two strips under the road are the depth buffer for the same road. Blue is standard Z: solid by the first lamp, because everything past a metre stores almost 1.0. Amber is reverse Z, which fades to black down the road, and 0 is where a float32 packs its values tightest. The upper plot draws both as curves; each shaded band is one float32 exponent, and every band holds the same 2²³ codes, so the narrow bands near 0 are where values are dense.</p>
         <p>The bottom plot is metres per code for four buffer setups. The amber sawtooth is float reverse-Z.</p>
 
         <h3>Try this</h3>
@@ -362,25 +362,25 @@ glDepthFunc(GL_GREATER);  glClearDepth(0.0);</pre>
   </section>
 
   <section id="fight">
-    <h2>Z-fighting simulator</h2>
-    <p class="sub">Drag the camera away from a decal that sits 1 mm above a floor and watch the pixels start to fight.</p>
+    <h2>Z-fighting: the flickering poster</h2>
+    <p class="sub">A poster is glued to a wall down the street, 1 mm in front of it. Drag the wall away from the player and watch the poster start flickering through the wall.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" width="640" height="360" class="grab wide16" aria-label="Side view of a camera, floor and decal, and a 64 by 16 pixel strip showing which surface wins the depth test"></canvas>
+        <canvas id="c4" width="640" height="360" class="grab wide16" aria-label="A street seen from above with a player on the left, lamp posts along the road, and a wall carrying a poster on a log distance axis that you can drag; below it a 64 by 16 pixel strip of what the player sees, green where the poster wins the depth test and red where the wall shows through"></canvas>
         <div class="cap"><span id="c4-cap"></span></div>
       </div>
       <div class="prose">
-        <p class="plain"><b>Z-fighting</b> is two surfaces closer together than one depth step, so they <b>share a code and the pixels flicker</b> between them. Here a decal sits 1 mm above a floor. <b>Back the camera off and the fight starts</b> where the step size reaches 1 mm. <b>Depth bias</b> is the usual patch: nudge the decal toward the camera before the test.</p>
+        <p class="plain"><b>Z-fighting</b> is two surfaces closer together than one depth step, so they <b>share a code and the pixels flicker</b> between them. Here a poster sits 1 mm in front of a wall. <b>Move the wall away and the fight starts</b> where the step size reaches 1 mm. <b>Depth bias</b> is the usual patch: nudge the poster toward the camera before the test.</p>
 
         <h3>What you're seeing</h3>
-        <p>The top is a side view: the eye on the left, the floor and decal on a log distance axis, and a white handle you drag to move the camera. The red dashed line marks the distance where the fight begins.</p>
-        <p>The strip below is 64×16 pixels cut from the centre of a 1920×1080 frame with a 60° field of view, tested exactly as the buffer would test them. Green means the decal won the pixel; red means both surfaces got the same code and the floor kept it.</p>
+        <p>The top is the street from above: the player on the left, lamp posts along the kerb, and the wall on a log distance axis with a white handle you drag. The green line on the wall is the poster, pushed forward far more than its real 1 mm so you can see it. The grazing angle turns the wall so the player sees it at a slant. The red dashed line marks the distance where the fight begins.</p>
+        <p>The strip below is what the player sees: 64×16 pixels of the poster cut from the centre of a 1920×1080 frame with a 60° field of view, tested exactly as the buffer would test them. Green means the poster won the pixel. Red means both surfaces got the same code and the wall kept it, so the wall shows through.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Drag the handle to the right until the strip goes red. The "fight starts at" tile told you the distance in advance.</li>
-          <li>Switch to D32F rev. The fight distance moves past the far plane.</li>
-          <li>Raise Grazing angle to 80°. The gap along the view axis grows and the fight starts further out. Under reverse-Z, a bias with the wrong sign moves the decal the wrong way.</li>
+          <li>Drag the wall to the right until the strip goes red. The "fight starts at" tile told you the distance in advance.</li>
+          <li>Switch to D32F rev. The fight distance moves past the far plane, and the strip stays green all the way down the street.</li>
+          <li>Raise Grazing angle to 80°. The wall turns almost edge-on, the gap along the view axis grows and the fight starts further out. Under reverse-Z, a bias with the wrong sign moves the poster the wrong way.</li>
         </ul>
 
         <div class="controls">
@@ -391,13 +391,13 @@ glDepthFunc(GL_GREATER);  glClearDepth(0.0);</pre>
           <div class="ctl"><label for="bs4">Slope bias <span class="val" id="bs4v"></span></label><input type="range" id="bs4" min="0" max="4" step="0.25" value="0"></div>
         </div>
         <div class="tiles">
-          <div class="tile"><div class="n" id="t4-step">—</div><div class="l">step at camera distance</div></div>
+          <div class="tile"><div class="n" id="t4-step">—</div><div class="l">step at the wall</div></div>
           <div class="tile"><div class="n" id="t4-gap">—</div><div class="l">gap along the view axis</div></div>
           <div class="tile"><div class="n" id="t4-fight">—</div><div class="l">fight starts at</div></div>
         </div>
 
         <h3>The real version</h3>
-        <p>Both surfaces are rasterized, projected and quantized per pixel exactly as the buffer would store them. The floor is drawn first, the decal second with the same test. Green pixels are where the decal's code is strictly closer; red pixels are where the two codes are equal and the floor keeps the pixel. The stripes are the two 1/z curves crossing code boundaries at slightly different places.</p>
+        <p>Both surfaces are rasterized, projected and quantized per pixel exactly as the buffer would store them. The wall is drawn first, the poster (a decal) second with the same test. Green pixels are where the decal's code is strictly closer; red pixels are where the two codes are equal and the wall keeps the pixel. The stripes are the two 1/z curves crossing code boundaries at slightly different places.</p>
         <p>Depth bias moves the decal before the test. The constant part is in units of the smallest step r. The slope part scales with how fast depth changes across one pixel, which is what a grazing angle does to the gap. Under reverse-Z "toward the camera" is +z, so both factors change sign, which is the most common bug when a renderer switches.</p>
         <p class="words">In words: the bias is a slope term for tilted triangles plus a constant term counted in depth steps.</p>
         <div class="math">bias = m · slopeFactor + r · constantFactor
@@ -412,7 +412,7 @@ rs.DepthBiasClamp       = 0.0;
 <span class="c">// bias = m * SlopeScaledDepthBias + r * DepthBias, added to z before the test</span>
 <span class="c">// reverse-Z: negate both factors, or the decal moves away from the camera</span>
 
-<span class="c">// decals with no bias at all: same vertex math as the floor, then</span>
+<span class="c">// decals with no bias at all: same vertex math as the wall, then</span>
 dss.DepthFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL;   <span class="c">// ties go to the later draw</span></pre>
 
         <p class="tldr">The fight starts where the step size reaches the gap; bias buys some distance, and a float reverse-Z buffer buys far more.</p>
@@ -422,23 +422,23 @@ dss.DepthFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL;   <span class="c">// ties g
 
   <section id="readback">
     <h2>Reading the buffer back</h2>
-    <p class="sub">Hover over a pixel of a live depth buffer and turn its stored value back into metres, with the right formula and the wrong one.</p>
+    <p class="sub">Hover over a pixel of the road's depth buffer, as the player sees it, and turn its stored value back into metres, with the right formula and the wrong one.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="512" height="512" aria-label="Depth buffer image with float exponent contours, and a plot of the error from linearizing with the wrong convention"></canvas>
+        <canvas id="c5" width="512" height="512" aria-label="The depth buffer of the night road from the player's eye, with lamp posts, a parked car and houses out to a kilometre, amber float exponent contours, a small colour inset of the same view, and a plot of the error from linearizing with the wrong convention"></canvas>
         <div class="cap"><span id="c5-cap"></span></div>
       </div>
       <div class="prose">
         <p class="plain">Effects like ambient occlusion, fog and reflections need to <b>turn a stored depth back into a real distance</b>. That only works if you <b>use the same convention the buffer was written with</b>. Mix them up and the result looks almost right, with near and far swapped. The <b>error tile shows the buffer's precision</b> at the pixel under your cursor, measured directly.</p>
 
         <h3>What you're seeing</h3>
-        <p>The image is the raw stored value, brightened so reverse-Z's tiny numbers are visible. The amber contours mark where the float32 exponent changes; under reverse-Z each one is a doubling of distance.</p>
+        <p>The big image is the depth buffer of the road from the player's eye: lamp posts, a parked car and houses out to 1 km, drawn as the raw stored value and brightened so reverse-Z's tiny numbers show up. The small inset in the sky is the same view in colour, so you can tell what each shape is. The amber contours mark where the float32 exponent changes; under reverse-Z each one is a doubling of distance.</p>
         <p>The bottom plot compares the right formula (white) and the wrong-convention formula (red) across the whole depth range.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Hover across the scene. The linearized tile gives the distance in metres; the wrong-formula tile gives a confident, wrong number.</li>
-          <li>Switch to D32F standard. The contours collapse to one line hugging the near plane: the whole scene shares one exponent band.</li>
+          <li>Hover from the car to the far houses. The linearized tile gives the distance in metres; the wrong-formula tile gives a confident, wrong number.</li>
+          <li>Switch to D32F standard. The contours collapse to one line hugging the near plane: the whole road shares one exponent band.</li>
           <li>Switch to reverse, f = ∞. The reconstruction error barely changes. Dropping the far plane costs almost nothing.</li>
         </ul>
 
@@ -482,7 +482,7 @@ infinite far, standard: z_clip = z_view − n,  w_clip = z_view</div>
   <section id="tradeoffs">
     <h2>Tradeoffs</h2>
     <p class="sub">Step sizes for near 0.1 m and far 1000 m. Memory is for a 1920×1080 frame; bandwidth figures are estimates.</p>
-    <p class="plain">How to read this: each row is one way to set up the depth buffer. The three step columns are the <b>smallest distance the buffer can tell apart</b> at 1, 100 and 1000 m, computed live from the formulas above, and <b>smaller is better</b>. You're choosing between memory, whether you get a stencil byte, and <b>how far out z-fighting starts</b>.</p>
+    <p class="plain">How to read this: each row is one way to set up the depth buffer. The three step columns are the <b>smallest distance the buffer can tell apart</b> at the 1, 100 and 1000 m lamps, computed live from the formulas above, and <b>smaller is better</b>. You're choosing between memory, whether you get a stencil byte, and <b>how far down the road z-fighting starts</b>.</p>
     <div class="tbl-wrap">
     <table class="uses trade">
       <thead><tr><th>Buffer</th><th>Bytes per pixel · memory at 1080p</th><th>Step at 1 m</th><th>Step at 100 m</th><th>Step at 1000 m</th><th>What goes wrong</th><th>Pick it when</th></tr></thead>
@@ -524,6 +524,120 @@ infinite far, standard: z_clip = z_view − n,  w_clip = z_view</div>
   </section>
 </div>
 <script>
+// Rendering Library scene kit. Paste this whole block at the top of a page's <script> (no external
+// scripts are allowed). Small, flat, readable game-world props for 2D canvas demos. Every function
+// takes a ctx and draws in the current transform; sizes are in canvas pixels. Keep the mechanism
+// overlay (frustum lines, rays, samples, tests) in the library palette on top of these props.
+const KIT = {
+  // scene palette: props only; the mechanism overlay keeps amber / blue / white / green / red
+  grass: '#1f3a2a', grassLite: '#2a4d37', dirt: '#3b2f25', stone: '#4c5563', stoneLite: '#6b7585',
+  wood: '#7a4f2a', woodLite: '#a06a38', leaf: '#3f8f4a', leafLite: '#5ab562', roof: '#a5433a',
+  wallCol: '#c9c2b2', window: '#f5d67a', skin: '#e8b98a', shirt: '#4aa3ff', pants: '#2f3a55',
+  metal: '#8d95a3', flame: '#f2a341', sky: '#0b0e13', skyLite: '#141a26', water: '#1d4d73', cloud: '#c7cdd8',
+  shadow: 'rgba(0,0,0,0.35)'
+};
+// horizon band: dark sky above, ground below (side-view scenes)
+function kitGround(ctx, w, h, horizon) {
+  const g = ctx.createLinearGradient(0, 0, 0, horizon); g.addColorStop(0, KIT.sky); g.addColorStop(1, KIT.skyLite);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, horizon);
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, horizon, w, h - horizon);
+  ctx.fillStyle = KIT.grassLite; ctx.fillRect(0, horizon, w, 3);
+}
+// top-down ground with faint tile grid (top-down scenes)
+function kitTopGround(ctx, w, h, cell) {
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.beginPath();
+  for (let x = 0; x <= w; x += cell) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, h); }
+  for (let y = 0; y <= h; y += cell) { ctx.moveTo(0, y + 0.5); ctx.lineTo(w, y + 0.5); }
+  ctx.stroke();
+}
+// round tree, base at (x, y), s = trunk height
+function kitTree(ctx, x, y, s, tint) {
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, s * 0.55, s * 0.18, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.09, y - s, s * 0.18, s);
+  ctx.fillStyle = tint || KIT.leaf; ctx.beginPath(); ctx.arc(x, y - s * 1.25, s * 0.62, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.leafLite; ctx.beginPath(); ctx.arc(x - s * 0.2, y - s * 1.45, s * 0.3, 0, Math.PI * 2); ctx.fill();
+}
+// pine tree, base at (x, y)
+function kitPine(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.07, y - s * 0.4, s * 0.14, s * 0.4);
+  ctx.fillStyle = KIT.leaf;
+  for (let i = 0; i < 3; i++) { const yy = y - s * 0.35 - i * s * 0.42, ww = s * (0.7 - i * 0.16);
+    ctx.beginPath(); ctx.moveTo(x - ww, yy); ctx.lineTo(x + ww, yy); ctx.lineTo(x, yy - s * 0.55); ctx.closePath(); ctx.fill(); }
+}
+// house, bottom-left corner at (x, y), width w, wall height h
+function kitHouse(ctx, x, y, w, h, roofCol) {
+  ctx.fillStyle = KIT.wallCol; ctx.fillRect(x, y - h, w, h);
+  ctx.fillStyle = roofCol || KIT.roof; ctx.beginPath(); ctx.moveTo(x - w * 0.08, y - h); ctx.lineTo(x + w * 1.08, y - h); ctx.lineTo(x + w / 2, y - h - w * 0.45); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + w * 0.15, y - h * 0.75, w * 0.22, h * 0.3);
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x + w * 0.6, y - h * 0.6, w * 0.22, h * 0.6);
+}
+// wooden crate, centre (x, y), size s
+function kitCrate(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s / 2, y - s / 2, s, s);
+  ctx.strokeStyle = KIT.woodLite; ctx.lineWidth = Math.max(1, s * 0.08);
+  ctx.strokeRect(x - s / 2 + 1, y - s / 2 + 1, s - 2, s - 2);
+  ctx.beginPath(); ctx.moveTo(x - s / 2, y - s / 2); ctx.lineTo(x + s / 2, y + s / 2); ctx.moveTo(x + s / 2, y - s / 2); ctx.lineTo(x - s / 2, y + s / 2); ctx.stroke();
+}
+// stone wall segment from (x1, y1) to (x2, y2), thickness t (top-down or side)
+function kitWall(ctx, x1, y1, x2, y2, t) {
+  ctx.strokeStyle = KIT.stone; ctx.lineWidth = t; ctx.lineCap = 'butt'; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.strokeStyle = KIT.stoneLite; ctx.lineWidth = Math.max(1, t * 0.25); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+}
+// little player figure, feet at (x, y), height h, facing +1 right / -1 left
+function kitPlayer(ctx, x, y, h, facing) {
+  const f = facing || 1;
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, h * 0.28, h * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.pants; ctx.fillRect(x - h * 0.16, y - h * 0.42, h * 0.32, h * 0.42);
+  ctx.fillStyle = KIT.shirt; ctx.fillRect(x - h * 0.2, y - h * 0.78, h * 0.4, h * 0.38);
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y - h * 0.9, h * 0.14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#171a1f'; ctx.fillRect(x + f * h * 0.04, y - h * 0.93, h * 0.05, h * 0.04);
+}
+// top-down player: a circle with a facing wedge, centre (x, y), radius r, angle a (radians)
+function kitPlayerTop(ctx, x, y, r, a) {
+  ctx.fillStyle = KIT.shirt; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * r * 1.6, y + Math.sin(a) * r * 1.6); ctx.stroke();
+}
+// lamp post / torch, base at (x, y), height h; glow radius g (0 = none)
+function kitLamp(ctx, x, y, h, g) {
+  if (g > 0) { const gr = ctx.createRadialGradient(x, y - h, 0, x, y - h, g); gr.addColorStop(0, 'rgba(242,163,65,0.35)'); gr.addColorStop(1, 'rgba(242,163,65,0)'); ctx.fillStyle = gr; ctx.fillRect(x - g, y - h - g, g * 2, g * 2); }
+  ctx.fillStyle = KIT.metal; ctx.fillRect(x - h * 0.04, y - h, h * 0.08, h);
+  ctx.fillStyle = KIT.flame; ctx.beginPath(); ctx.arc(x, y - h, h * 0.12, 0, Math.PI * 2); ctx.fill();
+}
+// simple side-view car, bottom-left at (x, y), length L
+function kitCar(ctx, x, y, L, col) {
+  ctx.fillStyle = col || '#d8493f'; ctx.fillRect(x, y - L * 0.22, L, L * 0.2);
+  ctx.fillRect(x + L * 0.22, y - L * 0.4, L * 0.5, L * 0.2);
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + L * 0.26, y - L * 0.38, L * 0.42, L * 0.14);
+  ctx.fillStyle = '#171a1f'; ctx.beginPath(); ctx.arc(x + L * 0.22, y, L * 0.09, 0, Math.PI * 2); ctx.arc(x + L * 0.78, y, L * 0.09, 0, Math.PI * 2); ctx.fill();
+}
+// cloud, centre (x, y), width w
+function kitCloud(ctx, x, y, w, alpha) {
+  ctx.fillStyle = 'rgba(199,205,216,' + (alpha == null ? 0.35 : alpha) + ')';
+  ctx.beginPath(); ctx.arc(x - w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.arc(x, y - w * 0.08, w * 0.28, 0, Math.PI * 2); ctx.arc(x + w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.fill();
+}
+// plain-word label on the canvas with a dark pill behind it; anchor 'left' | 'center' | 'right'
+function kitLabel(ctx, text, x, y, anchor, col) {
+  ctx.font = '12px "IBM Plex Mono", Menlo, Consolas, monospace';
+  const w = ctx.measureText(text).width + 12, h = 18;
+  const x0 = anchor === 'center' ? x - w / 2 : anchor === 'right' ? x - w : x;
+  ctx.fillStyle = 'rgba(11,14,19,0.82)'; ctx.fillRect(x0, y - h / 2, w, h);
+  ctx.fillStyle = col || '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(text, x0 + 6, y + 1);
+}
+// arrow from (x1, y1) to (x2, y2) in a colour, for callouts
+function kitArrow(ctx, x1, y1, x2, y2, col, width) {
+  const a = Math.atan2(y2 - y1, x2 - x1), s = 7;
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = width || 1.5;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - s * Math.cos(a - 0.4), y2 - s * Math.sin(a - 0.4)); ctx.lineTo(x2 - s * Math.cos(a + 0.4), y2 - s * Math.sin(a + 0.4)); ctx.closePath(); ctx.fill();
+}
+// "what the player sees" inset frame: draws a titled box at (x, y, w, h); draw the picture inside afterwards
+function kitInset(ctx, x, y, w, h, title) {
+  ctx.fillStyle = 'rgba(11,14,19,0.92)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
+}
 (() => {
   const $ = id => document.getElementById(id);
   const P24 = 16777215;
@@ -625,6 +739,43 @@ infinite far, standard: z_clip = z_view − n,  w_clip = z_view</div>
   function handle(ctx, x, y, rad) { ctx.beginPath(); ctx.arc(x, y, rad || 7, 0, Math.PI * 2); ctx.fillStyle = WHT; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = GND; ctx.stroke(); }
   function clear(ctx, w, h) { ctx.setLineDash([]); ctx.fillStyle = GND; ctx.fillRect(0, 0, w, h); }
 
+  // ---------- the road world: a night road seen from the side, distance on a log axis ----------
+  // fx maps metres to canvas x. Draws sky, road, lamp posts at 1 / 10 / 100 / 1000 m, the player at the
+  // left edge (the camera is their eye), and the near and far planes as white dashed lines.
+  // opts.steps = [{ z, text, col }] hangs a label over the lamp at z. Returns the lamp head positions.
+  const LAMPS = [1, 10, 100, 1000];
+  function roadBand(ctx, fx, y, h, n, f, opts) {
+    opts = opts || {};
+    const W = 512, hor = y + h * 0.48, rTop = y + h * 0.58, rBot = y + h * 0.88, base = y + h * 0.84;
+    ctx.save(); ctx.beginPath(); ctx.rect(0, y, W, h); ctx.clip();
+    const g = ctx.createLinearGradient(0, y, 0, hor); g.addColorStop(0, KIT.sky); g.addColorStop(1, KIT.skyLite);
+    ctx.fillStyle = g; ctx.fillRect(0, y, W, hor - y);
+    ctx.fillStyle = KIT.grass; ctx.fillRect(0, hor, W, y + h - hor);
+    ctx.fillStyle = KIT.grassLite; ctx.fillRect(0, hor, W, 2);
+    kitCloud(ctx, 150, y + h * 0.16, 56, 0.22); kitCloud(ctx, 350, y + h * 0.1, 40, 0.18);
+    // a village at the far end of the road
+    kitPine(ctx, 452, hor + 1, h * 0.17); kitPine(ctx, 466, hor + 1, h * 0.21); kitHouse(ctx, 476, hor + 1, 16, h * 0.09); kitPine(ctx, 502, hor + 1, h * 0.15);
+    // the road
+    ctx.fillStyle = "#23262d"; ctx.fillRect(0, rTop, W, rBot - rTop);
+    ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 1; ctx.setLineDash([8, 8]); ctx.beginPath(); ctx.moveTo(0, Math.round((rTop + rBot) / 2) + 0.5); ctx.lineTo(W, Math.round((rTop + rBot) / 2) + 0.5); ctx.stroke(); ctx.setLineDash([]);
+    // lamp posts shrink with distance (a nod to perspective; the axis itself is log)
+    const heads = LAMPS.map((z, i) => { const s = h * (0.44 - i * 0.07); kitLamp(ctx, fx(z), base, s, i === 0 ? h * 0.3 : h * 0.16); return { z, x: fx(z), y: base - s }; });
+    // the player: the camera is their eye
+    kitPlayer(ctx, 26, base, h * 0.4, 1);
+    // nothing outside the planes is drawn
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    if (fx(n) > 50) ctx.fillRect(50, y, fx(n) - 50, h);
+    if (fx(f) < W) ctx.fillRect(fx(f), y, W - fx(f), h);
+    for (const z of [n, f]) { const px = Math.round(fx(z)) + 0.5; ctx.strokeStyle = WHT; ctx.lineWidth = 1; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(px, y); ctx.lineTo(px, y + h); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.restore();
+    kitLabel(ctx, "near " + fmtM(n), fx(n) + 4, y + 10, "left");
+    kitLabel(ctx, "far " + fmtM(f), Math.min(fx(f), W) - 4, y + 10, "right");
+    kitLabel(ctx, "player", 26, base - h * 0.42 - 12, "center");
+    if (opts.hint) kitLabel(ctx, opts.hint, 4, y + h - 9, "left", "#c7cdd8");
+    if (opts.steps) opts.steps.forEach((s, i) => kitLabel(ctx, s.text, fx(s.z), y + (i % 2 ? 46 : 28), "center", s.col || WHT));
+    return { heads, base };
+  }
+
   // ---------- controls ----------
   function logSlider(id, obj, key, cb) {
     const el = $(id), out = $(id + "v");
@@ -658,21 +809,25 @@ infinite far, standard: z_clip = z_view − n,  w_clip = z_view</div>
   function draw1() {
     const { n, f, bits } = s1, codes = 2 ** bits - 1, cfg = { bits, rev: false };
     clear(x1, 512, 512);
-    const P = plot(x1, { x: 50, y: 24, w: 446, h: 200 }, { min: 0.01, max: 10000, log: true }, { min: 0, max: 1, ticks: 4, fmt: v => v.toFixed(2) });
+    const P = plot(x1, { x: 50, y: 192, w: 446, h: 96 }, { min: 0.01, max: 10000, log: true }, { min: 0, max: 1, ticks: 2, fmt: v => v.toFixed(1) });
+    const inR = z => z >= n && z <= f;
+    // the road, with the step at each lamp
+    roadBand(x1, P.fx, 0, 150, n, f, { hint: "side view · distance on a log scale", steps: LAMPS.map(z => ({ z, text: inR(z) ? fmtM(stepAt(cfg, z, n, f)) : "not drawn" })) });
+    // the depth buffer as a strip under the road: black = 0, white = 1
+    for (let px = 50; px < 496; px++) { const z = P.ix(px); const v = inR(z) ? ndcStd(z, n, f) : -1; x1.fillStyle = v < 0 ? "#000" : `rgb(${Math.round(255 * v)},${Math.round(255 * v)},${Math.round(255 * v)})`; x1.fillRect(px, 154, 1, 18); }
+    x1.strokeStyle = "rgba(255,255,255,0.28)"; x1.lineWidth = 1; x1.strokeRect(50.5, 154.5, 446, 18);
+    kitLabel(x1, "the depth buffer: black = 0, white = 1", 492, 163, "right");
+    // the stored value as a curve
     P.frame(); P.shade(n, f);
-    P.curve(z => (z < n || z > f) ? NaN : ndcStd(z, n, f), BLU, [], 400);
-    for (const z of [1, 10, 100, 1000]) if (z >= n && z <= f) {
-      const px = P.fx(z), py = P.fy(ndcStd(z, n, f));
-      dot(x1, px, py, WHT, 3.5);
-      text(x1, fmtM(stepAt(cfg, z, n, f)), px, py + 8, WHT, "center", "top");
-    }
-    text(x1, "stored depth z_ndc against view distance", P.r.x, 6, DIM);
-    text(x1, "half of all codes", P.fx(2 * n) + 5, P.fy(0.5) - 6, DIM, "left", "bottom");
+    P.curve(z => inR(z) ? ndcStd(z, n, f) : NaN, BLU, [], 400);
+    for (const z of LAMPS) if (inR(z)) dot(x1, P.fx(z), P.fy(ndcStd(z, n, f)), WHT, 3.5);
+    text(x1, "what the buffer stores at each distance (0 = near, 1 = far)", P.r.x, 180, DIM);
+    text(x1, "half of all codes", P.fx(2 * n) + 5, P.fy(0.5) - 4, DIM, "left", "bottom");
     x1.setLineDash([3, 4]); x1.strokeStyle = "rgba(255,255,255,0.35)"; x1.beginPath(); x1.moveTo(P.fx(2 * n), P.fy(0.5)); x1.lineTo(P.fx(2 * n), P.r.y + P.r.h); x1.moveTo(P.r.x, P.fy(0.5)); x1.lineTo(P.fx(2 * n), P.fy(0.5)); x1.stroke(); x1.setLineDash([]);
 
-    // histogram: codes per decade, bar height on a log scale
-    const H = { x: 50, y: 306, w: 446, h: 154 }, bw = H.w / DEC.length;
-    text(x1, `codes per decade of distance, ${bits}-bit buffer (bar height is log scale)`, H.x, 262, DIM);
+    // histogram: codes per decade of road, bar height on a log scale
+    const H = { x: 50, y: 344, w: 446, h: 136 }, bw = H.w / DEC.length;
+    text(x1, `codes per decade of road, ${bits}-bit buffer (bar height is log scale)`, H.x, 320, DIM);
     x1.strokeStyle = GRID; x1.lineWidth = 1;
     for (let e = 0; e <= log10(codes); e += 2) { const py = Math.round(H.y + H.h - e / log10(codes) * H.h * 0.86) + 0.5; x1.beginPath(); x1.moveTo(H.x, py); x1.lineTo(H.x + H.w, py); x1.stroke(); text(x1, e === 0 ? "1" : "10^" + e, H.x - 5, py, DIM, "right", "middle"); }
     DEC.forEach(([a, b], i) => {
@@ -685,7 +840,7 @@ infinite far, standard: z_clip = z_view − n,  w_clip = z_view</div>
       if (cnt > 0) text(x1, fmtPct(100 * cnt / codes), bx + (bw - 16) / 2, by - 26, DIM, "center", "top");
       text(x1, fmtTick(a) + "–" + fmtTick(b), bx + (bw - 16) / 2, H.y + H.h + 5, DIM, "center", "top");
     });
-    for (const z of [1, 10, 100, 1000]) $("t1-" + z).textContent = (z >= n && z <= f) ? fmtM(stepAt(cfg, z, n, f)) : "outside";
+    for (const z of LAMPS) $("t1-" + z).textContent = inR(z) ? fmtM(stepAt(cfg, z, n, f)) : "outside";
     $("c1-cap").innerHTML = `near <strong>${fmtM(n)}</strong> · far <strong>${fmtM(f)}</strong> · ${codes.toLocaleString("en-US")} codes · half of them below <strong>${fmtM(2 * n)}</strong>`;
   }
   logSlider("n1", s1, "n", draw1); logSlider("f1", s1, "f", draw1);
@@ -698,23 +853,28 @@ infinite far, standard: z_clip = z_view − n,  w_clip = z_view</div>
   function draw2() {
     const { n, f } = s2, D24 = CFG.d24s;
     clear(x2, 512, 512);
-    const ya = { min: 1e-5, max: 1, log: true };
-    const A = plot(x2, { x: 60, y: 24, w: 436, h: 180 }, { min: 0.01, max: 1, log: true }, ya);
-    A.frame(); A.curve(nn => stepAt(D24, 100, nn, f), BLU);
     const sN = stepAt(D24, 100, n, f);
+    // the road: near line by the player, far line past the last lamp, the 100 m lamp ringed
+    const R = plot(x2, { x: 50, y: 0, w: 446, h: 140 }, { min: 0.01, max: 1e5, log: true }, { min: 0, max: 1 });
+    const band = roadBand(x2, R.fx, 0, 140, n, f, { steps: [{ z: 100, text: "this lamp: " + fmtM(sN) + " apart", col: AMB }] });
+    const hd = band.heads[2];
+    x2.strokeStyle = AMB; x2.lineWidth = 2; x2.beginPath(); x2.arc(hd.x, hd.y, 11, 0, Math.PI * 2); x2.stroke();
+    const ya = { min: 1e-5, max: 1, log: true };
+    const A = plot(x2, { x: 60, y: 176, w: 436, h: 116 }, { min: 0.01, max: 1, log: true }, ya);
+    A.frame(); A.curve(nn => stepAt(D24, 100, nn, f), BLU);
     handle(x2, A.fx(n), A.fy(sN), 5);
     text(x2, `near ${fmtM(n)} → ${fmtM(sN)} at 100 m`, A.fx(n) + (n > 0.15 ? -10 : 10), A.fy(sN) - 10, WHT, n > 0.15 ? "right" : "left", "bottom");
-    text(x2, `step at 100 m against near plane, far = ${fmtM(f)}`, A.r.x, 6, DIM);
-    const B = plot(x2, { x: 60, y: 286, w: 436, h: 180 }, { min: 100, max: 1e5, log: true }, ya);
+    text(x2, `step at the 100 m lamp against the near plane, far = ${fmtM(f)}`, A.r.x, 160, DIM);
+    const B = plot(x2, { x: 60, y: 338, w: 436, h: 126 }, { min: 100, max: 1e5, log: true }, ya);
     B.frame(); B.curve(ff => stepAt(D24, 100, n, ff), BLU);
     handle(x2, B.fx(f), B.fy(sN), 5);
     text(x2, `far ${fmtM(f)} → ${fmtM(sN)} at 100 m`, B.fx(f) + (f > 3000 ? -10 : 10), B.fy(sN) - 10, WHT, f > 3000 ? "right" : "left", "bottom");
-    text(x2, `step at 100 m against far plane, near = ${fmtM(n)}`, B.r.x, 268, DIM);
+    text(x2, `step at the 100 m lamp against the far plane, near = ${fmtM(n)}`, B.r.x, 322, DIM);
     const s50 = stepAt(D24, 50, n, f);
     $("t2-50").textContent = (s50 * 100).toFixed(s50 * 100 >= 1 ? 2 : 3) + " cm";
     $("t2-1m").textContent = n < 1 ? fmtPct(100 * ndcStd(Math.min(1, f), n, f)) : "0%";
     $("t2-need").textContent = fmtM(100 * 100 / (0.001 * P24));
-    $("c2-cap").innerHTML = `D24, near <strong>${fmtM(n)}</strong>, far <strong>${fmtM(f)}</strong> · step at 50 m <strong>${fmtM(s50)}</strong> · at 100 m <strong>${fmtM(sN)}</strong>`;
+    $("c2-cap").innerHTML = `D24, near <strong>${fmtM(n)}</strong>, far <strong>${fmtM(f)}</strong> · step at 50 m <strong>${fmtM(s50)}</strong> · at the 100 m lamp <strong>${fmtM(sN)}</strong>`;
   }
   logSlider("n2", s2, "n", draw2); logSlider("f2", s2, "f", draw2);
   draw2();
@@ -725,21 +885,32 @@ infinite far, standard: z_clip = z_view − n,  w_clip = z_view</div>
   function draw3() {
     const { n, f } = s3;
     clear(x3, 512, 512);
-    const T = plot(x3, { x: 50, y: 22, w: 446, h: 124 }, { min: 0.01, max: 10000, log: true }, { min: 0, max: 1, ticks: 2, fmt: v => v.toFixed(1) });
+    const inR = z => z >= n && z <= f;
+    const T = plot(x3, { x: 50, y: 172, w: 446, h: 78 }, { min: 0.01, max: 10000, log: true }, { min: 0, max: 1, ticks: 2, fmt: v => v.toFixed(1) });
+    // the road, then the same road's depth buffer written both ways
+    roadBand(x3, T.fx, 0, 110, n, f);
+    const mix = (v, r, g, b) => `rgb(${Math.round(11 + (r - 11) * v)},${Math.round(14 + (g - 14) * v)},${Math.round(19 + (b - 19) * v)})`;
+    for (let px = 50; px < 496; px++) {
+      const z = T.ix(px), ok = inR(z);
+      x3.fillStyle = ok ? mix(ndcStd(z, n, f), 74, 163, 255) : "#000"; x3.fillRect(px, 114, 1, 14);
+      x3.fillStyle = ok ? mix(ndcRev(z, n, f), 242, 163, 65) : "#000"; x3.fillRect(px, 132, 1, 14);
+    }
+    x3.strokeStyle = "rgba(255,255,255,0.28)"; x3.lineWidth = 1; x3.strokeRect(50.5, 114.5, 446, 14); x3.strokeRect(50.5, 132.5, 446, 14);
+    kitLabel(x3, "standard Z: solid 1.0 past 1 m", 492, 121, "right", BLU);
+    kitLabel(x3, "reverse Z: fades to 0", 492, 139, "right", AMB);
     for (let k = 0; k < 24; k++) {
       const hi = 2 ** -k, lo = 2 ** -(k + 1);
       x3.fillStyle = k % 2 ? "rgba(242,163,65,0.05)" : "rgba(242,163,65,0.14)";
       x3.fillRect(T.r.x, T.fy(hi), T.r.w, Math.max(1, T.fy(lo) - T.fy(hi)));
     }
     T.frame(); T.shade(n, f);
-    const inR = z => z >= n && z <= f;
     T.curve(z => inR(z) ? ndcStd(z, n, f) : NaN, BLU, [], 400);
     T.curve(z => inR(z) ? ndcRev(z, n, f) : NaN, AMB, [], 400);
-    text(x3, "stored value; each shaded band is one float32 exponent, 2^23 codes", T.r.x, 5, DIM);
-    const S = plot(x3, { x: 50, y: 200, w: 446, h: 262 }, { min: 0.01, max: 10000, log: true }, { min: 1e-9, max: 10, log: true, skip: 2 });
+    text(x3, "stored value; each shaded band is one float32 exponent, 2^23 codes", T.r.x, 158, DIM);
+    const S = plot(x3, { x: 50, y: 292, w: 446, h: 178 }, { min: 0.01, max: 10000, log: true }, { min: 1e-9, max: 10, log: true, skip: 2 });
     S.frame(); S.shade(n, f);
     for (const id in CFG) if ($("t-" + id).checked) { const c = CFG[id]; S.curve(z => inR(z) ? stepAt(c, z, n, f) : NaN, c.col, c.dash, 700); }
-    text(x3, "metres per depth code against view distance", S.r.x, 182, DIM);
+    text(x3, "metres per depth code at each distance down the road", S.r.x, 276, DIM);
     let best = null;
     for (const id in CFG) {
       const v = stepAt(CFG[id], 100, n, f);
@@ -748,25 +919,47 @@ infinite far, standard: z_clip = z_view − n,  w_clip = z_view</div>
     }
     for (const id in CFG) $("tile-" + id).classList.toggle("on", best && best.id === id);
     const a = stepAt(CFG.d24s, 100, n, f), b = stepAt(CFG.d32r, 100, n, f);
-    $("c3-cap").innerHTML = `at 100 m: D24 <strong>${fmtM(a)}</strong> · D32F reverse <strong>${fmtM(b)}</strong> · <strong>${(a / b).toFixed(0)}×</strong> finer`;
+    $("c3-cap").innerHTML = `at the 100 m lamp: D24 <strong>${fmtM(a)}</strong> · D32F reverse <strong>${fmtM(b)}</strong> · <strong>${(a / b).toFixed(0)}×</strong> finer`;
   }
   logSlider("n3", s3, "n", draw3); logSlider("f3", s3, "f", draw3);
   $("chk3").addEventListener("change", draw3);
   draw3();
 
-  // ================= 4. z-fighting simulator =================
+  // ================= 4. z-fighting: a poster on a wall down the street =================
   const c4 = $("c4"), x4 = c4.getContext("2d");
   const s4 = { D: 55, alpha: 45, n: 0.1, f: 1000, cfg: "d24s", bc: 0, bs: 0 };
   const STRIP_W = 64, STRIP_H = 16, DPX = 2 * Math.tan(Math.PI / 6) / 1920; // ndc-ish slope per pixel, 60° hfov
   const PSI = 25 * Math.PI / 180, CP = Math.cos(PSI), SP = Math.sin(PSI);
   const img4 = new ImageData(STRIP_W, STRIP_H), off4 = document.createElement("canvas"); off4.width = STRIP_W; off4.height = STRIP_H;
-  const AX4 = { x: 80, w: 530, y: 118 };
+  const AX4 = { x: 80, w: 530, y: 117 }, ROAD4 = { top: 84, bot: 150 };
   const ax4 = plot(x4, { x: AX4.x, y: 30, w: AX4.w, h: 150 }, { min: 1, max: 10000, log: true }, { min: 0, max: 1 });
+  // the street from above, drawn once: grass, trees, the road, lamp posts on the kerb at each decade
+  const bg4 = document.createElement("canvas"); bg4.width = 640; bg4.height = 190;
+  (() => {
+    const g = bg4.getContext("2d");
+    kitTopGround(g, 640, 190, 20);
+    for (let i = 0; i < 16; i++) {
+      const x = 70 + i * 38 + (i * 29) % 17, y = i % 2 ? 16 + (i * 13) % 30 : 170 + (i * 7) % 12, r = 8 + (i * 5) % 6;
+      g.fillStyle = KIT.shadow; g.beginPath(); g.arc(x + 3, y + 3, r, 0, Math.PI * 2); g.fill();
+      g.fillStyle = KIT.leaf; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+      g.fillStyle = KIT.leafLite; g.beginPath(); g.arc(x - r * 0.3, y - r * 0.3, r * 0.45, 0, Math.PI * 2); g.fill();
+    }
+    g.fillStyle = "#23262d"; g.fillRect(0, ROAD4.top, 640, ROAD4.bot - ROAD4.top);
+    g.strokeStyle = "rgba(255,255,255,0.25)"; g.lineWidth = 1; g.setLineDash([10, 10]); g.beginPath(); g.moveTo(0, AX4.y + 0.5); g.lineTo(640, AX4.y + 0.5); g.stroke(); g.setLineDash([]);
+    for (let e = 0; e <= 4; e++) {
+      const px = ax4.fx(10 ** e), ky = ROAD4.top - 8;
+      const gr = g.createRadialGradient(px, ky, 0, px, ky, 30); gr.addColorStop(0, "rgba(242,163,65,0.45)"); gr.addColorStop(1, "rgba(242,163,65,0)"); g.fillStyle = gr; g.fillRect(px - 30, ky - 30, 60, 60);
+      g.fillStyle = KIT.metal; g.beginPath(); g.arc(px, ky, 4.5, 0, Math.PI * 2); g.fill();
+      g.fillStyle = KIT.flame; g.beginPath(); g.arc(px, ky, 2.5, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = "rgba(255,255,255,0.5)"; g.beginPath(); g.moveTo(Math.round(px) + 0.5, ROAD4.bot - 6); g.lineTo(Math.round(px) + 0.5, ROAD4.bot); g.stroke();
+      text(g, fmtTick(10 ** e), px, ROAD4.bot + 3, DIM, "center", "top");
+    }
+  })();
   function draw4() {
     const { D, n, f, bc, bs } = s4, cfg = CFG[s4.cfg], al = s4.alpha * Math.PI / 180;
     const ta = Math.tan(al), ca = Math.cos(al), gap = 0.001 / ca; // gap along the view axis at the strip centre
     clear(x4, 640, 360);
-    // per-pixel depth of floor and decal, quantized like the buffer would
+    // per-pixel depth of wall and poster, quantized like the buffer would
     const zf = (i, j) => { const s = CP * (i - 31.5) * DPX + SP * (j - 7.5) * DPX; return D / (1 - ta * s); };
     const dF = (i, j) => stored(cfg, zf(i, j), n, f);
     const dD = (i, j) => stored(cfg, zf(i, j) * (1 - gap / D), n, f);
@@ -787,37 +980,39 @@ infinite far, standard: z_clip = z_view − n,  w_clip = z_view</div>
     // fight onset: first distance where the step reaches the gap (no bias)
     let Df = NaN;
     for (let z = 1; z <= f; z *= 1.01) if (stepAt(cfg, z, n, f) >= gap) { Df = z; break; }
-    // side view
-    x4.strokeStyle = "rgba(255,255,255,0.28)"; x4.lineWidth = 1; x4.beginPath(); x4.moveTo(AX4.x, AX4.y + 0.5); x4.lineTo(AX4.x + AX4.w, AX4.y + 0.5); x4.stroke();
-    for (let e = 0; e <= 4; e++) { const px = Math.round(ax4.fx(10 ** e)) + 0.5; x4.strokeStyle = GRID; x4.beginPath(); x4.moveTo(px, AX4.y - 6); x4.lineTo(px, AX4.y + 6); x4.stroke(); text(x4, fmtTick(10 ** e), px, AX4.y + 12, DIM, "center", "top"); }
-    text(x4, "camera distance to the decal (log) · drag the handle", AX4.x, 8, DIM);
-    text(x4, "white = floor · green = decal 1 mm above it (offset exaggerated) · red = fight onset", AX4.x, 22, DIM);
-    // camera glyph
-    x4.fillStyle = WHT; x4.beginPath(); x4.moveTo(40, AX4.y); x4.lineTo(20, AX4.y - 12); x4.lineTo(20, AX4.y + 12); x4.closePath(); x4.fill();
-    x4.fillRect(8, AX4.y - 8, 12, 16);
-    text(x4, "eye", 26, AX4.y + 16, DIM, "center", "top");
+    // the street from above
+    x4.drawImage(bg4, 0, 0);
+    kitLabel(x4, "the street from above · distance on a log scale · drag the wall", 8, 12, "left", "#c7cdd8");
     const hx = ax4.fx(D), ux = Math.sin(al), uy = Math.cos(al), L = 34;
-    x4.strokeStyle = "rgba(255,255,255,0.22)"; x4.setLineDash([3, 4]); x4.beginPath(); x4.moveTo(40, AX4.y); x4.lineTo(hx - ux * L, AX4.y - uy * L); x4.moveTo(40, AX4.y); x4.lineTo(hx + ux * L, AX4.y + uy * L); x4.stroke(); x4.setLineDash([]);
-    x4.strokeStyle = "rgba(255,255,255,0.7)"; x4.lineWidth = 3; x4.beginPath(); x4.moveTo(hx - ux * L, AX4.y - uy * L); x4.lineTo(hx + ux * L, AX4.y + uy * L); x4.stroke();
-    const nx = -uy * 7, ny = ux * 7; // decal, offset toward the camera (not to scale)
-    x4.strokeStyle = GRN; x4.lineWidth = 2; x4.beginPath(); x4.moveTo(hx - ux * L * 0.7 + nx, AX4.y - uy * L * 0.7 + ny); x4.lineTo(hx + ux * L * 0.7 + nx, AX4.y + uy * L * 0.7 + ny); x4.stroke();
+    // what the player can see of the wall
+    x4.strokeStyle = "rgba(255,255,255,0.35)"; x4.lineWidth = 1; x4.setLineDash([3, 4]); x4.beginPath(); x4.moveTo(40, AX4.y); x4.lineTo(hx - ux * L, AX4.y - uy * L); x4.moveTo(40, AX4.y); x4.lineTo(hx + ux * L, AX4.y + uy * L); x4.stroke(); x4.setLineDash([]);
+    kitPlayerTop(x4, 40, AX4.y, 9, 0);
+    kitLabel(x4, "player", 40, AX4.y - 22, "center");
+    // the wall, turned by the grazing angle, and the poster on its near face (offset exaggerated)
+    kitWall(x4, hx - ux * L, AX4.y - uy * L, hx + ux * L, AX4.y + uy * L, 7);
+    const nx = -uy * 7, ny = ux * 7;
+    x4.strokeStyle = GRN; x4.lineWidth = 3; x4.lineCap = "butt"; x4.beginPath(); x4.moveTo(hx - ux * L * 0.7 + nx, AX4.y - uy * L * 0.7 + ny); x4.lineTo(hx + ux * L * 0.7 + nx, AX4.y + uy * L * 0.7 + ny); x4.stroke();
+    const lx = hx - ux * L, ly = AX4.y - uy * L - 12;
+    kitLabel(x4, "poster, 1 mm in front of the wall", hx < 330 ? lx + 6 : lx - 6, ly, hx < 330 ? "left" : "right", GRN);
+    kitLabel(x4, "wall", hx + ux * L + 8, AX4.y + uy * L, "left", "#c7cdd8");
     if (isFinite(Df) && Df >= 1) {
       const fx = Math.round(ax4.fx(Df)) + 0.5;
-      x4.strokeStyle = RED; x4.setLineDash([4, 4]); x4.lineWidth = 1; x4.beginPath(); x4.moveTo(fx, 52); x4.lineTo(fx, AX4.y + 30); x4.stroke(); x4.setLineDash([]);
-      text(x4, "fight from " + fmtM(Df), fx + (Df > 2000 ? -5 : 5), 40, RED, Df > 2000 ? "right" : "left", "top");
+      x4.strokeStyle = RED; x4.setLineDash([4, 4]); x4.lineWidth = 1; x4.beginPath(); x4.moveTo(fx, 34); x4.lineTo(fx, ROAD4.bot); x4.stroke(); x4.setLineDash([]);
+      kitLabel(x4, "flicker from " + fmtM(Df), fx + (Df > 1500 ? -6 : 6), 44, Df > 1500 ? "right" : "left", RED);
     }
     handle(x4, hx, AX4.y, 8);
-    text(x4, "camera at " + fmtM(D), hx, AX4.y + 30, WHT, "center", "top");
-    // strip
+    kitLabel(x4, "wall at " + fmtM(D), hx, AX4.y + 24, "center");
+    // what the player sees: the poster's pixels, magnified
     off4.getContext("2d").putImageData(img4, 0, 0);
     x4.imageSmoothingEnabled = false; x4.drawImage(off4, 0, 195, 640, 160);
     x4.strokeStyle = "rgba(255,255,255,0.28)"; x4.lineWidth = 1; x4.strokeRect(0.5, 195.5, 639, 159);
-    text(x4, `64×16 px strip at ${fmtM(D)} · ${cfg.name} · decal passes in ${pass} of ${STRIP_W * STRIP_H} px`, 8, 180, DIM, "left", "bottom");
+    kitLabel(x4, "what the player sees: 64×16 pixels of the poster, magnified", 8, 207, "left", "#c7cdd8");
+    kitLabel(x4, `${cfg.name} · poster wins ${pass} of ${STRIP_W * STRIP_H} px`, 632, 343, "right", pass === STRIP_W * STRIP_H ? GRN : pass === 0 ? RED : WHT);
     const stp = stepAt(cfg, D, n, f);
     $("t4-step").textContent = fmtM(stp);
     $("t4-gap").textContent = fmtM(gap);
     $("t4-fight").textContent = isFinite(Df) ? fmtM(Df) : "past far (" + fmtM(f) + ")";
-    $("c4-cap").innerHTML = `${cfg.name} · near ${fmtM(n)} · camera at <strong>${fmtM(D)}</strong> · step <strong>${fmtM(stp)}</strong> vs gap <strong>${fmtM(gap)}</strong> · decal wins <strong>${(100 * pass / (STRIP_W * STRIP_H)).toFixed(1)}%</strong>`;
+    $("c4-cap").innerHTML = `${cfg.name} · near ${fmtM(n)} · wall at <strong>${fmtM(D)}</strong> · step <strong>${fmtM(stp)}</strong> vs gap <strong>${fmtM(gap)}</strong> · poster wins <strong>${(100 * pass / (STRIP_W * STRIP_H)).toFixed(1)}%</strong>`;
   }
   const req4 = throttle(draw4);
   let drag4 = false;
@@ -837,21 +1032,48 @@ infinite far, standard: z_clip = z_view − n,  w_clip = z_view</div>
 
   // ================= 5. reading the buffer back =================
   const c5 = $("c5"), x5 = c5.getContext("2d");
-  const s5 = { cfg: "rev", n: 0.1, f: 1000, hover: [80, 58] };
+  const s5 = { cfg: "rev", n: 0.1, f: 1000, hover: [74, 52] };
   const RW = 160, RH = 90, TANH = Math.tan(Math.PI / 6), TANV = TANH * RH / RW;
-  const SPH = [[-2.2, -0.6, 6, 0.9], [1.8, 0.2, 12, 1.6], [-0.5, 0, 45, 1.5], [6, 9, 300, 26]];
+  // the road from the player's eye, 1.5 m above the asphalt, 60° field of view.
+  // boxes are [x0, x1, y0, y1, z0, z1, id]: 3 = house, 5 = castle wall at the end of the road, 6 = car
+  const BOX5 = [
+    [-14, -6, -1.5, 3, 7, 13, 3], [5, 12, -1.5, 1.8, 18, 26, 3], [-16, -7, -1.5, 4, 30, 42, 3],
+    [6, 15, -1.5, 3.5, 70, 90, 3], [-20, -6, -1.5, 6, 180, 230, 3], [5, 20, -1.5, 8, 400, 500, 3],
+    [-10, 10, -1.5, 16, 900, 1000, 5],
+    [-1.6, 0.4, -1.5, -0.4, 14, 18, 6], [-1.4, 0.2, -0.4, 0.2, 15, 17, 6],
+  ];
+  const POST5 = [[-2.2, 5], [2.2, 10], [-2.2, 22], [2.2, 50], [-2.2, 120], [2.2, 300]]; // lamp posts: x, z; 0.1 m radius, 3.2 m tall
+  const COL5 = { 0: [20, 26, 38], 1: [46, 50, 58], 2: [31, 58, 42], 3: [201, 194, 178], 4: [165, 67, 58], 5: [76, 85, 99], 6: [216, 73, 63], 7: [141, 149, 163], 8: [242, 163, 65] };
+  function trace5(dx, dy) {
+    let t = Infinity, id = 0, sh = 1;
+    if (dy < 0) { t = -1.5 / dy; id = Math.abs(dx * t) < 3.5 ? 1 : 2; }
+    const d = [dx, dy, 1];
+    for (const b of BOX5) {
+      let t0 = -Infinity, t1 = Infinity, ax = 0;
+      for (let k = 0; k < 3; k++) { let a = b[2 * k] / d[k], c = b[2 * k + 1] / d[k]; if (a > c) { const s = a; a = c; c = s; } if (a > t0) { t0 = a; ax = k; } if (c < t1) t1 = c; }
+      if (t1 > t0 && t0 > 0 && t0 < t) { t = t0; id = b[6]; sh = ax === 1 ? 1 : ax === 0 ? 0.72 : 0.55; if (ax === 1 && id === 3) id = 4; }
+    }
+    for (const [cx, cz] of POST5) {
+      const a = dx * dx + 1, bq = -2 * (dx * cx + cz), c0 = cx * cx + cz * cz - 0.01, disc = bq * bq - 4 * a * c0;
+      if (disc > 0) { const tt = (-bq - Math.sqrt(disc)) / (2 * a), yy = dy * tt; if (tt > 0 && tt < t && yy > -1.5 && yy < 3.2) { t = tt; id = 7; sh = 0.7; } }
+      const sy = 3.2, a2 = dx * dx + dy * dy + 1, b2 = -2 * (dx * cx + dy * sy + cz), c2 = cx * cx + sy * sy + cz * cz - 0.09, d2 = b2 * b2 - 4 * a2 * c2;
+      if (d2 > 0) { const tt = (-b2 - Math.sqrt(d2)) / (2 * a2); if (tt > 0 && tt < t) { t = tt; id = 8; sh = 1; } }
+    }
+    return [t, id, sh];
+  }
   const zTrue = new Float64Array(RW * RH);
+  const col5 = new ImageData(RW, RH), offC5 = document.createElement("canvas"); offC5.width = RW; offC5.height = RH;
   for (let j = 0; j < RH; j++) for (let i = 0; i < RW; i++) {
     const dx = ((i + 0.5) / RW * 2 - 1) * TANH, dy = (1 - (j + 0.5) / RH * 2) * TANV;
-    let t = Infinity;
-    if (dy < 0) t = -1.5 / dy; // floor at y = -1.5 m
-    const a = dx * dx + dy * dy + 1;
-    for (const [cx, cy, cz, r] of SPH) {
-      const b = -2 * (dx * cx + dy * cy + cz), c0 = cx * cx + cy * cy + cz * cz - r * r, disc = b * b - 4 * a * c0;
-      if (disc > 0) { const tt = (-b - Math.sqrt(disc)) / (2 * a); if (tt > 0 && tt < t) t = tt; }
-    }
+    const [t, id, sh] = trace5(dx, dy);
     zTrue[j * RW + i] = t; // view depth is t because the ray direction has z = 1
+    // the same pixel in colour, for the "what the player sees" inset: flat shading plus night fog
+    const c = COL5[id], k = isFinite(t) ? 1 - Math.exp(-t / 150) : 1, o = (j * RW + i) * 4;
+    for (let q = 0; q < 3; q++) col5.data[o + q] = Math.round(c[q] * sh * (1 - k) + COL5[0][q] * k);
+    col5.data[o + 3] = 255;
   }
+  offC5.getContext("2d").putImageData(col5, 0, 0);
+  const proj5 = (x, y, z) => [((x / z) / TANH + 1) / 2 * 512, (1 - (y / z) / TANV) / 2 * 288];
   const img5 = new ImageData(RW, RH), off5 = document.createElement("canvas"); off5.width = RW; off5.height = RH;
   const st5 = new Float32Array(RW * RH);
   function store5(z) {
@@ -887,11 +1109,22 @@ infinite far, standard: z_clip = z_view − n,  w_clip = z_view</div>
     x5.imageSmoothingEnabled = false; x5.drawImage(off5, 0, 0, 512, 288);
     const k = hj * RW + hi, d = st5[k], zt = zTrue[k];
     const zl = lin5(d, true), zw = lin5(d, false);
+    // plain-word callouts on the buffer
+    kitLabel(x5, "sky: cleared to " + (cfg === "std" ? "1" : "0"), 8, 12, "left");
+    let q = proj5(-2.2, 0, 5); kitLabel(x5, "lamp post, 5 m", q[0] + 10, q[1], "left");
+    q = proj5(-0.6, -0.4, 16); kitLabel(x5, "car, 14 m", q[0], q[1] - 14, "center");
+    q = proj5(-11.5, 4, 30); kitLabel(x5, "house, 30 m", q[0], q[1] - 12, "center");
+    q = proj5(12.5, 8, 400); kitLabel(x5, "houses, 400 m", q[0] + 24, q[1] - 10, "left");
+    kitArrow(x5, q[0] + 22, q[1] - 10, q[0] + 4, q[1] + 2, WHT);
+    // the same view in colour
+    kitInset(x5, 366, 4, 142, 100, "what the player sees");
+    x5.imageSmoothingEnabled = true; x5.drawImage(offC5, 371, 26, 132, 74); x5.imageSmoothingEnabled = false;
     // cursor
     const cx = (hi + 0.5) * 3.2, cy = (hj + 0.5) * 3.2;
     x5.strokeStyle = WHT; x5.lineWidth = 1; x5.strokeRect(hi * 3.2 - 1, hj * 3.2 - 1, 5.2, 5.2);
     x5.beginPath(); x5.arc(cx, cy, 9, 0, Math.PI * 2); x5.stroke();
-    text(x5, `raw value^0.25 · amber = float exponent changes · ${cfg === "std" ? "standard" : cfg === "rev" ? "reverse" : "reverse, f = ∞"}`, 8, 276, DIM, "left", "bottom");
+    kitLabel(x5, "this pixel", cx < 400 ? cx + 14 : cx - 14, cy, cx < 400 ? "left" : "right");
+    text(x5, `raw value^0.25 · amber = float exponent changes · ${cfg === "std" ? "standard" : cfg === "rev" ? "reverse" : "reverse, f = ∞"}`, 8, 284, DIM, "left", "bottom");
     // wrong-convention plot
     const P = plot(x5, { x: 54, y: 318, w: 442, h: 156 }, { min: 0.1, max: 1000, log: true }, { min: 0.01, max: 1000, log: true, skip: 2 });
     P.frame();

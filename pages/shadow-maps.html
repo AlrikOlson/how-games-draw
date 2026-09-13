@@ -149,19 +149,19 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">10 m × 10 m top-down scene · 60° spotlight · 1D shadow map · drag the light</p>
+    <p class="eyebrow">a 10 m × 10 m village square at night · one lantern with a 60° beam · its photo has 256 cells · drag the lantern and the player</p>
     <h1>Shadow Maps &amp; Cascades</h1>
     <p class="lead">A shadow map is a photo of the scene taken from where the light sits, except each pixel stores distance instead of colour. Games use it because it turns "is this pixel in shadow" into one texture read per pixel. That read compares a smooth surface against a grid of stored distances, and every artifact on this page comes from that mismatch. <b>The thing people get wrong:</b> "shadow bias" is not one number. Acne, peter-panning and grazing-angle leaks are three different failures with three different fixes.</p>
     <div class="key">
-      <span style="--sw:#f2a341">lit by the light</span>
-      <span style="--sw:#1a1f27">in shadow, or outside the light's cone</span>
-      <span style="--sw:#4aa3ff">one map cell, or the cells a filter reads</span>
+      <span style="--sw:#f2a341">ground the lantern lights</span>
+      <span style="--sw:#101e16">ground in shadow, or outside the beam</span>
+      <span style="--sw:#4aa3ff">one cell of the lantern's photo, or the cells a filter reads</span>
       <span style="--sw:#ffffff">drag handles and the ray to your cursor</span>
       <span style="--sw:#5ad48a">the test says lit</span>
-      <span style="--sw:#ef5d5d">the test says shadow; on a lit face, acne</span>
+      <span style="--sw:#ef5d5d">the test says shadow; on a lit wall face, acne</span>
     </div>
     <dl class="terms">
-      <dt>shadow map</dt><dd>a picture taken from the light that stores distance, not colour</dd>
+      <dt>shadow map</dt><dd>a photo taken from the light that stores distance, not colour; on this page, the lantern's photo</dd>
       <dt>depth</dt><dd>how far a point is from the light, measured along the light's view</dd>
       <dt>texel</dt><dd>one cell of a texture; here, one stored distance</dd>
       <dt>light space</dt><dd>the scene as the light sees it; the frame the map is drawn in</dd>
@@ -175,24 +175,24 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
 
   <section id="passes">
     <h2>Two passes: write depth, then compare</h2>
-    <p class="sub">Drag the light and its aim handle, then hover the ground to follow one pixel through the lookup.</p>
+    <p class="sub">A lantern lights a village square at night and the player stands behind a tree. Is the player in shadow? Drag the lantern, its aim handle or the player, and hover the ground to follow one pixel through the check.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c1" width="512" height="512" class="grab" aria-label="Spotlight scene with a 1D shadow map strip and the shadowed ground"></canvas>
+        <canvas id="c1" width="512" height="512" class="grab" aria-label="Village square seen from above at night: a lantern with a 60 degree beam lights a house, a tree, a garden wall and the player; the lantern's one-row shadow map is a strip along the top and a side-view inset shows whether the player is lit"></canvas>
         <div class="cap"><span id="c1-read">hover the ground</span><span id="c1-map"></span></div>
       </div>
       <div class="prose">
         <p class="plain">The light takes a <b>distance photo</b> of the scene first. Then, for every pixel the camera sees, the shader checks whether <b>something closer to the light</b> shows up in that photo at the same spot. If so, the pixel is in shadow. That is the whole trick, and it costs <b>one texture read per pixel</b>.</p>
 
         <h3>What you're seeing</h3>
-        <p>The strip across the top is the shadow map: <span id="c1-n">256</span> cells spread across the light's 60° cone, bright where the nearest surface is close. Below it, amber ground is lit and dark ground is shadow.</p>
-        <p>Hover a ground point and a blue wedge shows which cell it falls in, with a blue dot at the stored distance. The point turns green if it passes the test and red if it fails.</p>
+        <p>The square from above: a lantern at the left, a house, a tree, a garden wall and the player. The strip across the top is the lantern's photo, <span id="c1-n">256</span> cells spread across its 60° beam, bright where the nearest thing is close. On the ground, amber is lit and dark green is shadow.</p>
+        <p>Hover a ground point and a blue wedge shows which cell it falls in, with a blue dot at the stored distance. The point turns green if it passes the test and red if it fails. The inset at the bottom right is the same line from the side, lantern to player, so you can see the player standing in the tree's shadow.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Hover just behind the box. The white ray from the light hits the box first, so the stored distance is shorter than yours and the dot turns red.</li>
-          <li>Drag the light around the circle. The shadows swing with it and the strip redraws every time.</li>
-          <li>Push the map down to 32 cells. The shadow edges turn into steps, one step per cell.</li>
+          <li>Hover just behind the house. The white ray from the lantern hits the house first, so the stored distance is shorter than yours and the dot turns red.</li>
+          <li>Drag the player out from behind the tree. The label flips from red "in shadow" to green "lit" and the inset shows the figure lit up.</li>
+          <li>Push the photo down to 32 cells. The shadow edges turn into steps, one step per cell.</li>
         </ul>
 
         <div class="controls" style="margin-top:14px">
@@ -200,7 +200,7 @@ section:not(:has(.cols)) .prose p, section:not(:has(.cols)) > p { max-width: 76c
         </div>
 
         <h3>The real version</h3>
-        <p>Pass 1 renders the scene from the light with no colour at all. Each texel, one cell of the map, keeps the depth of the nearest surface along its ray, where depth means distance from the light measured along the light's forward direction. In this 2D world the map is a single row; in a game it is a full 2D texture.</p>
+        <p>Pass 1 renders the scene from the lantern with no colour at all. Each texel, one cell of the map, keeps the depth of the nearest surface along its ray, where depth means distance from the light measured along the light's forward direction. In this top-down world the map is a single row; in a game it is a full 2D texture.</p>
         <p>Pass 2 renders from the camera. For each ground pixel, transform its position into light space using the light's view-projection matrix, which gives a texture coordinate u and a depth z. Read the texel at u and compare: a stored depth smaller than z means something sits in front, so the pixel is shadowed. There is no ray cast and no geometry lookup, only one texture fetch.</p>
         <p class="words">In words: measure how far the point is from the light, find the cell it lands in, and compare against the distance stored there.</p>
         <div class="math">d = p − L
@@ -229,24 +229,24 @@ vec2 uv  = ndc.xy * 0.5 + 0.5;               <span class="c">// [-1,1] to textur
 
   <section id="aliasing">
     <h2>Resolution: one cell covers many pixels</h2>
-    <p class="sub">Drag the light away from the wall, or drag the wall's ends so its face grazes the light, and watch each map cell's footprint grow.</p>
+    <p class="sub">The lantern shines past a house onto the long wall at the far side of the square. Drag the lantern away from the wall, or drag the wall's ends so the light grazes it, and watch each cell of the photo grow.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" width="512" height="512" class="grab" aria-label="Shadow map texel footprints on a receiver wall and a blocky shadow edge"></canvas>
+        <canvas id="c2" width="512" height="512" class="grab" aria-label="Village square from above: a lantern lights a house whose shadow has a stepped edge, and the long wall on the right is striped blue to show how wide each shadow-map cell lands on it"></canvas>
         <div class="cap"><span id="c2-read">hover the ground or the wall</span><span id="c2-cap"></span></div>
       </div>
       <div class="prose">
         <p class="plain">Each cell of the shadow map covers a <b>wedge of space</b> that gets wider the farther it travels from the light. Far from the light, <b>one stored distance</b> ends up spread over many screen pixels, so shadow edges go blocky. Surfaces that <b>lean away from the light</b> make it worse: a cell lands on a long strip of surface instead of a short one.</p>
 
         <h3>What you're seeing</h3>
-        <p>The wall on the right is striped. Each blue stripe is one cell of the shadow map landing on the wall, in alternating shades so you can count them. The box casts a shadow on the ground behind it, and the edge of that shadow is stepped, one step per cell.</p>
-        <p>Hover anywhere in the cone and a blue wedge shows the cell you are in. The thick blue segment on the wall is that cell's footprint there.</p>
+        <p>The long wall on the right is striped. Each blue stripe is one cell of the lantern's photo landing on the wall, in alternating shades so you can count them. The house casts a shadow on the ground behind it, and the amber arrow points at the edge of that shadow, which is stepped, one step per cell.</p>
+        <p>Hover anywhere in the beam and a blue wedge shows the cell you are in. The thick blue segment on the wall is how much wall that one cell covers.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Drag the light to the far left. The stripes on the wall get wider and the shadow edge behind the box gets blockier.</li>
-          <li>Drag the bottom end of the wall to the right so the wall leans away from the light. The footprint tile jumps while the texel width tile barely moves.</li>
-          <li>Push the map up to 1024 cells. The stripes shrink to a few pixels each and the edge looks smooth.</li>
+          <li>Drag the lantern to the far left. The stripes on the wall get wider and the shadow edge behind the house gets blockier.</li>
+          <li>Drag the bottom end of the wall to the right so the wall leans away from the lantern. The footprint tile jumps while the texel width tile barely moves.</li>
+          <li>Push the photo up to 1024 cells. The stripes shrink to a few pixels each and the edge looks smooth.</li>
         </ul>
 
         <div class="controls" style="margin-top:14px">
@@ -259,7 +259,7 @@ vec2 uv  = ndc.xy * 0.5 + 0.5;               <span class="c">// [-1,1] to textur
         </div>
 
         <h3>The real version</h3>
-        <p>A texel is a wedge of light directions. Its width in metres grows with depth from the light, so a far receiver gets one depth value spread over many screen pixels. That stretch is called perspective aliasing, and it is why the shadow edge behind the box gets blockier as the light moves away.</p>
+        <p>A texel is a wedge of light directions. Its width in metres grows with depth from the light, so a far receiver gets one depth value spread over many screen pixels. That stretch is called perspective aliasing, and it is why the shadow edge behind the house gets blockier as the lantern moves away.</p>
         <p>Projective aliasing is the other stretch. When a surface tilts away from the light, a texel of width <code>w</code> lands on a strip of surface <code>w / cos θ</code> long, where θ is the angle between the surface normal (the direction the surface faces) and the direction to the light. At 80° that strip is six times the texel width. The wall stripes show it directly.</p>
         <p class="words">In words: cell width grows with distance, then stretches again by how much the surface leans away.</p>
         <div class="math">w_texel(z) = 2 · z · tan(fov/2) / N
@@ -275,22 +275,22 @@ px per texel = footprint · screen px per metre</div>
 
   <section id="bias">
     <h2>Bias: acne, peter-panning, and the fixes</h2>
-    <p class="sub">Drag the wall ends to change how the light grazes the wall, switch bias modes, and hover the face for the numbers.</p>
+    <p class="sub">A stone wall in the square both blocks the lantern and gets lit by it. Tilt the wall so the light grazes its face, switch bias modes, and hover the face for the numbers.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c3" width="512" height="512" class="grab" aria-label="Shadow acne on a wall face and peter-panning behind it under different bias modes"></canvas>
+        <canvas id="c3" width="512" height="512" class="grab" aria-label="Village square from above: a lantern lights a stone wall whose lit face shows red stripes of false shadow, and behind the wall an arrow shows how far the shadow has floated away under the chosen bias"></canvas>
         <div class="cap"><span id="c3-read">hover the wall face</span><span id="c3-cap"></span></div>
       </div>
       <div class="prose">
         <p class="plain">A surface can <b>shadow itself by mistake</b>. The map stores one distance per cell, but a surface point half a cell to the side is slightly farther away, so it fails its own test and gets a stripe of false shadow: that is <b>acne</b>. The fix is a small <b>bias</b>, a slack added to the compare, but push it too far and shadows <b>float away from their objects</b>, which is peter-panning.</p>
 
         <h3>What you're seeing</h3>
-        <p>The wall now blocks light and receives it. Its lit face is drawn as a band: pale amber where the depth test says lit, red where the face wrongly shadows itself. The dotted white lines through the wall's ends are where the true shadow edge should be; if the dark ground starts past them, the shadow has detached.</p>
-        <p>The three tiles report how much of the face is in acne, how far the shadow has detached from the wall, and the angle between the face and the light.</p>
+        <p>The stone wall blocks the lantern and gets lit by it. Its lit face is drawn as a band: pale amber where the depth test says lit, red where the face wrongly shadows itself. The dotted white lines through the wall's ends are where the true shadow edge should be; when the dark ground starts past them, an amber arrow measures how far the shadow has floated off the wall.</p>
+        <p>The three tiles report how much of the face is in acne, how far the shadow has detached from the wall, and the angle between the face and the lantern.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>With bias set to none, drag the bottom wall handle to the right so the face grazes the light. The red band grows and the acne tile climbs.</li>
+          <li>With bias set to none, drag the bottom wall handle to the right so the face grazes the lantern. The red band grows and the acne tile climbs.</li>
           <li>Switch to constant and push c up. Watch the acne tile drop and the detach tile rise at the same time.</li>
           <li>Switch to normal offset with k at 1 texel. The acne goes at grazing angles without a big constant term, so the detach gap stays small.</li>
         </ul>
@@ -339,24 +339,24 @@ vec3 ndc  = lp.xyz / lp.w;
 
   <section id="filtering">
     <h2>Soft edges: PCF, PCSS and variance maps</h2>
-    <p class="sub">Hover a shadowed pixel to see which map cells the filter reads, on the strip and in the scene, then switch filter modes.</p>
+    <p class="sub">The player stands right at the edge of a tree's shadow in the lantern light. Hover a shadowed spot to see which cells the filter reads, on the strip and in the scene, then switch filter modes and watch the edge under the player go soft.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" width="512" height="512" class="grab" aria-label="Soft shadow filtering modes with the kernel shown in texel space"></canvas>
+        <canvas id="c4" width="512" height="512" class="grab" aria-label="Village square from above: a lantern lights a crate and a tree, the player stands on the edge of the tree's shadow, and a side-view inset shows how lit the player is under the current filter"></canvas>
         <div class="cap"><span id="c4-read">hover the ground</span><span id="c4-cap"></span></div>
       </div>
       <div class="prose">
         <p class="plain">A single lookup gives a <b>hard, jagged edge</b>. The fix is to <b>read several neighbouring cells</b>, test each one, and average the yes/no answers, which blurs the edge. Fancier versions <b>size the blur to match the geometry</b>, so a shadow is sharp where the object touches the ground and softer farther away, like a real one.</p>
 
         <h3>What you're seeing</h3>
-        <p>Hover the shadow behind the box or the circle. On the strip, the blue band is the set of cells the filter reads, with a green dot for each cell that says lit and a red dot for each that says shadow. In the scene the same band is drawn as a blue fan from the light.</p>
-        <p>The hover dot's colour is the averaged result, from red (fully shadowed) to green (fully lit).</p>
+        <p>A crate and a tree stand in the lantern's beam, and the player stands on the upper edge of the tree's shadow. Hover the shadow behind either one. On the strip, the blue band is the set of cells the filter reads, with a green dot for each cell that says lit and a red dot for each that says shadow. In the scene the same band is drawn as a blue fan from the lantern.</p>
+        <p>The hover dot's colour is the averaged result, from red (fully shadowed) to green (fully lit). The inset shows the player from the side with a percentage: how lit the filter says they are.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Switch between hard and PCF 5. The shadow edge goes from a staircase to a smooth ramp five cells wide.</li>
-          <li>Pick PCSS and hover just behind the circle, then far behind it. The kernel readout in the caption grows with distance from the blocker.</li>
-          <li>Pick VSM and raise the blur. Where the circle's shadow meets the box's, the shadow goes grey: that is light bleeding.</li>
+          <li>Switch between hard and PCF 5. The shadow edge under the player goes from a staircase to a smooth ramp five cells wide, and the player's percentage stops being 0 or 100.</li>
+          <li>Pick PCSS and hover just behind the tree, then far behind it. The kernel readout in the caption grows with distance from the blocker.</li>
+          <li>Pick VSM and raise the blur. Where the tree's shadow meets the crate's, the shadow goes grey: that is light bleeding.</li>
         </ul>
 
         <div class="controls" style="margin-top:14px">
@@ -373,7 +373,7 @@ vec3 ndc  = lp.xyz / lp.w;
 
         <h3>The real version</h3>
         <p>Percentage-closer filtering, PCF, does the depth test at several neighbouring texels and averages the results. Averaging the depths first and testing once would be wrong: the mean of two surfaces is a surface that does not exist. The averaged verdict is a coverage fraction, so the edge blurs over the kernel width, the span of texels the filter reads. The blur is the same width everywhere, which real shadows are not.</p>
-        <p>PCSS, percentage-closer soft shadows, makes the kernel depend on geometry. First a blocker search averages the depths of the map texels that are closer than the receiver, the surface being shaded. That average blocker depth and the light's size give a penumbra width, the width of the soft edge, by similar triangles, and the PCF kernel is sized to it. The shadow is sharp where the receiver touches the box and widens with distance.</p>
+        <p>PCSS, percentage-closer soft shadows, makes the kernel depend on geometry. First a blocker search averages the depths of the map texels that are closer than the receiver, the surface being shaded. That average blocker depth and the light's size give a penumbra width, the width of the soft edge, by similar triangles, and the PCF kernel is sized to it. The shadow is sharp where the receiver touches the tree trunk and widens with distance.</p>
         <p>Variance shadow maps, VSM, store depth and depth squared, blur the map itself once, and bound the lit fraction with Chebyshev's inequality, a rule that turns a mean and a variance into a worst-case probability. One bilinear fetch gives a soft edge. The cost is light bleeding: where two occluders at different depths land in one blurred texel, the variance is large, the bound is loose, and light leaks into the shadow behind the far one.</p>
         <p class="words">In words: PCF averages several yes/no tests; PCSS first measures how far away the blocker is to pick the blur width; VSM blurs the map once and turns mean and spread into a lit probability.</p>
         <div class="math">PCF:  lit = (1/n) · Σ [ z_p ≤ map[i + k] ]
@@ -411,22 +411,22 @@ dBlocker /= <span class="k">float</span>(n);
 
   <section id="cascades">
     <h2>Cascades: one map per slice of view</h2>
-    <p class="sub">Drag the camera or the sun to see how the view gets split into slices and how big each slice's shadow cells are.</p>
+    <p class="sub">Morning sun over the same village, seen from the side, with the camera floating behind the player. Drag the camera or the sun to see how the view gets split into near, mid and far slices, and how big each slice's shadow cells are.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="640" height="360" class="c16 grab" aria-label="Camera frustum split into cascades with each cascade's orthographic bounds"></canvas>
+        <canvas id="c5" width="640" height="360" class="c16 grab" aria-label="Side view of the village in daylight: the sun top left, the camera behind the player, trees and houses along the ground casting shadows, and the camera's view wedge split into coloured cascade slices with a strip under the ground showing which cascade each point uses"></canvas>
         <div class="cap"><span id="c5-read">hover the ground</span><span id="c5-cap"></span></div>
       </div>
       <div class="prose">
         <p class="plain">The sun lights the whole world at once, so <b>one shadow map for the sun</b> has to cover hundreds of metres, and its cells end up 15 cm wide at your feet. Cascades fix that by <b>splitting the view into slices by distance</b> and giving each slice its own map. The <b>near slice gets small cells</b>; the far slice gets big ones nobody looks at closely.</p>
 
         <h3>What you're seeing</h3>
-        <p>Side view, in metres. The white lines are the camera's frustum, which is just the wedge of space the camera can see. Dashed lines split it into slices, and each coloured box is one cascade's shadow map fitted around a slice, tilted to face the sun.</p>
-        <p>The stripe along the ground shows which cascade each ground point uses. The number at each seam is how much the cell size jumps there.</p>
+        <p>Side view of the village, in metres: trees and houses along the ground with their sun shadows, the player near the camera. The white lines are the camera's frustum, which is just the wedge of space the camera can see. Dashed lines split it into slices, and each coloured box is one cascade's shadow map fitted around a slice, tilted to face the sun.</p>
+        <p>The coloured stripe under the ground shows which cascade each ground point uses. The number at each seam is how much the cell size jumps there, and the bars at the bottom show one cell of each map, magnified.</p>
 
         <h3>Try this</h3>
         <ul class="try">
-          <li>Drag the sun low, toward 15°. The cascade boxes stretch along the ground and every cell gets bigger.</li>
+          <li>Drag the sun low, toward 15°. The tree shadows stretch along the ground, the cascade boxes stretch with them, and every cell gets bigger.</li>
           <li>Switch split to uniform. The near cascade grows to an equal share of the range and its cell size jumps in the table.</li>
           <li>Push the far plane to 300 m with 3 cascades. Read the far cascade's cell size: that is what a distant hill gets.</li>
         </ul>
@@ -445,7 +445,7 @@ dBlocker /= <span class="k">float</span>(n);
         </div>
 
         <h3>The real version</h3>
-        <p>A sun has no position, only a direction, so its shadow map is an orthographic box, a projection with no perspective where every ray is parallel, wrapped around the camera frustum. One 2048² map over a 300 m view distance gives 15 cm texels at the player's feet. Cascades split the view depth into slices and fit a map to each, and the heat-striped ground shows which cascade each point samples from.</p>
+        <p>A sun has no position, only a direction, so its shadow map is an orthographic box, a projection with no perspective where every ray is parallel, wrapped around the camera frustum. One 2048² map over a 300 m view distance gives 15 cm texels at the player's feet. Cascades split the view depth into slices and fit a map to each, and the coloured stripe under the ground shows which cascade each point samples from.</p>
         <p>The split scheme decides where texel size jumps. Uniform splits waste the near map. Logarithmic splits match the perspective texel growth exactly but leave the far cascades huge. The practical split blends the two with λ, a weight from 0 (uniform) to 1 (logarithmic).</p>
         <p>At each boundary the texel size steps by the ratio shown. That seam is visible in a shipped game unless the boundary is dithered or the two cascades are blended over a metre or two.</p>
         <p class="words">In words: pick the split depths as a blend of even spacing and doubling spacing, then wrap a box around each slice and divide its width by 2048.</p>
@@ -511,11 +511,125 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
 </div>
 
 <script>
+// Rendering Library scene kit. Paste this whole block at the top of a page's <script> (no external
+// scripts are allowed). Small, flat, readable game-world props for 2D canvas demos. Every function
+// takes a ctx and draws in the current transform; sizes are in canvas pixels. Keep the mechanism
+// overlay (frustum lines, rays, samples, tests) in the library palette on top of these props.
+const KIT = {
+  // scene palette: props only; the mechanism overlay keeps amber / blue / white / green / red
+  grass: '#1f3a2a', grassLite: '#2a4d37', dirt: '#3b2f25', stone: '#4c5563', stoneLite: '#6b7585',
+  wood: '#7a4f2a', woodLite: '#a06a38', leaf: '#3f8f4a', leafLite: '#5ab562', roof: '#a5433a',
+  wallCol: '#c9c2b2', window: '#f5d67a', skin: '#e8b98a', shirt: '#4aa3ff', pants: '#2f3a55',
+  metal: '#8d95a3', flame: '#f2a341', sky: '#0b0e13', skyLite: '#141a26', water: '#1d4d73', cloud: '#c7cdd8',
+  shadow: 'rgba(0,0,0,0.35)'
+};
+// horizon band: dark sky above, ground below (side-view scenes)
+function kitGround(ctx, w, h, horizon) {
+  const g = ctx.createLinearGradient(0, 0, 0, horizon); g.addColorStop(0, KIT.sky); g.addColorStop(1, KIT.skyLite);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, horizon);
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, horizon, w, h - horizon);
+  ctx.fillStyle = KIT.grassLite; ctx.fillRect(0, horizon, w, 3);
+}
+// top-down ground with faint tile grid (top-down scenes)
+function kitTopGround(ctx, w, h, cell) {
+  ctx.fillStyle = KIT.grass; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.beginPath();
+  for (let x = 0; x <= w; x += cell) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, h); }
+  for (let y = 0; y <= h; y += cell) { ctx.moveTo(0, y + 0.5); ctx.lineTo(w, y + 0.5); }
+  ctx.stroke();
+}
+// round tree, base at (x, y), s = trunk height
+function kitTree(ctx, x, y, s, tint) {
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, s * 0.55, s * 0.18, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.09, y - s, s * 0.18, s);
+  ctx.fillStyle = tint || KIT.leaf; ctx.beginPath(); ctx.arc(x, y - s * 1.25, s * 0.62, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.leafLite; ctx.beginPath(); ctx.arc(x - s * 0.2, y - s * 1.45, s * 0.3, 0, Math.PI * 2); ctx.fill();
+}
+// pine tree, base at (x, y)
+function kitPine(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s * 0.07, y - s * 0.4, s * 0.14, s * 0.4);
+  ctx.fillStyle = KIT.leaf;
+  for (let i = 0; i < 3; i++) { const yy = y - s * 0.35 - i * s * 0.42, ww = s * (0.7 - i * 0.16);
+    ctx.beginPath(); ctx.moveTo(x - ww, yy); ctx.lineTo(x + ww, yy); ctx.lineTo(x, yy - s * 0.55); ctx.closePath(); ctx.fill(); }
+}
+// house, bottom-left corner at (x, y), width w, wall height h
+function kitHouse(ctx, x, y, w, h, roofCol) {
+  ctx.fillStyle = KIT.wallCol; ctx.fillRect(x, y - h, w, h);
+  ctx.fillStyle = roofCol || KIT.roof; ctx.beginPath(); ctx.moveTo(x - w * 0.08, y - h); ctx.lineTo(x + w * 1.08, y - h); ctx.lineTo(x + w / 2, y - h - w * 0.45); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + w * 0.15, y - h * 0.75, w * 0.22, h * 0.3);
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x + w * 0.6, y - h * 0.6, w * 0.22, h * 0.6);
+}
+// wooden crate, centre (x, y), size s
+function kitCrate(ctx, x, y, s) {
+  ctx.fillStyle = KIT.wood; ctx.fillRect(x - s / 2, y - s / 2, s, s);
+  ctx.strokeStyle = KIT.woodLite; ctx.lineWidth = Math.max(1, s * 0.08);
+  ctx.strokeRect(x - s / 2 + 1, y - s / 2 + 1, s - 2, s - 2);
+  ctx.beginPath(); ctx.moveTo(x - s / 2, y - s / 2); ctx.lineTo(x + s / 2, y + s / 2); ctx.moveTo(x + s / 2, y - s / 2); ctx.lineTo(x - s / 2, y + s / 2); ctx.stroke();
+}
+// stone wall segment from (x1, y1) to (x2, y2), thickness t (top-down or side)
+function kitWall(ctx, x1, y1, x2, y2, t) {
+  ctx.strokeStyle = KIT.stone; ctx.lineWidth = t; ctx.lineCap = 'butt'; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.strokeStyle = KIT.stoneLite; ctx.lineWidth = Math.max(1, t * 0.25); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+}
+// little player figure, feet at (x, y), height h, facing +1 right / -1 left
+function kitPlayer(ctx, x, y, h, facing) {
+  const f = facing || 1;
+  ctx.fillStyle = KIT.shadow; ctx.beginPath(); ctx.ellipse(x, y, h * 0.28, h * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.pants; ctx.fillRect(x - h * 0.16, y - h * 0.42, h * 0.32, h * 0.42);
+  ctx.fillStyle = KIT.shirt; ctx.fillRect(x - h * 0.2, y - h * 0.78, h * 0.4, h * 0.38);
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y - h * 0.9, h * 0.14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#171a1f'; ctx.fillRect(x + f * h * 0.04, y - h * 0.93, h * 0.05, h * 0.04);
+}
+// top-down player: a circle with a facing wedge, centre (x, y), radius r, angle a (radians)
+function kitPlayerTop(ctx, x, y, r, a) {
+  ctx.fillStyle = KIT.shirt; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = KIT.skin; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * r * 1.6, y + Math.sin(a) * r * 1.6); ctx.stroke();
+}
+// lamp post / torch, base at (x, y), height h; glow radius g (0 = none)
+function kitLamp(ctx, x, y, h, g) {
+  if (g > 0) { const gr = ctx.createRadialGradient(x, y - h, 0, x, y - h, g); gr.addColorStop(0, 'rgba(242,163,65,0.35)'); gr.addColorStop(1, 'rgba(242,163,65,0)'); ctx.fillStyle = gr; ctx.fillRect(x - g, y - h - g, g * 2, g * 2); }
+  ctx.fillStyle = KIT.metal; ctx.fillRect(x - h * 0.04, y - h, h * 0.08, h);
+  ctx.fillStyle = KIT.flame; ctx.beginPath(); ctx.arc(x, y - h, h * 0.12, 0, Math.PI * 2); ctx.fill();
+}
+// simple side-view car, bottom-left at (x, y), length L
+function kitCar(ctx, x, y, L, col) {
+  ctx.fillStyle = col || '#d8493f'; ctx.fillRect(x, y - L * 0.22, L, L * 0.2);
+  ctx.fillRect(x + L * 0.22, y - L * 0.4, L * 0.5, L * 0.2);
+  ctx.fillStyle = KIT.window; ctx.fillRect(x + L * 0.26, y - L * 0.38, L * 0.42, L * 0.14);
+  ctx.fillStyle = '#171a1f'; ctx.beginPath(); ctx.arc(x + L * 0.22, y, L * 0.09, 0, Math.PI * 2); ctx.arc(x + L * 0.78, y, L * 0.09, 0, Math.PI * 2); ctx.fill();
+}
+// cloud, centre (x, y), width w
+function kitCloud(ctx, x, y, w, alpha) {
+  ctx.fillStyle = 'rgba(199,205,216,' + (alpha == null ? 0.35 : alpha) + ')';
+  ctx.beginPath(); ctx.arc(x - w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.arc(x, y - w * 0.08, w * 0.28, 0, Math.PI * 2); ctx.arc(x + w * 0.3, y, w * 0.2, 0, Math.PI * 2); ctx.fill();
+}
+// plain-word label on the canvas with a dark pill behind it; anchor 'left' | 'center' | 'right'
+function kitLabel(ctx, text, x, y, anchor, col) {
+  ctx.font = '12px "IBM Plex Mono", Menlo, Consolas, monospace';
+  const w = ctx.measureText(text).width + 12, h = 18;
+  const x0 = anchor === 'center' ? x - w / 2 : anchor === 'right' ? x - w : x;
+  ctx.fillStyle = 'rgba(11,14,19,0.82)'; ctx.fillRect(x0, y - h / 2, w, h);
+  ctx.fillStyle = col || '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(text, x0 + 6, y + 1);
+}
+// arrow from (x1, y1) to (x2, y2) in a colour, for callouts
+function kitArrow(ctx, x1, y1, x2, y2, col, width) {
+  const a = Math.atan2(y2 - y1, x2 - x1), s = 7;
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = width || 1.5;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - s * Math.cos(a - 0.4), y2 - s * Math.sin(a - 0.4)); ctx.lineTo(x2 - s * Math.cos(a + 0.4), y2 - s * Math.sin(a + 0.4)); ctx.closePath(); ctx.fill();
+}
+// "what the player sees" inset frame: draws a titled box at (x, y, w, h); draw the picture inside afterwards
+function kitInset(ctx, x, y, w, h, title) {
+  ctx.fillStyle = 'rgba(11,14,19,0.92)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
+}
 (() => {
-  // ---------- shared: 10 m × 10 m top-down world, coords 0..1, 1 unit = 10 m ----------
+  // ---------- shared: 10 m × 10 m village square seen from above, coords 0..1, 1 unit = 10 m ----------
   const M = 10, W = 512, FAR = 2.0, NEAR = 0.02;       // far 20 m, near 0.2 m
-  const HALF = Math.PI / 6, TANH = Math.tan(HALF);      // 60° cone
-  const LIT = [214, 160, 78], DARK = [24, 27, 34], OUTSIDE = [15, 18, 24], SHAPE = [58, 63, 74];
+  const HALF = Math.PI / 6, TANH = Math.tan(HALF);      // 60° beam
+  const LIT = [214, 160, 78], DARK = [16, 30, 22], OUTSIDE = [12, 21, 16], SHAPE = [58, 63, 74];
   const BLUE = [74, 163, 255], BLUE2 = [38, 96, 168], RED = [239, 93, 93], GREEN = [90, 212, 138];
   const MONO = '11px "IBM Plex Mono", Menlo, monospace';
 
@@ -549,7 +663,7 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
     }
     return false;
   }
-  function wallBox(A, B, th) { const dx = B[0] - A[0], dy = B[1] - A[1]; return { c: [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2], ang: Math.atan2(dy, dx), hx: Math.hypot(dx, dy) / 2, hy: th / 2 }; }
+  function wallBox(A, B, th, kind) { const dx = B[0] - A[0], dy = B[1] - A[1]; return { kind: kind || 'wall', c: [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2], ang: Math.atan2(dy, dx), hx: Math.hypot(dx, dy) / 2, hy: th / 2 }; }
   function frame(Lt) { return { fwd: [Math.cos(Lt.ang), Math.sin(Lt.ang)], right: [-Math.sin(Lt.ang), Math.cos(Lt.ang)] }; }
   function buildMap(N, Lt, shapes) {
     const { fwd, right } = frame(Lt), map = new Float32Array(N);
@@ -569,6 +683,7 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
   const texelW = (z, N) => 2 * z * TANH / N;   // metres-per-texel in world units at depth z
   const attn = z => 0.4 + 0.6 / (1 + (z * M / 5) ** 2);
   function mix(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
+  const rgb = c => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
 
   // ImageData ground render. shade(x, y, z, u) returns lit fraction in [0,1]; band(x, y) returns a color or null
   function renderGround(R, Lt, shapes, shade, band) {
@@ -596,31 +711,81 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
     for (let k = 1; k < Ht / (step * Wd); k++) { const p = Math.round(k * step * Wd) + 0.5; ctx.moveTo(0, p); ctx.lineTo(Wd, p); }
     ctx.stroke();
   }
-  function drawShapes(ctx, shapes) {
-    ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 1.5;
+  // ---------- village props seen from above (flat kit style) ----------
+  function kitTreeTop(ctx, x, y, r) {
+    ctx.fillStyle = KIT.leaf; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = KIT.leafLite; ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.45, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = KIT.wood; ctx.beginPath(); ctx.arc(x, y, r * 0.14, 0, Math.PI * 2); ctx.fill();
+  }
+  function kitHouseTop(ctx, cx, cy, hx, hy, ang) {
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang);
+    ctx.fillStyle = KIT.roof; ctx.fillRect(-hx, -hy, 2 * hx, 2 * hy);
+    ctx.fillStyle = "rgba(0,0,0,0.28)"; ctx.fillRect(-hx, 0, 2 * hx, hy);
+    ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(-hx, 0); ctx.lineTo(hx, 0); ctx.stroke();
+    ctx.fillStyle = KIT.stoneLite; ctx.fillRect(hx * 0.45, -hy * 0.8, hx * 0.2, hy * 0.5);
+    ctx.restore();
+  }
+  function wallEnds(S) { const c = Math.cos(S.ang), s = Math.sin(S.ang); return [[(S.c[0] - c * S.hx) * W, (S.c[1] - s * S.hx) * W], [(S.c[0] + c * S.hx) * W, (S.c[1] + s * S.hx) * W]]; }
+  function drawProps(ctx, shapes) {
     for (const S of shapes) {
-      ctx.beginPath();
-      if (S.r !== undefined) ctx.arc(S.c[0] * W, S.c[1] * W, S.r * W, 0, Math.PI * 2);
-      else { ctx.save(); ctx.translate(S.c[0] * W, S.c[1] * W); ctx.rotate(S.ang); ctx.rect(-S.hx * W, -S.hy * W, 2 * S.hx * W, 2 * S.hy * W); ctx.restore(); }
-      ctx.stroke();
+      if (S.kind === "tree") kitTreeTop(ctx, S.c[0] * W, S.c[1] * W, S.r * W);
+      else if (S.kind === "house") kitHouseTop(ctx, S.c[0] * W, S.c[1] * W, S.hx * W, S.hy * W, S.ang);
+      else if (S.kind === "crate") { ctx.save(); ctx.translate(S.c[0] * W, S.c[1] * W); ctx.rotate(S.ang); kitCrate(ctx, 0, 0, 2 * S.hx * W); ctx.restore(); }
+      else if (S.kind === "wall") { const [a, b] = wallEnds(S); kitWall(ctx, a[0], a[1], b[0], b[1], 2 * S.hy * W); }
     }
+  }
+  // stone outline around a wall box whose face colouring comes from the ImageData underneath
+  function wallOutline(ctx, S) {
+    ctx.save(); ctx.translate(S.c[0] * W, S.c[1] * W); ctx.rotate(S.ang);
+    ctx.strokeStyle = KIT.stoneLite; ctx.lineWidth = 1.5; ctx.strokeRect(-S.hx * W, -S.hy * W, 2 * S.hx * W, 2 * S.hy * W);
+    ctx.restore();
+  }
+  // side-view props for the inset, feet at (x, y)
+  function miniProp(ctx, kind, x, y) {
+    if (kind === "tree") kitTree(ctx, x, y, 16);
+    else if (kind === "house") kitHouse(ctx, x - 16, y, 32, 22);
+    else if (kind === "crate") kitCrate(ctx, x, y - 9, 18);
+    else { ctx.fillStyle = KIT.stone; ctx.fillRect(x - 5, y - 26, 10, 26); ctx.fillStyle = KIT.stoneLite; ctx.fillRect(x - 5, y - 26, 10, 3); }
+  }
+  // "what the player sees" inset: the line from the lantern to the player, seen from the side.
+  // shadeAt(x, y) returns the lit fraction at a ground point, or null outside the beam / inside a prop
+  const INS = { x: 300, y: 398, w: 204, h: 106 };
+  function insetSide(ctx, Lt, shapes, P, shadeAt, litP) {
+    const { x, y, w, h } = INS; kitInset(ctx, x, y, w, h, "side view: lantern to player");
+    const gy = y + h - 20, x0 = x + 24, x1 = x + w - 26, cols = x1 - x0;
+    const dx = P[0] - Lt.p[0], dy = P[1] - Lt.p[1], dist = Math.hypot(dx, dy) || 1e-6, dir = [dx / dist, dy / dist];
+    ctx.fillStyle = KIT.grass; ctx.fillRect(x + 1, gy, w - 2, y + h - gy - 1);
+    for (let k = 0; k < cols; k++) {
+      const t = (k + 0.5) / cols * dist, v = shadeAt(Lt.p[0] + dir[0] * t, Lt.p[1] + dir[1] * t);
+      ctx.fillStyle = rgb(v == null ? OUTSIDE : mix(DARK, LIT, v)); ctx.fillRect(x0 + k, gy, 1, 5);
+    }
+    kitLamp(ctx, x0, gy, 44, 26);
+    const hits = shapes.map(S => ({ S, t: S.r !== undefined ? circleHit(Lt.p, dir, S) : boxHit(Lt.p, dir, S) })).filter(o => o.t < dist).sort((a, b) => a.t - b.t);
+    for (const o of hits) miniProp(ctx, o.S.kind, x0 + o.t / dist * cols, gy);
+    kitPlayer(ctx, x1, gy, 34, -1);
+    if (litP != null && litP < 0.5) { ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(x1 - 8, gy - 34, 16, 34); }
+    const txt = litP == null ? "player: outside the beam" : litP >= 0.99 ? "player: lit" : litP <= 0.01 ? "player: in shadow" : `player: ${Math.round(litP * 100)} % lit`;
+    kitLabel(ctx, txt, x1 + 6, gy - 46, "right", litP == null ? "#c7cdd8" : litP > 0.5 ? "#5ad48a" : "#ef5d5d");
   }
   function handle(ctx, x, y, r = 7) {
     ctx.beginPath(); ctx.arc(x * W, y * W, r, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b0e13"; ctx.stroke();
   }
-  function drawLight(ctx, Lt) {
+  // the lantern: amber glow, the 60° beam edges, a white drag handle and an aim handle
+  function drawLight(ctx, Lt, tag = "lantern · drag") {
     const fr = frame(Lt), [lx, ly] = Lt.p;
     ctx.setLineDash([4, 5]); ctx.strokeStyle = "rgba(242,163,65,0.55)"; ctx.lineWidth = 1; ctx.beginPath();
     for (const s of [-TANH, TANH]) { ctx.moveTo(lx * W, ly * W); ctx.lineTo((lx + (fr.fwd[0] + fr.right[0] * s) * FAR) * W, (ly + (fr.fwd[1] + fr.right[1] * s) * FAR) * W); }
     ctx.stroke(); ctx.setLineDash([]);
-    const g = ctx.createRadialGradient(lx * W, ly * W, 3, lx * W, ly * W, 34);
-    g.addColorStop(0, "rgba(255,240,210,0.85)"); g.addColorStop(1, "rgba(255,240,210,0)");
-    ctx.fillStyle = g; ctx.fillRect(lx * W - 34, ly * W - 34, 68, 68);
+    const g = ctx.createRadialGradient(lx * W, ly * W, 3, lx * W, ly * W, 40);
+    g.addColorStop(0, "rgba(242,163,65,0.8)"); g.addColorStop(1, "rgba(242,163,65,0)");
+    ctx.fillStyle = g; ctx.fillRect(lx * W - 40, ly * W - 40, 80, 80);
+    ctx.strokeStyle = KIT.flame; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(lx * W, ly * W, 13, 0, Math.PI * 2); ctx.stroke();
     handle(ctx, lx, ly, 8);
     const ax = lx + fr.fwd[0] * 0.16, ay = ly + fr.fwd[1] * 0.16;
     ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(lx * W, ly * W); ctx.lineTo(ax * W, ay * W); ctx.stroke();
     handle(ctx, ax, ay, 5);
+    if (tag) kitLabel(ctx, tag, lx * W, Math.max(66, ly * W - 26), "center");
   }
   const aimOf = Lt => { const fr = frame(Lt); return [Lt.p[0] + fr.fwd[0] * 0.16, Lt.p[1] + fr.fwd[1] * 0.16]; };
   // texel wedge in world space; also the stored-depth point on the center ray
@@ -636,7 +801,7 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
       ctx.beginPath(); ctx.arc(px * W, py * W, 4, 0, Math.PI * 2); ctx.fillStyle = "#4aa3ff"; ctx.fill();
     }
   }
-  // the 1D shadow map as a strip at the top of the canvas
+  // the 1D shadow map, "the lantern's photo", as a strip at the top of the canvas
   const STRIP = { x: 8, y: 8, w: 496, h: 22 };
   function drawStrip(ctx, map, N, label, hi = -1, kernel = null) {
     const { x, y, w, h } = STRIP;
@@ -654,9 +819,9 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
     }
     if (hi >= 0) { ctx.strokeStyle = "#4aa3ff"; ctx.lineWidth = 2; ctx.strokeRect(x + hi * tw - 1, y - 1, Math.max(tw, 3) + 2, h + 2); }
     ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.font = MONO; ctx.textAlign = "left"; ctx.fillText(label, x, y + h + 13);
-    ctx.textAlign = "right"; ctx.fillText("u 0 → 1 · bright = near", x + w, y + h + 13); ctx.textAlign = "left";
+    ctx.textAlign = "right"; ctx.fillText("bright = close", x + w, y + h + 13); ctx.textAlign = "left";
   }
-  function label(ctx, text, x, y, color = "rgba(255,255,255,0.85)") { ctx.font = MONO; ctx.fillStyle = color; ctx.fillText(text, x, y); }
+  function label(ctx, text, x, y, color = "rgba(255,255,255,0.85)") { ctx.font = MONO; ctx.fillStyle = color; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.fillText(text, x, y); }
 
   const worldOf = (canvas, ev) => { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width * (canvas.width / W), (ev.clientY - r.top) / r.height * (canvas.height / W)]; };
   function drag(canvas, getHandles, onMove, onHover, radius = 0.045) {
@@ -682,38 +847,53 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
   function raf(fn) { let pending = false; return () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; fn(); }); }; }
   const m = v => (v * M).toFixed(2) + " m";
   const fmtMiB = b => (b / 1048576).toFixed(b >= 1048576 * 10 ? 0 : 1) + " MiB";
+  const playerFacing = (P, Lt) => Math.atan2(Lt.p[1] - P[1], Lt.p[0] - P[0]);
 
   // ---------- 1. two passes ----------
   const c1 = document.getElementById("c1"), x1 = c1.getContext("2d");
-  const S1 = [{ c: [0.47, 0.33], ang: -0.35, hx: 0.09, hy: 0.06 }, { c: [0.64, 0.64], r: 0.08 }, wallBox([0.36, 0.72], [0.56, 0.84], 0.025)];
-  const s1 = { L: { p: [0.15, 0.5], ang: 0 }, N: 256, map: null, off: null, hover: null };
+  const S1 = [{ kind: "house", c: [0.47, 0.33], ang: -0.35, hx: 0.09, hy: 0.06 }, { kind: "tree", c: [0.64, 0.64], r: 0.08 }, wallBox([0.36, 0.72], [0.56, 0.84], 0.025)];
+  const s1 = { L: { p: [0.15, 0.5], ang: 0 }, N: 256, P: [0.8, 0.62], map: null, off: null, hover: null };
   const R1 = 320;
+  const idx1 = u => Math.min(s1.N - 1, Math.max(0, Math.floor(u * s1.N)));
+  function lit1(x, y) {
+    if (inside(S1, x, y)) return null;
+    const q = project(s1.L, frame(s1.L), x, y);
+    if (q.z <= NEAR || Math.abs(q.lx / q.z) > TANH) return null;
+    return q.z > s1.map[idx1(q.u)] ? 0 : 1;
+  }
   function build1() {
     s1.map = buildMap(s1.N, s1.L, S1);
-    s1.off = toCanvas(renderGround(R1, s1.L, S1, (x, y, z, u) => { const i = Math.min(s1.N - 1, Math.max(0, Math.floor(u * s1.N))); return z > s1.map[i] ? 0 : 1; }));
+    s1.off = toCanvas(renderGround(R1, s1.L, S1, (x, y, z, u) => z > s1.map[idx1(u)] ? 0 : 1));
   }
   function draw1() {
-    blit(x1, s1.off); grid(x1); drawShapes(x1, S1); drawLight(x1, s1.L);
+    blit(x1, s1.off); grid(x1); drawProps(x1, S1); drawLight(x1, s1.L);
+    kitLabel(x1, "house", S1[0].c[0] * W, S1[0].c[1] * W - 46, "center");
+    kitLabel(x1, "tree", S1[1].c[0] * W, S1[1].c[1] * W + 54, "center");
+    kitLabel(x1, "garden wall", 0.42 * W, 0.83 * W, "center");
+    const litP = lit1(s1.P[0], s1.P[1]);
+    kitPlayerTop(x1, s1.P[0] * W, s1.P[1] * W, 9, playerFacing(s1.P, s1.L));
+    kitLabel(x1, "player · drag", s1.P[0] * W, s1.P[1] * W - 20, "center", litP == null ? "#c7cdd8" : litP ? "#5ad48a" : "#ef5d5d");
     const fr = frame(s1.L), h = s1.hover; let hi = -1;
     const read = document.getElementById("c1-read");
     if (h && h[1] > 0.1) {
       const q = project(s1.L, fr, h[0], h[1]);
       if (q.z > NEAR && Math.abs(q.lx / q.z) <= TANH && !inside(S1, h[0], h[1])) {
-        hi = Math.min(s1.N - 1, Math.floor(q.u * s1.N));
+        hi = idx1(q.u);
         wedge(x1, s1.L, s1.N, hi, s1.map);
         x1.strokeStyle = "#ffffff"; x1.lineWidth = 1.5; x1.beginPath(); x1.moveTo(s1.L.p[0] * W, s1.L.p[1] * W); x1.lineTo(h[0] * W, h[1] * W); x1.stroke();
         const shadowed = q.z > s1.map[hi];
         x1.beginPath(); x1.arc(h[0] * W, h[1] * W, 5, 0, Math.PI * 2); x1.fillStyle = shadowed ? "#ef5d5d" : "#5ad48a"; x1.fill();
-        label(x1, `z_p ${m(q.z)}`, h[0] * W + 9, h[1] * W + 4);
-        read.innerHTML = `u = ${q.u.toFixed(3)} · texel <strong>${hi}</strong> of ${s1.N} · z_p <strong>${m(q.z)}</strong> vs map <strong>${m(s1.map[hi])}</strong> · <strong style="color:${shadowed ? "#ef5d5d" : "#5ad48a"}">${shadowed ? "shadowed" : "lit"}</strong>`;
-      } else read.textContent = "outside the light's frustum: no texel, treat as lit or dark by convention";
+        label(x1, `this pixel: ${m(q.z)} from the lantern`, h[0] * W + 9, h[1] * W + 4);
+        read.innerHTML = `u = ${q.u.toFixed(3)} · cell <strong>${hi}</strong> of ${s1.N} · this pixel <strong>${m(q.z)}</strong> vs photo <strong>${m(s1.map[hi])}</strong> · <strong style="color:${shadowed ? "#ef5d5d" : "#5ad48a"}">${shadowed ? "shadowed" : "lit"}</strong>`;
+      } else read.textContent = "outside the lantern's beam: no cell to read, treat as lit or dark by convention";
     } else read.textContent = "hover the ground";
-    drawStrip(x1, s1.map, s1.N, `pass 1: ${s1.N} texels, nearest depth`, hi);
-    document.getElementById("c1-map").textContent = `light at ${(s1.L.p[0] * M).toFixed(1)}, ${(s1.L.p[1] * M).toFixed(1)} m · texel = ${(360 / s1.N * 60 / 360).toFixed(3)}°`;
+    insetSide(x1, s1.L, S1, s1.P, lit1, litP);
+    drawStrip(x1, s1.map, s1.N, `pass 1, the lantern's photo: ${s1.N} cells`, hi);
+    document.getElementById("c1-map").textContent = `lantern at ${(s1.L.p[0] * M).toFixed(1)}, ${(s1.L.p[1] * M).toFixed(1)} m · one cell = ${(360 / s1.N * 60 / 360).toFixed(3)}° of beam`;
   }
   const req1 = raf(() => { build1(); draw1(); });
-  drag(c1, () => [s1.L.p, aimOf(s1.L)], (i, x, y) => {
-    if (i === 0) { s1.L.p = [x, y]; } else s1.L.ang = Math.atan2(y - s1.L.p[1], x - s1.L.p[0]);
+  drag(c1, () => [s1.L.p, aimOf(s1.L), s1.P], (i, x, y) => {
+    if (i === 0) s1.L.p = [x, y]; else if (i === 1) s1.L.ang = Math.atan2(y - s1.L.p[1], x - s1.L.p[0]); else s1.P = [x, y];
     req1();
   }, (x, y) => { s1.hover = x < 0 ? null : [x, y]; draw1(); });
   const n1 = document.getElementById("n1");
@@ -722,7 +902,7 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
 
   // ---------- 2. resolution and aliasing ----------
   const c2 = document.getElementById("c2"), x2 = c2.getContext("2d");
-  const BOX2 = { c: [0.43, 0.43], ang: 0.25, hx: 0.08, hy: 0.06 };
+  const BOX2 = { kind: "house", c: [0.43, 0.43], ang: 0.25, hx: 0.08, hy: 0.06 };
   const s2 = { L: { p: [0.1, 0.5], ang: 0 }, N: 64, A: [0.74, 0.22], B: [0.8, 0.8], map: null, off: null, hover: null };
   const R2 = 320, TH2 = 0.024;
   function wallInfo(A, B) { const dx = B[0] - A[0], dy = B[1] - A[1], len = Math.hypot(dx, dy); return { t: [dx / len, dy / len], n: [-dy / len, dx / len], len }; }
@@ -736,15 +916,31 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
         const [qx, qy, h] = nearestOnSeg(s2.A, s2.B, x, y);
         if (Math.hypot(x - qx, y - qy) > TH2 / 2 || h <= 0 || h >= wi.len) return null;
         const q = project(s2.L, fr, qx, qy);
-        if (q.z <= NEAR || Math.abs(q.lx / q.z) > TANH) return [40, 46, 58];
+        if (q.z <= NEAR || Math.abs(q.lx / q.z) > TANH) return [76, 85, 99];
         const i = Math.min(s2.N - 1, Math.max(0, Math.floor(q.u * s2.N)));
         const lit = q.z <= s2.map[i], odd = i & 1;
         return lit ? (odd ? BLUE : BLUE2) : (odd ? [34, 52, 78] : [24, 36, 56]);
       }));
   }
+  // where the house's shadow edge lands: the ray through the house corner that sits widest in the beam
+  function shadowEdge2() {
+    const fr = frame(s2.L), c = Math.cos(BOX2.ang), s = Math.sin(BOX2.ang); let best = null;
+    for (const [sx, sy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const px = BOX2.c[0] + c * BOX2.hx * sx - s * BOX2.hy * sy, py = BOX2.c[1] + s * BOX2.hx * sx + c * BOX2.hy * sy;
+      const q = project(s2.L, fr, px, py); if (q.z <= NEAR) continue;
+      if (!best || q.u > best.u) best = { u: q.u, p: [px, py] };
+    }
+    if (!best) return null;
+    let dx = best.p[0] - s2.L.p[0], dy = best.p[1] - s2.L.p[1]; const l = Math.hypot(dx, dy) || 1;
+    return [best.p[0] + dx / l * 0.2, best.p[1] + dy / l * 0.2];
+  }
   function draw2() {
-    blit(x2, s2.off); grid(x2); drawShapes(x2, [BOX2]); drawLight(x2, s2.L);
+    blit(x2, s2.off); grid(x2); drawProps(x2, [BOX2]); wallOutline(x2, wallBox(s2.A, s2.B, TH2)); drawLight(x2, s2.L);
     handle(x2, s2.A[0], s2.A[1], 6); handle(x2, s2.B[0], s2.B[1], 6);
+    kitLabel(x2, "house", BOX2.c[0] * W, BOX2.c[1] * W - 46, "center");
+    { const T = s2.A[1] < s2.B[1] ? s2.A : s2.B; kitLabel(x2, "long wall: one stripe = one cell", T[0] * W - 12, Math.max(66, T[1] * W), "right"); }
+    const E = shadowEdge2();
+    if (E && E[0] > 0.05 && E[0] < 0.95 && E[1] > 0.12 && E[1] < 0.95) { kitArrow(x2, E[0] * W - 22, E[1] * W + 28, E[0] * W - 2, E[1] * W + 3, "#f2a341"); kitLabel(x2, "stepped shadow edge", E[0] * W - 20, E[1] * W + 38, "right", "#f2a341"); }
     const fr = frame(s2.L), h = s2.hover, read = document.getElementById("c2-read");
     const tw = document.getElementById("t2-w").querySelector(".n"), tf = document.getElementById("t2-f").querySelector(".n"), tp = document.getElementById("t2-p").querySelector(".n");
     let hi = -1;
@@ -765,12 +961,12 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
         // footprint segment on the wall
         x2.strokeStyle = "#4aa3ff"; x2.lineWidth = 3; x2.beginPath();
         x2.moveTo((qx - wi.t[0] * foot / 2) * W, (qy - wi.t[1] * foot / 2) * W); x2.lineTo((qx + wi.t[0] * foot / 2) * W, (qy + wi.t[1] * foot / 2) * W); x2.stroke(); x2.lineWidth = 1;
-        label(x2, `θ ${theta.toFixed(0)}°`, qx * W + 10, qy * W - 6);
-        read.innerHTML = `texel <strong>${hi}</strong> of ${s2.N} · z ${m(q.z)} · <strong>${(1 / (w * M)).toFixed(1)} texels / m</strong> · ${(w * M * 100).toFixed(1)} cm per texel`;
+        label(x2, `one cell on the wall · θ ${theta.toFixed(0)}°`, qx * W + 10, qy * W - 6);
+        read.innerHTML = `cell <strong>${hi}</strong> of ${s2.N} · z ${m(q.z)} · <strong>${(1 / (w * M)).toFixed(1)} cells / m</strong> · ${(w * M * 100).toFixed(1)} cm per cell`;
         tw.textContent = (w * M * 100).toFixed(1) + " cm"; tf.textContent = `${(foot * M * 100).toFixed(0)} cm · ${(foot * W).toFixed(0)} px`; tp.textContent = (w * W).toFixed(1) + " px";
-      } else { read.textContent = "outside the cone"; tw.textContent = tf.textContent = tp.textContent = "–"; }
+      } else { read.textContent = "outside the beam"; tw.textContent = tf.textContent = tp.textContent = "–"; }
     } else { read.textContent = "hover the ground or the wall"; tw.textContent = tf.textContent = tp.textContent = "–"; }
-    drawStrip(x2, s2.map, s2.N, `${s2.N} texels · box only`, hi);
+    drawStrip(x2, s2.map, s2.N, `the lantern's photo: ${s2.N} cells · the house casts`, hi);
     document.getElementById("c2-cap").textContent = `512 px = 10 m · ${(W / M).toFixed(1)} px per metre`;
   }
   const req2 = raf(() => { build2(); draw2(); });
@@ -784,7 +980,7 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
 
   // ---------- 3. bias ----------
   const c3 = document.getElementById("c3"), x3 = c3.getContext("2d");
-  const s3 = { L: { p: [0.14, 0.5], ang: 0 }, N: 32, A: [0.62, 0.28], B: [0.7, 0.76], mode: "none", c: 0.008, s: 1.0, k: 1.0, map: null, off: null, hover: null };
+  const s3 = { L: { p: [0.14, 0.5], ang: 0 }, N: 32, A: [0.62, 0.28], B: [0.7, 0.76], mode: "none", c: 0.008, s: 1.0, k: 1.0, map: null, off: null, hover: null, gap: -1 };
   const TH3 = 0.04, R3 = 320;
   function wall3() {
     const wb = wallBox(s3.A, s3.B, TH3), wi = wallInfo(s3.A, s3.B);
@@ -811,7 +1007,7 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
     s3.off = toCanvas(renderGround(R3, s3.L, [wb], (x, y) => test3([x, y], null, fr), (x, y) => {
       if (!inside([wb], x, y)) return null;
       const sd = (x - wb.c[0]) * n[0] + (y - wb.c[1]) * n[1];
-      if (sd <= 0) return SHAPE;
+      if (sd <= 0) return [76, 85, 99];   // the back of the wall: stone
       const q = [x + n[0] * (TH3 / 2 - sd), y + n[1] * (TH3 / 2 - sd)];   // point on the lit face
       return test3(q, n, fr) ? mix(LIT, [255, 235, 190], 0.3) : RED;
     }));
@@ -822,6 +1018,7 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
     let dx = back[0] - s3.L.p[0], dy = back[1] - s3.L.p[1]; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
     let gap = -1;
     for (let t = 0; t < 1.5; t += 0.002) { if (!test3([back[0] + dx * t, back[1] + dy * t], null, fr)) { gap = t; break; } }
+    s3.gap = gap; s3.back = back; s3.backDir = [dx, dy];
     let lx = s3.L.p[0] - wb.c[0], ly = s3.L.p[1] - wb.c[1]; const ll = Math.hypot(lx, ly) || 1;
     const theta = Math.acos(Math.min(1, Math.abs((lx * n[0] + ly * n[1]) / ll))) * 180 / Math.PI;
     document.getElementById("t3-acne").querySelector(".n").textContent = (100 * acne / K).toFixed(0) + " %";
@@ -829,6 +1026,7 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
     document.getElementById("t3-th").querySelector(".n").textContent = theta.toFixed(0) + "°";
     document.getElementById("t3-acne").classList.toggle("on", acne > 0);
     document.getElementById("t3-gap").classList.toggle("on", gap > 0.005);
+    s3.acne = acne / K;
   }
   function draw3() {
     const { wb, wi, n } = wall3(), fr = frame(s3.L);
@@ -837,8 +1035,21 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
     x3.setLineDash([3, 5]); x3.strokeStyle = "rgba(255,255,255,0.45)"; x3.lineWidth = 1; x3.beginPath();
     for (const E of [s3.A, s3.B]) { let dx = E[0] - s3.L.p[0], dy = E[1] - s3.L.p[1]; const l = Math.hypot(dx, dy) || 1; x3.moveTo(E[0] * W, E[1] * W); x3.lineTo((E[0] + dx / l * 2) * W, (E[1] + dy / l * 2) * W); }
     x3.stroke(); x3.setLineDash([]);
-    drawShapes(x3, [wb]); drawLight(x3, s3.L);
+    wallOutline(x3, wb); drawLight(x3, s3.L);
     handle(x3, s3.A[0], s3.A[1], 6); handle(x3, s3.B[0], s3.B[1], 6);
+    // plain-word callouts
+    const tA = [s3.A[0] - wi.t[0] * 0.05, s3.A[1] - wi.t[1] * 0.05];
+    kitLabel(x3, "stone wall · drag its ends", tA[0] * W, Math.max(66, tA[1] * W - 8), "center");
+    { let dx = s3.B[0] - s3.L.p[0], dy = s3.B[1] - s3.L.p[1]; const l = Math.hypot(dx, dy) || 1; const E = [s3.B[0] + dx / l * 0.14, s3.B[1] + dy / l * 0.14];
+      if (E[0] < 0.95 && E[1] < 0.97) kitLabel(x3, "shadow should start here", E[0] * W, E[1] * W + 14, "center"); }
+    const face = [wb.c[0] + n[0] * TH3 / 2, wb.c[1] + n[1] * TH3 / 2], fl = [face[0] + n[0] * 0.12, face[1] + n[1] * 0.12];
+    kitArrow(x3, fl[0] * W, fl[1] * W, face[0] * W + n[0] * 3, face[1] * W + n[1] * 3, s3.acne > 0 ? "#ef5d5d" : "#5ad48a");
+    kitLabel(x3, s3.acne > 0 ? "lit face, red = false shadow (acne)" : "lit face, no acne", fl[0] * W, fl[1] * W + 16, "center", s3.acne > 0 ? "#ef5d5d" : "#5ad48a");
+    if (s3.gap > 0.005) {
+      const g0 = s3.back, g1 = [s3.back[0] + s3.backDir[0] * s3.gap, s3.back[1] + s3.backDir[1] * s3.gap];
+      kitArrow(x3, g0[0] * W, g0[1] * W, g1[0] * W, g1[1] * W, "#f2a341", 2);
+      kitLabel(x3, `shadow floats ${(s3.gap * M * 100).toFixed(0)} cm off the wall`, g1[0] * W, g1[1] * W + 18, "center", "#f2a341");
+    }
     const h = s3.hover, read = document.getElementById("c3-read"); let hi = -1;
     if (h && h[1] > 0.1) {
       const [qx, qy, hh] = nearestOnSeg(s3.A, s3.B, h[0], h[1]);
@@ -851,11 +1062,11 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
         x3.beginPath(); x3.arc(q[0] * W, q[1] * W, 5, 0, Math.PI * 2); x3.fillStyle = d.lit ? "#5ad48a" : "#ef5d5d"; x3.fill();
         if (nearWall && s3.mode === "normal") { const w = texelW(d.z, s3.N); x3.strokeStyle = "#4aa3ff"; x3.beginPath(); x3.moveTo(q[0] * W, q[1] * W); x3.lineTo((q[0] + n[0] * s3.k * w) * W, (q[1] + n[1] * s3.k * w) * W); x3.stroke(); }
         const kind = nearWall ? (d.lit ? "lit face" : "acne") : (d.lit ? "lit" : "shadow");
-        read.innerHTML = `${nearWall ? "face" : "ground"} z_p <strong>${m(d.z)}</strong> vs texel ${d.i} = <strong>${m(d.stored)}</strong> + bias <strong>${(d.bias * M * 100).toFixed(1)} cm</strong>${nearWall ? ` · tan θ ${d.tanT.toFixed(2)}` : ""} → <strong style="color:${d.lit ? "#5ad48a" : "#ef5d5d"}">${kind}</strong>`;
-      } else read.textContent = "outside the cone";
+        read.innerHTML = `${nearWall ? "wall face" : "ground"} z_p <strong>${m(d.z)}</strong> vs cell ${d.i} = <strong>${m(d.stored)}</strong> + bias <strong>${(d.bias * M * 100).toFixed(1)} cm</strong>${nearWall ? ` · tan θ ${d.tanT.toFixed(2)}` : ""} → <strong style="color:${d.lit ? "#5ad48a" : "#ef5d5d"}">${kind}</strong>`;
+      } else read.textContent = "outside the beam";
     } else read.textContent = "hover the wall face";
-    drawStrip(x3, s3.map, s3.N, `${s3.N} texels · wall casts + receives`, hi);
-    document.getElementById("c3-cap").textContent = `texel at the wall ≈ ${(texelW(project(s3.L, fr, wb.c[0], wb.c[1]).z, s3.N) * M * 100).toFixed(0)} cm`;
+    drawStrip(x3, s3.map, s3.N, `the lantern's photo: ${s3.N} cells · wall casts + receives`, hi);
+    document.getElementById("c3-cap").textContent = `one cell at the wall ≈ ${(texelW(project(s3.L, fr, wb.c[0], wb.c[1]).z, s3.N) * M * 100).toFixed(0)} cm`;
   }
   const req3 = raf(() => { build3(); draw3(); });
   drag(c3, () => [s3.L.p, aimOf(s3.L), s3.A, s3.B], (i, x, y) => {
@@ -872,8 +1083,8 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
 
   // ---------- 4. filtering ----------
   const c4 = document.getElementById("c4"), x4 = c4.getContext("2d");
-  const S4 = [{ c: [0.35, 0.42], ang: 0, hx: 0.05, hy: 0.04 }, { c: [0.62, 0.45], r: 0.08 }];
-  const s4 = { L: { p: [0.12, 0.5], ang: 0 }, N: 256, mode: "pcf5", ls: 0.06, blur: 4, map: null, m1: null, m2: null, off: null, hover: null };
+  const S4 = [{ kind: "crate", c: [0.36, 0.57], ang: 0, hx: 0.045, hy: 0.045 }, { kind: "tree", c: [0.62, 0.45], r: 0.08 }];
+  const s4 = { L: { p: [0.12, 0.5], ang: 0 }, N: 256, P: [0.85, 0.305], mode: "pcf5", ls: 0.06, blur: 4, map: null, m1: null, m2: null, off: null, hover: null };
   const R4 = 256, P8 = [-2.35, -1.7, -1.05, -0.4, 0.45, 1.0, 1.75, 2.3];
   const hash = (i, j) => { let h = (i * 374761393 + j * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
   const clampI = i => Math.min(s4.N - 1, Math.max(0, i));
@@ -910,15 +1121,35 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
     const v = z <= mu ? 1 : va / (va + (z - mu) * (z - mu));
     return detail ? { v, lo: clampI(j0 - s4.blur), hi: clampI(j1 + s4.blur), taps, n: 2, mu, va } : v;
   }
+  function lit4(x, y) {
+    if (inside(S4, x, y)) return null;
+    const q = project(s4.L, frame(s4.L), x, y);
+    if (q.z <= NEAR || Math.abs(q.lx / q.z) > TANH) return null;
+    return shade4(x, y, q.z, q.u, false);
+  }
   function build4() {
     s4.map = buildMap(s4.N, s4.L, S4);
     const N = s4.N, k = s4.blur; s4.m1 = new Float32Array(N); s4.m2 = new Float32Array(N);
     for (let i = 0; i < N; i++) { let a = 0, b = 0, n = 0; for (let j = i - k; j <= i + k; j++) { const d = s4.map[clampI(j)]; a += d; b += d * d; n++; } s4.m1[i] = a / n; s4.m2[i] = b / n; }
     s4.off = toCanvas(renderGround(R4, s4.L, S4, (x, y, z, u) => shade4(x, y, z, u, false)));
   }
+  // a point on the lower edge of the tree's shadow, for the "soft edge" callout
+  function softEdge4() {
+    const T = S4[1], vx = T.c[0] - s4.L.p[0], vy = T.c[1] - s4.L.p[1], dc = Math.hypot(vx, vy);
+    if (dc <= T.r) return null;
+    const a = Math.atan2(vy, vx) + Math.asin(T.r / dc), t = dc + 0.14;
+    return [s4.L.p[0] + Math.cos(a) * t, s4.L.p[1] + Math.sin(a) * t];
+  }
   const TAPS2D = { hard: "1", pcf3: "9", pcf5: "25", poisson: "8 to 16", pcss: "16 + 16 to 64", vsm: "4 (one bilinear)" };
   function draw4() {
-    blit(x4, s4.off); grid(x4); drawShapes(x4, S4); drawLight(x4, s4.L);
+    blit(x4, s4.off); grid(x4); drawProps(x4, S4); drawLight(x4, s4.L);
+    kitLabel(x4, "crate", S4[0].c[0] * W, S4[0].c[1] * W - 36, "center");
+    kitLabel(x4, "tree", S4[1].c[0] * W, S4[1].c[1] * W - 54, "center");
+    const E = softEdge4();
+    if (E && E[0] > 0.05 && E[0] < 0.9 && E[1] > 0.12 && E[1] < 0.75) { kitArrow(x4, E[0] * W - 4, E[1] * W + 30, E[0] * W, E[1] * W + 4, "#f2a341"); kitLabel(x4, "the shadow's edge", E[0] * W, E[1] * W + 40, "center", "#f2a341"); }
+    const litP = lit4(s4.P[0], s4.P[1]);
+    kitPlayerTop(x4, s4.P[0] * W, s4.P[1] * W, 9, playerFacing(s4.P, s4.L));
+    kitLabel(x4, "player · drag", s4.P[0] * W, s4.P[1] * W - 20, "center", litP == null ? "#c7cdd8" : litP > 0.5 ? "#5ad48a" : "#ef5d5d");
     const fr = frame(s4.L), h = s4.hover, read = document.getElementById("c4-read"); let hi = -1, kernel = null;
     const tv = document.getElementById("t4-val").querySelector(".n"), tt = document.getElementById("t4-taps").querySelector(".n");
     document.getElementById("t4-taps2").querySelector(".n").textContent = TAPS2D[s4.mode];
@@ -932,19 +1163,20 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
         wedge(x4, s4.L, s4.N, hi, null, "rgba(74,163,255,0.25)");
         x4.strokeStyle = "#ffffff"; x4.lineWidth = 1; x4.beginPath(); x4.moveTo(s4.L.p[0] * W, s4.L.p[1] * W); x4.lineTo(h[0] * W, h[1] * W); x4.stroke();
         x4.beginPath(); x4.arc(h[0] * W, h[1] * W, 5, 0, Math.PI * 2); x4.fillStyle = `rgb(${Math.round(239 + (90 - 239) * d.v)},${Math.round(93 + (212 - 93) * d.v)},${Math.round(93 + (138 - 93) * d.v)})`; x4.fill();
-        let txt = `texel ${hi} · z_p ${m(q.z)} · `;
-        if (s4.mode === "pcss") txt += d.db ? `d_blocker <strong>${m(d.db)}</strong> · penumbra <strong>${(d.pen * M * 100).toFixed(0)} cm</strong> · kernel ±${d.rF} texels` : `no blocker in ±${(d.search[1] - d.search[0]) / 2} texels`;
+        let txt = `cell ${hi} · z_p ${m(q.z)} · `;
+        if (s4.mode === "pcss") txt += d.db ? `d_blocker <strong>${m(d.db)}</strong> · penumbra <strong>${(d.pen * M * 100).toFixed(0)} cm</strong> · kernel ±${d.rF} cells` : `no blocker in ±${(d.search[1] - d.search[0]) / 2} cells`;
         else if (s4.mode === "vsm") txt += `μ <strong>${m(d.mu)}</strong> · σ² ${(d.va * M * M).toFixed(3)} m² · p = <strong>${d.v.toFixed(2)}</strong>`;
         else txt += `${d.taps.filter(t => t.lit).length} of ${d.taps.length} taps lit`;
         read.innerHTML = txt + ` → lit <strong>${d.v.toFixed(2)}</strong>`;
         tv.textContent = d.v.toFixed(2); tt.textContent = d.n;
-      } else { read.textContent = "outside the cone"; tv.textContent = "–"; tt.textContent = "–"; }
+      } else { read.textContent = "outside the beam"; tv.textContent = "–"; tt.textContent = "–"; }
     } else { read.textContent = "hover the ground"; tv.textContent = "–"; tt.textContent = { hard: 1, pcf3: 3, pcf5: 5, poisson: 8, pcss: "16 + k", vsm: 2 }[s4.mode]; }
-    drawStrip(x4, s4.mode === "vsm" ? s4.m1 : s4.map, s4.N, s4.mode === "vsm" ? `VSM mean after ±${s4.blur} texel blur` : `shadow map: ${s4.N} texels`, hi, kernel);
-    document.getElementById("c4-cap").textContent = `light size ${(s4.ls * M).toFixed(1)} m · texel at 5 m = ${(texelW(0.5, s4.N) * M * 100).toFixed(1)} cm`;
+    insetSide(x4, s4.L, S4, s4.P, lit4, litP);
+    drawStrip(x4, s4.mode === "vsm" ? s4.m1 : s4.map, s4.N, s4.mode === "vsm" ? `VSM: photo mean after ±${s4.blur} cell blur` : `the lantern's photo: ${s4.N} cells`, hi, kernel);
+    document.getElementById("c4-cap").textContent = `light size ${(s4.ls * M).toFixed(1)} m · one cell at 5 m = ${(texelW(0.5, s4.N) * M * 100).toFixed(1)} cm`;
   }
   const req4 = raf(() => { build4(); draw4(); });
-  drag(c4, () => [s4.L.p, aimOf(s4.L)], (i, x, y) => { if (i === 0) s4.L.p = [x, y]; else s4.L.ang = Math.atan2(y - s4.L.p[1], x - s4.L.p[0]); req4(); }, (x, y) => { s4.hover = x < 0 ? null : [x, y]; draw4(); });
+  drag(c4, () => [s4.L.p, aimOf(s4.L), s4.P], (i, x, y) => { if (i === 0) s4.L.p = [x, y]; else if (i === 1) s4.L.ang = Math.atan2(y - s4.L.p[1], x - s4.L.p[0]); else s4.P = [x, y]; req4(); }, (x, y) => { s4.hover = x < 0 ? null : [x, y]; draw4(); });
   segBind("seg4", v => { s4.mode = v; req4(); });
   const n4 = document.getElementById("n4"), ls4 = document.getElementById("ls4"), bl4 = document.getElementById("bl4");
   n4.addEventListener("input", () => { s4.N = 2 ** +n4.value; document.getElementById("n4v").textContent = s4.N; req4(); });
@@ -952,11 +1184,12 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
   bl4.addEventListener("input", () => { s4.blur = +bl4.value; document.getElementById("bl4v").textContent = "±" + bl4.value + " texels"; req4(); });
   build4(); draw4();
 
-  // ---------- 5. cascades (side view, metres) ----------
+  // ---------- 5. cascades (side view of the village in daylight, metres) ----------
   const c5 = document.getElementById("c5"), x5 = c5.getContext("2d"), W5 = 640, H5 = 360, GY = 258;
   const s5 = { cam: [0, 8], pitch: -10 * Math.PI / 180, fov: 35 * Math.PI / 180, near: 0.5, far: 120, K: 4, lam: 0.75, scheme: "p", sun: 50 * Math.PI / 180, hover: null, casc: [] };
   const CCOL = ["#f2a341", "#4aa3ff", "#e7eaef", "#b98cf5"];
   const SUNP = [96, 128], SUNR = 68;
+  const TREES5 = [14, 33, 58, 92, 140, 210, 270], HOUSES5 = [22, 75, 118, 180, 240];   // metres along the road, fixed
   let sc5 = 1, xmin5 = -6;
   const px = (x, y) => [(x - xmin5) * sc5, GY - y * sc5];
   const sunPos = () => [SUNP[0] + Math.cos(s5.sun) * SUNR, SUNP[1] - Math.sin(s5.sun) * SUNR];
@@ -997,14 +1230,27 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
     tb.innerHTML = rows;
   }
   function cascadeOfGround(x) { const { r } = s5.axes, pr = x * r[0]; for (let i = 0; i < s5.casc.length; i++) { const c = s5.casc[i]; if (pr >= c.rmin && pr <= c.rmax) return i; } return -1; }
+  // the player stands just inside the bottom edge of the camera's view
+  function playerX5() { const { v, up, th } = s5.axes; const dx = v[0] - up[0] * th, dy = v[1] - up[1] * th; return dy < -1e-3 ? s5.cam[0] + dx * (s5.cam[1] / -dy) + 1.5 : s5.cam[0] + 6; }
   function draw5() {
-    x5.fillStyle = "#0b0e13"; x5.fillRect(0, 0, W5, H5);
+    kitGround(x5, W5, H5, GY);
     x5.strokeStyle = "rgba(255,255,255,0.1)"; x5.lineWidth = 1; x5.beginPath();
     for (let xm = 0; xm <= s5.far * 1.08; xm += 25) { const [p] = px(xm, 0); x5.moveTo(p + 0.5, 18); x5.lineTo(p + 0.5, GY); }
     x5.stroke();
-    x5.font = MONO; x5.fillStyle = "rgba(255,255,255,0.45)";
+    x5.font = MONO; x5.fillStyle = "rgba(255,255,255,0.45)"; x5.textAlign = "left"; x5.textBaseline = "alphabetic";
     for (let xm = 0; xm <= s5.far * 1.08; xm += 25) { const [p] = px(xm, 0); x5.fillText(xm + " m", p + 3, 13); }
     const { d, r, v, up, th, corner } = s5.axes, z = splits5();
+    // the village: sun shadows on the ground first, then trees, houses and the player
+    const tanS = Math.tan(s5.sun);
+    const sunShadow = (xm, hgt) => { const len = hgt / tanS, [p0] = px(xm - len, 0), [p1] = px(xm, 0); x5.fillStyle = "rgba(0,0,0,0.5)"; x5.fillRect(p0, GY - 2, p1 - p0, 4); };
+    const treeS = Math.max(9, 3.6 * sc5), houseW = Math.max(18, 7 * sc5), houseH = Math.max(10, 3.6 * sc5), playerH = Math.max(16, 1.8 * sc5);
+    const pX = playerX5();
+    for (const t of TREES5) sunShadow(t, treeS * 1.85 / sc5);
+    for (const hx of HOUSES5) sunShadow(hx + 3.5, (houseH + houseW * 0.45) / sc5);
+    sunShadow(pX, playerH / sc5);
+    for (const hx of HOUSES5) { const [p] = px(hx, 0); kitHouse(x5, p, GY, houseW, houseH); }
+    for (const t of TREES5) { const [p] = px(t, 0); kitTree(x5, p, GY, treeS); }
+    { const [p] = px(pX, 0); kitPlayer(x5, p, GY, playerH, 1); kitLabel(x5, "player", p, GY - playerH - 14, "center"); }
     // clipped slices, faint
     s5.casc.forEach((c, i) => {
       x5.beginPath(); c.poly.forEach((q, k) => { const p = px(q[0], q[1]); k ? x5.lineTo(p[0], p[1]) : x5.moveTo(p[0], p[1]); }); x5.closePath();
@@ -1029,42 +1275,42 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
     x5.setLineDash([4, 4]); x5.strokeStyle = "rgba(255,255,255,0.5)"; x5.lineWidth = 1; x5.beginPath();
     for (let i = 1; i <= s5.K; i++) seg(corner(z[i], -1), corner(z[i], 1));
     x5.stroke(); x5.setLineDash([]);
-    for (let i = 1; i <= s5.K; i++) { const a = px(...corner(z[i], 1)); label(x5, i < s5.K ? `z${i}` : "far", a[0] - 6, a[1] - 6, "rgba(255,255,255,0.75)"); }
+    for (let i = 1; i <= s5.K; i++) { const a = px(...corner(z[i], 1)); label(x5, i < s5.K ? `split ${i}` : "far", a[0] - 6, a[1] - 6, "rgba(255,255,255,0.75)"); }
     // ground: colored by the cascade a point samples from, seams marked with the texel-size jump
     let prev = -2; const seams = [];
-    for (let p = 0; p < W5; p++) { const c = cascadeOfGround(p / sc5 + xmin5); x5.fillStyle = c < 0 ? "#2a2f3a" : CCOL[c]; x5.fillRect(p, GY - 3, 1, 8); if (c !== prev && prev !== -2) seams.push({ p, from: prev, to: c }); prev = c; }
+    for (let p = 0; p < W5; p++) { const c = cascadeOfGround(p / sc5 + xmin5); x5.fillStyle = c < 0 ? "#2a2f3a" : CCOL[c]; x5.fillRect(p, GY + 3, 1, 7); if (c !== prev && prev !== -2) seams.push({ p, from: prev, to: c }); prev = c; }
     for (const s of seams) {
-      x5.strokeStyle = "#ffffff"; x5.beginPath(); x5.moveTo(s.p + 0.5, GY - 10); x5.lineTo(s.p + 0.5, GY + 10); x5.stroke();
-      if (s.from >= 0 && s.to >= 0) label(x5, `×${(s5.casc[s.to].texel / s5.casc[s.from].texel).toFixed(1)}`, s.p + 4, GY + 22);
+      x5.strokeStyle = "#ffffff"; x5.beginPath(); x5.moveTo(s.p + 0.5, GY - 4); x5.lineTo(s.p + 0.5, GY + 14); x5.stroke();
+      if (s.from >= 0 && s.to >= 0) label(x5, `seam ×${(s5.casc[s.to].texel / s5.casc[s.from].texel).toFixed(1)}`, s.p + 4, GY + 26);
     }
     // legend row: one texel of each cascade, magnified 300×
     s5.casc.forEach((c, i) => {
       const x0 = 10 + i * 152, L = Math.min(130, Math.max(2, c.texel * 300));
-      x5.fillStyle = CCOL[i]; x5.fillRect(x0, GY + 40, L, 5);
-      label(x5, `cascade ${i} · ${(c.texel * 100).toFixed(1)} cm`, x0, GY + 60, "rgba(255,255,255,0.8)");
-      label(x5, `${c.z0 < 1 ? c.z0.toFixed(1) : c.z0.toFixed(0)} to ${c.z1.toFixed(0)} m`, x0, GY + 74, "rgba(255,255,255,0.45)");
+      x5.fillStyle = CCOL[i]; x5.fillRect(x0, GY + 42, L, 5);
+      label(x5, `map ${i}: ${(c.texel * 100).toFixed(1)} cm cells`, x0, GY + 62, "rgba(255,255,255,0.85)");
+      label(x5, `${c.z0 < 1 ? c.z0.toFixed(1) : c.z0.toFixed(0)} to ${c.z1.toFixed(0)} m away`, x0, GY + 76, "rgba(255,255,255,0.55)");
     });
-    label(x5, "bars: one texel, ×300", W5 - 6 - x5.measureText("bars: one texel, ×300").width, GY + 92, "rgba(255,255,255,0.4)");
-    // sun: direction handle on an arc, plus parallel rays
+    label(x5, "bars: one cell of each map, magnified 300× · small near the player, big far away", 10, GY + 94, "rgba(255,255,255,0.5)");
+    // sun: a disc on an arc you can drag, plus parallel rays
     x5.strokeStyle = "rgba(242,163,65,0.5)"; x5.lineWidth = 1; x5.beginPath();
     for (let k = 0; k < 5; k++) { const ox = 260 + k * 90, oy = 26; x5.moveTo(ox, oy); x5.lineTo(ox + d[0] * 34, oy - d[1] * 34); }
     x5.stroke();
     const sp = sunPos();
     x5.setLineDash([2, 4]); x5.strokeStyle = "rgba(255,255,255,0.3)"; x5.beginPath(); x5.arc(SUNP[0], SUNP[1], SUNR, -Math.PI * 0.48, -Math.PI * 0.07); x5.stroke(); x5.setLineDash([]);
-    const g = x5.createRadialGradient(sp[0], sp[1], 2, sp[0], sp[1], 24); g.addColorStop(0, "rgba(255,240,210,0.9)"); g.addColorStop(1, "rgba(255,240,210,0)");
-    x5.fillStyle = g; x5.fillRect(sp[0] - 24, sp[1] - 24, 48, 48);
-    x5.beginPath(); x5.arc(sp[0], sp[1], 7, 0, Math.PI * 2); x5.fillStyle = "#fff"; x5.fill(); x5.lineWidth = 2; x5.strokeStyle = "#0b0e13"; x5.stroke();
-    label(x5, `sun ${(s5.sun * 180 / Math.PI).toFixed(0)}° up`, sp[0] + 11, sp[1] + 4);
+    const g = x5.createRadialGradient(sp[0], sp[1], 2, sp[0], sp[1], 26); g.addColorStop(0, "rgba(245,214,122,0.95)"); g.addColorStop(1, "rgba(245,214,122,0)");
+    x5.fillStyle = g; x5.fillRect(sp[0] - 26, sp[1] - 26, 52, 52);
+    x5.beginPath(); x5.arc(sp[0], sp[1], 9, 0, Math.PI * 2); x5.fillStyle = KIT.window; x5.fill(); x5.lineWidth = 2; x5.strokeStyle = "#ffffff"; x5.stroke();
+    label(x5, `sun ${(s5.sun * 180 / Math.PI).toFixed(0)}° up · drag`, sp[0] + 13, sp[1] + 4);
     // camera
     const cp = px(s5.cam[0], s5.cam[1]);
     x5.beginPath(); x5.arc(cp[0], cp[1], 7, 0, Math.PI * 2); x5.fillStyle = "#fff"; x5.fill(); x5.lineWidth = 2; x5.strokeStyle = "#0b0e13"; x5.stroke();
-    label(x5, `camera ${s5.cam[1].toFixed(0)} m up · pitch −10° · fov 35°`, 6, 30, "rgba(255,255,255,0.6)");
+    label(x5, `camera behind the player · ${s5.cam[1].toFixed(0)} m up · pitch −10° · fov 35° · drag`, 6, 30, "rgba(255,255,255,0.6)");
     // hover
     const read = document.getElementById("c5-read");
     if (s5.hover) {
       const xm = s5.hover[0] / sc5 + xmin5, c = cascadeOfGround(xm), [p] = px(xm, 0);
-      x5.strokeStyle = "#fff"; x5.lineWidth = 1; x5.beginPath(); x5.moveTo(p + 0.5, GY - 14); x5.lineTo(p + 0.5, GY + 8); x5.stroke();
-      if (c >= 0) { const cc = s5.casc[c], u = (xm * r[0] - cc.rmin) / cc.width; read.innerHTML = `ground x = ${xm.toFixed(0)} m · <strong style="color:${CCOL[c]}">cascade ${c}</strong> · u = ${u.toFixed(3)} · texel <strong>${(cc.texel * 100).toFixed(1)} cm</strong> · ${(1 / cc.texel).toFixed(0)} texels per metre`; }
+      x5.strokeStyle = "#fff"; x5.lineWidth = 1; x5.beginPath(); x5.moveTo(p + 0.5, GY - 4); x5.lineTo(p + 0.5, GY + 14); x5.stroke();
+      if (c >= 0) { const cc = s5.casc[c], u = (xm * r[0] - cc.rmin) / cc.width; read.innerHTML = `ground x = ${xm.toFixed(0)} m · <strong style="color:${CCOL[c]}">cascade ${c}</strong> · u = ${u.toFixed(3)} · cell <strong>${(cc.texel * 100).toFixed(1)} cm</strong> · ${(1 / cc.texel).toFixed(0)} cells per metre`; }
       else read.textContent = `ground x = ${xm.toFixed(0)} m · outside every cascade`;
     } else read.textContent = "hover the ground";
     document.getElementById("c5-cap").textContent = `${s5.K} × 2048² · far ${s5.far} m · D16 ${fmtMiB(s5.K * 8388608)} · D32 ${fmtMiB(s5.K * 16777216)}`;
