@@ -227,6 +227,9 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 .pair { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 28px; margin-top: 22px; }
 @media (max-width: 820px) { .pair { grid-template-columns: minmax(0,1fr); } }
 .uses td:first-child { white-space: normal; }
+/* the picture column is never wider than the stage's free height, so a long caption cannot squeeze the step card */
+@media (min-width: 901px) and (min-height: 640px) { section.stage .cols:not(.three) { grid-template-columns: minmax(0, var(--stage-free)) minmax(360px, 1fr); } }
+.lesson .tiles { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 </style>
 
 <div class="wrap">
@@ -1138,7 +1141,7 @@ function lesson(id, spec) {
     document.querySelector("#t2-ms .n").textContent = d2.msF.toFixed(0);
     let read = `<strong>${N} patches</strong> · ${d2.passes} passes run`;
     if (d2.hover >= 0) { const a = P[d2.hover]; let row = 0; for (let j = 0; j < N; j++) row += d2.F[d2.hover * N + j];
-      read = `<strong>${sc.segs[a.seg].name}</strong> patch · light leaving it (r, g, b) = (${a.B.map(v => v.toFixed(2)).join(", ")}) · its shares add up to ${row.toFixed(2)}`; }
+      read = `<strong>${sc.segs[a.seg].name}</strong> patch · light leaving it (r, g, b) = (${a.B.map(v => v.toFixed(2)).join(", ")}) · the shares it gives to other patches add up to ${row.toFixed(2)}`; }
     if (d2.baked && Math.abs(d2.box.x - bk_x()) > 0.02) read += ` · <span class="bad">baked with the crates at x = ${bk_x().toFixed(1)} m, they are now at ${d2.box.x.toFixed(1)} m</span>`;
     document.getElementById("c2-read").innerHTML = read;
     const tx = d2.texel / 100; let tex2 = 0; sc.segs.forEach(s => tex2 += Math.ceil(s.len / tx));
@@ -1566,7 +1569,8 @@ function lesson(id, spec) {
     document.querySelector("#t5-cone .n").textContent = lum(E).toFixed(3);
     document.querySelector("#t5-ref .n").textContent = lum(ref).toFixed(3);
     const since = d5.frame - d5.movedAt, N = d5.P.length;
-    document.querySelector("#t5-age .n").textContent = `${since} · ${Math.min(100, (100 * since * d5.budget / N)).toFixed(0)} % refreshed`;
+    document.querySelector("#t5-age .n").textContent = `${since}`;
+    document.querySelector("#t5-age .l").textContent = `frames since the lantern moved · ${Math.min(100, (100 * since * d5.budget / N)).toFixed(0)} % of the cache refreshed`;
     document.getElementById("c5-read").innerHTML = `spot on the <strong>${wall}</strong> · ${nsteps} cone steps · the cones found ${ratio > 1.4 ? `<span class="bad">${ratio.toFixed(2)}× what 64 true rays find (leaking through the screen)</span>` : `<span class="ok">${ratio.toFixed(2)}× what 64 true rays find</span>`} · the screen fills its cells ${(100 * Math.min(1, 2 * PART.half / vs)).toFixed(0)} %`;
     const vox2 = R * R * 8 * 4 / 3, vox3 = R * R * R * 8 * 8 / 7;
     document.getElementById("c5-mem").innerHTML = `${R} by ${R} cells of ${(vs * 100).toFixed(1)} cm · grid plus its coarser copies ${fmtBytes(vox2)} (${fmtBytes(vox3)} as a 3D hall) · cache: ${N} cells`;
@@ -1636,12 +1640,12 @@ function lesson(id, spec) {
     { say: "<b>Set the spacing to 0.75 m</b>, twice as many probes along each wall.", todo: "set the probe spacing to 0.75 m", goal: () => d3.spacing <= 0.8, try: () => { spEl.value = 0.75; spEl.dispatchEvent(new Event("input")); }, enter: () => set3({ obj: [2.1, PY3], spacing: 1.5, vis: 0 }),
       done: "The leak closed for this spot: both probes beside him are now on his side of the screen. Walk him a little closer to the screen and it opens again. More probes shrink the leaking strip, they do not remove it, and the caption shows the memory climbing." },
     { say: "Back at 1.5 m spacing, <b>switch the blend to add the can-it-see check</b>.", todo: "switch the blend below", goal: () => d3.vis === 1, try: () => $("segVis").querySelector('[data-v="1"]').click(), enter: () => set3({ obj: [2.1, PY3], spacing: 1.5, vis: 0 }),
-      done: "Each probe also remembers how far it can see in each direction. The lit-side probe's stored distance stops at the screen, short of the player, so its vote drops to almost nothing and the leak closes. That check is what DDGI added to probes." },
+      done: "Each probe also remembers how far it can see in each direction. The lit-side probe's stored distance stops at the screen, short of the player, so its vote drops to almost nothing and the leak closes. That check is what DDGI, a newer probe method, added." },
     { say: "Probes give moving things bounce light from the air. Store a distance with the light in each direction, or the blend hands light straight through walls. The three numbers each probe keeps and the weight formula are under the hood." } ] });
 
   const set4 = () => { d4.C = [7.0, 2.6]; d4.A = [1.8, 4.6]; d4.fov = 100; fovEl.value = 100; $("fovv").textContent = "100°"; d4.thick = 0.5; thEl.value = 0.5; $("thickv").textContent = "0.5 m"; d4.pix = 15; pixEl.value = 15; $("pixv").textContent = "15"; draw4(); };
   L4 = lesson("ssgi", { next: { id: "voxel", title: "Cubes, cones and a cache" }, steps: [
-    { say: "The cheapest bounce light comes from the frame the game already drew. The blue camera sees the hall through the blue wedge, and the top strip under the hall is its picture, 160 pixels wide. Only surfaces inside the wedge are in that picture, drawn bright. From one pixel's spot, the white dot, rays walk across the picture looking for bounce light: white ones found a surface, red ones did not.", enter: set4 },
+    { say: "The cheapest bounce light comes from the frame the game already drew. The blue camera sees the hall through the blue wedge, and the top strip under the hall is its picture, 160 pixels wide; only the surfaces inside the wedge are in it, drawn bright. From one pixel's spot, the white dot, rays walk across that picture looking for bounce light: white ones found a surface, red ones did not.", enter: set4 },
     { say: "", quiz: { q: "A ray heads toward a part of the hall the camera cannot see. What does it bring back?", options: [
         { t: "The right light, since the hall is still there", why: "This method never looks at the hall. It only has the picture, and the picture has no pixel for that spot." },
         { t: "Nothing", ok: true, why: "To this method, anything outside the frame does not exist, and neither does its light." },
@@ -1660,7 +1664,7 @@ function lesson(id, spec) {
     { say: "<b>Switch to the coarse 16 by 16 grid.</b>", todo: "switch the grid size below", goal: () => d5.res === 16, try: () => { $("segRes").querySelector('[data-v="16"]').click(); voxelize(); draw5(); }, enter: () => set5({ res: 32, x: 3.4 }),
       done: "Each cell is now 50 cm across. The wooden screen is 12 cm thick, so the cells it sits in count as only a quarter solid. The label on the screen says so." },
     { say: "<b>Drag the spot onto the floor behind the screen</b>, to its left.", todo: "drag the spot to the floor left of the screen", goal: () => d5.res === 16 && d5.seg === 2 && d5.p[0] < PART.x - 0.3 && d5.p[0] > 0.3, try: () => { snapToWall(1.5, 8); voxelize(); draw5(); }, enter: () => set5({ res: 16, x: 3.4 }),
-      done: "The caption reports a leak: the cones found about 1.7 times the light that 64 true rays find. Three quarters of each cone passes straight through the quarter-solid screen cells and picks up the lit half of the hall. Thin walls in fat cells always leak." },
+      done: "The caption reports a leak: the cones found far more light than 64 true rays find. Three quarters of each cone passes straight through the quarter-solid screen cells and picks up the lit half of the hall. Thin walls in fat cells always leak." },
     { say: "", quiz: { q: "Switch to the fine 64 by 64 grid. Does the leak close?", options: [
         { t: "Yes, the screen nearly fills its 12.5 cm cells", ok: true, why: "A 12 cm screen in 12.5 cm cells is almost solid, so the cones stop at it. The price is memory: sixteen times the cells of the 16 by 16 grid, and in 3D sixty-four times." },
         { t: "No, cones always leak", why: "Cones leak where cells are less solid than the real wall. Make the cells small enough and the screen fills them." },
@@ -1668,7 +1672,7 @@ function lesson(id, spec) {
       todo: "switch to 64 by 64", goal: () => d5.res === 64, try: () => { $("segRes").querySelector('[data-v="64"]').click(); voxelize(); draw5(); }, enter: () => set5({ res: 16, x: 1.5 }),
       done: "The cones now read about the same as the true rays, and the memory in the caption climbed. Real engines pick a cell size and live with leaks through anything thinner." },
     { say: "<b>Drag the lantern</b> somewhere else and watch the tile for frames since the lantern moved.", todo: "drag the lantern", goal: () => Math.hypot(d5.L[0] - 5.6, d5.L[1] - 1.0) > 0.5, try: () => { d5.L = [2.5, 1.5]; d5.movedAt = d5.frame; draw5(); }, enter: () => { d5.L = [5.6, 1.0]; d5.movedAt = d5.frame; draw5(); },
-      done: "The walls do not relight at once. The strips outside the walls are the <b>surface cache</b>, light stuck to the walls, and only 32 of its cells are refreshed each frame, marked in white. New lighting arrives over a second or so, and each refresh reads last frame's cache, which is how it gets extra bounces for free. Lower the budget and the lag grows." },
+      done: "The walls do not relight at once. The strips outside the walls are the <b>surface cache</b>, light stuck to the walls, and only 32 of its cells are refreshed each frame, marked in white. New lighting arrives over a second or so, and each refresh reads last frame's cache, which is how it gets extra bounces for free. Refresh fewer cells per frame and the lag grows." },
     { say: "Cones trade hundreds of rays for a few blurry reads of a coarse grid, and the cache spreads the relighting over frames. That is roughly how Lumen in Unreal Engine 5 works, lag and all. The cone step and the cache update are under the hood." } ] });
 })();
 </script>
