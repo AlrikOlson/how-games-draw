@@ -473,7 +473,7 @@ hist = mix(hist, hit, 1.0 / min(frameCount, 48.0));      <span class="c">// afte
           </tbody>
         </table>
         </div>
-        <div class="tiles" data-step-min="6">
+        <div class="tiles" data-step-min="5">
           <div class="tile" id="t5-dz"><div class="n">–</div><div class="l">line's depth change per pixel here</div></div>
           <div class="tile" id="t5-th"><div class="n">–</div><div class="l">allowance the slope rule picks here</div></div>
           <div class="tile" id="t5-steps"><div class="n">–</div><div class="l">depth reads, fixed allowance</div></div>
@@ -659,7 +659,75 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
+  let L1, L2, L3, L4, L5;
   // ---------- camera and screen: 2D side view of a lakeside, one 160-pixel screen column ----------
   const N = 160, FOV = 70 * Math.PI / 180, TANH = Math.tan(FOV / 2), FAR = 60, ZNEAR = 0.2;
   const WORLD_W = 13.5, W = 512, H = 512, TOP = 130, S = W / WORLD_W, PXW = W / N;
@@ -959,7 +1027,7 @@ function kitInset(ctx, x, y, w, h, title) {
       active = best; if (best >= 0) canvas.setPointerCapture(ev.pointerId); queue(best, w);
     });
     canvas.addEventListener("pointermove", ev => queue(active, toWorld(ev)));
-    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    const end = ev => { if (active >= 0) { if (pending && pending.i >= 0) flush(); active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
     canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
   }
   function pickFloor(buf, x, px, py) { if (py < TOP) { const u = Math.floor(px / PXW); return buf.id[u] === 1 ? u : -1; } return nearestFloorPixel(buf, x); }
@@ -978,8 +1046,8 @@ function kitInset(ctx, x, y, w, h, title) {
     const u = st1.u, P = [buf1.px[u], buf1.py[u]], r = reflectDir(u), ray = screenRay(P, r);
     const m = march(buf1, ray, { mode: "linear", step: st1.step, thick: st1.thick, refine: 0 });
     drawWorld(x1, scene1);
-    strip(x1, 0, 13, v => buf1.colAt(v)); rowLabel(x1, 0, 13, "color");
-    strip(x1, 14, 13, v => depthGrey(buf1.z[v])); rowLabel(x1, 14, 13, "depth");
+    strip(x1, 0, 13, v => buf1.colAt(v)); rowLabel(x1, 0, 13, "colors, one screen column: top of the picture at the left");
+    strip(x1, 14, 13, v => depthGrey(buf1.z[v])); rowLabel(x1, 14, 13, "depths: brighter = nearer, black = sky");
     // graph: buffer depth with the thickness band, ray depth over it
     x1.fillStyle = "rgba(255,255,255,0.04)"; x1.fillRect(0, G_Y, W, G_H);
     x1.fillStyle = "rgba(242,163,65,0.16)";
@@ -992,8 +1060,8 @@ function kitInset(ctx, x, y, w, h, title) {
     for (let k = 0; k <= 40; k++) { const uu = ray.u0 + (uEnd - ray.u0) * k / 40; const y = gy(ray.zAt(uu)); if (k === 0) x1.moveTo(uu * PXW, y); else x1.lineTo(uu * PXW, y); }
     x1.stroke();
     for (const s of m.samples) { x1.beginPath(); x1.arc(s.u * PXW, gy(s.z), s.state === "hit" ? 4 : 2, 0, Math.PI * 2); x1.fillStyle = s.state === "hit" ? "#f2a341" : (s.state === "behind" ? RED : "#fff"); x1.fill(); }
-    x1.font = "10px " + MONO; x1.fillStyle = "rgba(255,255,255,0.55)"; x1.fillText("z per pixel, 0–14 m", 6, G_Y + G_H - 30); x1.fillText("white: buffer", 6, G_Y + G_H - 18);
-    x1.fillStyle = "#f2a341"; x1.fillText("amber: ray · band = thickness " + fmt(st1.thick, 1) + " m", 6, G_Y + G_H - 6);
+    x1.font = "10px " + MONO; x1.fillStyle = "rgba(255,255,255,0.55)"; x1.fillText("distance per pixel, 0 to 14 m", 6, G_Y + G_H - 30); x1.fillText("white: what the depth buffer stores", 6, G_Y + G_H - 18);
+    x1.fillStyle = "#f2a341"; x1.fillText("amber: the bounced line · band: the " + fmt(st1.thick, 1) + " m allowance", 6, G_Y + G_H - 6);
     pixelTick(x1, u, 0, 27, "rgba(255,255,255,0.9)");
     if (m.hit) { pixelTick(x1, m.ui, 0, 27, "#f2a341"); x1.strokeStyle = "rgba(242,163,65,0.5)"; x1.setLineDash([2, 3]); x1.beginPath(); x1.moveTo(m.ui * PXW + PXW / 2, 27); x1.lineTo(m.u * PXW, gy(m.z)); x1.stroke(); x1.setLineDash([]); }
     // world: what every lake pixel reflects, the player's column, then the ray for this pixel
@@ -1001,17 +1069,19 @@ function kitInset(ctx, x, y, w, h, title) {
     playerInset(x1, buf1, v => lakeShow(refl1[v]), u);
     viewRay(x1, P); const end = drawRay(x1, ray, m);
     x1.strokeStyle = "rgba(255,255,255,0.5)"; x1.lineWidth = 1; x1.beginPath(); x1.moveTo(wx(P[0]), wy(P[1])); x1.lineTo(wx(P[0]), wy(P[1] + 0.6)); x1.stroke();
-    x1.font = "10px " + MONO; x1.fillStyle = "rgba(255,255,255,0.6)"; x1.fillText("n", wx(P[0]) + 4, wy(P[1] + 0.6) + 3);
-    x1.fillStyle = "#f2a341"; const mid = m.hit ? [(ray.ox + m.P[0]) / 2, (ray.oy + m.P[1]) / 2] : [ray.ox + r[0], ray.oy + r[1]]; x1.fillText("r", wx(mid[0]) + 6, wy(mid[1]));
+    x1.font = "10px " + MONO; x1.fillStyle = "rgba(255,255,255,0.6)"; x1.fillText("faces up", wx(P[0]) + 4, wy(P[1] + 0.6) + 3);
+    x1.fillStyle = "#f2a341"; const mid = m.hit ? [(ray.ox + m.P[0]) / 2, (ray.oy + m.P[1]) / 2] : [ray.ox + r[0], ray.oy + r[1]]; x1.fillText("bounced line", wx(mid[0]) + 6, wy(mid[1]));
     pixelLabel(x1, P);
     if (m.hit) {
       x1.fillStyle = rgb(m.col); x1.fillRect(wx(m.P[0]) + 10, wy(m.P[1]) - 22, 16, 16); x1.strokeStyle = "#fff"; x1.lineWidth = 1; x1.strokeRect(wx(m.P[0]) + 10.5, wy(m.P[1]) - 21.5, 15, 15);
-      labelNear(x1, "reflection found: the " + nameOf(scene1, buf1.id[m.ui]) + ", px " + m.ui, [m.P[0] + 0.7, m.P[1]], "#f2a341", -14);
+      labelNear(x1, "found: the " + nameOf(scene1, buf1.id[m.ui]) + ", screen pixel " + m.ui, [m.P[0] + 0.7, m.P[1]], "#f2a341", -14);
     } else labelNear(x1, m.reason === "left the screen" ? "miss: nothing drawn up there" : "miss: " + m.reason, end, RED);
     const last = m.samples[m.samples.length - 1];
-    const test = last ? `z_ray ${fmt(last.z)} m vs z_buf ${fmt(last.zb)} m` : "";
-    document.getElementById("c1-read").innerHTML = m.hit ? `px ${u} · <strong>hit at px ${m.ui} (${nameOf(scene1, buf1.id[m.ui])}) after ${m.steps} steps</strong> · ${test} · Δ ${fmt(m.z - last.zb)} &lt; t ${fmt(st1.thick, 1)}` : `px ${u} · <strong>miss, ${m.reason}</strong> after ${m.steps} steps${m.behind.length ? " · passed behind the " + namesOf(scene1, m.behind).join(", ") : ""}`;
-    document.getElementById("c1-cap").textContent = `${st1.step} px step · lake at ${fmt(P[0], 1)} m from the bluff`;
+    const hitName = m.hit ? nameOf(scene1, buf1.id[m.ui]) : null, behindNames = namesOf(scene1, m.behind);
+    st1.last = { hit: m.hit, name: hitName, behind: behindNames, steps: m.steps, x: P[0] };
+    document.getElementById("c1-read").innerHTML = m.hit ? `lake pixel ${u} · <strong>found the ${hitName} at screen pixel ${m.ui} after ${m.steps} stops</strong> · the line is ${fmt(m.z - last.zb)} m behind the stored surface there, inside the ${fmt(st1.thick, 1)} m allowance` : `lake pixel ${u} · <strong>miss: ${m.reason === "left the screen" ? "the line ran off the top of the picture" : m.reason}</strong> after ${m.steps} stops${behindNames.length ? " · on the way it passed behind the " + behindNames.join(", ") : ""}`;
+    document.getElementById("c1-cap").textContent = `checks every ${st1.step} pixels · this lake pixel is ${fmt(P[0], 1)} m out from the bluff`;
+    L1 && L1.check();
   }
   pointer(c1, { point: (x, y, px, py) => { const u = pickFloor(buf1, x, px, py); if (u >= 0) { st1.u = u; draw1(); } } });
   draw1();
@@ -1043,29 +1113,31 @@ function kitInset(ctx, x, y, w, h, title) {
     } else {
       for (const s of lin.samples) pixelTick(x2, Math.floor(s.u), 0, 14, s.state === "hit" ? "#f2a341" : (s.state === "behind" ? RED : (s.state === "refine" ? "rgba(242,163,65,0.55)" : "rgba(255,255,255,0.85)")));
     }
-    for (let L = 0; L <= 5; L++) rowLabel(x2, LV_Y[L], LV_H[L], L === 0 ? "depth L0" : "L" + L + " min");
-    x2.font = "10px " + MONO; x2.fillStyle = "rgba(255,255,255,0.55)"; x2.fillText(st2.mode === "hiz" ? "white box: cell skipped · amber box: descend · fill: hit" : "ticks: samples · amber: hit · red: passed behind", 6, 90);
-    x2.fillText(`u = 0 is the top of the frame (sky), ${N} the bottom (near water)`, 6, 104);
+    for (let L = 0; L <= 5; L++) rowLabel(x2, LV_Y[L], LV_H[L], L === 0 ? "depths, full size" : "1/" + (1 << L) + " size, nearest kept");
+    x2.font = "10px " + MONO; x2.fillStyle = "rgba(255,255,255,0.55)"; x2.fillText(st2.mode === "hiz" ? "white box: skipped in one jump · amber box: zoomed in · fill: hit" : "ticks: stops · amber: hit · red: passed behind", 6, 90);
+    x2.fillText("left end: top of the picture (sky) · right end: bottom (near water)", 6, 104);
     floorBand(x2, buf2, v => lakeShow(all[v]));
     playerInset(x2, buf2, v => lakeShow(all[v]), u);
     viewRay(x2, P); const end = drawRay(x2, ray, m);
     pixelLabel(x2, P);
-    if (m.hit) labelNear(x2, (st2.mode === "hiz" ? "Hi-Z" : "linear") + " hit: the " + nameOf(scene2, buf2.id[m.ui]) + " in " + m.steps + " reads", [m.P[0] + 0.3, m.P[1]], "#f2a341", -14);
+    if (m.hit) labelNear(x2, (st2.mode === "hiz" ? "Hi-Z jumps" : "fixed steps") + ": found the " + nameOf(scene2, buf2.id[m.ui]) + " in " + m.steps + " reads", [m.P[0] + 0.3, m.P[1]], "#f2a341", -14);
     else labelNear(x2, "miss after " + m.steps + " reads", end, RED);
     const errPx = (mm) => (mm.hit && ref) ? Math.abs(mm.u - ref.u) : null;
     const eLin = errPx(lin), eHiz = errPx(hiz);
-    document.getElementById("t2-lin").querySelector(".n").innerHTML = lin.steps + (lin.refineSteps ? ` <small>+ ${lin.refineSteps} refine</small>` : "") + (lin.hit ? "" : " <small>miss</small>");
+    document.getElementById("t2-lin").querySelector(".n").innerHTML = lin.steps + (lin.refineSteps ? ` <small>+ ${lin.refineSteps} look-back</small>` : "") + (lin.hit ? "" : " <small>miss</small>");
     document.getElementById("t2-hiz").querySelector(".n").innerHTML = hiz.steps + (hiz.hit ? "" : " <small>miss</small>");
     document.getElementById("t2-err").querySelector(".n").innerHTML = eLin === null ? "–" : fmt(eLin, 2) + " <small>px</small>";
     document.getElementById("t2-lin").classList.toggle("on", st2.mode === "linear"); document.getElementById("t2-hiz").classList.toggle("on", st2.mode === "hiz");
     const skipped = hiz.samples.filter(s => s.state === "skip").reduce((a, s) => a + Math.abs(s.uB - s.u), 0);
-    document.getElementById("c2-read").innerHTML = m.hit ? `<strong>${st2.mode === "hiz" ? "Hi-Z" : "linear"}: hit px ${m.ui} (${nameOf(scene2, buf2.id[m.ui])}) in ${m.steps} fetches</strong> · error ${fmt((st2.mode === "hiz" ? eHiz : eLin) || 0, 2)} px vs exact crossing` : `<strong>${st2.mode === "hiz" ? "Hi-Z" : "linear"}: miss, ${m.reason}</strong> after ${m.steps} fetches`;
-    document.getElementById("c2-cap").textContent = `march spans ${fmt(Math.abs((m.hit ? m.u : ray.u1) - ray.u0), 0)} px · Hi-Z skipped ${fmt(skipped, 0)} px in ${hiz.samples.filter(s => s.state === "skip").length} jumps`;
+    st2.last = { lin: lin.steps, linRefine: lin.refineSteps, hiz: hiz.steps, err: eLin, linHit: lin.hit, hizHit: hiz.hit, x: P[0] };
+    document.getElementById("c2-read").innerHTML = m.hit ? `<strong>${st2.mode === "hiz" ? "Hi-Z jumps" : "fixed steps"}: found the ${nameOf(scene2, buf2.id[m.ui])} at screen pixel ${m.ui} in ${m.steps} depth reads</strong> · ${fmt((st2.mode === "hiz" ? eHiz : eLin) || 0, 2)} pixels off the exact spot` : `<strong>${st2.mode === "hiz" ? "Hi-Z jumps" : "fixed steps"}: miss, ${m.reason === "left the screen" ? "the line ran off the top of the picture" : m.reason}</strong> after ${m.steps} depth reads`;
+    document.getElementById("c2-cap").textContent = `the walk covers ${fmt(Math.abs((m.hit ? m.u : ray.u1) - ray.u0), 0)} pixels · Hi-Z skipped ${fmt(skipped, 0)} of them in ${hiz.samples.filter(s => s.state === "skip").length} jumps`;
+    L2 && L2.check();
   }
   pointer(c2, { point: (x, y, px, py) => { const u = pickFloor(buf2, x, px, py); if (u >= 0) { st2.u = u; draw2(); } } });
   onSeg("seg2", v => { st2.mode = v; draw2(); });
   const step2 = document.getElementById("step2"); step2.addEventListener("input", () => { st2.step = +step2.value; document.getElementById("step2v").textContent = step2.value + " px"; draw2(); });
-  const ref2 = document.getElementById("ref2"); ref2.addEventListener("input", () => { st2.refine = +ref2.value; document.getElementById("ref2v").textContent = ref2.value + (ref2.value === "1" ? " iteration" : " iterations"); draw2(); });
+  const ref2 = document.getElementById("ref2"); ref2.addEventListener("input", () => { st2.refine = +ref2.value; document.getElementById("ref2v").textContent = ref2.value + (ref2.value === "1" ? " halving" : " halvings"); draw2(); });
   draw2();
 
   // ================= 3. misses and the fallback chain =================
@@ -1100,11 +1172,11 @@ function kitInset(ctx, x, y, w, h, title) {
     const ys = [0, 16, 32, 48], hh = 14;
     strip(x3, ys[0], hh, v => rows[v] ? rows[v].truth : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[0], hh, "true reflection");
     strip(x3, ys[1], hh, v => rows[v] ? (rows[v].m.hit ? rows[v].m.col : HOLE) : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[1], hh, "SSR");
-    strip(x3, ys[2], hh, v => rows[v] ? rows[v].fb : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[2], hh, "probe → sky");
-    strip(x3, ys[3], hh, v => rows[v] ? rows[v].final : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[3], hh, "blend, w = fade");
+    strip(x3, ys[2], hh, v => rows[v] ? rows[v].fb : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[2], hh, "backup: the probe, else the sky");
+    strip(x3, ys[3], hh, v => rows[v] ? rows[v].final : (buf.id[v] === 1 ? null : buf.colAt(v))); rowLabel(x3, ys[3], hh, "final mix");
     for (const v of buf.floorU) { const rr = rows[v]; x3.fillStyle = rr.m.hit ? `rgba(90,212,138,${0.25 + 0.75 * rr.w})` : "rgba(74,163,255,0.8)"; x3.fillRect(v * PXW, 63, PXW + 0.3, 3); }
-    x3.font = "10px " + MONO; x3.fillStyle = "rgba(255,255,255,0.55)"; x3.fillText("green: SSR weight w · blue: fallback", 6, 78);
-    x3.fillText("non-lake pixels show the color buffer", 6, 92);
+    x3.font = "10px " + MONO; x3.fillStyle = "rgba(255,255,255,0.55)"; x3.fillText("green: how much SSR is trusted · blue: backup used", 6, 78);
+    x3.fillText("outside the lake: the picture as drawn", 6, 92);
     pixelTick(x3, u, 0, 62, "rgba(255,255,255,0.9)");
     // probe ring
     const pr = 15;
@@ -1127,7 +1199,7 @@ function kitInset(ctx, x, y, w, h, title) {
     handle(x3, balloon3.cx, balloon3.cy, 7); handle(x3, (gull3.x0 + gull3.x1) / 2, (gull3.y0 + gull3.y1) / 2, 7);
     pixelLabel(x3, P);
     const off = balloon3.cy - balloon3.r > CAM.y + (balloon3.cx - CAM.x) * Math.tan(CAM.pitch + FOV / 2);
-    labelCenter(x3, off ? "balloon: off screen, drag it back" : "drag the balloon up", wx(balloon3.cx), wy(balloon3.cy + balloon3.r) - 14, "#ffffff");
+    labelCenter(x3, off ? "balloon: out of the picture, drag it back" : "drag the balloon up", wx(balloon3.cx), wy(balloon3.cy + balloon3.r) - 14, "#ffffff");
     labelNear(x3, "drag the gull", [(gull3.x0 + gull3.x1) / 2 + 0.25, (gull3.y0 + gull3.y1) / 2], "#ffffff", -4);
     if (!R.m.hit) labelNear(x3, "SSR miss: " + (R.src === "sky" ? "the sky fills the hole" : "the probe fills the hole"), P, "#4aa3ff", -44);
     const cnt = { ssr: 0, probe: 0, sky: 0 }; for (const v of buf.floorU) cnt[rows[v].src === "ssr+" ? "ssr" : rows[v].src]++;
@@ -1136,23 +1208,27 @@ function kitInset(ctx, x, y, w, h, title) {
     document.getElementById("t3-probe").querySelector(".n").innerHTML = `${cnt.probe} <small>of ${nF}</small>`;
     document.getElementById("t3-sky").querySelector(".n").innerHTML = `${cnt.sky} <small>of ${nF}</small>`;
     const names = namesOf(scene3, R.m.behind);
-    const why = R.m.hit ? `px ${R.m.ui} (${nameOf(scene3, buf.id[R.m.ui])})` : `${R.m.reason}${names.length ? " after passing behind the " + names.join(", ") : ""}`;
-    document.getElementById("c3-read").innerHTML = `px ${u} · truth: ${R.truthObj} · <strong>SSR ${R.m.hit ? "hit" : "miss"}</strong>: ${why} · w = ${fmt(R.w)} · ${R.m.hit && R.w > 0.999 ? "no fallback" : "fallback: " + (R.src === "sky" ? "sky" : "probe")}`;
-    document.getElementById("c3-cap").textContent = `balloon ${off ? "off screen" : "on screen"} · gull at ${fmt((gull3.x0 + gull3.x1) / 2, 1)}, ${fmt((gull3.y0 + gull3.y1) / 2, 1)} m`;
+    let villagerMiss = 0, probeFills = 0; for (const v of buf.floorU) { if (!rows[v].m.hit && rows[v].truthObj === "villager") villagerMiss++; if (!rows[v].m.hit && rows[v].src === "probe") probeFills++; }
+    st3.stats = { off, villagerMiss, probeFills, ssr: cnt.ssr, probe: cnt.probe, sky: cnt.sky, hoverHit: R.m.hit, hoverBehind: names, hoverTruth: R.truthObj };
+    const why = R.m.hit ? `found the ${nameOf(scene3, buf.id[R.m.ui])} at screen pixel ${R.m.ui}` : `${R.m.reason === "left the screen" ? "the line ran off the top of the picture" : R.m.reason}${names.length ? " after passing behind the " + names.join(", ") : ""}`;
+    document.getElementById("c3-read").innerHTML = `lake pixel ${u} · should show the ${R.truthObj} · <strong>SSR ${R.m.hit ? "hit" : "miss"}</strong>: ${why} · SSR trusted ${fmt(R.w)} · ${R.m.hit && R.w > 0.999 ? "no backup needed" : "backup: the " + (R.src === "sky" ? "sky" : "probe")}`;
+    document.getElementById("c3-cap").textContent = `balloon ${off ? "out of the picture" : "in the picture"} · gull at ${fmt((gull3.x0 + gull3.x1) / 2, 1)}, ${fmt((gull3.y0 + gull3.y1) / 2, 1)} m`;
+    L3 && L3.check();
   }
   build3();
-  pointer(c3, {
-    handles: () => [[balloon3.cx, balloon3.cy], [(gull3.x0 + gull3.x1) / 2, (gull3.y0 + gull3.y1) / 2]],
-    drag: (i, x, y) => {
+  const drag3 = (i, x, y) => {
       if (i === 0) {
         const cx = Math.max(5.6, Math.min(11.3, x)), cy = Math.max(F + 1.05, Math.min(9.0, y)), dx = cx - balloon3.cx, dy = cy - balloon3.cy;
         balloon3.cx = cx; balloon3.cy = cy; basket3.x0 += dx; basket3.x1 += dx; basket3.y0 += dy; basket3.y1 += dy;
       } else { const hw = (gull3.x1 - gull3.x0) / 2, hh = (gull3.y1 - gull3.y0) / 2; const cx = Math.max(2.6 + hw, Math.min(6.5, x)), cy = Math.max(2.4, Math.min(7.2, y)); gull3.x0 = cx - hw; gull3.x1 = cx + hw; gull3.y0 = cy - hh; gull3.y1 = cy + hh; }
       build3(); draw3();
-    },
+  };
+  pointer(c3, {
+    handles: () => [[balloon3.cx, balloon3.cy], [(gull3.x0 + gull3.x1) / 2, (gull3.y0 + gull3.y1) / 2]],
+    drag: drag3,
     point: (x, y, px, py) => { const u = pickFloor(st3.buf, x, px, py); if (u >= 0) { st3.u = u; draw3(); } }
   });
-  const fade3 = document.getElementById("fade3"); fade3.addEventListener("input", () => { st3.fade = +fade3.value; document.getElementById("fade3v").textContent = fmt(st3.fade) + " of screen"; build3(); draw3(); });
+  const fade3 = document.getElementById("fade3"); fade3.addEventListener("input", () => { st3.fade = +fade3.value; document.getElementById("fade3v").textContent = fmt(st3.fade) + " of the screen"; build3(); draw3(); });
   draw3();
 
   // ================= 4. rough surfaces: a rippled lake =================
@@ -1192,12 +1268,12 @@ function kitInset(ctx, x, y, w, h, title) {
     const u = st4.u, P = [buf4.px[u], buf4.py[u]];
     drawWorld(x4, scene4);
     const ys = [0, 16, 32], hh = 14, other = v => buf4.id[v] === 1 ? null : buf4.colAt(v);
-    strip(x4, ys[0], hh, v => st4.cur[v] || other(v)); rowLabel(x4, ys[0], hh, `this frame, ${st4.spp} ray${st4.spp > 1 ? "s" : ""}/px`);
-    strip(x4, ys[1], hh, v => st4.hist[v] || other(v)); rowLabel(x4, ys[1], hh, `temporal, ${st4.frame} frame${st4.frame > 1 ? "s" : ""}`);
+    strip(x4, ys[0], hh, v => st4.cur[v] || other(v)); rowLabel(x4, ys[0], hh, `this frame alone, ${st4.spp} ray${st4.spp > 1 ? "s" : ""} per pixel`);
+    strip(x4, ys[1], hh, v => st4.hist[v] || other(v)); rowLabel(x4, ys[1], hh, `average of the last ${st4.frame} frame${st4.frame > 1 ? "s" : ""}`);
     strip(x4, ys[2], hh, v => st4.blur[v] || other(v)); rowLabel(x4, ys[2], hh, "blur of this frame");
     for (const v of buf4.floorU) { x4.fillStyle = "rgba(242,163,65,0.8)"; const h = Math.min(20, st4.radius[v] * 0.8); x4.fillRect(v * PXW, 68 - h, PXW + 0.3, h); }
-    x4.font = "10px " + MONO; x4.fillStyle = "rgba(255,255,255,0.55)"; x4.fillText("blur radius per pixel, px (grows with hit distance)", 6, 82);
-    x4.fillText(`roughness ${fmt(st4.rough)} → α = ${fmt(st4.rough * st4.rough, 3)}`, 6, 96);
+    x4.font = "10px " + MONO; x4.fillStyle = "rgba(255,255,255,0.55)"; x4.fillText("blur width per pixel (grows with the distance to the hit)", 6, 82);
+    x4.fillText(`roughness ${fmt(st4.rough)} · a wider cone means a blurrier reflection`, 6, 96);
     pixelTick(x4, u, 0, 46, "rgba(255,255,255,0.9)");
     floorBand(x4, buf4, v => lakeShow(st4.hist[v]));
     playerInset(x4, buf4, v => lakeShow(st4.hist[v]), u);
@@ -1216,13 +1292,14 @@ function kitInset(ctx, x, y, w, h, title) {
     document.getElementById("t4-steps").querySelector(".n").textContent = fmt(st4.steps / Math.max(1, st4.raysN), 1);
     document.getElementById("t4-ms").querySelector(".n").innerHTML = `${fmt(est / 250e9 * 1000, 2)} <small>${fmt(est / 1e6, 0)} M fetches</small>`;
     const hits = log.filter(l => l.m.hit).length;
-    document.getElementById("c4-read").innerHTML = `px ${u} · <strong>${log.length} ray${log.length !== 1 ? "s" : ""}, ${hits} hit</strong> · blur radius ${fmt(st4.radius[u], 1)} px · history blend 1/${Math.min(st4.frame, 48)}`;
-    document.getElementById("c4-cap").textContent = `est. assumes 250 G depth fetches/s, full-screen coverage`;
+    document.getElementById("c4-read").innerHTML = `lake pixel ${u} · <strong>${log.length} ray${log.length !== 1 ? "s" : ""} this frame, ${hits} found something</strong> · blur width ${fmt(st4.radius[u], 1)} px · the newest frame counts for 1/${Math.min(st4.frame, 48)} of the average`;
+    document.getElementById("c4-cap").textContent = `time estimate assumes 250 billion depth reads a second and a lake filling the whole screen`;
+    L4 && L4.check();
   }
   function loop4() { if (st4.frame >= MAXF) { st4.running = false; return; } frame4(); draw4(); requestAnimationFrame(loop4); }
   function restart4() { st4.frame = 0; st4.hist.fill(null); if (!st4.running) { st4.running = true; loop4(); } }
   pointer(c4, { point: (x, y, px, py) => { const u = pickFloor(buf4, x, px, py); if (u >= 0) { st4.u = u; draw4(); } } });
-  const rough4 = document.getElementById("rough4"); rough4.addEventListener("input", () => { st4.rough = +rough4.value; document.getElementById("rough4v").textContent = fmt(st4.rough); restart4(); });
+  const rough4 = document.getElementById("rough4"); rough4.addEventListener("input", () => { st4.rough = +rough4.value; document.getElementById("rough4v").textContent = fmt(st4.rough) + (st4.rough < 0.02 ? " (perfect mirror)" : ""); restart4(); });
   onSeg("seg4", v => { st4.spp = +v; restart4(); });
   restart4();
 
@@ -1233,7 +1310,7 @@ function kitInset(ctx, x, y, w, h, title) {
   const st5 = { u: nearestFloorPixel(buf5, 8.6), t0: 0.05, step: 6, rows: null };
   const T_MIN = 0.02;
   const derivThick = (buf, step) => ui => { const z = buf.z, zl = z[Math.max(0, ui - 1)], zr = z[Math.min(N - 1, ui + 1)]; return T_MIN + Math.min(Math.abs(zr - z[ui]), Math.abs(z[ui] - zl)) * step; };
-  const MODES5 = [["f", "fixed t"], ["r", "ray Δz/step"], ["d", "∂z/∂u · Δu"]];
+  const MODES5 = [["f", "fixed allowance"], ["r", "from the line's depth change"], ["d", "from the depth buffer's slope"]];
   function build5() {
     const cfgs = { f: { mode: "linear", step: st5.step, thick: st5.t0, refine: 0 }, r: { mode: "linear", step: st5.step, thick: (ui, dz) => T_MIN + dz, refine: 0 }, d: { mode: "linear", step: st5.step, thick: derivThick(buf5, st5.step), refine: 0 } };
     const rows = [], stats = {};
@@ -1261,8 +1338,8 @@ function kitInset(ctx, x, y, w, h, title) {
       strip(x5, y, hh, v => rows[v] ? (rows[v].res[k].m.hit ? rows[v].res[k].m.col : HOLE) : other(v)); rowLabel(x5, y, hh, label);
       for (const v of buf5.floorU) { const vd = rows[v].res[k].verdict; x5.fillStyle = vd === "ok" ? GREEN : (vd === "bad" ? RED : "rgba(255,255,255,0.18)"); x5.fillRect(v * PXW, y + hh + 1, PXW + 0.3, 3); }
     });
-    x5.font = "10px " + MONO; x5.fillStyle = "rgba(255,255,255,0.55)"; x5.fillText("green: within 0.25 m of the true hit · red: false hit · dim: miss", 6, 90);
-    x5.fillText(`fixed t = ${fmt(st5.t0)} m · step ${st5.step} px · no refinement`, 6, 104);
+    x5.font = "10px " + MONO; x5.fillStyle = "rgba(255,255,255,0.55)"; x5.fillText("green: right, within 0.25 m of the true spot · red: the wrong thing · dim: miss", 6, 90);
+    x5.fillText(`fixed allowance ${fmt(st5.t0)} m · checks every ${st5.step} pixels`, 6, 104);
     pixelTick(x5, u, 0, 76, "rgba(255,255,255,0.9)");
     const fixedShow = v => lakeShow(rows[v].res.f.m.hit ? rows[v].res.f.m.col : null);
     floorBand(x5, buf5, fixedShow);
@@ -1274,8 +1351,8 @@ function kitInset(ctx, x, y, w, h, title) {
     pixelLabel(x5, P);
     labelNear(x5, "gull: rays should pass under it", [(gull5.x0 + gull5.x1) / 2 + 0.3, (gull5.y0 + gull5.y1) / 2], "#ffffff", 18);
     const vf = R.res.f.verdict;
-    if (F5.hit) labelNear(x5, vf === "ok" ? "fixed t: correct, the " + nameOf(scene5, buf5.id[F5.ui]) : "fixed t: wrong, stopped by the " + nameOf(scene5, buf5.id[F5.ui]), [F5.P[0] + 0.3, F5.P[1]], vf === "ok" ? GREEN : RED, -14);
-    else if (R.truthP) labelNear(x5, "fixed t: stepped past the " + (R.res.d.m.hit ? nameOf(scene5, buf5.id[D.ui]) : "surface"), R.truthP, RED, -16);
+    if (F5.hit) labelNear(x5, vf === "ok" ? "fixed allowance: right, the " + nameOf(scene5, buf5.id[F5.ui]) : "fixed allowance: wrong, stopped by the " + nameOf(scene5, buf5.id[F5.ui]), [F5.P[0] + 0.3, F5.P[1]], vf === "ok" ? GREEN : RED, -14);
+    else if (R.truthP) labelNear(x5, "fixed allowance: stepped past the " + (R.res.d.m.hit ? nameOf(scene5, buf5.id[D.ui]) : "surface"), R.truthP, RED, -16);
     else labelNear(x5, "nothing to reflect up there", end, "#ffffff");
     // hover numbers: depth per pixel along the ray, derived t at the pixel the fixed march stopped on
     const dzdu = Math.abs(R.ray.zAt(R.ray.u0 + R.ray.dir) - R.ray.z0);
@@ -1286,15 +1363,106 @@ function kitInset(ctx, x, y, w, h, title) {
     document.getElementById("t5-steps").querySelector(".n").innerHTML = `${F5.steps} <small>${F5.hit ? "hit" : "miss"}</small>`;
     document.getElementById("s5-n").textContent = buf5.floorU.length + " lake pixels";
     for (const [k] of MODES5) { const s = st5.stats[k]; document.getElementById(`s5-${k}-ok`).textContent = s.ok; document.getElementById(`s5-${k}-bad`).textContent = s.bad; document.getElementById(`s5-${k}-miss`).textContent = s.miss; document.getElementById(`s5-${k}-err`).textContent = s.nerr ? fmt(s.err / s.nerr, 3) + " m" : "–"; }
-    const vs = MODES5.map(([k, label]) => `${label}: ${R.res[k].verdict === "ok" ? "correct" : R.res[k].verdict === "bad" ? "false hit" : "miss"}`).join(" · ");
+    const word = k => R.res[k].verdict === "ok" ? "right" : R.res[k].verdict === "bad" ? "the wrong thing" : "miss";
+    const vs = MODES5.map(([k, label]) => `${label}: ${word(k)}`).join(" · ");
     const first = F5.samples.find(s => s.state === "behind" || s.state === "hit");
-    document.getElementById("c5-read").innerHTML = `px ${u} · <strong>${vs}</strong>`;
-    document.getElementById("c5-cap").textContent = first ? `fixed t, first sample past a surface: z_ray ${fmt(first.z)} m, z_buf ${fmt(first.zb)} m, Δ ${fmt(first.z - first.zb)} m ${first.state === "hit" ? "<" : ">"} t ${fmt(st5.t0)}` : "fixed t: no sample went behind a surface";
+    st5.last = { f: R.res.f.verdict, r: R.res.r.verdict, d: R.res.d.verdict, x: P[0] };
+    document.getElementById("c5-read").innerHTML = `lake pixel ${u} · <strong>${vs}</strong>`;
+    document.getElementById("c5-cap").textContent = first ? `fixed allowance, first stop past a surface: the line is ${fmt(first.z - first.zb)} m behind it, ${first.state === "hit" ? "inside" : "more than"} the ${fmt(st5.t0)} m allowance` : "fixed allowance: no stop went behind a surface";
+    L5 && L5.check();
   }
   build5();
   pointer(c5, { point: (x, y, px, py) => { const u = pickFloor(buf5, x, px, py); if (u >= 0) { st5.u = u; draw5(); } } });
   const th5 = document.getElementById("th5"); th5.addEventListener("input", () => { st5.t0 = +th5.value; document.getElementById("th5v").textContent = fmt(st5.t0) + " m"; build5(); draw5(); });
   const step5 = document.getElementById("step5"); step5.addEventListener("input", () => { st5.step = +step5.value; document.getElementById("step5v").textContent = step5.value + " px"; build5(); draw5(); });
   draw5();
+
+  // ---------- guided steps ----------
+  const $ = id => document.getElementById(id);
+  const set1 = x => { st1.u = nearestFloorPixel(buf1, x); draw1(); };
+  L1 = lesson("idea", { next: { id: "march", title: "Fixed steps or big jumps" }, steps: [
+    { say: "A side view. The player stands on a bluff and looks down at a still lake; the white dot is the <b>camera</b>, the player's eye. The game has already drawn its picture, and the two strips at the top are one column of it, 160 pixels tall laid on its side: the <b>colors</b>, and the <b>depths</b>, how far away the thing in each pixel is. The inset shows that column the way the player sees it. The white handle marks one lake pixel.", enter: () => set1(8.8) },
+    { say: "To find what that pixel reflects, SSR bounces the player's line of sight off the water and follows the <b>bounced line</b> upward. It never looks at the 3D boat or balloon. It moves along the line a couple of pixels at a time and, at each stop, compares the line's distance from the camera with the stored depth. In the graph, the white staircase is the stored depth and the amber curve is the line. White dots: still in front of everything. The amber dot: the first stop that dips just behind something. That is the reflection, here the balloon." },
+    { say: "<b>Hover the lake about 5 m out</b>, just before the boat.", todo: "hover the lake just before the boat", goal: () => st1.last && st1.last.hit && st1.last.name === "boat", try: () => set1(5.0),
+      done: "One stop, and the line is already behind the boat's stored depth. The reflection is the boat, found by reading a pixel the game had already drawn." },
+    { say: "Now the water close to the player, 3.5 to 4.5 m out. The bounced line climbs steeply.", quiz: { q: "What will SSR find there?", options: [
+        { t: "The bluff behind the player", why: "The camera never drew the bluff, so it is not in the picture. SSR can only find what is in the picture." },
+        { t: "Nothing: the line runs off the top of the picture", ok: true, why: "The line climbs into empty sky and leaves the picture without ever dipping behind anything. SSR reports a miss." },
+        { t: "The boat", why: "The line passes above the boat. Hover and watch the stops stay white all the way up." } ] },
+      todo: "hover the lake within 4.5 m of the bluff", goal: () => st1.last && !st1.last.hit && st1.last.x < 4.6, try: () => set1(4.0),
+      done: "A miss after about 70 stops. Nothing up there was ever drawn, so there is nothing to find. A later section fills holes like this one." },
+    { say: "<b>Hover about 9.5 m out</b>, past the balloon.", todo: "hover the lake about 9.5 m out", goal: () => st1.last && !st1.last.hit && st1.last.behind.includes("balloon"), try: () => set1(9.4),
+      done: "A different kind of miss. The line should reach the house wall, but in the player's picture the balloon floats in front of that part of the wall. The walk went behind the balloon, came out already past the wall, and ran off the top. What the picture does not contain, SSR cannot reflect." },
+    { say: "That is the whole trick: bounce the line, walk it across pixels already drawn, stop at the first one it dips just behind. Fast, because the 3D scene is never touched; blind to anything the camera did not draw. The exact formula for the walk is under the hood." } ] });
+
+  const set2 = o => { Object.assign(st2, o); if (o.x !== undefined) st2.u = nearestFloorPixel(buf2, o.x); segOn($("seg2"), st2.mode); $("step2").value = st2.step; $("step2v").textContent = st2.step + " px"; $("ref2").value = st2.refine; $("ref2v").textContent = st2.refine + (st2.refine === 1 ? " halving" : " halvings"); draw2(); };
+  L2 = lesson("march", { next: { id: "failures", title: "When the reflection is not in the picture" }, steps: [
+    { say: "Same lake, and now the walk has settings. This lake pixel is 10 m out and reflects the villager on the far shore. The top row is the depth column again, and the walk checks it every <b>4 pixels</b>: the white ticks. Two reads and it has him.", enter: () => set2({ mode: "linear", step: 4, refine: 0, x: 10.2 }) },
+    { say: "Fewer reads would be cheaper. <b>Drag the step size up to 16 pixels.</b>", todo: "drag Step size to 16 px", goal: () => st2.step >= 14, try: () => { $("step2").value = 16; $("step2").dispatchEvent(new Event("input")); }, enter: () => set2({ mode: "linear", step: 4, refine: 0, x: 10.2 }),
+      done: "A miss. The villager is only a few pixels tall in the picture, and a 16-pixel stride steps clean over him: one stop in front, the next already far behind. Big steps are cheap and blind." },
+    { say: "The stride bracketed him: the stop before was in front of everything, the stop after was behind.", quiz: { q: "How can the walk find him without checking every pixel in between?", options: [
+        { t: "Check every one of the 16 pixels", why: "That is 16 reads, which is what the big stride was meant to avoid." },
+        { t: "Halve the gap between those two stops, see which side the line is on, and repeat", ok: true, why: "Each halving pins the crossing twice as tightly. Three halvings turn a 16-pixel gap into a 2-pixel one for three reads." },
+        { t: "Use an even bigger step", why: "Bigger steps skip more, not less." } ] },
+      todo: "drag the look-back to 3 halvings or more", goal: () => st2.refine >= 3 && st2.step >= 14, try: () => { $("ref2").value = 3; $("ref2").dispatchEvent(new Event("input")); }, enter: () => set2({ mode: "linear", step: 16, refine: 0, x: 10.2 }),
+      done: "Found again: one stride read plus three look-back reads, and the hit lands within a pixel of the exact spot. Most engines walk this way, coarse stride then halving." },
+    { say: "Now <b>hover the lake close to the player</b>, within 4.5 m of the bluff, where the line climbs into empty sky.", todo: "hover the lake within 4.5 m of the bluff", goal: () => st2.last && st2.last.x < 4.5, try: () => set2({ x: 4.0 }), enter: () => set2({ mode: "linear", step: 4, refine: 0, x: 10.2 }),
+      done: "A miss after 36 reads of nothing but sky. Fixed steps cannot tell empty sky from a surface without reading it." },
+    { say: "The rows under the top one are shrunken copies of the depth column: half size, quarter size and so on, each cell keeping the <b>nearest</b> depth of the pixels it covers. <b>Switch the walk to Hi-Z jumps.</b>", todo: "switch to Hi-Z jumps below", goal: () => st2.mode === "hiz" && st2.last && st2.last.x < 4.5, try: () => { set2({ x: 4.0 }); $("seg2").querySelector('[data-v="hiz"]').click(); }, enter: () => set2({ mode: "linear", step: 4, refine: 0, x: 4.0 }),
+      done: "9 reads instead of 36. If the line stays in front of a cell's nearest depth all the way across it, nothing in that cell can be hit, so the whole cell is skipped in one jump: the white boxes. It zooms in only when a cell might hold a hit." },
+    { say: "Hi-Z is not always the cheaper one. <b>Hover about 9.5 m out</b>, where the line runs behind the balloon.", todo: "hover the lake about 9.5 m out", goal: () => st2.mode === "hiz" && st2.last && st2.last.hiz >= 30, try: () => set2({ mode: "hiz", x: 9.4 }), enter: () => set2({ mode: "hiz", x: 4.0 }),
+      done: "Around 90 reads. Behind something, the line is never in front of a cell's nearest depth, so no cell can be skipped and every pixel costs a read or two. Hi-Z wins on empty screen and loses behind things." },
+    { say: "Fixed steps: cheap per read, blind to thin things, fixed with a few halvings. Hi-Z jumps: skip empty screen in big blocks, slow down only near a surface. The cell test and the jump rule are under the hood." } ] });
+
+  const set3 = o => { drag3(0, o.bx, o.by); drag3(1, o.gx, o.gy); st3.fade = o.fade; $("fade3").value = o.fade; $("fade3v").textContent = fmt(o.fade) + " of the screen"; build3(); st3.u = nearestFloorPixel(st3.buf, o.x); draw3(); };
+  const rest3 = { bx: 10.2, by: 3.0, gx: 3.7, gy: 5.55, fade: 0.10, x: 8.0 };
+  L3 = lesson("failures", { next: { id: "rough", title: "Rippled water: scatter the rays" }, steps: [
+    { say: "Four strips now. <b>True reflection</b>: what each lake pixel should show. <b>SSR</b>: what the walk found, with dark holes where it missed. <b>Backup</b>: a second source. <b>Final mix</b>: the two combined. The blue ring over the lake is a <b>reflection probe</b>: a snapshot of the scene in every direction, taken once from that spot and kept as the backup. Look at the lake 9 to 10 m out: holes.", enter: () => set3(rest3) },
+    { say: "", quiz: { q: "Those pixels should show the house's window. Why does SSR leave holes there?", options: [
+        { t: "The window is too far away", why: "Distance is not the problem. The far shore is in the picture and reflects fine a little further along." },
+        { t: "In the player's picture the balloon floats in front of the window, so the window was never drawn", ok: true, why: "Hover one and read the caption: the walk passed behind the balloon and found nothing. The window is hidden in the picture, so it does not exist for SSR." },
+        { t: "The walk's step is too big", why: "This walk checks every 2 pixels with look-back. Step size is not what is missing here." } ] } },
+    { say: "<b>Drag the balloon straight up</b> until it leaves the player's picture.", todo: "drag the balloon up out of the picture", goal: () => st3.stats && st3.stats.off, try: () => drag3(0, 10.2, 8.6), enter: () => set3(rest3),
+      done: "Two things changed. The window is uncovered, so those holes filled in. And a new hole opened about 4.5 m out, where the lake should now show the balloon: it is above the picture, never drawn. The probe did see it, so the probe fills that hole, a little misplaced because the probe stands somewhere else." },
+    { say: "<b>Drag the gull</b> until it sits on the straight line from the camera to the villager, about 5.5 m out and 4 m up.", todo: "drag the gull onto the camera's line of sight to the villager", goal: () => st3.stats && st3.stats.villagerMiss >= 4, try: () => drag3(1, 5.5, 4.2), enter: () => set3(rest3),
+      done: "The villager's reflection is gone even though he is still in the picture. The gull is nearer than he is, so where the walk crosses the gull's pixels the line counts as behind, and it carries on into the sky. The probe never saw him from where it stands, so the sky fills in." },
+    { say: "One more thing about holes. <b>Drag the fade up to 0.3 of the screen.</b>", todo: "drag the fade slider to 0.3", goal: () => st3.fade >= 0.25, try: () => { $("fade3").value = 0.3; $("fade3").dispatchEvent(new Event("input")); }, enter: () => set3(rest3),
+      done: "Hits close to an edge of the picture, like the boat near the bottom, are now trusted less: their green ticks dim and the mix leans toward the backup. When the camera turns, whatever is near the edge is about to leave the picture, and fading it early stops a sudden pop." },
+    { say: "Every SSR miss is the same miss: the thing was not in the picture, because it was off screen, hidden behind something, or on a side the camera cannot see. A probe or the sky fills the hole, and the edge fade hides the seam. The mix formula is under the hood." } ] });
+
+  const set4 = o => { Object.assign(st4, o); $("rough4").value = st4.rough; $("rough4v").textContent = fmt(st4.rough) + (st4.rough < 0.02 ? " (perfect mirror)" : ""); segOn($("seg4"), st4.spp); restart4(); };
+  L4 = lesson("rough", { next: { id: "thickness", title: "How far behind still counts" }, steps: [
+    { say: "Wind ripples the lake, so its reflection should be blurry. Instead of one bounced line, each lake pixel fires a ray, a bounced line, in a <b>random direction inside the amber cone</b>, one per frame. Top strip: this frame alone, speckled. Second strip: the average of the last frames, settling as they add up. Third: this frame blurred sideways. The bars show how wide the blur is per pixel.", enter: () => set4({ rough: 0.30, spp: 1 }) },
+    { say: "<b>Drag Roughness down to 0</b>, still water.", todo: "drag Roughness to 0", goal: () => st4.rough <= 0.01, try: () => { $("rough4").value = 0; $("rough4").dispatchEvent(new Event("input")); },
+      done: "One direction, one ray, no speckle. A perfect mirror needs no averaging at all." },
+    { say: "Back to ripples. With one random ray per pixel, this frame's strip is speckled.", quiz: { q: "Why?", options: [
+        { t: "The depth buffer is noisy", why: "The depth buffer is exact. The randomness is in which direction each pixel chose." },
+        { t: "Each pixel picks one random direction, and neighbours pick different ones, so they land on different things", ok: true, why: "One pixel's ray finds the boat, the next one's finds the sky. Averaged over many, the mix is right; one at a time, it is speckle." },
+        { t: "The water moves between frames", why: "The scene is still. Only the chosen directions change from frame to frame." } ] },
+      todo: "drag Roughness up to 0.5 or more", goal: () => st4.rough >= 0.5, try: () => { $("rough4").value = 0.6; $("rough4").dispatchEvent(new Event("input")); }, enter: () => set4({ rough: 0.30, spp: 1 }),
+      done: "The cone opens wide, the speckle gets worse, and the blur bars grow. Rougher water needs more averaging." },
+    { say: "<b>Choose 8 rays per pixel.</b>", todo: "choose 8 rays per pixel below", goal: () => st4.spp >= 8, try: () => $("seg4").querySelector('[data-v="8"]').click(),
+      done: "Eight rays per pixel average out most of the speckle within one frame, and the time tile grows eight times. Games cannot afford that for every reflective pixel, so they spread the rays over frames instead." },
+    { say: "That is the second strip. Each new frame is blended into a running average, the newest counting for a small share, so after a few dozen frames the speckle is gone for free. The catch: when the camera moves, last frame's picture no longer lines up, so the average is shifted to match and restarted where it cannot be." },
+    { say: "Rough water: random rays inside a cone, average over frames, blur by roughness times distance. The way a random direction is drawn from the cone is under the hood." } ] });
+
+  const set5 = o => { Object.assign(st5, o); if (o.x !== undefined) st5.u = nearestFloorPixel(buf5, o.x); $("th5").value = st5.t0; $("th5v").textContent = fmt(st5.t0) + " m"; $("step5").value = st5.step; $("step5v").textContent = st5.step + " px"; build5(); draw5(); };
+  L5 = lesson("thickness", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "A gull glides low over the lake, and bounced lines should pass under it. The walk checks every <b>6 pixels</b>, so it never lands exactly on a surface. The <b>allowance</b> says how far behind a surface a stop may be and still count as touching it; right now it is 5 cm. Top strip: what each lake pixel should show. Below it, three ways of setting the allowance. Green ticks: right. Red: stopped on the wrong thing. Dim: a miss, a hole.", enter: () => set5({ t0: 0.05, step: 6, x: 7.6 }) },
+    { say: "Most of the far half of the lake is holes.", quiz: { q: "Why?", options: [
+        { t: "The far shore is too far for SSR", why: "It is in the picture, and SSR only needs the picture." },
+        { t: "With stops every 6 pixels, the first stop past a surface is usually more than 5 cm behind it, so the walk thinks it passed behind and carries on", ok: true, why: "The caption shows it: the first stop past the surface is well over 5 cm behind. Too small an allowance makes real surfaces invisible." },
+        { t: "The gull blocks them", why: "The gull covers one short stretch of the picture. The holes are everywhere the surfaces are far away." } ] } },
+    { say: "<b>Drag the fixed allowance up to 1 m.</b>", todo: "drag Fixed allowance to 1 m", goal: () => st5.t0 >= 0.9, try: () => { $("th5").value = 1; $("th5").dispatchEvent(new Event("input")); }, enter: () => set5({ t0: 0.05, step: 6, x: 7.6 }),
+      done: "Read the first row of the table. Misses fell, but wrong hits rose: lines that should pass under the gull are now stopped by it, and the gull gets painted into the house's reflection. One fixed number is always wrong somewhere." },
+    { say: "The allowance is back at 5 cm. Now <b>drag the step size down to 1 pixel</b> instead.", todo: "drag Step size to 1 px", goal: () => st5.step <= 2, try: () => { $("step5").value = 1; $("step5").dispatchEvent(new Event("input")); }, enter: () => set5({ t0: 0.05, step: 6, x: 7.6 }),
+      done: "Fewer holes and few wrong hits, but the depth-reads tile jumped from about 15 to about 90 for this one pixel, and every reflective pixel on screen pays that." },
+    { say: "The third row sizes the allowance per pixel from how fast the stored depth changes between neighbouring pixels.", quiz: { q: "Where does that help most?", options: [
+        { t: "On the flat lake", why: "The lake is the mirror, not a target. Its depth changes gently anyway." },
+        { t: "On surfaces seen nearly edge-on, where one pixel covers a long stretch of depth", ok: true, why: "A stop can land a long way behind such a surface and still be touching it. The slope rule reads that steep change and allows for it." },
+        { t: "On the sky", why: "The sky has no surface to allow for." } ] },
+      todo: "hover the lake about 8.6 m out", goal: () => st5.last && st5.last.d === "ok" && st5.last.f !== "ok", try: () => set5({ x: 8.6 }), enter: () => set5({ t0: 0.05, step: 6, x: 7.6 }),
+      done: "Only the slope rule is right here. The target is the balloon's basket, a thin thing seen nearly edge-on: its few pixels cover almost a metre of depth. A 5 cm allowance steps past; the slope rule reads the steep change and allows about a metre there, as the tile shows." },
+    { say: "The allowance is how far behind a surface the line may go and still count. Too small leaves holes, too big stops lines on things they should pass under, and the right size differs per pixel, so take it from the depth slope. The three rules are under the hood." } ] });
 })();
 </script>
