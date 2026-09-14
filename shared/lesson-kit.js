@@ -4,6 +4,7 @@
 //   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
 //   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
 //           answer first (wrong answers explain and let you retry), then the optional goal
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
 // Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
 // Progress is remembered per page and section in localStorage.
 function lesson(id, spec) {
@@ -13,7 +14,8 @@ function lesson(id, spec) {
   let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
   try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
   const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
-  root.insertAdjacentHTML('afterbegin',
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
     '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
     '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
   const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
