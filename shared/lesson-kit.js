@@ -1,9 +1,12 @@
+// lesson-kit start
 // Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
 // A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
 //   look    { say }                         read it, press Continue
 //   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
 //   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
 //           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
 // A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
 // Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
 // Progress is remembered per page and section in localStorage.
@@ -58,5 +61,8 @@ function lesson(id, spec) {
   }
   function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
   render(); reveal();
-  return { check, go, get step() { return i; } };
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
 }
+// lesson-kit end

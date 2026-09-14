@@ -701,12 +701,16 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
 // Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
 // A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
 //   look    { say }                         read it, press Continue
 //   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
 //   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
 //           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
 // Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
 // Progress is remembered per page and section in localStorage.
 function lesson(id, spec) {
@@ -760,8 +764,11 @@ function lesson(id, spec) {
   }
   function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
   render(); reveal();
-  return { check, go, get step() { return i; } };
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
 }
+// lesson-kit end
 (() => {
   const AMB = "#f2a341", BLU = "#4aa3ff", WHT = "#ffffff", GRN = "#5ad48a", RED = "#ef5d5d", GRID = "rgba(255,255,255,0.12)", GROUND = "#0b0e13";
   const $ = id => document.getElementById(id);
@@ -1299,17 +1306,17 @@ function lesson(id, spec) {
   const outside1 = () => V1.some(v => { const n = project(v).ndc; return Math.abs(n[0]) > 1 || Math.abs(n[1]) > 1; });
   L1 = lesson("pipeline", { next: { id: "coverage", title: "Which pixels a triangle covers" }, steps: [
     { say: "Everything a game draws is made of <b>triangles</b>. Thousands make the knight; the sunshade here is just one, strung from a pole top down to two pegs. The screen is a grid of tiny squares called <b>pixels</b>, and drawing means deciding which pixels each triangle covers. On the left is the camp from above, with the player's eye, the <b>camera</b>, at the bottom and dashed lines showing what it can see. On the right is what the player sees." },
-    { say: "First job: find where each corner of the triangle lands on the screen. <b>Drag the pole top</b>, the amber corner, to the left, past the campfire.", todo: "drag the amber corner left", goal: () => V1[2][0] < -1.6,
+    { say: "First job: find where each corner of the triangle lands on the screen. <b>Drag the pole top</b>, the amber corner, to the left, past the campfire.", todo: "drag the amber corner left", goal: () => V1[2][0] < -1.6, try: () => { V1[2][0] = -2.6; draw1(); },
       done: "It moved left on the player's screen too. The GPU does this for every corner of every triangle, millions of times a frame: work out where the corner sits compared to the camera, then where that lands on the screen." },
     { say: "Now a peg.", quiz: { q: "If you drag a peg toward the camera, where does it go on the player's screen?", options: [
         { t: "Toward the middle of the screen", why: "Nearer things look bigger and spread out from the middle of the picture. Drag one and watch." },
         { t: "Away from the middle, out toward the edge", ok: true, why: "Nearer things spread out from the middle; farther things crowd toward it. That is perspective, and the GPU gets it by dividing by the distance." },
         { t: "It stays put", why: "Its distance changed, so its place on the screen changes too." } ] },
-      todo: "now drag a peg toward the camera to check", goal: () => V1[0][2] > -2.6 || V1[1][2] > -2.6,
+      todo: "now drag a peg toward the camera to check", goal: () => V1[0][2] > -2.6 || V1[1][2] > -2.6, try: () => { V1[0][2] = -2.0; draw1(); },
       done: "The peg swings out toward the edge. Everything near the camera spreads out, and that one divide by distance is what makes a flat screen look deep." },
-    { say: "<b>Drag the pole top far away</b>, up next to the farmhouse.", todo: "drag the amber corner up to the farmhouse", goal: () => V1[2][2] < -10,
+    { say: "<b>Drag the pole top far away</b>, up next to the farmhouse.", todo: "drag the amber corner up to the farmhouse", goal: () => V1[2][2] < -10, try: () => { V1[2][2] = -13; draw1(); },
       done: "Its dot creeps toward the middle of the screen, and the stored depth under the picture climbs toward 1. Depth is how far away the corner is, squeezed into a 0 to 1 range. Far things end up crowded near 1, which matters in a later section." },
-    { say: "<b>Drag a peg outside the dashed lines.</b>", todo: "drag a peg outside the camera's view", goal: outside1,
+    { say: "<b>Drag a peg outside the dashed lines.</b>", todo: "drag a peg outside the camera's view", goal: outside1, try: () => { V1[0][0] = -8; V1[0][2] = -3; draw1(); },
       done: "The player cannot see it, so the GPU trims the triangle along the edge of the view before drawing anything. That trim is called clipping, and it also keeps the divide safe from corners sitting right at the camera, where the distance would be zero." },
     { say: "That is the whole trip for a corner: position compared to the camera, divide by distance, land on a pixel. The exact formulas, and the GPU's in-between −1 to +1 version of the screen, are under the hood below." } ] });
 
@@ -1319,11 +1326,11 @@ function lesson(id, spec) {
         { t: "Yes, part of the shield is in it", why: "The GPU never measures how much of a pixel is covered. It only looks at the centre dot." },
         { t: "No, only the centre dot counts", ok: true, why: "One test point per pixel. This is why edges look jagged: a pixel is all in or all out." },
         { t: "It gets half the colour", why: "Half colours need extra test points inside each pixel. That is anti-aliasing, a separate trick with its own page." } ] } },
-    { say: "How does it decide? A triangle has three edges, and for each edge the GPU asks: is this dot on the inside side of it? <b>Hover a pixel inside the shield</b>, then one just outside.", todo: "hover one pixel inside and one outside", goal: () => T2.hoverIn && T2.hoverOut,
+    { say: "How does it decide? A triangle has three edges, and for each edge the GPU asks: is this dot on the inside side of it? <b>Hover a pixel inside the shield</b>, then one just outside.", todo: "hover one pixel inside and one outside", goal: () => T2.hoverIn && T2.hoverOut, try: () => { T2.hover = [12, 7]; draw2(); T2.hover = [1, 1]; draw2(); },
       done: "Inside, all three edges say inside. Outside, at least one says outside. Three yes-or-no answers are the whole test, and each one is a quick multiply and subtract." },
-    { say: "The two halves share the seam down the middle, and ten centre dots sit <b>exactly on it</b>. Right now a tie rule gives each one to exactly one triangle. <b>Switch it so both triangles draw it.</b>", todo: "switch the tie rule below", goal: () => T2.rule === "ge", enter: () => { T2.rule = "tl"; segOn($("segTL"), "tl"); draw2(); },
+    { say: "The two halves share the seam down the middle, and ten centre dots sit <b>exactly on it</b>. Right now a tie rule gives each one to exactly one triangle. <b>Switch it so both triangles draw it.</b>", todo: "switch the tie rule below", goal: () => T2.rule === "ge", try: () => $("segTL").querySelector('[data-v="ge"]').click(), enter: () => { T2.rule = "tl"; segOn($("segTL"), "tl"); draw2(); },
       done: "A red column appears: both triangles coloured those pixels, and the inset shows a bright stripe where the shield was painted twice. For anything see-through, painting twice shows. The tie rule exists for exactly this." },
-    { say: "<b>Drag the shield's top corner one pixel sideways</b> so the seam leans.", todo: "drag the top corner sideways", goal: () => T2.v[1][0] !== T2.v[2][0],
+    { say: "<b>Drag the shield's top corner one pixel sideways</b> so the seam leans.", todo: "drag the top corner sideways", goal: () => T2.v[1][0] !== T2.v[2][0], try: () => { T2.v[1][0] += 1; draw2(); },
       done: "No centre dot sits exactly on a leaning line, so the tie rule never fires. It only matters on exact ties, but a screen full of shared edges hits them constantly." },
     { say: "One test point per pixel, three edge questions per point, one tie rule for exact hits. The same three answers, kept as numbers, also say how close the pixel is to each corner, which is how colour gets blended across a triangle. Under the hood has the formula and the loop." } ] });
 
@@ -1334,9 +1341,9 @@ function lesson(id, spec) {
         { t: "The two triangles were drawn in the wrong order", why: "Order does not change where a pattern lands inside a triangle." },
         { t: "The far end of the floor is squashed on screen, so mixing evenly across pixels stretches the far tiles", ok: true, why: "Perspective squeezes the far end into fewer pixels. Mix evenly across those pixels and the far tiles come out too big. Each triangle gets it wrong in its own direction, and they meet in a kink." },
         { t: "The tile pattern is too small", why: "The pattern is computed from the corners, not stored, so its size is not the issue." } ] } },
-    { say: "<b>Switch the mix to one that keeps distance in mind.</b>", todo: "switch the mixing below", goal: () => Q.mode === "persp",
+    { say: "<b>Switch the mix to one that keeps distance in mind.</b>", todo: "switch the mixing below", goal: () => Q.mode === "persp", try: () => $("segPC").querySelector('[data-v="persp"]').click(),
       done: "The kink is gone and the far tiles shrink toward the knight like a real floor. The fix: divide each corner's value by its distance before mixing, then undo that per pixel." },
-    { say: "<b>Choose both, side by side</b>, then push the courtyard depth up to 30 m.", todo: "choose side by side and drag the depth slider to 30 m", goal: () => Q.mode === "split" && Q.depth >= 29,
+    { say: "<b>Choose both, side by side</b>, then push the courtyard depth up to 30 m.", todo: "choose side by side and drag the depth slider to 30 m", goal: () => Q.mode === "split" && Q.depth >= 29, try: () => { $("segPC").querySelector('[data-v="split"]').click(); $("qdepth").value = 30; $("qdepth").dispatchEvent(new Event("input")); },
       done: "Left half wrong, right half right, on one floor. The deeper the floor, the bigger the gap between the near and far distances, and the worse the even mix gets." },
     { say: "Real GPUs use the distance-aware mix for everything they blend, so you only meet the kink if you build your own rasterizer. The formula is under the hood." } ] });
 
@@ -1347,17 +1354,17 @@ function lesson(id, spec) {
         { t: "The banner was drawn before the wall", why: "It was drawn second. Order only decides when the buffer cannot tell the two apart." },
         { t: "Each stored distance is rounded. At 30 m, 5 mm is smaller than the rounding, so wall and banner round to the same number and it is a coin flip, pixel by pixel", ok: true, why: "Each pixel here stores a 16-bit number, one of 65,536 values, and the tiles below say what one step of that is worth at the wall: about 137 mm. Anything closer than that is a tie, and ties fall in stripes." },
         { t: "The buffer cannot store a distance as big as 30 m", why: "It can. It stores a squashed value between 0 and 1. The trouble is how coarse the steps are out at 30 m." } ] } },
-    { say: "More values means finer steps. <b>Switch the buffer to 24-bit</b>, about 16 million values instead of 65 thousand.", todo: "switch to 24-bit below", goal: () => D3.bits === "24", enter: () => set3({ bits: "16", dA: 30, near: 0.1, test: "less" }),
+    { say: "More values means finer steps. <b>Switch the buffer to 24-bit</b>, about 16 million values instead of 65 thousand.", todo: "switch to 24-bit below", goal: () => D3.bits === "24", try: () => $("segBits").querySelector('[data-v="24"]').click(), enter: () => set3({ bits: "16", dA: 30, near: 0.1, test: "less" }),
       done: "The banner comes out whole. The 24-bit step at 30 m is about half a millimetre, well under the 5 mm gap." },
     { say: "Stay on 24-bit.", quiz: { q: "If you push the wall out to 120 m, do the stripes come back?", options: [
         { t: "No, 24-bit is enough at any distance", why: "The step grows with the square of the distance: four times as far means sixteen times the step." },
         { t: "Yes, the step grows with the square of the distance", ok: true, why: "From 30 m to 120 m the step grows 16×, from half a millimetre to about 9 mm, past the 5 mm gap. Far things are crowded near 1, remember." },
         { t: "Only if the banner moves too", why: "The gap stays 5 mm. What changes is how finely the buffer can measure out there." } ] },
-      todo: "drag Wall distance to 120 m", goal: () => D3.bits === "24" && D3.dA >= 115, enter: () => set3({ bits: "24", dA: 30, near: 0.1 }),
+      todo: "drag Wall distance to 120 m", goal: () => D3.bits === "24" && D3.dA >= 115, try: () => { $("dA").value = 120; $("dA").dispatchEvent(new Event("input")); }, enter: () => set3({ bits: "24", dA: 30, near: 0.1 }),
       done: "Stripes are back. The 24-bit tile now reads about 9 mm, bigger than the gap." },
-    { say: "Now the setting most people miss. The <b>near plane</b> is the closest distance the camera bothers to draw; anything nearer is cut off. <b>Drag it down to 0.01 m.</b>", todo: "drag the near plane to 0.01 m", goal: () => D3.near <= 0.02, enter: () => set3({ bits: "24", dA: 120, near: 0.1 }),
+    { say: "Now the setting most people miss. The <b>near plane</b> is the closest distance the camera bothers to draw; anything nearer is cut off. <b>Drag it down to 0.01 m.</b>", todo: "drag the near plane to 0.01 m", goal: () => D3.near <= 0.02, try: () => { $("dNear").value = 0.01; $("dNear").dispatchEvent(new Event("input")); }, enter: () => set3({ bits: "24", dA: 120, near: 0.1 }),
       done: "Every tile grew about ten times. Halving the near plane doubles the step at every distance, because the buffer spends most of its values on the first metre. Pushing the near plane out is the single best fix for this flicker." },
-    { say: "<b>Switch to 32-bit float, reversed</b>, and set the winner to the farther number.", todo: "switch the storage and the winner below", goal: () => D3.bits === "32r" && D3.test === "greater", enter: () => set3({ bits: "24", dA: 120, near: 0.01, test: "less" }),
+    { say: "<b>Switch to 32-bit float, reversed</b>, and set the winner to the farther number.", todo: "switch the storage and the winner below", goal: () => D3.bits === "32r" && D3.test === "greater", try: () => { $("segBits").querySelector('[data-v="32r"]').click(); $("segTest").querySelector('[data-v="greater"]').click(); }, enter: () => set3({ bits: "24", dA: 120, near: 0.01, test: "less" }),
       done: "Whole again, at 120 m with a near plane of one centimetre. A float is a number format whose steps are finest near zero. Reversed means far things are stored near zero, right where the float is most precise." },
     { say: "The stored distance is squashed and rounded, and its steps get coarser with the square of the distance. More bits help, the near plane helps more, and a reversed float makes the problem go away. The formulas and the per-pixel test are under the hood." } ] });
 
@@ -1368,11 +1375,11 @@ function lesson(id, spec) {
         { t: "Still five, every tree is still drawn", why: "Every tree still lands on the pixel, but the depth check runs before the colouring. A tree behind something already drawn fails the check and is never coloured." },
         { t: "Once", ok: true, why: "The near tree goes first and colours its pixels. Every later tree fails the depth check there before its colouring runs. Checking early is called early-Z." },
         { t: "Zero", why: "The near tree itself still colours each of its pixels once." } ] } },
-    { say: "<b>Switch the draw order to front-to-back.</b>", todo: "switch the draw order below", goal: () => O4.order === "ftb", enter: () => set4({ order: "btf", early: true, draws: 5 }),
+    { say: "<b>Switch the draw order to front-to-back.</b>", todo: "switch the draw order below", goal: () => O4.order === "ftb", try: () => $("segOrder").querySelector('[data-v="ftb"]').click(), enter: () => set4({ order: "btf", early: true, draws: 5 }),
       done: "The picture goes almost entirely blue: once per pixel. The coloured count under it dropped, and the tiles show what that is worth on a full HD screen." },
-    { say: "<b>Untick early-Z.</b>", todo: "untick the early-Z box", goal: () => !O4.early,
+    { say: "<b>Untick early-Z.</b>", todo: "untick the early-Z box", goal: () => !O4.early, try: () => $("earlyZ").click(),
       done: "Back to the full count, whatever the order. This happens when a colouring program changes the depth itself or throws its own pixel away, because then the hardware cannot check early. Leaves with cut-out edges are the classic case." },
-    { say: "Tick early-Z again, keep front-to-back, and <b>drag the big near tree over the others</b> to hide as much of them as you can. Watch the coloured count.", todo: "tick early-Z and drag the big tree over the others", goal: () => O4.early && O4.order === "ftb" && O4.last && O4.last.sh <= 700,
+    { say: "Tick early-Z again, keep front-to-back, and <b>drag the big near tree over the others</b> to hide as much of them as you can. Watch the coloured count.", todo: "tick early-Z and drag the big tree over the others", goal: () => O4.early && O4.order === "ftb" && O4.last && O4.last.sh <= 700, try: () => { if (!O4.early) $("earlyZ").click(); quads[4].x = 30; quads[4].y = 6; draw4(); },
       done: "The coloured count fell while the number of tree pixels stayed the same. With front-to-back order and early-Z, hidden parts are never coloured, so overlap costs only the cheap depth check." },
     { say: "Draw near things first, let the depth check run early, and each pixel gets coloured about once. Engines that cannot sort well draw everything twice instead: once cheaply just to fill the depth buffer, then once for real. Under the hood has the cost formula and that trick." } ] });
 
@@ -1382,9 +1389,9 @@ function lesson(id, spec) {
         { t: "64, one per pixel", why: "That is exactly what the tile stage is there to avoid." },
         { t: "None", ok: true, why: "If all four corners are inside all three edges, every pixel between them is too. Twelve corner checks replaced 64 pixel checks." },
         { t: "Four, one per corner", why: "Four corners per edge, twelve checks in all, but zero per pixel." } ] } },
-    { say: "<b>Switch to 16×16 tiles.</b>", todo: "switch the tile size below", goal: () => H5.T === 16,
+    { say: "<b>Switch to 16×16 tiles.</b>", todo: "switch the tile size below", goal: () => H5.T === 16, try: () => $("segTile").querySelector('[data-v="16"]').click(),
       done: "Fewer tile checks, more pixel checks: a bigger tile is more likely to have an edge running through it. Real GPUs settle on 8×8 or 16×16." },
-    { say: "<b>Drag the top corner down</b> beside a peg to squash the triangle into a sliver.", todo: "drag the top corner down beside a peg", goal: () => H5.stats && H5.stats.part > H5.stats.full && H5.stats.part >= 6,
+    { say: "<b>Drag the top corner down</b> beside a peg to squash the triangle into a sliver.", todo: "drag the top corner down beside a peg", goal: () => H5.stats && H5.stats.part > H5.stats.full && H5.stats.part >= 6, try: () => { H5.v[2] = [9, 50]; draw5(); },
       done: "Now almost every tile it touches has an edge through it, so the tile stage saves nothing. Long thin triangles are the expensive shape, and a model made of tiny slivers makes a GPU crawl." },
     { say: "Big triangles are cheap per pixel because whole tiles are accepted at once. Slivers and tiny triangles are not. Under the hood has the corner test and the two-stage loop." } ] });
 })();
