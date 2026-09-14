@@ -223,68 +223,62 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 .tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 480px) { .tiles.four { grid-template-columns: 1fr 1fr; } }
 .tile .n small { font-size: 14px; color: var(--muted); }
+.lesson .tiles .tile .n { font-size: 20px; }
 .ctl.chk { flex-direction: row; align-items: center; gap: 8px; padding-bottom: 4px; }
 .ctl.chk label { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--ink); font-family: var(--font-mono); }
 .uses.trade td { font-size: 14px; }
 .uses.trade td:first-child { white-space: normal; min-width: 11ch; }
 .uses.trade td:nth-child(2) { max-width: none; white-space: nowrap; font-family: var(--font-mono); font-size: 13px; }
+.hood .tbl-wrap { margin-top: 12px; }
+.hood .stats { margin-top: 0; margin-bottom: 14px; }
 </style>
 
 
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a foggy forest at night, 20 m wide · one floodlight on a 12 m mast · two trees · drag the light, its aim and the mist patch</p>
+    <p class="eyebrow">a foggy forest at night · five guided demos · nothing to install</p>
     <h1>Volumetric Fog</h1>
-    <p class="lead">Fog in a game is light bouncing off tiny particles in the air, drawn so the camera can see it. Done properly it gives you light shafts between trees, glowing light cones and dark air behind a trunk, for about 1 to 2 ms of frame time. The thing people get wrong is treating fog as a colour you tint the screen with. Real fog has no colour of its own: what you see is light from the scene's lamps, so it is bright inside a floodlight's cone and dark behind a tree.</p>
+    <p class="lead">Fog in a game is light bouncing off tiny specks in the air, and the engine has to work out how much of that light reaches each pixel of the screen. Done well it gives light shafts between trees, glowing lamp cones and dark air behind a trunk, for about 1 to 2 ms of each frame. <b>The thing people get wrong:</b> fog is not a colour you tint the screen with. Fog has no colour of its own. What you see is light from the scene's lamps, so it is bright inside a floodlight's cone and dark behind a tree.</p>
     <div class="key">
-      <span style="--sw:#f2a341">light scattered toward the player</span>
+      <span style="--sw:#f2a341">light the fog sends toward the player</span>
       <span style="--sw:#4aa3ff">how thick the fog is</span>
-      <span style="--sw:#ffffff">the player's view ray and drag handles</span>
+      <span style="--sw:#ffffff">the player's line of sight and drag handles</span>
       <span style="--sw:#3f8f4a">trees, hill and house: they block light</span>
-      <span style="--sw:#ef5d5d">step that sits in a tree's shadow</span>
+      <span style="--sw:#ef5d5d">a step that sits in a tree's shadow</span>
     </div>
     <dl class="terms">
-      <dt>view ray</dt><dd>the straight line from the player's eye out through one pixel</dd>
-      <dt>ray march</dt><dd>walking along a ray in small steps and adding up what you find at each one</dd>
-      <dt>transmittance, T</dt><dd>the fraction of light that makes it through the fog, from 1 (all of it) to 0 (none)</dd>
-      <dt>in-scatter, L</dt><dd>light the fog itself sends toward the player; the glow you see in the air</dd>
+      <dt>line of sight</dt><dd>the straight line from the player's eye out through one pixel of the screen; engineers call it a view ray</dd>
+      <dt>ray march</dt><dd>walking along a line of sight in small steps and adding up what you find at each one</dd>
+      <dt>transmittance, T</dt><dd>the share of light that makes it through the fog, from 1 (all of it) to 0 (none)</dd>
+      <dt>glow, L</dt><dd>light the fog itself sends toward the player; engineers call it in-scatter</dd>
       <dt>occluder</dt><dd>a solid thing, like a tree trunk, that blocks light and casts a shadow</dd>
-      <dt>phase function</dt><dd>the rule for how much a particle throws light forward, sideways or back</dd>
-      <dt>froxel</dt><dd>one cell of a 3D grid that fills the player's view; short for frustum voxel</dd>
-      <dt>optical depth, τ</dt><dd>how much fog a ray has passed through, added up; T = exp(−τ)</dd>
+      <dt>phase function</dt><dd>the rule for how much of its light a fog particle throws forward, sideways or back</dd>
+      <dt>froxel</dt><dd>one cell of a 3D grid that fills the player's view; short for frustum voxel, the frustum being the wedge of space the camera can see</dd>
+      <dt>optical depth, τ</dt><dd>how much fog a line has crossed, added up; the light that gets through is T = exp(−τ)</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#march"><span class="n">01</span>One ray through the fog</a></li><li><a href="#phase"><span class="n">02</span>Which way fog throws light</a></li><li><a href="#froxels"><span class="n">03</span>Froxels</a></li><li><a href="#height"><span class="n">04</span>Height fog with no loop</a></li><li><a href="#clouds"><span class="n">05</span>Clouds that shade themselves</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#march"><span class="n">01</span>One line of sight through the fog</a></li><li><a href="#phase"><span class="n">02</span>Which way fog throws light</a></li><li><a href="#froxels"><span class="n">03</span>Fog in a grid of cells</a></li><li><a href="#height"><span class="n">04</span>Ground mist with no loop</a></li><li><a href="#clouds"><span class="n">05</span>Clouds that shade themselves</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="march">
-    <h2>One ray through the fog</h2>
-    <p class="sub">A player stands on a rise at the edge of a foggy forest at night. A floodlight on a mast shines down through the trees. Hover to pick one line of sight and watch the glow along it get added up step by step.</p>
+  <section id="march" class="stage">
+    <h2>One line of sight through the fog</h2>
+    <p class="sub">A player on a rise at the edge of a foggy forest at night, and a floodlight on a mast shining down through the trees. Pick one line of sight and watch the glow along it get added up step by step.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c1" width="512" height="512" class="grab" aria-label="Side view of a foggy forest at night: a player on a rise at the left, two trees, a floodlight on a tall mast aimed down at the ground. One view ray from the player's eye is marched through the fog, with a strip below showing fog density, lamp light and transmittance at each step, and an inset showing what the player sees."></canvas>
-        <div class="cap"><span id="c1-read">—</span><span id="c1-read2"></span></div>
+        <canvas id="c1" width="512" height="512" class="grab sq" aria-label="Side view of a foggy forest at night: a player on a rise at the left, two trees, a floodlight on a tall mast aimed down at the ground. One line of sight from the player's eye is walked through the fog in steps, with a strip below showing fog thickness, lamp light and light getting through at each step, and an inset showing what the player sees."></canvas>
+        <div class="cap"><span id="c1-read">—</span></div>
+        <div class="cap"><span id="c1-read2"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The engine shoots a <b>straight line out from the player's eye through one pixel</b>, called a view ray, and walks along it in small steps. At each step it asks two questions: <b>how much fog is here</b>, and <b>is the floodlight shining on it</b>. Lit fog adds glow to the pixel, and every bit of fog also <b>dims whatever is behind it</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The picture is the forest from the side, the way the engine thinks about it. The amber haze is fog the floodlight is lighting. Under each tree the light is blocked, so the fog there stays dark. Those dark wedges under the canopies are light shafts, and nothing on this page fakes them. The blue ring is a patch of thicker mist you can drag around.</p>
-        <p>The white line is the ray you picked, with a dot at every step. An amber stub means the floodlight reaches that step; a red stub means a tree is in the way. The strip under the scene is the same ray as numbers: blue bars are fog thickness, amber bars are light after the shadow check, the white curve is how much of the background still gets through, sliding from 1 toward 0. The "player's view" inset is the whole screen, one row per line of sight: trees dimmed by fog, and glow where the floodlight lights the air.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the amber floodlight down to just above a canopy. A whole band of rows in the player's view goes dark at once: that tree is now a wall for the light.</li>
-          <li>Drop the steps to 8. The strip turns chunky and the L value in the readout shifts. Push it to 128 and the value settles.</li>
-          <li>Turn the mist patch up to 0.6 and hover through the blue ring. The white curve drops fast and the far end of the ray stops mattering.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="steps1">Steps <span class="val" id="steps1v">48</span></label><input type="range" id="steps1" min="8" max="128" step="8" value="48"></div>
-          <div class="ctl"><label for="blob1">Mist patch density <span class="val" id="blob1v">0.30 /m</span></label><input type="range" id="blob1" min="0" max="0.6" step="0.05" value="0.3"></div>
+      <div class="lesson" data-lesson="march">
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><label for="blob1">Mist patch thickness <span class="val" id="blob1v">0.30 /m</span></label><input type="range" id="blob1" min="0" max="0.6" step="0.05" value="0.3"></div>
+          <div class="ctl"><label for="steps1">Steps along the line <span class="val" id="steps1v">48</span></label><input type="range" id="steps1" min="8" max="128" step="8" value="48"></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Fog glow is lit fog added up along the line of sight, with each step counting for less than the one before it.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Each step reads the fog density ρ, the amount of material per metre. The extinction coefficient σ_t is how fast that material dims light, and the scattering coefficient σ_s is the part that redirects light rather than absorbing it. Their ratio is the albedo, 0.9 here, meaning 90% of what the fog stops gets bounced rather than eaten.</p>
         <p>The phase function p(θ) says how much of that bounce heads back to the player, for the angle θ between the light and the view ray. V is the shadow test: 1 if the floodlight can see the point, 0 if a tree is in the way. Transmittance T is the running product of every step's dimming so far, so glow found far along the ray counts for less.</p>
         <p class="words">In words: at each point along the ray, take the fog there, times the light reaching it, times how much bounces your way, times how much of that survives the trip back to the eye. Add it all up.</p>
@@ -309,61 +303,45 @@ pixel = L_surface · T(D) + L</div>
   T *= stepT;
 }
 color = sceneColor * T + L;</pre>
-        <p class="tldr">Fog glow is lit fog added up along the ray, with each step counting for less than the one before it.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="phase">
+  <section id="phase" class="stage">
     <h2>Which way fog throws light</h2>
-    <p class="sub">The player has walked down off the rise onto the forest path, toward a lamp on a short pole. Drag the lamp around the ring on the left, or walk the player and move the lamp on the right, and watch the halo change.</p>
-    <div class="cols two">
+    <p class="sub">The player has walked down onto the forest path toward a lamp on a short pole. The left picture is the rule for one fog particle; the right picture is what that rule does to the halo around the lamp.</p>
+    <div class="cols three">
       <div class="vp">
-        <canvas id="c2a" width="512" height="512" class="grab" aria-label="Polar plot of the Henyey-Greenstein phase function, with the player at the left and a draggable lamp on the ring"></canvas>
-        <div class="cap"><span id="c2a-read">—</span><span>rings: 10⁻³ … 10 sr⁻¹</span></div>
+        <canvas id="c2a" width="512" height="512" class="grab sq" aria-label="Polar plot of how much light one fog particle throws in each direction, with the player at the left and a draggable lamp on the ring"></canvas>
+        <div class="cap"><span id="c2a-read">—</span></div>
+        <div class="cap"><span>rings: each ring outward is ten times more light</span></div>
       </div>
       <div class="vp">
-        <canvas id="c2b" width="512" height="512" class="grab" aria-label="Side view of the foggy forest path with a player looking at a lamp on a pole; the strip below is the player's 96-pixel view, showing the halo around the lamp"></canvas>
-        <div class="cap"><span id="c2b-read">—</span><span>bottom: the player's 96-pixel view</span></div>
+        <canvas id="c2b" width="512" height="512" class="grab sq" aria-label="Side view of the foggy forest path with a player looking at a lamp on a pole; the strip below is the player's 96-pixel-wide screen, showing the halo around the lamp"></canvas>
+        <div class="cap"><span id="c2b-read">—</span></div>
+        <div class="cap"><span>bottom strip: the player's screen, 96 pixels wide</span></div>
       </div>
-    </div>
-    <div class="cols wide" style="margin-top:22px">
-      <div class="prose">
-        <p class="plain">A fog particle doesn't scatter light evenly. <b>Water droplets and dust throw most light straight ahead</b>, which is why a lamp in fog has a <b>bright halo when you look at it</b> and the fog looks <b>dull grey when you look away</b>. The phase function is the rule for how much goes in each direction.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The left canvas plots that rule. The lamp sits on the ring and the player stands at the left, so the amber line is the direction the light travels and the white handle is how much of it turns toward the player. Distance from the centre to the curve, on a log scale, is how much light heads in each direction. A fat lobe pointing forward means most light keeps going the way it was travelling. The rings mark 10⁻³ up to 10 per steradian, where a steradian is a unit of solid angle, the 3D version of an angle.</p>
-        <p>The right canvas is the same forest from the path, with a plain lamp that shines every way and a player who always looks at it. The 96-pixel strip at the bottom is the player's view, and the readout compares the column looking straight at the lamp with the column at the edge of the screen.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Set g to 0.9. On the right, the columns aimed at the lamp go bright and everything else goes dark. That is the halo.</li>
-          <li>Set g to −0.5. Now the columns aimed at the lamp go dark and fog lit from behind the player takes over.</li>
-          <li>Drag the lamp on the left plot round to the far side, behind the player, and read how small p(θ) gets at g = 0.7.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><label for="g2">Anisotropy g <span class="val" id="g2v">0.70</span></label><input type="range" id="g2" min="-0.9" max="0.9" step="0.05" value="0.7"></div>
+      <div class="lesson" data-lesson="phase">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><label for="g2">How strongly the fog throws light forward <span class="val" id="g2v">0.70</span></label><input type="range" id="g2" min="-0.9" max="0.9" step="0.05" value="0.7"></div>
         </div>
-        <div class="tiles four">
-          <div class="tile"><div class="n" id="t2a">—</div><div class="l">p(θ), g = −0.5</div></div>
-          <div class="tile"><div class="n" id="t2b">—</div><div class="l">p(θ), g = 0</div></div>
-          <div class="tile"><div class="n" id="t2c">—</div><div class="l">p(θ), g = 0.5</div></div>
-          <div class="tile"><div class="n" id="t2d">—</div><div class="l">p(θ), g = 0.9</div></div>
+        <div class="tiles four" data-step-min="4">
+          <div class="tile"><div class="n" id="t2a">—</div><div class="l">share toward the player at −0.5, mostly back</div></div>
+          <div class="tile"><div class="n" id="t2b">—</div><div class="l">at 0, evenly</div></div>
+          <div class="tile"><div class="n" id="t2c">—</div><div class="l">at 0.5</div></div>
+          <div class="tile"><div class="n" id="t2d">—</div><div class="l">at 0.9, mostly forward</div></div>
         </div>
       </div>
     </div>
-    <div class="cols" style="margin-top:22px">
-      <div class="prose">
-        <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">Fog is brightest when you look toward the lamp, because particles throw most light forward.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The phase function p(θ) is to a particle what a BRDF is to a surface: the rule for how much light arriving from one direction leaves toward another. θ is the angle between the light's direction of travel and the direction to your eye. It integrates to 1 over the sphere, so it only redistributes light and never adds any.</p>
         <p>The one knob, g, is called anisotropy and is the average of cosθ. At g = 0.9 a peaky lobe sends 15 sr⁻¹ straight ahead and almost nothing backward, while g = 0 sends 1/4π = 0.08 sr⁻¹ everywhere. Engines usually use a single Henyey-Greenstein lobe with g around 0.3 to 0.7, or mix a forward lobe with a small backward lobe.</p>
         <p class="words">In words: the closer the outgoing direction is to the light's own direction of travel, the more light goes that way, and g sets how sharp that preference is.</p>
         <div class="math">p(θ) = (1 − g²) / ( 4π (1 + g² − 2g cosθ)^1.5 )      cosθ = ω_light · ω_out
 ∫ p dω = 1 over the sphere;  g = ⟨cosθ⟩, −1 (back) … 0 (isotropic) … 1 (forward)</div>
-        <p>g is the anisotropy from −1 to 1, θ the angle between the light direction ω_light and the outgoing direction ω_out, and the 4π is what makes the whole sphere add up to 1.</p>
-      </div>
-      <div class="prose">
+        <p>g is the anisotropy from −1 to 1, θ the angle between the light direction ω_light and the outgoing direction ω_out, and the 4π is what makes the whole sphere add up to 1. The rings on the plot mark 10⁻³ up to 10 per steradian, a steradian being a unit of solid angle, the 3D version of an angle.</p>
         <p class="words">What this code does: computes one Henyey-Greenstein lobe, then blends in a small backward lobe for the two-lobe version most engines ship.</p>
 <pre class="code"><span class="k">float</span> hg(<span class="k">float</span> cosTheta, <span class="k">float</span> g) {
   float g2 = g * g;
@@ -375,58 +353,32 @@ color = sceneColor * T + L;</pre>
   float c = dot(-rd, -toLight);              <span class="c">// == dot(rd, toLight)</span>
   <span class="k">return</span> mix(hg(c, 0.7), hg(c, -0.2), 0.15); <span class="c">// two lobes: a small amount scatters backward</span>
 }</pre>
-        <p class="tldr">Fog is brightest when you look toward the lamp, because particles throw most light forward.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="froxels">
-    <h2>Froxels: a 3D grid of fog cells</h2>
-    <p class="sub">The same player, floodlight and trees, but now the engine chops the player's view into a grid of fog cells. Hover to see which cell a tree or the ground at that spot would read its fog from.</p>
+  <section id="froxels" class="stage">
+    <h2>Fog in a grid of cells</h2>
+    <p class="sub">The same player, floodlight and trees, but now the engine chops the player's view into a fan of cells and works out the fog once per cell. Move the pointer to see which cell a spot would read.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c3" width="512" height="512" aria-label="Side view of the foggy forest with the player's view cut into a fan of froxel cells, coloured by the glow stored in each cell; an inset shows what the player sees after one cell read per pixel"></canvas>
-        <div class="cap"><span id="c3-read">—</span><span id="c3-read2"></span></div>
+        <canvas id="c3" width="512" height="512" class="sq" aria-label="Side view of the foggy forest with the player's view cut into a fan of cells, coloured by the glow stored in each cell; an inset shows what the player sees after one cell read per pixel"></canvas>
+        <div class="cap"><span id="c3-read">—</span></div>
+        <div class="cap"><span id="c3-read2"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Marching every pixel is expensive because <b>neighbouring pixels do almost the same work</b>. So engines chop the player's view into a <b>coarse 3D grid of cells</b>, work out the fog <b>once per cell</b>, and let every pixel share. At 1080p that means one cell per 8×8 block of pixels and 64 layers of depth.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The fan of wedges spreading out from the player's eye is the froxel grid seen from the side, cut by depth. Cells are small near the player and wide by the far trees. Each cell is coloured by what it stores. The default view is the glow built up from the player to that cell; switch to transmittance to see how much of the tree behind gets through instead.</p>
-        <p>Hover and the white outline is the cell a tree trunk, a canopy or the ground at that spot would read. The readout gives the cell's T and L and the exact blend the pixel would use. The strip shows one column of cells from near to far, and the "player's view" inset is the screen after one cell read per row: blocky where the cells are big.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drop angular slices to 8 and depth slices to 8. The tree shadows and the light cone turn into big blocks, on the scene and in the player's view.</li>
-          <li>Switch sample to linear. The blocks blur into each other, the same way a photo viewer smooths a zoomed-in image.</li>
-          <li>Tick jitter + temporal blend. The frame count in the readout climbs and the blocky edges smooth out over a second or two.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="nx3">Angular slices <span class="val" id="nx3v">32</span></label><input type="range" id="nx3" min="8" max="64" step="8" value="32"></div>
-          <div class="ctl"><label for="nz3">Depth slices <span class="val" id="nz3v">64</span></label><input type="range" id="nz3" min="8" max="128" step="8" value="64"></div>
-          <div class="ctl"><span class="lab">Show</span><div class="seg" id="seg3m" role="group" aria-label="Froxel display mode"><button data-v="injected">injected</button><button data-v="integrated" aria-pressed="true">integrated L</button><button data-v="T">transmittance</button></div></div>
-          <div class="ctl"><span class="lab">Sample</span><div class="seg" id="seg3s" role="group" aria-label="Sampling mode"><button data-v="nearest" aria-pressed="true">nearest</button><button data-v="linear">linear</button></div></div>
-          <div class="ctl chk"><input type="checkbox" id="jit3"><label for="jit3">jitter + temporal blend</label></div>
+      <div class="lesson" data-lesson="froxels">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><label for="nx3">Cells across the view <span class="val" id="nx3v">32</span></label><input type="range" id="nx3" min="8" max="64" step="8" value="32"></div>
+          <div class="ctl"><label for="nz3">Cells along the distance <span class="val" id="nz3v">64</span></label><input type="range" id="nz3" min="8" max="128" step="8" value="64"></div>
+          <div class="ctl"><span class="lab">Colour each cell by</span><div class="seg" id="seg3m" role="group" aria-label="What the cell colours show"><button data-v="injected">its own lit fog</button><button data-v="integrated" aria-pressed="true">glow added up from the player</button><button data-v="T">light getting through</button></div></div>
+          <div class="ctl"><span class="lab">When a pixel reads the grid</span><div class="seg" id="seg3s" role="group" aria-label="How a pixel reads the grid"><button data-v="nearest" aria-pressed="true">take one cell</button><button data-v="linear">blend the neighbours</button></div></div>
+          <div class="ctl chk"><input type="checkbox" id="jit3"><label for="jit3">wobble the read point each frame and average</label></div>
         </div>
       </div>
     </div>
-    <div class="prose" style="margin-top:22px">
-      <p>The table compares grid sizes. The last column says how many cells there are for each pixel on a 1080p screen: below 1 means several pixels share a cell, and the highlighted row tracks the depth-slice slider above.</p>
-    </div>
-    <div class="tbl-wrap">
-    <table class="stats">
-      <thead><tr><th>Grid size</th><th>Cells</th><th>Memory, one RGBA16F texture</th><th>Cells per 1080p pixel</th></tr></thead>
-      <tbody>
-        <tr><td>This 2D demo (angular × depth)</td><td id="m3a"></td><td id="m3b"></td><td>—</td></tr>
-        <tr><td>Assassin's Creed IV, 160 × 90 × 64</td><td>921,600</td><td>7.03 MB</td><td>0.44</td></tr>
-        <tr><td>Unreal default at 1080p, 240 × 135 × 64</td><td>2,073,600</td><td>15.82 MB</td><td>1.00</td></tr>
-        <tr><td>240 × 135 × <span id="m3z">64</span> (this depth-slice count)</td><td id="m3c"></td><td id="m3d" class="hi"></td><td id="m3e"></td></tr>
-      </tbody>
-    </table>
-    </div>
-    <div class="prose" style="margin-top:22px">
-      <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">Work out the fog once per coarse cell, then every pixel just reads one cell.</p>
+    <details class="hood"><summary>Under the hood: the math, the code and real grid sizes</summary><div>
       <p>The frustum is the wedge of space the camera can see, and a froxel is one cell of it, short for frustum voxel. Unreal's default at 1080p is one froxel per 8×8 pixel tile and 64 depth slices: 2,073,600 froxels, the same count as pixels, but each one is written once and read by the 64 pixels along its column.</p>
       <p>Depth slices are spaced logarithmically, close together near the camera and further apart far away, so a cell covers about the same number of screen pixels near and far. The injection pass stores two things per cell: scattering, the lit glow, and extinction, how much the cell dims light. The integration pass walks each column front to back carrying transmittance, and writes the built-up glow and transmittance back into each cell.</p>
       <p>Applying fog to a pixel is then one 3D texture read at its depth. Surfaces never stop the integration; the depth buffer, the per-pixel record of how far away each surface is, just picks which slice to read.</p>
@@ -452,44 +404,48 @@ apply:     pixel = colour · T(z) + L(z)   one trilinear read</div>
 <span class="k">vec3</span> uvw  = vec3(screenUV, sliceFromDepth(viewZ));  <span class="c">// log mapping, same as injection</span>
 <span class="k">vec4</span> fog  = texture(integratedVolume, uvw);
 color = color * fog.a + fog.rgb;</pre>
-      <p class="tldr">Work out the fog once per coarse cell, then every pixel just reads one cell.</p>
+      <p>The table compares grid sizes. The last column says how many cells there are for each pixel on a 1080p screen: below 1 means several pixels share a cell, and the highlighted row tracks the "cells along the distance" slider above.</p>
+    <div class="tbl-wrap">
+    <table class="stats">
+      <thead><tr><th>Grid size</th><th>Cells</th><th>Memory, one RGBA16F texture</th><th>Cells per 1080p pixel</th></tr></thead>
+      <tbody>
+        <tr><td>This 2D demo (across × along)</td><td id="m3a"></td><td id="m3b"></td><td>—</td></tr>
+        <tr><td>Assassin's Creed IV, 160 × 90 × 64</td><td>921,600</td><td>7.03 MB</td><td>0.44</td></tr>
+        <tr><td>Unreal default at 1080p, 240 × 135 × 64</td><td>2,073,600</td><td>15.82 MB</td><td>1.00</td></tr>
+        <tr><td>240 × 135 × <span id="m3z">64</span> (this depth-slice count)</td><td id="m3c"></td><td id="m3d" class="hi"></td><td id="m3e"></td></tr>
+      </tbody>
+    </table>
+    </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="height">
-    <h2>Height fog with no loop</h2>
+  <section id="height" class="stage">
+    <h2>Ground mist with no loop</h2>
     <p class="sub">Dawn. Ground mist fills the field between a watchtower and a farmhouse. Drag the player up and down the tower, or move where they look, and compare the exact answer with a stepped march.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" width="512" height="512" class="grab" aria-label="Side view of a misty field at dawn: a player on a watchtower at the left looks across two trees toward a farmhouse. The mist is thickest at the ground. The view ray is marked with density samples, a strip compares the exact and marched transmittance, and an inset shows what the player sees."></canvas>
-        <div class="cap"><span id="c4-read">—</span><span id="c4-read2"></span></div>
+        <canvas id="c4" width="512" height="512" class="grab sq" aria-label="Side view of a misty field at dawn: a player on a watchtower at the left looks across two trees toward a farmhouse. The mist is thickest at the ground. The line of sight is marked with thickness samples, a strip compares the exact and stepped answers, and an inset shows what the player sees."></canvas>
+        <div class="cap"><span id="c4-read">—</span></div>
+        <div class="cap"><span id="c4-read2"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">If fog is <b>thickest at the ground and thins out as you go up</b>, there is a <b>single formula</b> for how much of it a ray passes through. No stepping, no grid, <b>one exponential per pixel</b>. It is the cheapest fog there is, and the catch is that it <b>can't do shadows or light shafts</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The blue haze is mist fading with height. The white line is the player's line of sight from the top of the tower to the aim point, with a blue bar at each sample showing how thick the mist is there. In the strip below, white is the exact formula's answer along the ray and amber is a stepped march trying to match it. The "player's view" inset is the whole screen, done entirely with the formula: the farmhouse and trees fade into the mist near the ground while the sky stays clear.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Set march steps to 4 and aim the ray down through the thick mist near the ground. The readout's "% off" figure jumps.</li>
-          <li>Push march steps to 64. The two curves sit on top of each other, at the cost of 64 density taps per pixel.</li>
-          <li>Drag the player to the top of the tower. The mist at eye level thins, the farmhouse comes back into view, and τ falls. Tick distance fog and the height stops mattering: optical depth is just density times distance.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="d04">d0 at ground <span class="val" id="d04v">0.12 /m</span></label><input type="range" id="d04" min="0.02" max="0.4" step="0.01" value="0.12"></div>
-          <div class="ctl"><label for="h4">Scale height H <span class="val" id="h4v">6 m</span></label><input type="range" id="h4" min="1" max="30" step="0.5" value="6"></div>
-          <div class="ctl"><label for="n4">March steps <span class="val" id="n4v">12</span></label><input type="range" id="n4" min="4" max="64" step="4" value="12"></div>
-          <div class="ctl chk"><input type="checkbox" id="dist4"><label for="dist4">distance fog (H → ∞)</label></div>
+      <div class="lesson" data-lesson="height">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="n4">Steps, if stepping instead <span class="val" id="n4v">12</span></label><input type="range" id="n4" min="4" max="64" step="4" value="12"></div>
+          <div class="ctl"><label for="d04">Mist thickness at the ground <span class="val" id="d04v">0.12 /m</span></label><input type="range" id="d04" min="0.02" max="0.4" step="0.01" value="0.12"></div>
+          <div class="ctl"><label for="h4">Thinning height <span class="val" id="h4v">6 m</span></label><input type="range" id="h4" min="1" max="30" step="0.5" value="6"></div>
+          <div class="ctl chk"><input type="checkbox" id="dist4"><label for="dist4">same thickness at every height (plain distance fog)</label></div>
         </div>
-        <div class="tiles">
-          <div class="tile on"><div class="n" id="t4a">—</div><div class="l">τ closed form, 1 exp</div></div>
-          <div class="tile"><div class="n" id="t4b">—</div><div class="l">τ marched, <span id="t4bn">12</span> taps</div></div>
-          <div class="tile"><div class="n" id="t4c">—</div><div class="l">density taps at 1080p, marched</div></div>
+        <div class="tiles" data-step-min="2">
+          <div class="tile on"><div class="n" id="t4a">—</div><div class="l">mist crossed: the formula, one calculation</div></div>
+          <div class="tile"><div class="n" id="t4b">—</div><div class="l">mist crossed: stepping, <span id="t4bn">12</span> looks</div></div>
+          <div class="tile"><div class="n" id="t4c">—</div><div class="l">looks per frame at 1080p, stepping</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Ground mist is one formula per pixel: nearly free, but it can only ever be one flat colour.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Optical depth τ is how much fog a ray has passed through, added up, and transmittance is exp(−τ). When density depends only on height, ρ(h) = d0 · exp(−h/H), where d0 is the density at the ground and H is the scale height, the knob for how fast the fog thins as you climb. For that profile the integral along a straight ray collapses to one exponential and a division.</p>
         <p>The march needs N density taps to approach the same number, and at low N it is visibly wrong wherever the ray crosses the steep part of the profile near the ground.</p>
         <p>The price is that the light term is a constant colour, usually the sun or sky. There is no shadowing and no light shafts, because the formula only knows about density, not about where the lights are. Distance fog is the same formula with H set to infinity, so density is uniform and optical depth is simply <code>d0 · D</code>.</p>
@@ -509,47 +465,37 @@ T = exp(−τ);   pixel = colour · T + fogColour · (1 − T)</div>
 }
 <span class="k">float</span> T = exp(-heightFogOpticalDepth(cameraPos, rd, sceneDepth));
 color = mix(fogColor, color, T);              <span class="c">// fogColor is one constant, see the note at the end of the page</span></pre>
-        <p class="tldr">Height fog is one formula per pixel: nearly free, but it can only ever be one flat colour.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="clouds">
+  <section id="clouds" class="stage">
     <h2>Clouds that shade themselves</h2>
-    <p class="sub">The player stands in a field and looks up at a cloud bank. Drag the sun and hover to pick the line of sight up through the clouds.</p>
+    <p class="sub">The player stands in a field and looks up at a cloud bank. Drag the sun, and move the pointer to pick the line of sight up through the clouds.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="512" height="512" class="grab" aria-label="Side view of a field with a player looking up at a ray-marched cloud layer between 9 and 16 metres; the sun is a draggable handle, short marches toward it show self-shadowing, and an inset shows the sky as the player sees it."></canvas>
-        <div class="cap"><span id="c5-read">—</span><span id="c5-read2"></span></div>
+        <canvas id="c5" width="512" height="512" class="grab sq" aria-label="Side view of a field with a player looking up at a stepped cloud layer between 9 and 16 metres; the sun is a draggable handle, short runs of dots toward it show self-shadowing, and an inset shows the sky as the player sees it."></canvas>
+        <div class="cap"><span id="c5-read">—</span></div>
+        <div class="cap"><span id="c5-read2"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Clouds are fog with two upgrades. Their shape comes from <b>a noise pattern instead of a smooth blob</b>, and a cloud <b>casts shadow on itself</b>, so a point deep inside gets less sun than the edge. Both upgrades <b>multiply the work</b>: every step along your view ray now needs its own short march toward the sun.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The band between 9 m and 16 m is the cloud layer, shaped by noise, lit from the side the sun is on and dark underneath. The player's line of sight marches up through it, and at some of the steps you can see a second, shorter march of amber dots heading toward the sun to find out how much cloud is in the way.</p>
-        <p>The strip shows the steps: density, how much sun reaches each one, and the transmittance curve. The "player looks up" inset is a slice of the sky as the player sees it, from just above the trees to straight overhead. The tiles turn the sample count into an estimated frame time.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Set sun steps M to 0. The clouds lose their shading and go flat, in the scene and in the player's view, and the samples per pixel drop to N.</li>
-          <li>Switch the light term to Beer. The edges facing the sun brighten. Switch back to Beer-Powder and they darken with a brighter interior, which is what real clouds do.</li>
-          <li>Raise cost per sample to 200 ps and compare the two ms tiles. Drawing at quarter size and updating 1/16 of the pixels per frame is what makes clouds fit in a frame.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="n5">View steps N <span class="val" id="n5v">48</span></label><input type="range" id="n5" min="16" max="128" step="8" value="48"></div>
-          <div class="ctl"><label for="m5">Sun steps M <span class="val" id="m5v">6</span></label><input type="range" id="m5" min="0" max="8" step="1" value="6"></div>
-          <div class="ctl"><label for="cov5">Coverage <span class="val" id="cov5v">0.55</span></label><input type="range" id="cov5" min="0.3" max="0.8" step="0.05" value="0.55"></div>
-          <div class="ctl"><label for="ps5">Cost per sample <span class="val" id="ps5v">40 ps</span></label><input type="range" id="ps5" min="10" max="200" step="10" value="40"></div>
-          <div class="ctl"><span class="lab">Light term</span><div class="seg" id="seg5" role="group" aria-label="Light attenuation model"><button data-v="beer">Beer</button><button data-v="powder" aria-pressed="true">Beer-Powder</button></div></div>
+      <div class="lesson" data-lesson="clouds">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="n5">Steps along the line of sight <span class="val" id="n5v">48</span></label><input type="range" id="n5" min="16" max="128" step="8" value="48"></div>
+          <div class="ctl"><label for="m5">Steps toward the sun, at each one <span class="val" id="m5v">6</span></label><input type="range" id="m5" min="0" max="8" step="1" value="6"></div>
+          <div class="ctl"><label for="cov5">How much sky the cloud covers <span class="val" id="cov5v">0.55</span></label><input type="range" id="cov5" min="0.3" max="0.8" step="0.05" value="0.55"></div>
+          <div class="ctl"><label for="ps5">Time per look, in picoseconds <span class="val" id="ps5v">40 ps</span></label><input type="range" id="ps5" min="10" max="200" step="10" value="40"></div>
+          <div class="ctl"><span class="lab">Dimming rule</span><div class="seg" id="seg5" role="group" aria-label="How sunlight dims inside the cloud"><button data-v="beer">plain dimming (Beer)</button><button data-v="powder" aria-pressed="true">dark edges (Beer-Powder)</button></div></div>
         </div>
-        <div class="tiles">
-          <div class="tile on"><div class="n" id="t5a">—</div><div class="l">samples per pixel</div></div>
-          <div class="tile"><div class="n" id="t5b">—</div><div class="l">est. ms, 1080p every pixel</div></div>
-          <div class="tile"><div class="n" id="t5c">—</div><div class="l">est. ms, ¼ res + 1/16 per frame</div></div>
+        <div class="tiles" data-step-min="3">
+          <div class="tile on"><div class="n" id="t5a">—</div><div class="l">looks per pixel</div></div>
+          <div class="tile"><div class="n" id="t5b">—</div><div class="l">ms per frame, every pixel at 1080p</div></div>
+          <div class="tile"><div class="n" id="t5c">—</div><div class="l">ms, quarter size and 1/16 of pixels a frame</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Clouds cost the steps along the line times one plus the steps toward the sun, which is why they are drawn small and spread over many frames.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Density comes from a noise field, a texture of random-looking bumps at several scales, so every sample costs several texture reads. The sun term at each sample is another march of M steps, so a pixel costs N · (1 + M) samples. The tiles multiply that by the pixels in a 1080p frame and by a chosen cost per sample, which is why shipped clouds render at reduced resolution and update a fraction of the pixels each frame.</p>
         <p>Beer-Lambert is the plain rule: light through material falls off as exp(−τ). It makes cloud edges brightest, since they have the least material between them and the sun. Real clouds show dark edges and a bright interior, because thin regions scatter light out of the view before it can bounce back. The "powder" term <code>1 − exp(−2τ)</code> fakes that with no extra samples.</p>
         <p class="words">In words: for each step on the view ray, march a few steps toward the sun to see how much cloud blocks it, then add the lit cloud and dim the ray.</p>
@@ -574,8 +520,7 @@ samples per pixel = N · (1 + M);   ms ≈ pixels · samples · cost_per_sample<
   }
   t += dt;
 }</pre>
-        <p class="tldr">Clouds cost N times (1 + M) samples per pixel, which is why they are drawn small and spread over many frames.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
@@ -589,10 +534,10 @@ samples per pixel = N · (1 + M);   ms ≈ pixels · samples · cost_per_sample<
     <table class="uses trade">
       <thead><tr><th>Way of drawing fog</th><th>Cost (est.)</th><th>Memory</th><th>Reacts to moving lights</th><th>Shadows in the fog</th><th>Breaks when</th></tr></thead>
       <tbody>
-        <tr><td>Height or distance fog by formula</td><td>&lt; 0.1 ms</td><td>none</td><td>no, one fixed colour</td><td>none</td><td>Any local light is on: the fog stays a flat tint while a spotlight sweeps through it.</td></tr>
-        <tr><td>God rays by smearing the screen (radial blur)</td><td>0.2–0.5 ms</td><td>one half-size screen buffer, about 2 MB</td><td>one light only</td><td>only what the depth buffer can see</td><td>The light leaves the screen or sits behind the camera: the shafts vanish or smear.</td></tr>
-        <tr><td>March every pixel</td><td>2–8 ms at half res, 16–64 steps</td><td>one half-size screen buffer</td><td>yes</td><td>shadow map lookup at every step</td><td>Too few steps: visible bands and noise, which then need dithering and a blur to hide.</td></tr>
-        <tr><td>Froxel grid</td><td>1–2 ms</td><td>7–16 MB per 3D texture, two or three of them</td><td>yes, a list of lights per cell</td><td>shadow map lookup once per cell</td><td>A thin shaft or a small light is smaller than one cell and gets lost; fast camera motion leaves ghost trails.</td></tr>
+        <tr><td>Ground mist or distance fog by formula</td><td>&lt; 0.1 ms</td><td>none</td><td>no, one fixed colour</td><td>none</td><td>Any local light is on: the fog stays a flat tint while a spotlight sweeps through it.</td></tr>
+        <tr><td>God rays by smearing the screen (radial blur)</td><td>0.2–0.5 ms</td><td>one half-size screen buffer, about 2 MB</td><td>one light only</td><td>only from things that are on screen</td><td>The light leaves the screen or sits behind the camera: the shafts vanish or smear.</td></tr>
+        <tr><td>March every pixel</td><td>2–8 ms at half res, 16–64 steps</td><td>one half-size screen buffer</td><td>yes</td><td>a shadow check at every step</td><td>Too few steps: visible bands and noise, which then need dithering and a blur to hide.</td></tr>
+        <tr><td>Grid of cells (froxels)</td><td>1–2 ms</td><td>7–16 MB per 3D texture, two or three of them</td><td>yes, a list of lights per cell</td><td>a shadow check once per cell</td><td>A thin shaft or a small light is smaller than one cell and gets lost; fast camera motion leaves ghost trails.</td></tr>
         <tr><td>Marched clouds</td><td>2–6 ms at quarter res, spread over frames</td><td>noise textures, 8–20 MB</td><td>the sun only</td><td>a second short march per sample</td><td>The camera turns fast: last frame's result no longer lines up and the noise shows through.</td></tr>
       </tbody>
     </table>
@@ -609,8 +554,8 @@ samples per pixel = N · (1 + M);   ms ≈ pixels · samples · cost_per_sample<
     <table class="uses">
       <thead><tr><th>Technique</th><th>What the GPU works out</th><th>Data it needs</th><th>Seen in</th></tr></thead>
       <tbody>
-        <tr><td>Froxel grid</td><td>Fill each cell with lit fog, sweep each column front to back, then one filtered read per pixel.</td><td>Two or three RGBA16F 3D textures, a per-cell light list, shadow maps</td><td>Assassin's Creed IV: Black Flag (Wronski, SIGGRAPH 2014); Frostbite (Hillaire, SIGGRAPH 2015); Unreal Engine Volumetric Fog; Unity HDRP</td></tr>
-        <tr><td>Height fog by formula</td><td>One formula per pixel from the camera height, the ray direction and the distance to the surface.</td><td>d0, H, one fog colour, the depth buffer</td><td>Unreal's Exponential Height Fog, many engines</td></tr>
+        <tr><td>Grid of cells (froxels)</td><td>Fill each cell with lit fog, sweep each column front to back, then one filtered read per pixel.</td><td>Two or three RGBA16F 3D textures, a per-cell light list, the lamps' shadow maps</td><td>Assassin's Creed IV: Black Flag (Wronski, SIGGRAPH 2014); Frostbite (Hillaire, SIGGRAPH 2015); Unreal Engine Volumetric Fog; Unity HDRP</td></tr>
+        <tr><td>Ground mist by formula</td><td>One formula per pixel from the camera height, the ray direction and the distance to the surface.</td><td>d0, H, one fog colour, the depth buffer</td><td>Unreal's Exponential Height Fog, many engines</td></tr>
         <tr><td>God rays by screen smear</td><td>Smear the bright sun pixels outward from the sun's spot on screen, blocked wherever something stands in front.</td><td>A half-size mask of what blocks the sun, the sun's position on screen</td><td>GPU Gems 3, ch. 13 (Mitchell, 2007); Crysis (2007)</td></tr>
         <tr><td>Marched clouds</td><td>Two loops: N steps along the view, each with a short march toward the sun through 3D noise.</td><td>A coarse 128³ and a fine 32³ noise texture, a weather map, last frame's result</td><td>Horizon Zero Dawn (Schneider, SIGGRAPH 2015); Unreal Engine Volumetric Clouds</td></tr>
         <tr><td>One glowing light cone</td><td>March only the pixels inside the box around that light, at reduced resolution.</td><td>The light's shadow map, a half-size glow buffer</td><td>Many engines before froxel grids became standard</td></tr>
@@ -735,8 +680,76 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   "use strict";
+  let L1, L2, L3, L4, L5;
   const VW = 512, VH = 384, SH = 128, GY = 20, PI = Math.PI;
   const AMB = [242, 163, 65], BLU = [74, 163, 255], GND = [11, 14, 19], OCC = [120, 126, 136];
   const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -779,20 +792,20 @@ function kitInset(ctx, x, y, w, h, title) {
   }
   function eyeDot(ctx, x, y) { ctx.beginPath(); ctx.arc(x, y, 3, 0, 2 * PI); ctx.fillStyle = "#ffffff"; ctx.fill(); }
   function pxOf(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width * canvas.width, (ev.clientY - r.top) / r.height * canvas.height]; }
-  function drag(canvas, getHandles, onMove, onHover) {
-    let active = -1;
+  function drag(canvas, getHandles, onMove, onHover, maxY = VH - GY - 4) {
+    let active = -1, last = null;
     canvas.addEventListener("pointerdown", ev => {
       const [x, y] = pxOf(canvas, ev); const hs = getHandles(); let best = -1, bd = 18;
       hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
-      if (best >= 0) { active = best; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); }
+      if (best >= 0) { active = best; last = [x, y]; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); }
       else if (onHover) onHover(x, y);
     });
     canvas.addEventListener("pointermove", ev => {
       const [x, y] = pxOf(canvas, ev);
-      if (active >= 0) onMove(active, clamp(x, 4, VW - 4), clamp(y, 4, VH - GY - 4));
+      if (active >= 0) { last = [clamp(x, 4, VW - 4), clamp(y, 4, maxY)]; onMove(active, last[0], last[1]); }
       else if (onHover) onHover(x, y);
     });
-    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    const end = ev => { if (active >= 0) { if (last) onMove(active, last[0], last[1]); active = -1; last = null; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
     canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
   }
   function raf(fn) { let pend = false; return () => { if (pend) return; pend = true; requestAnimationFrame(() => { pend = false; fn(); }); }; }
@@ -1009,17 +1022,20 @@ function kitInset(ctx, x, y, w, h, title) {
     kitLabel(x1, "floodlight", lx - 14, ly - 12, "right", "#f2a341");
     kitLabel(x1, "where it points", ...toPx(A.aim[0], A.aim[1] + 0.9), "center", "#f2a341");
     kitLabel(x1, "mist patch", bx, by + A.blobR * SC.ppm + 12, "center", "#4aa3ff");
-    { const rp = toPx(A.cam[0] + dx * Math.min(3.5, m.tmax * 0.5), A.cam[1] + dy * Math.min(3.5, m.tmax * 0.5)); kitLabel(x1, "this ray: one pixel", rp[0] + 6, rp[1] - 14, "left"); }
+    { const rp = toPx(A.cam[0] + dx * Math.min(3.5, m.tmax * 0.5), A.cam[1] + dy * Math.min(3.5, m.tmax * 0.5)); kitLabel(x1, "this line of sight: one pixel", rp[0] + 6, rp[1] - 14, "left"); }
     shaftLabel(x1, A.light);
     viewInset(x1, 396, 6, viewRowsA(A.cam, 0, A.fov, A.light, A.aim, true, A.g), row, "player's view");
     strip(x1, [
-      { l: "ρ /m", kind: "bar", v: m.rho, max: 0.5, col: "#4aa3ff" },
-      { l: "V·Lᵢ", kind: "bar", v: m.vis, max: 3, col: "#f2a341" },
-      { l: "T", kind: "line", v: m.Ts, max: 1, col: "#ffffff" },
-      { l: "ΣL", kind: "line", v: m.Ls, max: 0.1, col: "#f2a341" }
-    ], `ray ${m.tmax.toFixed(1)} m to the ${m.end.kind === "rect" ? "tree" : m.end.kind} · ${S1.N} steps of ${m.dt.toFixed(2)} m · g = ${A.g}`);
-    el("c1-read").innerHTML = `row ${row + 1}/64 · Δt <strong>${m.dt.toFixed(2)} m</strong> · T(D) = <strong>${m.T.toFixed(3)}</strong> · L = <strong>${m.L.toFixed(3)}</strong>`;
-    el("c1-read2").textContent = `${m.shadowed} of ${S1.N} steps in a tree's shadow`;
+      { l: "fog", kind: "bar", v: m.rho, max: 0.5, col: "#4aa3ff" },
+      { l: "light", kind: "bar", v: m.vis, max: 3, col: "#f2a341" },
+      { l: "through", kind: "line", v: m.Ts, max: 1, col: "#ffffff" },
+      { l: "glow", kind: "line", v: m.Ls, max: 0.1, col: "#f2a341" }
+    ], `${m.tmax.toFixed(1)} m to ${m.end.kind === "rect" ? "a tree" : "the " + m.end.kind} · ${S1.N} steps of ${m.dt.toFixed(2)} m · near end at the left`);
+    el("c1-read").innerHTML = `line ${row + 1} of 64 on the screen · steps of <strong>${m.dt.toFixed(2)} m</strong> · light getting through from the far end: <strong>${m.T.toFixed(3)}</strong> (1 = all, 0 = none) · glow added: <strong>${m.L.toFixed(3)}</strong>`;
+    el("c1-read2").textContent = `${m.shadowed} of ${S1.N} steps sit in a tree's shadow`;
+    let nearBlob = Infinity; for (const p of m.pts) nearBlob = Math.min(nearBlob, Math.hypot(p[0] - A.blob[0], p[1] - A.blob[1]));
+    S1.stats = { row, T: m.T, L: m.L, shadowed: m.shadowed, nearBlob, endKind: m.end.kind };
+    L1 && L1.check();
   }
   const req1 = raf(draw1);
   drag(c1, () => [toPx(A.light[0], A.light[1]), toPx(A.aim[0], A.aim[1]), toPx(A.blob[0], A.blob[1])],
@@ -1045,7 +1061,7 @@ function kitInset(ctx, x, y, w, h, title) {
   }
   function draw2a() {
     x2a.fillStyle = "#0b0e13"; x2a.fillRect(0, 0, 512, 512);
-    for (const e of [-2, -1, 0, 1]) { const r = rlog(Math.pow(10, e)); ring(x2a, PC[0], PC[1], r, "rgba(255,255,255,0.12)"); text(x2a, (e < 0 ? "10^" + e : e === 0 ? "1" : "10") + " sr⁻¹", PC[0] + 3, PC[1] - r - 7, "rgba(255,255,255,0.4)"); }
+    for (const e of [-2, -1, 0, 1]) { const r = rlog(Math.pow(10, e)); ring(x2a, PC[0], PC[1], r, "rgba(255,255,255,0.12)"); text(x2a, e < 0 ? Math.pow(10, e).toString() : e === 0 ? "1" : "10", PC[0] + 3, PC[1] - r - 7, "rgba(255,255,255,0.4)"); }
     ring(x2a, PC[0], PC[1], PR, "rgba(255,255,255,0.25)");
     // light propagation direction: from the lamp on the ring into the centre
     const hx = PC[0] + Math.cos(S2.phi) * PR, hy = PC[1] - Math.sin(S2.phi) * PR;
@@ -1063,16 +1079,18 @@ function kitInset(ctx, x, y, w, h, title) {
     const p = hg(cosT, S2.g), r = rlog(p);
     handle(x2a, PC[0] - r, PC[1], 5, "#ffffff");
     glow(x2a, hx, hy, 30, "rgba(255,225,170,0.8)"); handle(x2a, hx, hy, 8, "#f2a341");
-    kitLabel(x2a, "lamp: drag it round", hx, hy - 18, hx > PC[0] + 60 ? "right" : hx < PC[0] - 60 ? "left" : "center", "#f2a341");
+    kitLabel(x2a, "lamp: drag it round the ring", hx, hy - 18, hx > PC[0] + 60 ? "right" : hx < PC[0] - 60 ? "left" : "center", "#f2a341");
     handle(x2a, PC[0], PC[1], 3, "#ffffff");
     kitLabel(x2a, "one fog particle", PC[0] + 8, PC[1] + 14, "left");
-    kitLabel(x2a, "light heads this way", hx + (PC[0] - hx) * 0.4, hy + (PC[1] - hy) * 0.4 + (Math.abs(ly) < 0.4 ? 16 : 0), lx > 0 ? "right" : "left", "#f2a341");
+    { const ax = hx + (PC[0] - hx) * 0.4; kitLabel(x2a, "light travels this way", ax, hy + (PC[1] - hy) * 0.4 + (Math.abs(ly) < 0.4 ? 16 : 0), ax > PC[0] + 40 ? "right" : ax < PC[0] - 40 ? "left" : "center", "#f2a341"); }
     const theta = Math.acos(clamp(cosT, -1, 1)) * 180 / PI;
-    el("c2a-read").innerHTML = `θ = <strong>${theta.toFixed(0)}°</strong> · p(θ) = <strong>${p.toFixed(4)} sr⁻¹</strong> at g = ${S2.g.toFixed(2)}`;
+    el("c2a-read").innerHTML = `the light's path bends <strong>${theta.toFixed(0)}°</strong> to reach the player · share sent that way: <strong>${p.toFixed(4)}</strong> · forward setting ${S2.g.toFixed(2)}`;
     [["t2a", -0.5], ["t2b", 0], ["t2c", 0.5], ["t2d", 0.9]].forEach(([id, g]) => { el(id).textContent = hg(cosT, g).toFixed(4); });
-    text(x2a, `amber: g = ${S2.g.toFixed(2)}`, 12, 16, "#f2a341", "left", 11);
-    text(x2a, "blue: g = −0.5 · white: g = 0, 0.5, 0.9", 12, 32, "rgba(255,255,255,0.5)", "left", 11);
-    kitLabel(x2a, "how much reaches the player, θ = " + theta.toFixed(0) + "°", clamp(PC[0] - r, 140, 372), PC[1] - 18, "center");
+    text(x2a, `amber: this fog, set to ${S2.g.toFixed(2)}`, 12, 16, "#f2a341", "left", 11);
+    text(x2a, "blue: set to −0.5 (mostly back) · white: 0, 0.5, 0.9", 12, 32, "rgba(255,255,255,0.5)", "left", 11);
+    kitLabel(x2a, "the share that reaches the player", clamp(PC[0] - r, 140, 372), PC[1] - 18, "center");
+    S2.theta = theta; S2.p = p;
+    L2 && L2.check();
   }
   function draw2b() {
     A.rects = RECTS_PATH; A.cols = COLS_PATH; A.I = 30; // the player has walked down off the rise: no hill, and a dimmer lamp
@@ -1093,7 +1111,7 @@ function kitInset(ctx, x, y, w, h, title) {
     sceneA(x2b, S2.light, S2.cam, true);
     eyeDot(x2b, cx, cy);
     x2b.fillStyle = "#0b0e13"; x2b.fillRect(0, VH, VW, SH); line(x2b, 0, VH + 0.5, VW, VH + 0.5, "rgba(255,255,255,0.2)");
-    text(x2b, `player's view, ${COLS} px, g = ${S2.g.toFixed(2)} · centre column looks at the lamp`, 16, VH + 14, "rgba(255,255,255,0.5)");
+    text(x2b, `the player's screen, ${COLS} pixels wide · the middle looks straight at the lamp`, 16, VH + 14, "rgba(255,255,255,0.5)");
     const bw = 480 / COLS;
     for (let c = 0; c < COLS; c++) { const v = tone(vals[c], 10); x2b.fillStyle = `rgb(${Math.round(11 + 231 * v)},${Math.round(14 + 149 * v)},${Math.round(19 + 46 * v)})`; x2b.fillRect(16 + c * bw, VH + 28, bw + 0.5, 44); }
     x2b.strokeStyle = "rgba(255,255,255,0.35)"; x2b.strokeRect(15.5, VH + 27.5, 481, 45);
@@ -1101,16 +1119,19 @@ function kitInset(ctx, x, y, w, h, title) {
     x2b.beginPath();
     for (let c = 0; c < COLS; c++) { const x = 16 + (c + 0.5) * bw, y = VH + 122 - clamp(vals[c] / 0.1, 0, 1) * 34; c ? x2b.lineTo(x, y) : x2b.moveTo(x, y); }
     x2b.strokeStyle = "#f2a341"; x2b.lineWidth = 1.5; x2b.stroke();
-    text(x2b, "glow per column, 0 … 0.1", 16, VH + 92, "rgba(255,255,255,0.4)");
+    text(x2b, "glow in each column of the screen", 16, VH + 92, "rgba(255,255,255,0.4)");
     handle(x2b, cx, cy - 20, 7, "#ffffff");
     const [lx, ly] = toPx(S2.light[0], S2.light[1]); glow(x2b, lx, ly, 34, "rgba(255,225,170,0.85)"); handle(x2b, lx, ly, 8, "#f2a341");
     kitLabel(x2b, "player: drag to walk", cx < 110 ? 8 : cx, cy - 40, cx < 110 ? "left" : "center");
     kitLabel(x2b, "lamp, shines every way", lx + (lx > 330 ? -14 : 14), ly - 12, lx > 330 ? "right" : "left", "#f2a341");
     kitLabel(x2b, "the halo: fog between player and lamp", 496, VH + 92, "right", "#f2a341");
-    el("c2b-read").innerHTML = `centre column L = <strong>${vals[COLS >> 1].toFixed(3)}</strong> · edge column L = <strong>${vals[0].toFixed(3)}</strong> · ratio ${(vals[COLS >> 1] / Math.max(1e-4, vals[0])).toFixed(1)}×`;
+    const ratio = vals[COLS >> 1] / Math.max(1e-4, vals[0]);
+    el("c2b-read").innerHTML = `glow looking straight at the lamp: <strong>${vals[COLS >> 1].toFixed(3)}</strong> · at the edge of the screen: <strong>${vals[0].toFixed(3)}</strong> · ${ratio.toFixed(1)}× brighter toward the lamp`;
+    S2.ratio = ratio;
+    L2 && L2.check();
   }
   const req2a = raf(draw2a), req2b = raf(draw2b);
-  drag(c2a, () => [[PC[0] + Math.cos(S2.phi) * PR, PC[1] - Math.sin(S2.phi) * PR]], (i, x, y) => { S2.phi = Math.atan2(PC[1] - y, x - PC[0]); req2a(); });
+  drag(c2a, () => [[PC[0] + Math.cos(S2.phi) * PR, PC[1] - Math.sin(S2.phi) * PR]], (i, x, y) => { S2.phi = Math.atan2(PC[1] - y, x - PC[0]); req2a(); }, null, 508);
   drag(c2b, () => [[toPx(S2.cam[0], S2.cam[1])[0], toPx(S2.cam[0], S2.cam[1])[1] - 20], toPx(S2.light[0], S2.light[1])], (i, x, y) => {
     const w = toW(x, y);
     if (i === 0) S2.cam[0] = clamp(w[0], 0.6, 19.4); else S2.light.splice(0, 2, w[0], w[1]);
@@ -1120,7 +1141,7 @@ function kitInset(ctx, x, y, w, h, title) {
 
   // ---------- 3. froxels ----------
   const c3 = el("c3"), x3 = c3.getContext("2d");
-  const F = { cam: [1.6, 5.5], fov: 64 * PI / 180, n: 0.5, f: 16, NX: 32, NZ: 64, mode: "integrated", samp: "nearest", jitter: false, frame: 0, hover: [11.9, 4.2] };
+  const F = { cam: [1.6, 5.5], fov: 64 * PI / 180, n: 0.5, f: 16, NX: 32, NZ: 64, mode: "integrated", samp: "nearest", jitter: false, frame: 0, hover: [5.2, 6.4] };
   const G = { N: 0, scat: null, ext: null, hs: null, he: null, L: null, T: null };
   let dirty3 = true;
   function alloc3() { const N = F.NX * F.NZ; if (G.N === N) return; G.N = N; for (const k of ["scat", "ext", "hs", "he", "L", "T"]) G[k] = new Float32Array(N); F.frame = 0; }
@@ -1202,7 +1223,8 @@ function kitInset(ctx, x, y, w, h, title) {
     lightHandle(x3, A.light);
     // hovered froxel
     const fr = froxelOf(F.hover[0], F.hover[1]);
-    let sliceI = Math.floor(F.NX / 2), readout = "hover inside the player's view";
+    let sliceI = Math.floor(F.NX / 2), readout = "move the pointer inside the dashed view lines to pick a cell";
+    F.stats = { z: 0, cell: false };
     if (fr) {
       const i = clamp(Math.floor(fr[0]), 0, F.NX - 1), j = clamp(Math.floor(fr[1]), 0, F.NZ - 1), lr = Math.log(F.f / F.n); sliceI = i;
       const a0 = -F.fov / 2 + i / F.NX * F.fov, a1 = a0 + F.fov / F.NX, z0 = F.n * Math.exp(j / F.NZ * lr), z1 = F.n * Math.exp((j + 1) / F.NZ * lr);
@@ -1212,25 +1234,27 @@ function kitInset(ctx, x, y, w, h, title) {
       const pc = toPx(F.cam[0] + (z0 + z1) / 2, F.cam[1] + (z0 + z1) / 2 * Math.tan((a0 + a1) / 2));
       kitLabel(x3, "this cell", pc[0] + 10, pc[1] - 14, "left");
       const k = i * F.NZ + j;
-      readout = `froxel (${i}, ${j}) · z ${z0.toFixed(2)}–${z1.toFixed(2)} m · T = <strong>${G.T[k].toFixed(3)}</strong> · L = <strong>${G.L[k].toFixed(3)}</strong> → colour·${G.T[k].toFixed(2)} + ${G.L[k].toFixed(3)}`;
+      readout = `cell ${i} across, ${j} along · ${z0.toFixed(2)} to ${z1.toFixed(2)} m out · light getting through: <strong>${G.T[k].toFixed(3)}</strong> · glow: <strong>${G.L[k].toFixed(3)}</strong> · a pixel here shows its own colour × ${G.T[k].toFixed(2)}, plus ${G.L[k].toFixed(3)} of glow`;
+      F.stats = { z: z0, cell: true, T: G.T[k], L: G.L[k] };
     }
     kitLabel(x3, "player", cx, cy - 58, "center");
     kitLabel(x3, "floodlight", ...toPx(A.light[0] - 0.6, A.light[1] + 0.5), "right", "#f2a341");
-    const np = toPx(F.cam[0] + F.n, F.cam[1] + F.n * Math.tan(F.fov / 2)); kitArrow(x3, cx + 40, cy - 66, np[0] + 2, np[1] - 2, "#ffffff"); kitLabel(x3, "near plane, 0.5 m", cx + 40, cy - 76, "left");
-    const fp = toPx(F.cam[0] + F.f, 0); kitLabel(x3, "far plane, 16 m", fp[0] - 6, VH - GY - 40, "right");
-    kitLabel(x3, "small cells near the player, big cells far away", 60, 30, "left", "#c7cdd8");
+    const np = toPx(F.cam[0] + F.n, F.cam[1] + F.n * Math.tan(F.fov / 2)); kitArrow(x3, cx + 40, cy - 66, np[0] + 2, np[1] - 2, "#ffffff"); kitLabel(x3, "the grid starts 0.5 m out", cx + 40, cy - 76, "left");
+    const fp = toPx(F.cam[0] + F.f, 0); kitLabel(x3, "and ends 16 m out", fp[0] - 6, VH - GY - 40, "right");
+    kitLabel(x3, "small cells near the player, big cells far away", 8, 30, "left", "#c7cdd8");
     viewInset(x3, 396, 6, viewRows3(), fr ? clamp(Math.floor((F.fov / 2 - Math.atan2(F.hover[1] - F.cam[1], F.hover[0] - F.cam[0])) / F.fov * 64), 0, 63) : -1, "player's view");
     const sS = G.hs.subarray(sliceI * F.NZ, (sliceI + 1) * F.NZ), sT = G.T.subarray(sliceI * F.NZ, (sliceI + 1) * F.NZ), sL = G.L.subarray(sliceI * F.NZ, (sliceI + 1) * F.NZ);
     strip(x3, [
-      { l: "inject", kind: "bar", v: sS, max: 0.04, col: "#f2a341" },
-      { l: "T", kind: "line", v: sT, max: 1, col: "#ffffff" },
-      { l: "ΣL", kind: "line", v: sL, max: 0.1, col: "#f2a341" }
-    ], `column ${sliceI} of ${F.NX} · ${F.NZ} depth slices, z = 0.5 → 16 m (log)`);
+      { l: "own", kind: "bar", v: sS, max: 0.04, col: "#f2a341" },
+      { l: "through", kind: "line", v: sT, max: 1, col: "#ffffff" },
+      { l: "glow", kind: "line", v: sL, max: 0.1, col: "#f2a341" }
+    ], `column ${sliceI} of ${F.NX} · ${F.NZ} cells from 0.5 m to 16 m out, near end at the left`);
     const count = F.NX * F.NZ;
-    el("c3-read").innerHTML = `${F.NX} × ${F.NZ} = <strong>${fmtN(count)}</strong> froxels · ${fmtB(count * 8)} as RGBA16F${F.jitter ? " · frame " + F.frame : ""}`;
+    el("c3-read").innerHTML = `${F.NX} × ${F.NZ} = <strong>${fmtN(count)}</strong> cells · ${fmtB(count * 8)} to store, at 8 bytes each${F.jitter ? " · frames averaged: " + F.frame : ""}`;
     el("c3-read2").innerHTML = readout;
     el("m3a").textContent = fmtN(count); el("m3b").textContent = fmtB(count * 8);
     const c3d = 240 * 135 * F.NZ; el("m3z").textContent = F.NZ; el("m3c").textContent = fmtN(c3d); el("m3d").textContent = fmtB(c3d * 8); el("m3e").textContent = (c3d / 2073600).toFixed(2);
+    L3 && L3.check();
   }
   const req3 = raf(draw3);
   function loop3() {
@@ -1308,15 +1332,17 @@ function kitInset(ctx, x, y, w, h, title) {
     { const rp = toPx4(D4.cam[0] + dx * Math.min(9, D * 0.5), D4.cam[1] + dy * Math.min(9, D * 0.5)); kitLabel(x4, "how thick the mist is at each step", rp[0], rp[1] + 22, "left", "#4aa3ff"); }
     viewInset(x4, 396, 6, rows, clamp(Math.floor((D4.fov / 2) / D4.fov * ROWS), 0, ROWS - 1), "player's view");
     strip(x4, [
-      { l: "ρ /m", kind: "bar", v: rho, max: 0.4, col: "#4aa3ff" },
-      { l: "T exact", kind: "line", v: Ta, max: 1, col: "#ffffff" },
-      { l: "T march", kind: "line", v: Tn, max: 1, col: "#f2a341" }
-    ], `ray ${D.toFixed(1)} m to the ${endM.kind === "rect" ? "farmhouse or a tree" : endM.kind} · h₀ = ${D4.cam[1].toFixed(1)} m · dir_y = ${dy.toFixed(2)} · ${D4.dist ? "uniform density" : "H = " + D4.H + " m"}`);
+      { l: "mist", kind: "bar", v: rho, max: 0.4, col: "#4aa3ff" },
+      { l: "formula", kind: "line", v: Ta, max: 1, col: "#ffffff" },
+      { l: "stepped", kind: "line", v: Tn, max: 1, col: "#f2a341" }
+    ], `${D.toFixed(1)} m to ${endM.kind === "rect" ? "a tree or the house" : "the " + endM.kind} · eye ${D4.cam[1].toFixed(1)} m up · slope ${dy.toFixed(2)} · ${D4.dist ? "no thinning" : "thinning height " + D4.H + " m"}`);
     const err = Math.abs(tn - ta) / Math.max(ta, 1e-6) * 100;
-    el("c4-read").innerHTML = `τ exact = <strong>${ta.toFixed(3)}</strong> · τ marched = <strong>${tn.toFixed(3)}</strong> (${err.toFixed(1)} % off)`;
-    el("c4-read2").innerHTML = `T = <strong>${Math.exp(-ta).toFixed(3)}</strong> · fog ${((1 - Math.exp(-ta)) * 100).toFixed(0)} %`;
+    el("c4-read").innerHTML = `mist crossed, by the formula: <strong>${ta.toFixed(3)}</strong> · by stepping: <strong>${tn.toFixed(3)}</strong> (${err.toFixed(1)} % off)`;
+    el("c4-read2").innerHTML = `light getting through: <strong>${Math.exp(-ta).toFixed(3)}</strong> · so the view is ${((1 - Math.exp(-ta)) * 100).toFixed(0)} % fogged over`;
     el("t4a").textContent = ta.toFixed(3); el("t4b").textContent = tn.toFixed(3); el("t4bn").textContent = N;
-    el("t4c").innerHTML = (2073600 * N / 1e6).toFixed(1) + " M <small>vs 2.1 M</small>";
+    el("t4c").innerHTML = (2073600 * N / 1e6).toFixed(1) + " M <small>vs 2.1 M by formula</small>";
+    D4.stats = { tau: ta, tauM: tn, err, T: Math.exp(-ta), D, dirY: dy };
+    L4 && L4.check();
   }
   const req4 = raf(draw4);
   drag(c4, () => [[toPx4(D4.cam[0], D4.cam[1])[0], toPx4(D4.cam[0], D4.cam[1])[1] - 22], toPx4(D4.aim[0], D4.aim[1])], (i, x, y) => {
@@ -1437,17 +1463,19 @@ function kitInset(ctx, x, y, w, h, title) {
     kitLabel(x5, "player", cx, cy - 34, "center");
     kitLabel(x5, "cloud layer, 9 to 16 m up", 8, VH - GY - C5.y1 * C5.ppm - 12, "left");
     kitLabel(x5, "the line of sight, one pixel", cx + 20, cy - 4, "left");
-    if (secLab) kitLabel(x5, "short march toward the sun", secLab[0] + (secLab[0] > 330 ? -6 : 6), clamp(secLab[1] - 10, 12, 180), secLab[0] > 330 ? "right" : "left", "#f2a341");
+    if (secLab) kitLabel(x5, "short run toward the sun", secLab[0] + (secLab[0] > 330 ? -6 : 6), clamp(secLab[1] - 10, 12, 180), secLab[0] > 330 ? "right" : "left", "#f2a341");
     strip(x5, [
-      { l: "ρ /m", kind: "bar", v: m.rho, max: 1.6, col: "#4aa3ff" },
-      { l: "E sun", kind: "bar", v: m.En, max: 1, col: "#f2a341" },
-      { l: "T", kind: "line", v: m.Ts, max: 1, col: "#ffffff" },
-      { l: "ΣL", kind: "line", v: m.Ls, max: 1, col: "#f2a341" }
-    ], `${N} view samples of ${dt.toFixed(2)} m · ${C5.M} sun samples of ${ds.toFixed(2)} m each · ${C5.mode === "powder" ? "Beer-Powder" : "Beer-Lambert"}`);
+      { l: "cloud", kind: "bar", v: m.rho, max: 1.6, col: "#4aa3ff" },
+      { l: "sun", kind: "bar", v: m.En, max: 1, col: "#f2a341" },
+      { l: "through", kind: "line", v: m.Ts, max: 1, col: "#ffffff" },
+      { l: "glow", kind: "line", v: m.Ls, max: 1, col: "#f2a341" }
+    ], `${N} steps of ${dt.toFixed(2)} m · ${C5.M} sun steps of ${ds.toFixed(2)} m at each · ${C5.mode === "powder" ? "dark-edge rule" : "plain dimming"}`);
     const spp = N * (1 + C5.M), msFull = 2073600 * spp * C5.ps * 1e-9;
-    el("c5-read").innerHTML = `T = <strong>${m.T.toFixed(3)}</strong> · L = <strong>${m.L.toFixed(3)}</strong> · ${spp} samples on this pixel`;
-    el("c5-read2").innerHTML = `${fmtN(spp * 2073600 / 1e6)} M samples per 1080p frame`;
+    el("c5-read").innerHTML = `light getting through: <strong>${m.T.toFixed(3)}</strong> · glow: <strong>${m.L.toFixed(3)}</strong> · <strong>${spp}</strong> looks at the cloud for this one pixel`;
+    el("c5-read2").innerHTML = `${fmtN(spp * 2073600 / 1e6)} million looks for one 1080p frame`;
     el("t5a").textContent = spp; el("t5b").textContent = msFull.toFixed(1); el("t5c").textContent = (msFull / 64).toFixed(2);
+    C5.stats = { spp, msFull, T: m.T, L: m.L };
+    L5 && L5.check();
   }
   const req5 = raf(draw5);
   drag(c5, () => [toPx5(C5.sun[0], C5.sun[1])], (i, x, y) => { C5.sun = toW5(x, y); field5dirty = true; req5(); }, (x, y) => { if (y < VH - GY) { C5.hover = toW5(x, y); req5(); } });
@@ -1455,8 +1483,125 @@ function kitInset(ctx, x, y, w, h, title) {
   onRange("m5", v => String(v), v => { C5.M = v; field5dirty = true; req5(); });
   onRange("cov5", v => v.toFixed(2), v => { C5.cov = v; field5dirty = true; req5(); });
   onRange("ps5", v => v + " ps", v => { C5.ps = v; req5(); });
-  onSeg("seg5", v => { C5.mode = v; field5dirty = true; req5(); });
+  onSeg("seg5", v => { C5.mode = v; if (v === "beer") C5.sawBeer = true; field5dirty = true; req5(); });
 
   draw1(); draw2a(); draw2b(); draw3(); draw4(); draw5();
+
+  // ---------- guided steps ----------
+  const setRange = (id, v) => { el(id).value = v; el(id).dispatchEvent(new Event("input")); };
+  const setChk = (id, on) => { const c = el(id); if (c.checked !== on) { c.checked = on; c.dispatchEvent(new Event("change")); } };
+  const set1 = o => {
+    const d = Object.assign({ light: [12.5, 12.5], aim: [6.5, 0.5], blob: [4.6, 9.4], blobK: 0.3, N: 48, hover: [15, 11.6] }, o);
+    A.light.splice(0, 2, ...d.light); A.aim.splice(0, 2, ...d.aim); A.blob.splice(0, 2, ...d.blob); S1.hover = d.hover.slice();
+    setRange("blob1", d.blobK); setRange("steps1", d.N); dirty1 = dirty3 = true; draw1(); draw3();
+  };
+  L1 = lesson("march", { next: { id: "phase", title: "Which way fog throws light" }, steps: [
+    { say: "This is the forest from the side, the way the engine thinks about it. The player stands on the rise at the left, the <b>floodlight</b> hangs from the mast at the right, and the amber haze is fog the floodlight is lighting. Under each tree the light is blocked, so the fog there stays dark. The small <b>player's view</b> box is the whole screen, one row per line of sight.", enter: () => set1({}) },
+    { say: "The engine draws one straight line out from the player's eye through one pixel and walks along it in small steps, the white dots. <b>Move the pointer over the scene</b> to pick a line that runs under the near tree's canopy, through the dark wedge.", todo: "pick a line of sight that passes under the near tree", goal: () => S1.stats && S1.stats.shadowed >= 6, try: () => { S1.hover = [8, 2.5]; draw1(); },
+      done: "Some of the dots now carry a red stub: a tree sits between that step and the floodlight. The caption counts them. At every step the engine asks two things: how much fog is here, and is the floodlight shining on it." },
+    { say: "", quiz: { q: "At a step with a red stub, what does the engine add to the pixel?", options: [
+        { t: "The fog's own grey colour", why: "Fog has no colour of its own. It only shows light that reaches it, and none does here." },
+        { t: "Nothing: no light reaches that fog, so it adds no glow", ok: true, why: "The fog is there, but it is unlit, so it adds nothing. That is what a light shaft is: lit fog next to unlit fog." },
+        { t: "A darker shade, to draw the shadow", why: "Shadows are never drawn. They are simply the places where nothing gets added." } ] } },
+    { say: "<b>Drag the floodlight</b> straight down until it sits just above the near tree's canopy.", todo: "drag the floodlight down to the canopy", goal: () => A.light[1] <= 8.2, try: () => { A.light.splice(0, 2, 12.5, 7.2); dirty1 = dirty3 = true; draw1(); },
+      enter: () => set1({ hover: [8, 2.5] }),
+      done: "A whole band of rows in the player's view went dark at once. The tree is now a wall for the light, and every line of sight passing behind it finds unlit fog. Nothing on this page fakes those shafts; they fall out of the shadow check." },
+    { say: "Every bit of fog also dims whatever is behind it. <b>Turn the mist patch up to 0.6</b>, then pick a line of sight through the blue ring.", todo: "set the mist patch to 0.6 and pick a line through the ring", goal: () => A.blobK >= 0.55 && S1.stats && S1.stats.nearBlob < 2.0, try: () => { setRange("blob1", 0.6); S1.hover = [6, 8.6]; draw1(); },
+      enter: () => set1({}),
+      done: "In the strip, the white curve for light getting through drops fast inside the ring, and the line's far end barely counts. Glow found far along the line arrives faint, because it has to cross all the fog in front of it." },
+    { say: "Each step is one unit of work.", quiz: { q: "Drop the steps from 48 to 8. What happens to the glow number in the caption?", options: [
+        { t: "It goes to zero", why: "Eight steps still find lit fog; they just measure it more roughly." },
+        { t: "It shifts a little, and the strip goes chunky", ok: true, why: "Eight looks along the line give a rough total. More looks settle the number, and cost more." },
+        { t: "Nothing changes, more steps only make it slower", why: "Fewer steps means a rougher answer, and a thin dark wedge can fall between two steps and be missed." } ] },
+      todo: "drag the steps slider down to 8", goal: () => S1.N <= 16, try: () => setRange("steps1", 8), enter: () => set1({}),
+      done: "Chunky strip, shifted number. Real engines pick a step count that fits the frame time and hide the roughness with a little blur and dither." },
+    { say: "That is the whole idea: walk the line in steps, at each one take the fog there times the light reaching it, add it up, and let every step dim the ones behind it. The formula and the loop are under the hood." } ] });
+
+  const set2 = o => {
+    const d = Object.assign({ g: 0.7, phi: 0.62, camX: 1.8, light: [6.4, 3.6] }, o);
+    S2.phi = d.phi; S2.cam[0] = d.camX; S2.light.splice(0, 2, ...d.light); setRange("g2", d.g); dirty2 = true; draw2a(); draw2b();
+  };
+  L2 = lesson("phase", { next: { id: "froxels", title: "Fog in a grid of cells" }, steps: [
+    { say: "A fog particle does not bounce light evenly. The left picture is the rule for <b>one particle</b>. The lamp on the ring sends light in along the amber arrow, and the amber curve shows how much of that light the particle throws off in each direction: farther from the centre means more. Most of it keeps going forward. The right picture is the forest path, with a lamp that shines every way and a player looking straight at it. The strip under it is the player's screen.", enter: () => set2({}) },
+    { say: "<b>Drag the lamp round the ring</b> to the right-hand side, so its light heads straight on toward the player.", todo: "drag the lamp to the right side of the ring", goal: () => Math.cos(S2.phi) > 0.9, try: () => { S2.phi = 0.1; draw2a(); },
+      done: "The white dot shoots out along the curve. With the lamp almost in front of the player, the particle sends most of its light on toward them. The caption gives the share." },
+    { say: "<b>Now drag the lamp round to the left</b>, behind the player.", todo: "drag the lamp to the left side of the ring", goal: () => Math.cos(S2.phi) < -0.7, try: () => { S2.phi = 3.0; draw2a(); },
+      done: "Barely anything comes back. Compare the caption's share with a moment ago: it fell by a factor of dozens or more. Light that has to turn right round to reach you is rare, which is why fog looks flat and dull with the lamp behind you." },
+    { say: "The slider sets how strongly the fog favours forward.", quiz: { q: "Push it to 0.9. What happens on the player's screen at the right?", options: [
+        { t: "The whole screen gets brighter", why: "The rule never adds light. It only decides where the same light goes." },
+        { t: "The middle, looking at the lamp, gets brighter and the rest goes dark", ok: true, why: "More of the light keeps going forward, toward the player, so the fog between them and the lamp glows and the fog off to the sides does not. That is a halo." },
+        { t: "The lamp itself gets brighter", why: "The lamp is unchanged. Only the fog around it changes." } ] },
+      todo: "drag the slider to 0.9", goal: () => S2.g >= 0.85, try: () => setRange("g2", 0.9), enter: () => set2({ phi: 0.62 }),
+      done: "A tight bright halo around the lamp, dark fog everywhere else, and the caption's ratio jumped. Same light, sent forward." },
+    { say: "<b>Drag the slider down to −0.5</b>, so particles throw light mostly back the way it came.", todo: "drag the slider to −0.5", goal: () => S2.g <= -0.4, try: () => setRange("g2", -0.5),
+      done: "The halo fades: the glow looking at the lamp fell to a small fraction of what it was, and the caption's ratio collapsed. Light travelling toward the player now mostly bounces back toward the lamp instead. Real fog and dust sit well on the forward side." },
+    { say: "Forward-throwing fog is why a lamp in mist has a halo when you look at it and the mist looks flat grey when you look away. Engines set this one number somewhere around 0.3 to 0.7. The formula is under the hood." } ] });
+
+  const set3 = o => {
+    const d = Object.assign({ NX: 32, NZ: 64, mode: "integrated", samp: "nearest", jitter: false, hover: [5.2, 6.4], light: [12.5, 12.5] }, o);
+    setChk("jit3", d.jitter); A.light.splice(0, 2, ...d.light); A.aim.splice(0, 2, 6.5, 0.5); A.blob.splice(0, 2, 4.6, 9.4);
+    F.mode = d.mode; segOn(el("seg3m"), d.mode); F.samp = d.samp; segOn(el("seg3s"), d.samp); F.hover = d.hover.slice();
+    setRange("nx3", d.NX); setRange("nz3", d.NZ); dirty1 = dirty3 = true; draw3(); draw1();
+  };
+  L3 = lesson("froxels", { next: { id: "height", title: "Ground mist with no loop" }, steps: [
+    { say: "Walking every pixel's line is a lot of repeated work: neighbouring pixels walk almost the same line. So the engine chops the player's view into a fan of <b>cells</b>, small near the player and wide by the far trees, and works out the fog <b>once per cell</b>. Each cell here is coloured by the glow added up from the player out to it. The player's view box is the screen after reading one cell per line of sight.", enter: () => set3({}) },
+    { say: "The white outline is the cell under the pointer. <b>Move the pointer out to the far tree</b>, past 9 m from the player.", todo: "point at a cell out by the far tree", goal: () => F.stats && F.stats.cell && F.stats.z >= 8.5, try: () => { F.hover = [13, 4.5]; draw3(); },
+      done: "Out there one cell is big enough to hold a chunk of the tree. The caption gives what it stores: how much light gets through it and how much glow was collected on the way. That is all a pixel needs." },
+    { say: "", quiz: { q: "A pixel showing the far trunk, 11 m away, needs its fog. How much work does it do?", options: [
+        { t: "Walks the whole line in 48 steps, like the first demo", why: "That is exactly the work the grid is there to save." },
+        { t: "Reads one cell, the one at its distance", ok: true, why: "A sweep from the player outward already added up every cell in front and wrote the running total into each one. The pixel just reads the answer." },
+        { t: "Reads every cell between it and the player", why: "The adding-up was done once in advance, column by column. Each cell already holds the total up to itself." } ] } },
+    { say: "Fewer cells is less work. <b>Drop both cell sliders to 8.</b>", todo: "drag both sliders down to 8", goal: () => F.NX <= 8 && F.NZ <= 8, try: () => { setRange("nx3", 8); setRange("nz3", 8); }, enter: () => set3({ hover: [13, 4.5] }),
+      done: "The shadows and the light cone turn into big blocks, in the scene and on the player's screen. A block is the price of sharing one answer among many pixels." },
+    { say: "Keep the coarse grid. <b>Switch the pixel read to blending the neighbours.</b>", todo: "switch the read below", goal: () => F.samp === "linear", try: () => el("seg3s").querySelector('[data-v="linear"]').click(),
+      done: "The blocks blur into each other, the way a photo viewer smooths a zoomed-in picture. Same cells, softer edges." },
+    { say: "<b>Tick the wobble box.</b>", todo: "tick the wobble box", goal: () => F.jitter, try: () => setChk("jit3", true),
+      done: "The caption counts frames as they average in, and the blocky edges smooth out over a second or two. Each frame reads from a slightly different spot inside each cell and blends with the last frame's result." },
+    { say: "Work out the fog once per coarse cell, sweep each column once to add it up, then every pixel reads one cell. That is how fog costs 1 to 2 ms instead of the 2 to 8 ms of walking every pixel. The cell maths, the code and a table of real grid sizes are under the hood." } ] });
+
+  const set4 = o => {
+    const d = Object.assign({ camY: 6, aim: [27, 1.5], d0: 0.12, H: 6, N: 12, dist: false }, o);
+    D4.cam[1] = d.camY; D4.aim.splice(0, 2, ...d.aim); setChk("dist4", d.dist); setRange("d04", d.d0); setRange("h4", d.H); setRange("n4", d.N); field4dirty = true; draw4();
+  };
+  L4 = lesson("height", { next: { id: "clouds", title: "Clouds that shade themselves" }, steps: [
+    { say: "Dawn. Ground mist fills the field between a watchtower and a farmhouse: thickest at the ground, thinner as you go up. The white line is the player's line of sight, with a blue bar at each step for how thick the mist is there. When mist behaves like this, there is a <b>single formula</b> for how much of it any straight line crosses. No steps, no grid.", enter: () => set4({}) },
+    { say: "The line now dives at the ground in front of the tower, through mist that hugs it: the thinning height is set to 1 m. In the strip, the white curve is the formula's answer and the amber curve is a stepped walk trying to match it. <b>Drag the steps down to 4.</b>", todo: "drag the steps slider down to 4, with the line still aimed at the ground", goal: () => D4.N <= 4 && D4.stats && D4.stats.err >= 3, try: () => setRange("n4", 4), enter: () => set4({ aim: [9, 0.2], H: 1 }),
+      done: "The amber curve now misses the white one and the caption reads several percent off. Four looks cannot follow mist that thickens sharply near the ground." },
+    { say: "", quiz: { q: "Push the steps to 64 and the curves will sit on top of each other. What does that cost on a 1080p screen?", options: [
+        { t: "Nothing extra, 64 is a small number", why: "It is 64 looks for each of 2 million pixels. The tile under the picture counts them." },
+        { t: "64 looks at the mist for every pixel, about 133 million a frame", ok: true, why: "Against 2 million for the formula, one per pixel. Same picture, 64 times the work." },
+        { t: "One look per pixel, the same as the formula", why: "Each step is one look. The formula needs none; it computes the total directly." } ] },
+      todo: "drag the steps slider up to 64", goal: () => D4.N >= 60, try: () => setRange("n4", 64),
+      done: "The curves match and the percentage off is near zero, at 64 looks per pixel. The formula gets the same number with one calculation." },
+    { say: "<b>Drag the player up to the top of the tower</b>, 14 m or higher.", todo: "drag the player up the tower", goal: () => D4.cam[1] >= 14, try: () => { D4.cam[1] = 16; draw4(); }, enter: () => set4({ N: 12 }),
+      done: "The mist at eye level is thinner, so the line crosses less of it and the farmhouse comes back into view. The formula only needs three things: the eye height, how steeply the line dives, and how far it goes." },
+    { say: "<b>Tick the box for the same thickness at every height.</b>", todo: "tick the box below", goal: () => D4.dist, try: () => setChk("dist4", true),
+      done: "Now height does not matter: the mist crossed is simply thickness times distance. That is the oldest fog in games, and the same formula with the thinning switched off." },
+    { say: "One formula per pixel makes this the cheapest fog there is. The catch: the formula only knows about mist, not lamps, so it cannot do light shafts or a glowing cone. Under the hood has the formula and the code." } ] });
+
+  const set5 = o => {
+    const d = Object.assign({ sun: [21.5, 16.3], hover: [13.5, 12.5], N: 48, M: 6, cov: 0.55, mode: "powder", ps: 40 }, o);
+    C5.sun = d.sun.slice(); C5.hover = d.hover.slice(); C5.mode = d.mode; segOn(el("seg5"), d.mode); C5.sawBeer = false;
+    setRange("n5", d.N); setRange("m5", d.M); setRange("cov5", d.cov); setRange("ps5", d.ps); field5dirty = true; draw5();
+  };
+  L5 = lesson("clouds", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "The player looks up at a cloud bank between 9 and 16 m. Clouds are fog with two changes: their shape comes from a random bumpy pattern instead of a smooth blob, and a cloud <b>shades itself</b>, so a point deep inside gets less sun than the edge. The white line is one line of sight walking up through the layer. At some steps a second, shorter run of amber dots heads toward the sun to find out how much cloud is in the way.", enter: () => set5({}) },
+    { say: "<b>Drag the sun</b> over to the left side of the sky.", todo: "drag the sun to the left", goal: () => C5.sun[0] < 8, try: () => { C5.sun = [3, 15.5]; field5dirty = true; draw5(); },
+      done: "The lit side of the clouds moved with it, and the short amber runs now point the other way. Every step asks the same question, how much cloud sits between me and the sun, and the answer is what shades the cloud." },
+    { say: "", quiz: { q: "Each step along the line takes 6 more steps toward the sun. With 48 steps along the line, how many looks at the cloud does this one pixel need?", options: [
+        { t: "48 + 6 = 54", why: "The sun steps happen at every one of the 48, not once." },
+        { t: "48 × 7 = 336", ok: true, why: "48 steps, each with its own look plus 6 toward the sun. The caption under the picture says the same." },
+        { t: "48 × 6 = 288", why: "Close. The step itself also looks at the cloud, so it is 48 × (1 + 6)." } ] }, enter: () => set5({ sun: [3, 15.5] }) },
+    { say: "<b>Set the steps toward the sun to 0.</b>", todo: "drag the sun steps slider to 0", goal: () => C5.M === 0, try: () => setRange("m5", 0),
+      done: "The clouds go flat: no shading, every part as bright as every other. The looks per pixel drop to 48. Shading is what makes a cloud look solid, and it costs seven times the work." },
+    { say: "Put the sun steps back to 6 and look at the cloud edges facing the sun. <b>Switch the dimming rule to plain, then back to dark edges.</b>", todo: "set sun steps to 6, switch to plain dimming, then back", goal: () => C5.M >= 5 && C5.sawBeer && C5.mode === "powder", try: () => { setRange("m5", 6); el("seg5").querySelector('[data-v="beer"]').click(); el("seg5").querySelector('[data-v="powder"]').click(); }, enter: () => set5({ sun: [3, 15.5], M: 0 }),
+      done: "With plain dimming the sunward edges are brightest, since the least cloud sits between them and the sun. Real clouds show dark edges and a bright body, because thin edges lose light sideways before it can bounce back. The dark-edge rule fakes that with no extra looks." },
+    { say: "The tiles turn looks into time. A picosecond is a trillionth of a second.", quiz: { q: "At 200 ps a look, doing every pixel costs about 140 ms a frame, and a game gets 16 ms for the whole frame. How do shipped games fit clouds in?", options: [
+        { t: "Use fewer than 8 steps along the line", why: "That goes blocky fast. The fix is fewer pixels, not fewer steps." },
+        { t: "Draw the clouds at quarter size and update only 1/16 of those pixels each frame, reusing the rest", ok: true, why: "The third tile is that plan: 64 times cheaper, and it fits. The cloud finishes over many frames." },
+        { t: "Skip the steps toward the sun", why: "That is the flat cloud from two steps ago." } ] },
+      todo: "drag the time per look up to 200 ps", goal: () => C5.ps >= 180, try: () => setRange("ps5", 200), enter: () => set5({ sun: [3, 15.5] }),
+      done: "The every-pixel tile is far past the 16 ms a frame allows; the quarter-size tile is 64 times smaller and fits." },
+    { say: "Clouds cost the steps along the line times one plus the steps toward the sun, for every pixel, which is why they are drawn small and finished over many frames. The nested loop and the two dimming rules are under the hood." } ] });
 })();
 </script>
