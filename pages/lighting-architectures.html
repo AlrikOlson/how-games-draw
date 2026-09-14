@@ -246,72 +246,64 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 .uses.wide td:first-child { white-space: normal; min-width: 11ch; }
 .uses.wide td:nth-child(2) { max-width: none; }
 .key span[style*="#ffffff"]::before { outline: 1px solid var(--line); }
+.lesson .controls input[type=range] { width: 180px; }
 </style>
 
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a village square at night · 1920×1080 as a 64×36 grid · 12 lanterns · 5 buildings · 50° view · drag the amber lanterns</p>
+    <p class="eyebrow">a village square at night · six guided demos · nothing to install</p>
     <h1>Forward, Deferred &amp; Clustered</h1>
-    <p class="lead">A renderer lights a picture by doing one job over and over: for each spot on a surface, add up every light that reaches it. <b>Forward</b>, <b>deferred</b> and <b>clustered</b> are three places to put that job, and the choice decides how much memory traffic you pay and how many lights you can afford. Deferred does not make lighting cheaper on its own. It only pays off once many lights overlap the same pixels, and that is the part people get backwards.</p>
+    <p class="lead">A game lights a picture by doing one small job over and over: for each pixel, add up the light from every lantern that reaches it. Forward, deferred and clustered are three places to put that job, and the choice decides how many lanterns a scene can afford and how much data has to move through memory every frame. <b>The thing people get wrong:</b> deferred does not make lighting cheaper on its own. It pays a fixed bill every frame, and only wins once many lanterns overlap the same pixels.</p>
     <div class="key">
-      <span style="--sw:#f2a341">lantern, and heat for cost</span>
-      <span style="--sw:#4aa3ff">G-buffer data and triangle ids</span>
+      <span style="--sw:#f2a341">lantern, and how much work a pixel cost</span>
+      <span style="--sw:#4aa3ff">the surface notes and triangle ids</span>
       <span style="--sw:#ffffff">player, view wedge, drag handles</span>
-      <span style="--sw:#5ad48a">lantern the cull kept</span>
-      <span style="--sw:#ef5d5d">tile that spans a depth gap</span>
+      <span style="--sw:#5ad48a">lantern kept on a tile's list</span>
+      <span style="--sw:#ef5d5d">the tile with the biggest near-to-far gap</span>
     </div>
     <dl class="terms">
       <dt>lantern</dt><dd>a point light: it lights everything within its reach, the amber ring</dd>
-      <dt>fragment</dt><dd>one candidate pixel that a draw produces; the depth test decides if it survives</dd>
-      <dt>overdraw</dt><dd>how many fragments land on one pixel; 2× means each pixel was shaded twice</dd>
-      <dt>light loop</dt><dd>the code that adds up every light for one point on a surface</dd>
-      <dt>G-buffer</dt><dd>a set of full-screen images that store what the surface looks like at each pixel</dd>
-      <dt>depth prepass</dt><dd>a cheap first pass that writes only distance, so the colour pass shades one winner per pixel</dd>
-      <dt>tile</dt><dd>a small square of screen pixels that shares one list of lights</dd>
-      <dt>cluster</dt><dd>a tile cut into depth slices, so each piece of the view gets its own list</dd>
-      <dt>bandwidth</dt><dd>bytes moved to and from memory each frame; the bill that deferred pays</dd>
+      <dt>fragment</dt><dd>one pixel's worth of one object, before the nearest-wins test decides whether it survives</dd>
+      <dt>overdraw</dt><dd>how many fragments landed on one pixel; 2× means each pixel was coloured twice</dd>
+      <dt>light loop</dt><dd>the code that adds up every lantern for one pixel</dd>
+      <dt>G-buffer</dt><dd>a set of full-screen images that store what the surface looks like at each pixel, so it can be lit later</dd>
+      <dt>depth prepass</dt><dd>a cheap first pass that writes only distance, so the colour pass colours one winner per pixel</dd>
+      <dt>tile</dt><dd>a small square of screen pixels that shares one list of lanterns</dd>
+      <dt>cluster</dt><dd>a tile cut into slices by distance, so each piece of the view gets its own list</dd>
+      <dt>bandwidth</dt><dd>bytes moved to and from memory each frame; the bill deferred pays</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#forward"><span class="n">01</span>Forward</a></li><li><a href="#deferred"><span class="n">02</span>Deferred</a></li><li><a href="#tiled"><span class="n">03</span>Tiled culling</a></li><li><a href="#clustered"><span class="n">04</span>Clustered</a></li><li><a href="#compare"><span class="n">05</span>What one pixel keeps between passes</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#forward"><span class="n">01</span>Forward: light it while you draw</a></li><li><a href="#deferred"><span class="n">02</span>Deferred: write the notes first</a></li><li><a href="#volumes"><span class="n">03</span>Lighting from the notes</a></li><li><a href="#tiled"><span class="n">04</span>Tiled: a short list per tile</a></li><li><a href="#clustered"><span class="n">05</span>Clustered: slice the tiles by distance</a></li><li><a href="#compare"><span class="n">06</span>What one pixel keeps</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="forward">
+  <section id="forward" class="stage">
     <h2>Forward: light it while you draw</h2>
-    <p class="sub">A player stands at the edge of a village square at night, 12 lanterns burning. Drag a lantern or a building on the left and watch what each pixel of the player's screen costs on the right.</p>
-    <div class="cols two">
+    <p class="sub">A player at the edge of a village square at night, 12 lanterns burning. Every square of the player's screen shows what it cost to colour.</p>
+    <div class="cols three">
       <div class="vp">
         <canvas id="c1t" width="512" height="512" class="sq grab" aria-label="Village square from above: the player at the bottom, the view wedge, houses, a market stall, a well and amber lanterns with rings for their reach"></canvas>
-        <div class="cap"><span id="c1t-read">scene</span><span>square 26 m × 26 m · near 0.5 m · far 24 m</span></div>
+        <div class="cap"><span id="c1t-read">scene</span><span>square 26 m across · draws from 0.5 m to 24 m</span></div>
       </div>
       <div class="vp">
-        <canvas id="c1s" width="640" height="360" class="r169" aria-label="The player's screen as a 64 by 36 grid, each cell heated by how many fragments landed on it, with an inset of the lit village"></canvas>
-        <div class="cap"><span id="c1s-read">hover a pixel</span><span>heat = fragments × lanterns</span></div>
+        <canvas id="c1s" width="640" height="360" class="r169" aria-label="The player's screen as a 64 by 36 grid, each cell brighter the more fragments landed on it, with an inset of the lit village"></canvas>
+        <div class="cap"><span id="c1s-read">hover a square</span><span>brighter = coloured more times</span></div>
       </div>
-    </div>
-    <div class="cols below">
-      <div class="prose">
-        <p class="plain">A forward renderer draws objects one after another, and <b>every fragment runs the whole light loop</b> the moment it is drawn. A fragment is one candidate pixel that a draw produces. If a nearer object covers that pixel later, the earlier work is thrown away, but <b>you already paid for it</b>. So the bill is <b>overdraw times lights</b>.</p>
-        <h3>What you're seeing</h3>
-        <p>Left is the square from above: the player at the bottom looking up the square, the dashed wedge of what they can see, houses with red roofs, a market stall, crates, a well, and lanterns in amber with a ring for each lantern's reach. Right is the player's 1920×1080 screen shrunk to a 64×36 grid, with the outlines of the buildings drawn over it. Brighter cells had more fragments land on them, and each of those fragments ran the full loop over every lantern. The inset in the corner is the picture the player gets.</p>
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the market stall in front of the house. The cells where they overlap turn brighter, because two fragments now land there and the hidden one was still shaded.</li>
-          <li>Push Lanterns to 64. The evaluations tile jumps, even though most lanterns are nowhere near most pixels.</li>
-          <li>Tick depth prepass. Overdraw drops to 1.00× and the heat flattens, but the lantern count still multiplies every cell.</li>
-        </ul>
-        <div class="controls">
+      <div class="lesson" data-lesson="forward">
+        <div class="controls" data-step-min="4">
           <div class="ctl"><label for="nl">Lanterns <span class="val" id="nlv">12</span></label><input type="range" id="nl" min="1" max="64" step="1" value="12"></div>
           <div class="ctl"><label for="nobj">Buildings <span class="val" id="nobjv">5</span></label><input type="range" id="nobj" min="1" max="8" step="1" value="5"></div>
-          <div class="ctl"><label class="chk"><input type="checkbox" id="prepass"> depth prepass</label></div>
+          <div class="ctl"><label class="chk"><input type="checkbox" id="prepass"> depth prepass: write distance first</label></div>
         </div>
-        <div class="tiles">
-          <div class="tile"><div class="n" id="t1-frag">·</div><div class="l">fragments shaded, 1080p</div></div>
-          <div class="tile on"><div class="n" id="t1-eval">·</div><div class="l">light evaluations / frame</div></div>
-          <div class="tile"><div class="n" id="t1-od">·</div><div class="l">overdraw, fragments ÷ pixels</div></div>
+        <div class="tiles" data-step-min="2">
+          <div class="tile"><div class="n" id="t1-frag">·</div><div class="l">fragments, at 1080p</div></div>
+          <div class="tile on"><div class="n" id="t1-eval">·</div><div class="l">evaluations per frame</div></div>
+          <div class="tile"><div class="n" id="t1-od">·</div><div class="l">overdraw</div></div>
         </div>
       </div>
-      <div class="prose">
-        <h3>The real version</h3>
+    </div>
+    <div class="foot">
+    <p class="tldr">Forward pays fragments times lanterns, and overdraw makes you pay for pixels you never see.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Each draw binds its own list of lights. For every pixel the draw covers, the fragment shader (the small program that computes one pixel's colour) loops over that list and adds each light's contribution. The depth test, which keeps only the nearest fragment per pixel, runs after the shading, so a losing fragment costs the same as a winner.</p>
         <p>A depth prepass fixes the overdraw factor. It draws the scene once with a shader that writes only distance, so the colour pass can skip any fragment that is not the winner. It does nothing about the light factor: with 64 lights each surviving fragment still runs 64 iterations, even if no light is anywhere near it.</p>
         <p class="words">In words: the cost is every covered pixel of every object, times the number of lights.</p>
@@ -332,65 +324,40 @@ vec3 color = albedo * ambient;
   color += brdf(N, V, L, albedo, rough, metal) * lights[i].color * falloff(d2, lights[i].radius);
 }
 outColor = vec4(color, 1.0);   <span class="c">// depth test may throw this away after all that</span></pre>
-        <p class="tldr">Forward pays fragments times lanterns, and overdraw makes you pay for pixels you never see.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="deferred">
-    <h2>Deferred: save the surface, light it once</h2>
-    <p class="sub">The same square, but the engine writes down what every pixel's surface looks like first and lights it afterwards. Hover the four notes to read one pixel, and change the formats in the table to see the memory bill.</p>
-    <div class="cols two">
+  <section id="deferred" class="stage">
+    <h2>Deferred: write the notes first</h2>
+    <p class="sub">The same square, but the engine writes down what every pixel's surface looks like first and lights it afterwards.</p>
+    <div class="cols">
       <div class="vp">
         <canvas id="c2s" width="640" height="360" class="r169" aria-label="The four G-buffer layers of the village: surface colour with walls, windows and cobbles; which way each surface faces; rough or metal; and distance"></canvas>
-        <div class="cap"><span id="c2s-read">hover a pixel</span><span>colour · facing · rough/metal · distance</span></div>
+        <div class="cap"><span id="c2s-read">hover a square</span><span>colour · facing · rough or metal · distance</span></div>
       </div>
-      <div class="vp">
-        <canvas id="c2t" width="512" height="512" class="sq grab" aria-label="Village square from above with each lantern's reach filled in amber"></canvas>
-        <div class="cap"><span id="c2t-read">light volumes</span><span>filled ring = the lantern's reach</span></div>
-      </div>
-    </div>
-    <div class="cols below">
-      <div class="prose">
-        <p class="plain">Deferred splits the work in two. First pass: draw everything and <b>write down what the surface looks like at each pixel</b>, no lighting yet. Second pass: <b>light each pixel exactly once</b> from those notes. Overdraw and object count drop out of the light loop, but <b>writing and reading the notes costs memory traffic every frame</b>, with one light or a hundred.</p>
-        <h3>What you're seeing</h3>
-        <p>Left is the G-buffer, the set of full-screen images the notes live in. Top left is the colour of each surface: cream walls, yellow windows, red roofs, grey cobbles. Top right is which way it faces (the normal). Bottom left is rough or shiny and metal or not, where the bronze bell stands out. Bottom right is depth, the distance from the player, bright for near. Right is the square from above with each lantern's reach filled in. In the lighting pass, only the pixels inside a ring get that lantern.</p>
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover a window or a roof on the left. The readout lists everything the lighting pass knows about that pixel, plus how many lanterns reach it.</li>
-          <li>Push the Lanterns slider in the section above to 64. The forward tile grows with every lantern; the deferred tile grows only with lanterns that reach a wall or the ground.</li>
-          <li>Switch Normal to RGBA16F in the table. Bytes per pixel and the GB/s line at 60 Hz both climb.</li>
-        </ul>
-        <div class="tiles">
-          <div class="tile"><div class="n" id="t2-fwd">·</div><div class="l">forward evaluations</div></div>
-          <div class="tile on"><div class="n" id="t2-def">·</div><div class="l">deferred, sphere volumes</div></div>
-          <div class="tile"><div class="n" id="t2-rect">·</div><div class="l">deferred, screen-rect volumes</div></div>
-        </div>
-        <div class="tbl-wrap">
+      <div class="lesson" data-lesson="deferred">
+        <div class="tbl-wrap" data-step-min="4">
         <table class="stats" id="gbuf">
-          <thead><tr><th>Layer</th><th>Format</th><th>Bytes</th><th>1080p</th><th>4K</th></tr></thead>
+          <thead><tr><th>Layer</th><th>How it is stored</th><th>Bytes</th><th>1080p</th><th>4K</th></tr></thead>
           <tbody>
-            <tr><td>Albedo</td><td class="sel"><select id="fAlb"><option value="4">RGBA8</option><option value="4">RGB10A2</option><option value="8">RGBA16F</option></select></td><td id="bAlb"></td><td id="mAlb"></td><td id="kAlb"></td></tr>
-            <tr><td>Normal</td><td class="sel"><select id="fNrm"><option value="4">RG16 octahedral</option><option value="4">RGB10A2</option><option value="8">RGBA16F</option><option value="2">RG8 octahedral</option></select></td><td id="bNrm"></td><td id="mNrm"></td><td id="kNrm"></td></tr>
-            <tr><td>Rough / metal / AO / flags</td><td class="sel"><select id="fMat"><option value="4">RGBA8</option><option value="2">RG8</option><option value="8">RGBA16F</option></select></td><td id="bMat"></td><td id="mMat"></td><td id="kMat"></td></tr>
-            <tr><td>Depth</td><td class="sel"><select id="fDep"><option value="4">D32F</option><option value="4">D24S8</option><option value="2">D16</option></select></td><td id="bDep"></td><td id="mDep"></td><td id="kDep"></td></tr>
+            <tr><td>Colour</td><td class="sel"><select id="fAlb"><option value="4">4 × 8-bit (RGBA8)</option><option value="4">10-10-10-2 bit (RGB10A2)</option><option value="8">4 × 16-bit float (RGBA16F)</option></select></td><td id="bAlb"></td><td id="mAlb"></td><td id="kAlb"></td></tr>
+            <tr><td>Facing</td><td class="sel"><select id="fNrm"><option value="4">2 × 16-bit, folded (RG16 oct)</option><option value="4">10-10-10-2 bit (RGB10A2)</option><option value="8">4 × 16-bit float (RGBA16F)</option><option value="2">2 × 8-bit, folded (RG8 oct)</option></select></td><td id="bNrm"></td><td id="mNrm"></td><td id="kNrm"></td></tr>
+            <tr><td>Rough, metal, shade, flags</td><td class="sel"><select id="fMat"><option value="4">4 × 8-bit (RGBA8)</option><option value="2">2 × 8-bit (RG8)</option><option value="8">4 × 16-bit float (RGBA16F)</option></select></td><td id="bMat"></td><td id="mMat"></td><td id="kMat"></td></tr>
+            <tr><td>Distance</td><td class="sel"><select id="fDep"><option value="4">32-bit float (D32F)</option><option value="4">24-bit + 8 stencil (D24S8)</option><option value="2">16-bit (D16)</option></select></td><td id="bDep"></td><td id="mDep"></td><td id="kDep"></td></tr>
             <tr><td>Total per pixel</td><td></td><td id="bTot" class="hi"></td><td id="mTot" class="hi"></td><td id="kTot" class="hi"></td></tr>
-            <tr><td>Traffic per frame, write + read</td><td></td><td></td><td id="mBw"></td><td id="kBw"></td></tr>
-            <tr><td>At 60 Hz</td><td></td><td></td><td id="mBws"></td><td id="kBws"></td></tr>
+            <tr><td>Moved per frame, write + read</td><td></td><td></td><td id="mBw"></td><td id="kBw"></td></tr>
+            <tr><td>At 60 frames a second</td><td></td><td></td><td id="mBws"></td><td id="kBws"></td></tr>
           </tbody>
         </table>
         </div>
       </div>
-      <div class="prose">
-        <h3>The real version</h3>
+    </div>
+    <div class="foot">
+    <p class="tldr">Deferred writes down each pixel's surface first, and that memory bill is the same with one lantern or a hundred.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The geometry pass writes the G-buffer: colour, an encoded normal, roughness, metalness and depth. Depth plus the pixel position is enough to rebuild where the point sits in the world, so nothing else about the geometry needs to survive. The lighting pass then draws each light as a volume, a sphere mesh or a screen rectangle, and shades only the pixels the volume covers. The loop runs once per pixel, so overdraw and object count no longer multiply it.</p>
-        <p>The price is bandwidth, the bytes moved to and from memory. The G-buffer is written for every fragment that passes the depth test and read for every pixel that gets lit, and that traffic is the same at one light or a hundred. With eight lights that is more traffic than forward would ever generate; with 64 overlapping lights it is the only sane option.</p>
-        <p class="words">In words: pay to write the G-buffer (more with overdraw), pay to read it, then pay only for the lights that touch each pixel.</p>
-        <div class="math">cost_deferred ≈ pixels × bytes_gbuffer (write, × overdraw)
-              + pixels × bytes_gbuffer (read)
-              + Σ_pixels lights_touching(p)
-G-buffer bytes = Σ layer formats  (RGBA8 + RG16 + RGBA8 + D32 = 16 B)</div>
-        <p style="margin-top:14px">pixels is the target size, bytes_gbuffer is the total from the table, and lights_touching(p) is how many light volumes cover pixel p. The default layout adds up to 16 B.</p>
+        <p>Three things a G-buffer cannot do. MSAA, the hardware anti-aliasing that keeps several samples per pixel, would need every layer at 4× samples and a per-sample lighting pass, so nobody does it and deferred renderers use TAA instead. The lighting model is baked into the pass, so a cloth or skin BRDF (the formula for how a material reflects light) costs a branch or a stencil bit per pixel. And a transparent surface has no single depth, so glass, particles and hair go through a forward pass afterwards regardless.</p>
         <p class="words">What this code does: the first block writes three layers and no lighting; the second reads them back for one pixel, rebuilds its position from depth, and adds one light's contribution.</p>
 <pre class="code"><span class="c">// geometry pass: no lights here, just describe the surface</span>
 <span class="k">layout</span>(location=0) <span class="k">out</span> vec4 gAlbedo;    <span class="c">// RGBA8, .a spare</span>
@@ -405,49 +372,68 @@ vec3  N   = octDecode(texelFetch(gNormal, px, 0).rg);
 vec4  M   = texelFetch(gMaterial, px, 0);
 <span class="k">if</span> (M.a != MODEL_STANDARD) <span class="k">discard</span>;                 <span class="c">// one lighting model per pass, branch per model</span>
 outColor += brdf(N, normalize(-P), normalize(light.pos - P), ...) * falloff(...);   <span class="c">// additive blend</span></pre>
-        <p style="margin-top:14px">Three things a G-buffer cannot do. MSAA, the hardware anti-aliasing that keeps several samples per pixel, would need every layer at 4× samples and a per-sample lighting pass, so nobody does it and deferred renderers use TAA instead. The lighting model is baked into the pass, so a cloth or skin BRDF (the formula for how a material reflects light) costs a branch or a stencil bit per pixel. And a transparent surface has no single depth, so glass, particles and hair go through a forward pass afterwards regardless.</p>
-        <p class="tldr">Deferred trades a fixed memory bill for a light loop that runs once per pixel, and that only wins when many lights overlap.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="tiled">
-    <h2>Tiled culling: a short light list per tile</h2>
-    <p class="sub">Cut the player's screen into tiles. Hover one on the left to see its wedge of the square and which lanterns it keeps.</p>
-    <div class="cols two">
+  <section id="volumes" class="stage">
+    <h2>Lighting from the notes</h2>
+    <p class="sub">The lighting pass reads those notes one lantern at a time, and only under the pixels that lantern can reach.</p>
+    <div class="cols">
       <div class="vp">
-        <canvas id="c3s" width="640" height="360" class="r169" aria-label="The player's screen cut into tiles, each heated and numbered by how many lanterns are in its list, with building outlines and the widest depth gap tile in red"></canvas>
-        <div class="cap"><span id="c3s-read">hover a tile</span><span>heat = lanterns in the tile's list</span></div>
+        <canvas id="c2t" width="512" height="512" class="sq grab" aria-label="Village square from above with each lantern's reach filled in amber"></canvas>
+        <div class="cap"><span id="c2t-read">light volumes</span><span>filled ring = the lantern's reach</span></div>
       </div>
-      <div class="vp">
-        <canvas id="c3t" width="512" height="512" class="sq grab" aria-label="Village square from above with the hovered tile's wedge drawn from its nearest to its farthest surface; kept lanterns in green, culled ones dim"></canvas>
-        <div class="cap"><span id="c3t-read">tile frustum</span><span>green = kept, dim = culled</span></div>
+      <div class="lesson" data-lesson="volumes">
+        <div class="tiles" data-step-min="2">
+          <div class="tile"><div class="n" id="t2-fwd">·</div><div class="l">forward: evaluations per frame</div></div>
+          <div class="tile on"><div class="n" id="t2-def">·</div><div class="l">deferred: evaluations per frame</div></div>
+          <div class="tile"><div class="n" id="t2-rect">·</div><div class="l">deferred, if each ring were a flat rectangle</div></div>
+        </div>
       </div>
     </div>
-    <div class="cols below">
-      <div class="prose">
-        <p class="plain">Most lights are nowhere near most pixels, so <b>cut the screen into small squares called tiles</b> and give each one a list of only the lights that can reach it. Neighbouring pixels want almost the same lights, so <b>one list serves a whole tile</b>. It is like sorting mail by postcode before delivering. The trick fails on <b>tiles where a near object meets a far one</b>, because their list has to cover everything in between.</p>
-        <h3>What you're seeing</h3>
-        <p>Left is the player's screen cut into tiles, each coloured and numbered by how many lanterns its list holds, with the buildings outlined so you can see which tile sits on what. The red outline marks the tile with the widest depth gap, usually where the edge of the stall or the well meets the cobbles far behind it. Right is the square from above: the hovered tile becomes a wedge from the nearest thing in it to the farthest, green lanterns are kept and dim ones are culled.</p>
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover the red tile. On the right its wedge stretches across most of the square and catches lanterns the whole way.</li>
-          <li>Hover a tile in the middle of the cobbles or on a house wall. The wedge is short and only a couple of lanterns stay green.</li>
-          <li>Switch to 2×2 tiles. The average per tile drops and the tile count climbs: more lists to build, shorter lists to walk.</li>
-        </ul>
-        <div class="controls">
-          <div class="ctl"><span class="lab">Tile size, grid cells</span><div class="seg" id="segTile" role="group" aria-label="Tile size"><button data-v="2">2×2</button><button data-v="4" aria-pressed="true">4×4</button><button data-v="8">8×8</button></div></div>
+    <div class="foot">
+    <p class="tldr">Deferred trades a fixed memory bill for a light loop that runs once per pixel, and that only wins when many lights overlap.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+        <p>The price is bandwidth, the bytes moved to and from memory. The G-buffer is written for every fragment that passes the depth test and read for every pixel that gets lit, and that traffic is the same at one light or a hundred. With eight lights that is more traffic than forward would ever generate; with 64 overlapping lights it is the only sane option.</p>
+        <p class="words">In words: pay to write the G-buffer (more with overdraw), pay to read it, then pay only for the lights that touch each pixel.</p>
+        <div class="math">cost_deferred ≈ pixels × bytes_gbuffer (write, × overdraw)
+              + pixels × bytes_gbuffer (read)
+              + Σ_pixels lights_touching(p)
+G-buffer bytes = Σ layer formats  (RGBA8 + RG16 + RGBA8 + D32 = 16 B)</div>
+        <p style="margin-top:14px">pixels is the target size, bytes_gbuffer is the total from the table, and lights_touching(p) is how many light volumes cover pixel p. The default layout adds up to 16 B.</p>
+    </div></details>
+    </div>
+  </section>
+
+  <section id="tiled" class="stage">
+    <h2>Tiled: a short list per tile</h2>
+    <p class="sub">Cut the player's screen into tiles and give each one a short list of lanterns. Hover a tile to see its slice of the square.</p>
+    <div class="cols three">
+      <div class="vp">
+        <canvas id="c3s" width="640" height="360" class="r169" aria-label="The player's screen cut into tiles, each brighter and numbered by how many lanterns are in its list, with building outlines and the biggest depth gap tile in red"></canvas>
+        <div class="cap"><span id="c3s-read">hover a tile</span><span>brighter = longer lantern list</span></div>
+      </div>
+      <div class="vp">
+        <canvas id="c3t" width="512" height="512" class="sq grab" aria-label="Village square from above with the hovered tile's wedge drawn from its nearest to its farthest surface; kept lanterns in green, dropped ones dim"></canvas>
+        <div class="cap"><span id="c3t-read">tile wedge</span><span>green = kept, dim = dropped</span></div>
+      </div>
+      <div class="lesson" data-lesson="tiled">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><span class="lab">Tile size, in screen squares</span><div class="seg" id="segTile" role="group" aria-label="Tile size"><button data-v="2">2×2</button><button data-v="4" aria-pressed="true">4×4</button><button data-v="8">8×8</button></div></div>
           <div class="ctl"><label for="nl3">Lanterns <span class="val" id="nl3v">12</span></label><input type="range" id="nl3" min="1" max="64" step="1" value="12"></div>
         </div>
-        <div class="tiles four">
-          <div class="tile"><div class="n" id="t3-tiles">·</div><div class="l">tiles · px each at 1080p</div></div>
-          <div class="tile on"><div class="n" id="t3-avg">·</div><div class="l">avg lanterns per tile</div></div>
-          <div class="tile"><div class="n" id="t3-worst">·</div><div class="l">worst depth gap tile</div></div>
-          <div class="tile"><div class="n" id="t3-eval">·</div><div class="l">evaluations, Forward+</div></div>
+        <div class="tiles four" data-step-min="2">
+          <div class="tile"><div class="n" id="t3-tiles">·</div><div class="l">tiles · real pixels each</div></div>
+          <div class="tile on"><div class="n" id="t3-avg">·</div><div class="l">lanterns per tile, average</div></div>
+          <div class="tile"><div class="n" id="t3-worst">·</div><div class="l">the biggest-gap tile</div></div>
+          <div class="tile"><div class="n" id="t3-eval">·</div><div class="l">evaluations with tile lists</div></div>
         </div>
       </div>
-      <div class="prose">
-        <h3>The real version</h3>
+    </div>
+    <div class="foot">
+    <p class="tldr">Tiles shrink the light loop to the lanterns near each screen square, except where a tile spans a big depth gap.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>One compute shader thread group per tile reads the depth buffer, finds the nearest and farthest depth in the tile, and builds a small frustum: four side planes through the eye plus those two depth bounds. Each light is a sphere, and it is kept if it pokes inside all four planes and the depth range. The list is a few dozen indices, written once and read by every pixel in the tile. The same list works in front of a forward shader (Forward+) or a deferred lighting pass (tiled deferred).</p>
         <p>The failure is the red tile. Where the edge of the market stall meets the cobbles far behind it, the depth range spans most of the square and the little frustum becomes a long wedge that every lantern along the view direction touches. Every pixel in that tile, near or far, then walks the whole list. Silhouette edges are exactly where this happens, and a scene is mostly silhouette edges.</p>
         <p class="words">In words: build four tilted planes for the tile, then keep a light if its sphere is not fully outside any plane and its depth overlaps the tile's depth range.</p>
@@ -470,47 +456,37 @@ GroupMemoryBarrierWithGroupSync();
 }
 GroupMemoryBarrierWithGroupSync();
 <span class="k">if</span> (threadIndex &lt; gCount) tileLightIndices[tileId * MAX_PER_TILE + threadIndex] = gList[threadIndex];</pre>
-        <p class="tldr">Tiles shrink the light loop to the lanterns near each screen square, except where a tile spans a big depth gap.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="clustered">
+  <section id="clustered" class="stage">
     <h2>Clustered: slice the tiles by distance</h2>
-    <p class="sub">Slice each tile by distance, so the stall in front and the church behind stop sharing one lantern list. Hover a pixel on the left to pick which tile row appears on the right, and drag the slider to cut finer slices.</p>
-    <div class="cols two">
+    <p class="sub">Slice each tile by distance as well, so the stall in front and the church behind stop sharing one list.</p>
+    <div class="cols three">
       <div class="vp">
-        <canvas id="c4s" width="640" height="360" class="r169" aria-label="The player's screen heated by how many lanterns are in each pixel's cluster list, with building outlines and the chosen tile row outlined in white"></canvas>
-        <div class="cap"><span id="c4s-read">hover a pixel</span><span>heat = lanterns in the pixel's cluster</span></div>
+        <canvas id="c4s" width="640" height="360" class="r169" aria-label="The player's screen brighter where a pixel's cluster list is longer, with building outlines and the chosen tile row outlined in white"></canvas>
+        <div class="cap"><span id="c4s-read">hover a square</span><span>brighter = longer list for that square's cluster</span></div>
       </div>
       <div class="vp">
-        <canvas id="c4t" width="512" height="512" class="sq grab" aria-label="Village square from above cut into wedges, tiles across and depth slices away from the player, each wedge heated by its lantern list length"></canvas>
-        <div class="cap"><span id="c4t-read">cluster grid</span><span>one tile row, all slices</span></div>
+        <canvas id="c4t" width="512" height="512" class="sq grab" aria-label="Village square from above cut into wedges, tiles across and depth slices away from the player, each wedge brighter the longer its lantern list"></canvas>
+        <div class="cap"><span id="c4t-read">cluster grid</span><span>one row of tiles, all its slices</span></div>
       </div>
-    </div>
-    <div class="cols below">
-      <div class="prose">
-        <p class="plain">Take each tile and <b>cut it into slices by distance</b> from the player. Now the stall in front and the church behind it sit in <b>different clusters with different lantern lists</b>, so the depth-gap problem goes away. The slices are <b>fixed in advance</b>, so the lists never touch the depth buffer and <b>work for glass and particles too</b>.</p>
-        <h3>What you're seeing</h3>
-        <p>Left is the player's screen coloured by how many lanterns are in each pixel's cluster list, with the buildings outlined. The white outline is the tile row your hover picked. Right shows that row from above as a grid of wedges laid over the square: tiles across, depth slices going away from the player, each wedge coloured by its list length.</p>
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover the spot where the market stall's edge meets the cobbles. The cluster count for that pixel is well below its tile count.</li>
-          <li>Drag Depth slices to 32. Each wedge gets thinner, the per-pixel average drops a little, and the memory tile climbs.</li>
-          <li>Drag a lantern on the right. Only the wedges its ring touches change colour.</li>
-        </ul>
-        <div class="controls">
+      <div class="lesson" data-lesson="clustered">
+        <div class="controls" data-step-min="4">
           <div class="ctl"><label for="nsl">Depth slices <span class="val" id="nslv">16</span></label><input type="range" id="nsl" min="8" max="32" step="1" value="16"></div>
         </div>
-        <div class="tiles four">
-          <div class="tile"><div class="n" id="t4-tile">·</div><div class="l">avg lanterns per pixel, tiled</div></div>
-          <div class="tile on"><div class="n" id="t4-clu">·</div><div class="l">avg lanterns per pixel, clustered</div></div>
-          <div class="tile"><div class="n" id="t4-n">·</div><div class="l">clusters · avg list length</div></div>
-          <div class="tile"><div class="n" id="t4-mem">·</div><div class="l">light list memory</div></div>
+        <div class="tiles four" data-step-min="2">
+          <div class="tile"><div class="n" id="t4-tile">·</div><div class="l">lanterns per pixel, tile lists</div></div>
+          <div class="tile on"><div class="n" id="t4-clu">·</div><div class="l">lanterns per pixel, cluster lists</div></div>
+          <div class="tile"><div class="n" id="t4-n">·</div><div class="l">clusters · average list</div></div>
+          <div class="tile"><div class="n" id="t4-mem">·</div><div class="l">memory for the lists</div></div>
         </div>
       </div>
-      <div class="prose">
-        <h3>The real version</h3>
+    </div>
+    <div class="foot">
+    <p class="tldr">Clusters give each small piece of the view its own lantern list, fixed ahead of time, so near and far stop sharing a bill.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>A cluster is one tile times one depth slice, small enough to bound with a box in view space. A sphere-versus-box test is tighter than the four-plane test a tile uses, which over-includes lights near the corners of a long wedge. The slice planes are chosen once, spaced so that each slice is the same fraction deeper than the last, which matches how perspective compresses distance. Because the grid is fixed, the light lists can be built before the geometry is drawn, or even on the CPU, and they serve transparent surfaces too since no depth read was involved.</p>
         <p>The cost is the list count. Sixteen tile columns by nine rows by 24 slices is 3,456 lists for this grid, and at 1080p with 16-pixel tiles it would be 120×68×24, close to 200,000. Most of them are empty or hold one or two lights, so the storage is a small header per cluster plus a packed index list, and the average list a pixel walks is what drops.</p>
         <p class="words">In words: turn a depth into a slice number with a logarithm, find the cluster, then keep a light if the nearest point of the cluster's box is inside its sphere.</p>
@@ -532,44 +508,37 @@ vec3 color = albedo * ambient;
   color += shade(L, vPos, N, V, albedo, rough, metal);
 }
 <span class="c">// transparent surfaces run the same loop: no depth buffer was read to build the lists</span></pre>
-        <p class="tldr">Clusters give each small piece of the view its own lantern list, fixed ahead of time, so near and far stop sharing a bill.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="compare">
-    <h2>What one pixel keeps between passes</h2>
-    <p class="sub">The same village drawn by three renderers. Hover any panel to read how many bytes that pixel holds in each one between drawing and lighting.</p>
+  <section id="compare" class="stage">
+    <h2>What one pixel keeps</h2>
+    <p class="sub">The same village drawn by three renderers, and how many bytes each one keeps per pixel between drawing and lighting.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c5s" width="640" height="360" class="r169" aria-label="Six panels of the village: the lit picture, the G-buffer colour layer and the triangle ids on top; stored depth, stored facing and material, and derived barycentrics below"></canvas>
-        <div class="cap"><span id="c5s-read">hover a pixel</span><span>lit village · G-buffer · triangle id</span></div>
+        <div class="cap"><span id="c5s-read">hover a square</span><span>lit village · surface notes · triangle id</span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Three renderers, same frame, different memory. <b>Forward+ keeps only depth and the final colour</b>. <b>Deferred keeps the whole surface</b> and forgets the triangle. <b>A visibility buffer keeps only which triangle</b> landed on the pixel, one 32-bit number, and rebuilds everything else later.</p>
-        <h3>What you're seeing</h3>
-        <p>Top row, left to right: the lit village as the Forward+ player sees it, the colour layer of the deferred G-buffer, and the visibility buffer with every wall, roof and cobble triangle in its own colour. Bottom row is what each one has at shading time: stored depth, stored normal and material, and barycentrics, the three weights that say where inside the triangle the pixel sits, worked out on the fly.</p>
-        <p>The bars are bytes per pixel and the total for a 3840×2160 target, HDR colour included.</p>
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover a house wall in the visibility panel. The readout gives the triangle id and its three barycentric weights.</li>
-          <li>Tick 4× MSAA. Forward+ and V-buffer grow with the sample count; deferred greys out because it cannot do it at all.</li>
-          <li>Change a G-buffer format in the deferred section. Only the deferred bar moves.</li>
-        </ul>
-        <div class="controls">
-          <div class="ctl"><label class="chk"><input type="checkbox" id="msaa"> 4× MSAA where possible</label></div>
+      <div class="lesson" data-lesson="compare">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label class="chk"><input type="checkbox" id="msaa"> 4× MSAA, hardware anti-aliasing, where possible</label></div>
         </div>
-        <div class="bars" id="bars">
+        <div class="bars" id="bars" data-step-min="2">
           <div class="bar" id="bar-f"><span class="lab">Forward+</span><div class="trk"><div class="fill"></div></div><span class="v">·</span></div>
           <div class="bar" id="bar-d"><span class="lab">Deferred</span><div class="trk"><div class="fill"></div></div><span class="v">·</span></div>
           <div class="bar" id="bar-v"><span class="lab">V-buffer</span><div class="trk"><div class="fill"></div></div><span class="v">·</span></div>
         </div>
-        <div class="tiles">
-          <div class="tile"><div class="n" id="t5-f">·</div><div class="l">shading invocations, Forward+</div></div>
+        <div class="tiles" data-step-min="2">
+          <div class="tile"><div class="n" id="t5-f">·</div><div class="l">pixels coloured, Forward+</div></div>
           <div class="tile"><div class="n" id="t5-d">·</div><div class="l">deferred</div></div>
           <div class="tile"><div class="n" id="t5-v">·</div><div class="l">visibility buffer</div></div>
         </div>
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Store the surface (deferred), or store the triangle and rebuild the surface (visibility buffer); the second is smaller and gets MSAA back.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The visibility buffer stores one 32-bit id per pixel, instance plus triangle index, and nothing else. The material pass then fetches the three vertices again, recomputes the barycentrics from the pixel position, interpolates the attributes and shades, all in one full-screen pass with no geometry overdraw at all.</p>
         <p>That makes it the smallest footprint and the cheapest geometry pass, which is why Nanite uses it for micro-triangle meshes where rasterising is the bottleneck. It also brings back MSAA and material variety, since the id is a per-sample integer and the material pass can branch or sort by material id. The cost moves to the resolve: three vertex fetches and a derivative computation per pixel.</p>
         <p class="words">In words: pack which object and which triangle into one integer, then solve for the three weights that place the pixel inside that triangle.</p>
@@ -586,22 +555,21 @@ Bary b = computeBarycentrics(v0.clip, v1.clip, v2.clip, px);   <span class="c">/
 vec2 uv = b.l0 * v0.uv + b.l1 * v1.uv + b.l2 * v2.uv;
 Material m = evalMaterial(inst.materialId, uv, b);             <span class="c">// branch by material id, or one pass per material</span>
 outColor = shadeClustered(m, P, N);</pre>
-        <p class="tldr">Store the surface (deferred), or store the triangle and rebuild the surface (visibility buffer); the second is smaller and gets MSAA back.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
   <section id="tradeoffs">
     <h2>Tradeoffs</h2>
     <p class="sub">Memory and bandwidth are at 1080p with the layout chosen above, no MSAA. Light scaling is how the per-frame cost grows as lights are added.</p>
-    <p class="plain">Read this as a checklist. You are choosing between <b>anti-aliasing and free choice of materials</b> on one side and <b>cheap handling of many lights</b> on the other. The memory column follows the G-buffer table above, and the scaling column says what multiplies the bill as you add lights.</p>
+    <p class="plain">Read this as a checklist. You are choosing between <b>hardware anti-aliasing and free choice of materials</b> on one side and <b>cheap handling of many lights</b> on the other. The memory column follows the G-buffer table above, and the scaling column says what multiplies the bill as you add lights.</p>
     <div class="tbl-wrap">
     <table class="uses wide">
       <thead><tr><th>Architecture</th><th>Hardware anti-aliasing (MSAA)</th><th>Material freedom</th><th>Extra memory</th><th>Memory traffic</th><th>How cost grows with lights</th><th>Transparent surfaces</th><th>Pick it when</th></tr></thead>
       <tbody>
-        <tr><td>Forward</td><td>Yes, in hardware</td><td>Any shader per draw</td><td>None beyond depth and colour</td><td>Lowest</td><td>fragments × N, overdraw included</td><td>Same path as opaque</td><td>Few lights, VR, mobile, anything that wants MSAA</td></tr>
+        <tr><td>Forward</td><td>Yes, in hardware</td><td>Any shader per draw</td><td>None beyond depth and colour</td><td>Lowest</td><td>fragments × lights, hidden fragments included</td><td>Same path as opaque</td><td>Few lights, VR, mobile, anything that wants MSAA</td></tr>
         <tr><td>Forward+ (tiled or clustered forward)</td><td>Yes</td><td>Any shader per draw</td><td>Light lists, tens of KB to a few MB</td><td>Low, plus a depth prepass</td><td>fragments × lights per tile or cluster</td><td>Same loop, using the cluster lists</td><td>Many lights with MSAA or varied materials</td></tr>
-        <tr><td>Tiled deferred</td><td>No</td><td>One model per pass, flags for a few more</td><td id="tr-gb1">G-buffer 16 B/px</td><td>High, G-buffer written and read each frame</td><td>pixels × lights per tile</td><td>Needs a separate forward pass</td><td>Many lights, decals, screen-space effects that read the G-buffer</td></tr>
+        <tr><td>Tiled deferred</td><td>No</td><td>One lighting model per pass, flags for a few more</td><td id="tr-gb1">G-buffer 16 B/px</td><td>High, G-buffer written and read each frame</td><td>pixels × lights per tile</td><td>Needs a separate forward pass</td><td>Many lights, decals, screen-space effects that read the G-buffer</td></tr>
         <tr><td>Clustered deferred</td><td>No</td><td>Same as tiled deferred</td><td id="tr-gb2">G-buffer plus cluster lists</td><td>High</td><td>pixels × lights per cluster, no depth-gap spikes</td><td>Forward pass using the same clusters</td><td>Deferred pipelines with many overlapping lights</td></tr>
         <tr><td>Visibility buffer</td><td>Yes, one id per sample</td><td>Any, branched or sorted by material id</td><td>4 to 8 B/px plus an optional G-buffer</td><td>Lowest for geometry, then a heavy resolve pass</td><td>pixels × lights per cluster</td><td>Needs a separate forward pass</td><td>Very high triangle counts, GPU-driven pipelines</td></tr>
       </tbody>
@@ -618,7 +586,7 @@ outColor = shadeClustered(m, P, N);</pre>
     <table class="uses">
       <thead><tr><th>Use</th><th>How it works</th><th>What it stores</th><th>Seen in</th></tr></thead>
       <tbody>
-        <tr><td>Classic deferred</td><td>Draw each light as a volume, read the G-buffer under it, add the result.</td><td>Full G-buffer, plus a stencil mask to clip the volume</td><td>Killzone 2 (Guerrilla, 2009), Unreal Engine 4 and 5 default pipeline</td></tr>
+        <tr><td>Classic deferred</td><td>Draw each light as a volume, read the G-buffer under it, add the result.</td><td>Full G-buffer, plus a stencil mask (an extra per-pixel flag) to clip the volume</td><td>Killzone 2 (Guerrilla, 2009), Unreal Engine 4 and 5 default pipeline</td></tr>
         <tr><td>Tiled deferred</td><td>A compute shader per tile culls the lights, then lights every pixel in the tile in one pass.</td><td>G-buffer, plus min and max depth per tile</td><td>Frostbite, Battlefield 3 (DICE, 2011)</td></tr>
         <tr><td>Clustered forward</td><td>A fixed 3D grid of light lists; the fragment shader walks its cluster's list.</td><td>Cluster headers and index list, plus a depth prepass</td><td>Doom 2016 (id Tech 6), Unity HDRP, Unity URP Forward+</td></tr>
         <tr><td>Visibility buffer</td><td>The rasteriser writes a triangle id; a full-screen pass rebuilds the surface and shades it.</td><td>A 32 or 64-bit id per pixel, and vertex data the shader can read</td><td>Nanite in Unreal Engine 5, some mobile and tile-based GPU pipelines</td></tr>
@@ -745,7 +713,76 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
+  let L1, L2, L3, L4, L5, L6;
+  const $ = id => document.getElementById(id);
   // ---------- scene: a village square at night. Player (camera) at origin, y up, +z forward; 64×36 grid stands in for 1920×1080 ----------
   const GW = 64, GH = 36, NPX = GW * GH, SCALE = (1920 * 1080) / NPX; // 900 real pixels per cell
   const NEAR = 0.5, FAR = 24, TANV = Math.tan(25 * Math.PI / 180), TANH = TANV * 16 / 9, CAMY = 1.5;
@@ -772,6 +809,9 @@ function kitInset(ctx, x, y, w, h, title) {
     LIGHTS.push({ x, z, y: -CAMY + 0.3 + rnd() * 1.6, r: 1.5 + rnd() * 3.0 });
   }
   const st = { nl: 12, nobj: 5, prepass: false, tile: 4, slices: 16, msaa: false, hoverPx: -1, hoverTile: -1, hoverRow: 4 };
+  // where everything started, so a lesson step can put the square back
+  const OBJ0 = OBJ_ALL.map(b => [b.x, b.z]), LT0 = LIGHTS.map(L => [L.x, L.z]);
+  function resetScene() { OBJ_ALL.forEach((b, i) => { b.x = OBJ0[i][0]; b.z = OBJ0[i][1]; }); LIGHTS.forEach((L, i) => { L.x = LT0[i][0]; L.z = LT0[i][1]; }); needRaster = true; }
 
   // ---------- rasterize the grid: ray per pixel centre, boxes + floor ----------
   const depth = new Float32Array(NPX), frags = new Uint8Array(NPX), objId = new Int16Array(NPX), triId = new Int32Array(NPX);
@@ -1065,8 +1105,8 @@ function kitInset(ctx, x, y, w, h, title) {
     if (st.hoverPx >= 0) {
       const k = st.hoverPx; cellRect(x1s, k, 0, 0, 640, 360, "#fff");
       const f = st.prepass ? (frags[k] ? 1 : 0) : frags[k];
-      r1s.innerHTML = frags[k] ? `pixel ${k % GW},${Math.floor(k / GW)} on ${nameOf(k)}: <strong>${f} fragment${f > 1 ? "s" : ""} × ${N} lanterns = ${f * N} evaluations</strong>${frags[k] > 1 && !st.prepass ? ` · ${frags[k] - 1} hidden, still paid` : ""} · ${lightsAt[k]} lanterns actually reach it` : `pixel ${k % GW},${Math.floor(k / GW)}: sky, nothing drawn`;
-    } else r1s.textContent = "hover a pixel";
+      r1s.innerHTML = frags[k] ? `square ${k % GW},${Math.floor(k / GW)} on ${nameOf(k)}: <strong>${f} fragment${f > 1 ? "s" : ""} × ${N} lanterns = ${f * N} evaluations</strong>${frags[k] > 1 && !st.prepass ? ` · ${frags[k] - 1} hidden, still paid` : ""} · only ${lightsAt[k]} lantern${lightsAt[k] === 1 ? "" : "s"} actually reach${lightsAt[k] === 1 ? "es" : ""} it` : `square ${k % GW},${Math.floor(k / GW)}: sky, nothing drawn`;
+    } else r1s.textContent = "hover a square";
     if (worstK >= 0 && !st.prepass) calloutFor(x1s, worstK, `${maxF} fragments: ${OBJ_ALL[objId[worstK]] ? OBJ_ALL[objId[worstK]].name : "cobbles"} in front of the square`);
     else if (worstK >= 0) calloutFor(x1s, worstK, "prepass: 1 fragment everywhere");
     kitLabel(x1s, "sky: nothing drawn", 8, 14, "left", "rgba(255,255,255,0.7)");
@@ -1079,6 +1119,8 @@ function kitInset(ctx, x, y, w, h, title) {
     document.getElementById("t1-frag").innerHTML = `${fmtM(fragTotal * SCALE)}<small> (${fmtN(fragTotal)} cells)</small>`;
     document.getElementById("t1-eval").innerHTML = `${fmtM(fragTotal * N * SCALE)}<small> × ${N}</small>`;
     document.getElementById("t1-od").textContent = covered ? (fragTotal / covered).toFixed(2) + "×" : "0";
+    st.s1 = { maxF, overdraw: covered ? fragTotal / covered : 0, hoverFrags: st.hoverPx >= 0 ? frags[st.hoverPx] : 0 };
+    L1 && L1.check();
     return fragTotal * N * SCALE;
   }
 
@@ -1086,7 +1128,7 @@ function kitInset(ctx, x, y, w, h, title) {
   const c2s = document.getElementById("c2s"), x2s = c2s.getContext("2d"), c2t = document.getElementById("c2t"), x2t = c2t.getContext("2d");
   const r2s = document.getElementById("c2s-read"), r2t = document.getElementById("c2t-read");
   function octEncode(x, y, z) { const s = Math.abs(x) + Math.abs(y) + Math.abs(z); let u = x / s, v = y / s; if (z < 0) { const ou = u; u = (1 - Math.abs(v)) * (ou >= 0 ? 1 : -1); v = (1 - Math.abs(ou)) * (v >= 0 ? 1 : -1); } return [u * 0.5 + 0.5, v * 0.5 + 0.5]; }
-  const layerName = ["colour of the surface (albedo RGBA8)", "which way it faces (normal RG16 oct)", "rough or shiny, metal or not", "how far away (depth D32)"];
+  const layerName = ["colour of the surface", "which way it faces", "rough or shiny, metal or not", "how far away, bright = near"];
   function draw2(fwdEval) {
     const N = st.nl; x2s.fillStyle = "#0b0e13"; x2s.fillRect(0, 0, 640, 360);
     const imgs = [
@@ -1099,16 +1141,16 @@ function kitInset(ctx, x, y, w, h, title) {
     imgs.forEach((img, i) => { blitGrid(x2s, img, pos[i][0], pos[i][1], 316, 176); kitLabel(x2s, layerName[i], pos[i][0] + 4, pos[i][1] + 12, "left", "rgba(255,255,255,0.85)"); });
     if (st.hoverPx >= 0) {
       const k = st.hoverPx; pos.forEach(p => cellRect(x2s, k, p[0], p[1], 316, 176, "#fff"));
-      if (depth[k] === Infinity) r2s.textContent = "sky: depth = far, nothing to light";
-      else { const m = matOf(k), a = albedoOf(k), [u, v] = octEncode(nx[k], ny[k], nz[k]); r2s.innerHTML = `${nameOf(k)}: albedo (${a.join(",")}) · oct (${u.toFixed(2)}, ${v.toFixed(2)}) · rough ${m.rough} metal ${m.metal} · z <strong>${depth[k].toFixed(2)} m</strong> · <strong>${lightsAt[k]} lanterns</strong> reach it`; }
-    } else r2s.textContent = "hover a pixel";
+      if (depth[k] === Infinity) r2s.textContent = "sky: distance = as far as it draws, nothing to light";
+      else { const m = matOf(k), a = albedoOf(k), [u, v] = octEncode(nx[k], ny[k], nz[k]); r2s.innerHTML = `${nameOf(k)}: colour (${a.map(Math.round).join(", ")}) · facing (${u.toFixed(2)}, ${v.toFixed(2)}) · rough ${m.rough}, metal ${m.metal} · <strong>${depth[k].toFixed(2)} m away</strong> · <strong>${lightsAt[k]} lantern${lightsAt[k] === 1 ? "" : "s"}</strong> reach${lightsAt[k] === 1 ? "es" : ""} it`; }
+    } else r2s.textContent = "hover a square";
     tdDraw(x2t, { fillRings: true, after: ctx => { const L = LIGHTS[0]; kitLabel(ctx, "only pixels inside a ring get this lantern", wx(L.x) + (L.x < 0 ? 10 : -10), wz(L.z) - 12, L.x < 0 ? "left" : "right", "#f2a341"); } });
     let defEval = 0, visible = 0; for (let k = 0; k < NPX; k++) if (depth[k] !== Infinity) { visible++; defEval += lightsAt[k]; }
     const rectEval = rectVolumePixels();
-    r2t.innerHTML = `<strong>${fmtN(visible)} lit cells</strong> · ${(defEval / Math.max(1, visible)).toFixed(2)} lanterns per cell`;
-    document.getElementById("t2-fwd").innerHTML = `${fmtM(fwdEval)}<small> × ${N} every fragment</small>`;
+    r2t.innerHTML = `<strong>${fmtN(visible)} squares to light</strong> · ${(defEval / Math.max(1, visible)).toFixed(2)} lanterns each on average`;
+    document.getElementById("t2-fwd").innerHTML = `${fmtM(fwdEval)}<small> all ${N}, every fragment</small>`;
     document.getElementById("t2-def").innerHTML = `${fmtM(defEval * SCALE)}<small> ${(100 * defEval * SCALE / Math.max(1, fwdEval)).toFixed(0)}% of forward</small>`;
-    document.getElementById("t2-rect").innerHTML = `${fmtM(rectEval * SCALE)}<small> no depth bounds</small>`;
+    document.getElementById("t2-rect").innerHTML = `${fmtM(rectEval * SCALE)}<small> no near or far limit</small>`;
     // G-buffer memory table
     const b = { Alb: +document.getElementById("fAlb").value, Nrm: +document.getElementById("fNrm").value, Mat: +document.getElementById("fMat").value, Dep: +document.getElementById("fDep").value };
     const P1 = 1920 * 1080, P4 = 3840 * 2160; let tot = 0;
@@ -1121,6 +1163,8 @@ function kitInset(ctx, x, y, w, h, title) {
     document.getElementById("mBws").textContent = (traffic1 * 60 / 1e9).toFixed(1) + " GB/s"; document.getElementById("kBws").textContent = (traffic4 * 60 / 1e9).toFixed(1) + " GB/s";
     document.getElementById("tr-gb1").textContent = `G-buffer ${tot} B/px, ${fmtB(tot * P1)}`;
     document.getElementById("tr-gb2").textContent = `${fmtB(tot * P1)} plus cluster lists`;
+    st.s2 = { hovered: st.hoverPx >= 0 && depth[st.hoverPx] !== Infinity, defEval, visible };
+    L2 && L2.check(); L3 && L3.check();
     return { defEval, visible, gbytes: tot, depthBytes: b.Dep };
   }
 
@@ -1150,7 +1194,7 @@ function kitInset(ctx, x, y, w, h, title) {
     playerInset(x3s);
     if (ht >= 0) {
       const mn = tiles.minZ[ht], mx = tiles.maxZ[ht];
-      r3s.innerHTML = mn === Infinity ? `tile ${ht % tx},${Math.floor(ht / tx)}: sky only, 0 lanterns` : `tile ${ht % tx},${Math.floor(ht / tx)}: z ${mn.toFixed(1)} to ${mx.toFixed(1)} m · <strong>${tiles.count[ht]} of ${N} lanterns</strong>${ht === worst ? " · widest depth gap" : ""}`;
+      r3s.innerHTML = mn === Infinity ? `tile ${ht % tx},${Math.floor(ht / tx)}: sky only, 0 lanterns` : `tile ${ht % tx},${Math.floor(ht / tx)}: from ${mn.toFixed(1)} m to ${mx.toFixed(1)} m away · <strong>${tiles.count[ht]} of ${N} lanterns</strong> on its list${ht === worst ? " · the biggest gap" : ""}`;
       const keepSet = new Set(tiles.keep[ht]);
       tdDraw(x3t, { keep: keepSet, before: ctx => { if (mn !== Infinity) wedge(ctx, ht % tx, mn, mx, ht === worst && st.hoverTile < 0 ? "rgba(239,93,93,0.18)" : "rgba(255,255,255,0.12)", ht === worst ? "#ef5d5d" : "#ffffff"); }, after: ctx => {
         if (mn === Infinity) return;
@@ -1158,15 +1202,17 @@ function kitInset(ctx, x, y, w, h, title) {
         const lx = wx(xm); kitLabel(ctx, "this tile's wedge, near to far", lx < 256 ? lx + 14 : lx - 14, wz(zm), lx < 256 ? "left" : "right", ht === worst ? "#ef5d5d" : "#ffffff");
         let kl = -1, cl = -1; for (let l = 0; l < N; l++) { if (kl < 0 && keepSet.has(l)) kl = l; if (cl < 0 && !keepSet.has(l)) cl = l; }
         if (kl >= 0) { const L = LIGHTS[kl]; kitLabel(ctx, "kept", wx(L.x) + 9, wz(L.z) + 10, "left", "#5ad48a"); }
-        if (cl >= 0) { const L = LIGHTS[cl]; kitLabel(ctx, "culled", wx(L.x) + 9, wz(L.z) + 10, "left", "rgba(242,163,65,0.8)"); }
+        if (cl >= 0) { const L = LIGHTS[cl]; kitLabel(ctx, "dropped", wx(L.x) + 9, wz(L.z) + 10, "left", "rgba(242,163,65,0.8)"); }
       } });
-      r3t.innerHTML = mn === Infinity ? "empty tile" : `tile column wedge, <strong>${(mx - mn).toFixed(1)} m deep</strong>`;
+      r3t.innerHTML = mn === Infinity ? "empty tile" : `this tile's wedge, <strong>${(mx - mn).toFixed(1)} m deep</strong>`;
     } else { r3s.textContent = "hover a tile"; tdDraw(x3t, {}); }
     const pxTile = ts * 30;
     document.getElementById("t3-tiles").innerHTML = `${nt}<small> · ${pxTile}×${pxTile} px</small>`;
     document.getElementById("t3-avg").innerHTML = `${(sum / nt).toFixed(1)}<small> max ${maxC}</small>`;
     document.getElementById("t3-worst").innerHTML = worst >= 0 ? `${tiles.count[worst]}<small> lanterns, ${worstGap.toFixed(1)} m gap</small>` : "·";
-    document.getElementById("t3-eval").innerHTML = `${fmtM(fwdPlus * SCALE)}<small> vs ${fmtM(NPX * 0 + (() => { let f = 0; for (let k = 0; k < NPX; k++) f += st.prepass ? (frags[k] ? 1 : 0) : frags[k]; return f; })() * N * SCALE)} plain</small>`;
+    document.getElementById("t3-eval").innerHTML = `${fmtM(fwdPlus * SCALE)}<small> vs ${fmtM(NPX * 0 + (() => { let f = 0; for (let k = 0; k < NPX; k++) f += st.prepass ? (frags[k] ? 1 : 0) : frags[k]; return f; })() * N * SCALE)} without lists</small>`;
+    st.s3 = { worst, hoverTile: st.hoverTile, hoverGap: st.hoverTile >= 0 && tiles.minZ[st.hoverTile] !== Infinity ? tiles.maxZ[st.hoverTile] - tiles.minZ[st.hoverTile] : null, sum, nt, fwdPlus };
+    L4 && L4.check();
     return { fwdPlus, sum, nt };
   }
 
@@ -1184,8 +1230,8 @@ function kitInset(ctx, x, y, w, h, title) {
     playerInset(x4s);
     if (st.hoverPx >= 0) {
       const k = st.hoverPx; cellRect(x4s, k, 0, 0, 640, 360, "#fff");
-      r4s.innerHTML = depth[k] === Infinity ? "sky, no cluster lookup" : `${nameOf(k)} at z ${depth[k].toFixed(2)} m → slice <strong>${sliceOf(depth[k])} of ${S}</strong> · cluster list <strong>${clus.count[clusterOf(k)]} lanterns</strong> · tile list ${tiles.count[tileOf(k)]}`;
-    } else r4s.textContent = "hover a pixel";
+      r4s.innerHTML = depth[k] === Infinity ? "sky, no cluster to look up" : `${nameOf(k)}, ${depth[k].toFixed(2)} m away → slice <strong>${sliceOf(depth[k])} of ${S}</strong> · <strong>its cluster lists ${clus.count[clusterOf(k)]} lanterns</strong> · its tile lists ${tiles.count[tileOf(k)]}`;
+    } else r4s.textContent = "hover a square";
     // top-down: cluster grid for one tile row, cell colour = list length
     tdDraw(x4t, {
       before: ctx => {
@@ -1210,6 +1256,8 @@ function kitInset(ctx, x, y, w, h, title) {
     document.getElementById("t4-clu").innerHTML = `${(sumClu / Math.max(1, visible)).toFixed(2)}<small> ${(100 * sumClu / Math.max(1, sumTile)).toFixed(0)}% of tiled</small>`;
     document.getElementById("t4-n").innerHTML = `${fmtN(clus.n)}<small> · ${(clus.total / clus.n).toFixed(2)} avg</small>`;
     document.getElementById("t4-mem").innerHTML = `${fmtB(mem)}<small> · ${fmtB(mem1080)} at 1080p</small>`;
+    st.s4 = { hoverDiff: st.hoverPx >= 0 && depth[st.hoverPx] !== Infinity ? tiles.count[tileOf(st.hoverPx)] - clus.count[clusterOf(st.hoverPx)] : null, sumClu, sumTile, visible };
+    L5 && L5.check();
     return sumClu;
   }
 
@@ -1222,7 +1270,7 @@ function kitInset(ctx, x, y, w, h, title) {
     const pw = 210, ph = 118, pos = [[2, 0], [215, 0], [428, 0]];
     x5s.fillStyle = "#0b0e13"; x5s.fillRect(0, 0, 640, 360);
     const imgs = [shadeImg, gridImage(k => depth[k] === Infinity ? GROUND : albedoOf(k)), gridImage(k => depth[k] === Infinity ? GROUND : triCol(triId[k]))];
-    const names = ["Forward+: the lit village", "Deferred: colour layer", "Visibility: which triangle"];
+    const names = ["Forward+: the lit village", "Deferred: colour notes", "Visibility: which triangle"];
     // second row: the derived data each one has at shading time
     const imgs2 = [gridImage(k => { if (depth[k] === Infinity) return GROUND; const v = 40 + 215 * (FAR / depth[k] - 1) / (FAR / NEAR - 1); return [v, v, v]; }), gridImage(k => { if (depth[k] === Infinity) return GROUND; const [u, v] = octEncode(nx[k], ny[k], nz[k]); return [30 + AMBER[0] * u * 0.55 + BLUE[0] * v * 0.45, 30 + AMBER[1] * u * 0.55 + BLUE[1] * v * 0.45, 30 + AMBER[2] * u * 0.55 + BLUE[2] * v * 0.45]; }), gridImage(k => { if (depth[k] === Infinity) return GROUND; const [l0, l1, l2] = bary(k); return [AMBER[0] * l0 + BLUE[0] * l1 + 255 * l2, AMBER[1] * l0 + BLUE[1] * l1 + 255 * l2, AMBER[2] * l0 + BLUE[2] * l1 + 255 * l2]; })];
     const names2 = ["stores: distance only", "stores: facing, rough, metal", "works out: place in triangle"];
@@ -1233,15 +1281,17 @@ function kitInset(ctx, x, y, w, h, title) {
     const fB = (gb.depthBytes + 8) * ms, dB = gb.gbytes + 8, vB = (4 + gb.depthBytes) * ms + 8;
     if (st.hoverPx >= 0) {
       const k = st.hoverPx; pos.forEach(p => { cellRect(x5s, k, p[0], 30, pw, ph, "#fff"); cellRect(x5s, k, p[0], 212, pw, ph, "#fff"); });
-      const bb = bary(k); r5s.innerHTML = depth[k] === Infinity ? "sky: forward+ stores far depth, deferred a cleared G-buffer, v-buffer id 0" : `${nameOf(k)}: <strong>${fB} B</strong> forward+ · <strong>${dB} B</strong> deferred · <strong>${vB} B</strong> v-buffer, id ${triId[k]}, λ = (${bb.map(x => x.toFixed(2)).join(", ")})`;
-    } else r5s.textContent = "hover a pixel";
+      const bb = bary(k); r5s.innerHTML = depth[k] === Infinity ? "sky: forward+ stores the far distance, deferred an empty note, the visibility buffer id 0" : `${nameOf(k)}: <strong>${fB} bytes</strong> forward+ · <strong>${dB} bytes</strong> deferred · <strong>${vB} bytes</strong> visibility buffer (triangle ${triId[k]}, weights ${bb.map(x => x.toFixed(2)).join(", ")})`;
+    } else r5s.textContent = "hover a square";
     const P4 = 3840 * 2160, mx = Math.max(fB, dB, vB);
     const setBar = (id, bytes, off, label) => { const el = document.getElementById(id); el.classList.toggle("off", off); el.querySelector(".fill").style.width = (100 * bytes / mx) + "%"; el.querySelector(".v").textContent = label || `${bytes} B/px · ${Math.round(bytes * P4 / 1048576)} MB`; };
     setBar("bar-f", fB, false); setBar("bar-d", dB, st.msaa, st.msaa ? `no MSAA · ${dB} B/px` : null); setBar("bar-v", vB, false);
     let visible = 0; for (let k = 0; k < NPX; k++) if (depth[k] !== Infinity) visible++;
     document.getElementById("t5-f").innerHTML = `${fmtM(fwdPlus * SCALE)}<small> tile lists${st.prepass ? ", prepass" : ", overdraw"}</small>`;
     document.getElementById("t5-d").innerHTML = `${fmtM(defEval * SCALE)}<small> sphere volumes</small>`;
-    document.getElementById("t5-v").innerHTML = `${fmtM(cluEval * SCALE)}<small> + ${fmtM(visible * SCALE)} material resolves</small>`;
+    document.getElementById("t5-v").innerHTML = `${fmtM(cluEval * SCALE)}<small> + ${fmtM(visible * SCALE)} surface rebuilds</small>`;
+    st.s5 = { hovered: st.hoverPx >= 0 && depth[st.hoverPx] !== Infinity };
+    L6 && L6.check();
   }
 
   // ---------- drive everything from one shared scene ----------
@@ -1274,6 +1324,103 @@ function kitInset(ctx, x, y, w, h, title) {
   document.getElementById("segTile").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; st.tile = +b.dataset.v; st.hoverTile = -1; st.hoverRow = Math.min(st.hoverRow, Math.ceil(GH / st.tile) - 1); ev.currentTarget.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); redraw(); });
   for (const id of ["fAlb", "fNrm", "fMat", "fDep"]) document.getElementById(id).addEventListener("change", redraw);
   document.getElementById("tr-note").textContent = "Bandwidth is the number to watch on consoles and mobile, where the G-buffer round trip competes with everything else for the same memory bus. On tile-based mobile GPUs a G-buffer that stays in on-chip tile memory (framebuffer fetch, subpasses in Vulkan) costs almost nothing, which is why deferred is common there despite the bandwidth story on desktop.";
+
+  // ---------- guided steps ----------
+  // put the demo in the state a step assumes: controls through their DOM elements, then one synchronous draw
+  const setF = o => {
+    if (o.reset) resetScene();
+    if (o.nl != null) { st.nl = o.nl; nl.value = o.nl; nl3.value = o.nl; $("nlv").textContent = o.nl; $("nl3v").textContent = o.nl; }
+    if (o.nobj != null) { st.nobj = o.nobj; nobj.value = o.nobj; $("nobjv").textContent = o.nobj; needRaster = true; }
+    if (o.prepass != null) { st.prepass = o.prepass; $("prepass").checked = o.prepass; }
+    if (o.tile != null) { st.tile = o.tile; st.hoverTile = -1; st.hoverRow = Math.min(st.hoverRow, Math.ceil(GH / o.tile) - 1); $("segTile").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(+x.dataset.v === o.tile))); }
+    if (o.slices != null) { st.slices = o.slices; nsl.value = o.slices; $("nslv").textContent = o.slices; }
+    if (o.msaa != null) { st.msaa = o.msaa; $("msaa").checked = o.msaa; }
+    if (o.hover != null) { st.hoverPx = o.hover; }
+    drawAll();
+  };
+  const slide = (id, v) => { $(id).value = v; $(id).dispatchEvent(new Event("input")); drawAll(); };
+
+  L1 = lesson("forward", { next: { id: "deferred", title: "Deferred: write the notes first" }, steps: [
+    { say: "The square at night. Left: the village from above, the player at the bottom, dashed lines for what they can see, and amber dots for the 12 lanterns, each with a ring for how far its light reaches. Middle: the player's screen shrunk to 64×36 squares so you can see each pixel. A <b>forward</b> renderer draws one building at a time and colours each of its pixels on the spot, adding up every lantern; adding one lantern to one pixel is one <b>evaluation</b>. The brighter a square, the more times it was coloured.", enter: () => setF({ nl: 12, nobj: 5, prepass: false, reset: true, hover: -1 }) },
+    { say: "<b>Hover a square on the market stall</b>, the wooden one nearest the player.", todo: "hover a square on the stall", goal: () => st.s1 && st.s1.hoverFrags >= 2, try: () => setF({ hover: 1283 }),
+      done: "Two or three fragments landed there: the stall, the cobbles behind it, maybe the house too. A fragment is one pixel's worth of one object. Only the nearest one ends up on screen, but each one was fully coloured before the nearest-wins test threw the others away. That waste is overdraw, and the third tile measures it." },
+    { say: "<b>Drag the crates</b> to the left, in front of the house, so that stall, crates and house stack up on the same squares.", todo: "drag the crates in front of the house", goal: () => st.s1 && st.s1.maxF >= 4, try: () => { OBJ_ALL[1].x = -4; needRaster = true; drawAll(); }, enter: () => setF({ nobj: 5, prepass: false, reset: true }),
+      done: "Four fragments on one square: three of them were coloured and then thrown away. The callout on the screen names the worst square. Every one of those fragments ran the full loop over all 12 lanterns." },
+    { say: "Now the other factor.", quiz: { q: "If you push the lantern count from 12 to 64, what happens to the evaluations tile?", options: [
+        { t: "It grows only in the squares near the new lanterns", why: "Forward does not know which lanterns are near a pixel. Its loop asks every lantern, every time." },
+        { t: "It grows about five times, everywhere, even in squares no lantern reaches", ok: true, why: "Every fragment loops over all 64 lanterns whether or not they are in reach. The out-of-reach ones are skipped inside the loop, but the loop still visits them." },
+        { t: "It stays the same, the picture has the same number of pixels", why: "The pixel count is the same, but each pixel's loop is now 64 long instead of 12." } ] },
+      todo: "drag Lanterns to 64 below", goal: () => st.nl >= 60, try: () => slide("nl", 64), enter: () => setF({ nl: 12 }),
+      done: "The evaluations tile went up more than five times, most of it for lanterns nowhere near the pixel." },
+    { say: "<b>Tick depth prepass.</b> It draws the whole scene once first, writing only each pixel's distance, so the colour pass knows the winner in advance and colours only that one.", todo: "tick depth prepass below", goal: () => st.prepass, try: () => { $("prepass").click(); drawAll(); }, enter: () => setF({ prepass: false }),
+      done: "Overdraw fell to 1.00: hidden fragments are no longer coloured. But the lantern count still multiplies every square. The prepass fixes one factor of the bill, not the other." },
+    { say: "Forward pays every fragment times every lantern. A prepass removes the hidden fragments; nothing here removes the far-away lanterns. The next sections attack the lantern factor. The cost formula and the loop are under the hood." } ] });
+
+  L2 = lesson("deferred", { next: { id: "volumes", title: "Lighting from the notes" }, steps: [
+    { say: "<b>Deferred</b> takes another route. It draws every building but computes no lighting at all. Instead it writes notes about each pixel's surface into four full-screen images, together called the <b>G-buffer</b>: the surface's colour, which way it faces, whether it is rough or shiny and metal or not, and how far away it is. Lighting comes later, from the notes.", enter: () => setF({ hover: -1 }) },
+    { say: "<b>Hover any square</b> on a wall, a roof or the cobbles.", todo: "hover a square on a surface", goal: () => st.s2 && st.s2.hovered, try: () => setF({ hover: 1308 }),
+      done: "The caption lists everything the lighting pass will know about that square, and how many lanterns reach it. Nothing about which building it came from survives, and nothing needs to: distance plus the pixel's position is enough to work out where the point sits in the world." },
+    { say: "The notes have been written.", quiz: { q: "Now 50 more lanterns are added. How much of the G-buffer changes?", options: [
+        { t: "All of it, more lanterns need more notes", why: "The notes describe the surface, not the light. A lantern changes nothing about what a wall is made of or which way it faces." },
+        { t: "None of it", ok: true, why: "The G-buffer is about the surface only. The lanterns are added later, reading these notes, so writing them costs the same with one lantern or a hundred." },
+        { t: "Only the distance layer", why: "Distance is a property of the surface too. No layer mentions the lanterns." } ] } },
+    { say: "Each layer is stored in a chosen format, and the table shows the bill. <b>Switch the facing layer to 4 × 16-bit float.</b>", todo: "change the facing layer in the table", goal: () => $("fNrm").selectedIndex === 2, try: () => { $("fNrm").selectedIndex = 2; $("fNrm").dispatchEvent(new Event("change")); drawAll(); }, enter: () => { $("fNrm").selectedIndex = 0; drawAll(); },
+      done: "Bytes per pixel went from 16 to 20, and the last two rows climbed: those bytes are written for every fragment and read for every lit pixel, sixty times a second. That memory traffic is deferred's fixed bill, and it is why deferred is not simply cheaper." },
+    { say: "So deferred spends memory traffic before a single lantern is added. Whether that is a good trade depends on the lighting pass, which is next. The two shader passes are under the hood." } ] });
+
+  L3 = lesson("volumes", { next: { id: "tiled", title: "Tiled: a short list per tile" }, steps: [
+    { say: "Now the lighting pass. It goes through the lanterns one at a time, and each ring is filled in: a lantern only reaches surfaces inside its ring, so the pass only touches the screen pixels under that ring, reads their notes and adds that one lantern. A pixel is charged once per lantern that reaches it, not once per lantern that exists.", enter: () => setF({ nl: 12, reset: true }) },
+    { say: "", quiz: { q: "A square of cobbles that no ring covers: how many lanterns does deferred add up for it?", options: [
+        { t: "All 12, the loop always runs", why: "That is forward. Here the loop is driven by the rings, and no ring means no visit." },
+        { t: "None", ok: true, why: "No ring covers it, so no lantern's pass ever touches that pixel. The tiles show the result: deferred does a fraction of forward's evaluations for this scene." },
+        { t: "One, the nearest", why: "Nearness does not matter. If the ring does not reach the surface, the lantern adds nothing and is never visited." } ] } },
+    { say: "<b>Drag a lantern with a big ring down close to the player</b>, so its ring covers a large part of the screen. Watch the deferred tile.", todo: "drag a big lantern close to the player", enter: () => { setF({ nl: 12 }); st.snap3 = st.s2.defEval; }, goal: () => st.s2 && st.snap3 != null && st.s2.defEval > st.snap3 * 1.1, try: () => { LIGHTS[0].x = 0; LIGHTS[0].z = 3; drawAll(); },
+      done: "The deferred tile jumped: many more pixels now sit under a ring. Deferred's lighting cost is how many rings cover each pixel, added up over the screen, and a big ring near the player covers a lot." },
+    { say: "Now the other way. <b>Drag a lantern sideways out past the dashed lines</b> until its whole ring is outside what the player can see.", todo: "drag a lantern's whole ring outside the view", goal: () => LIGHTS.slice(0, st.nl).some(L => Math.abs(L.x) - L.r > L.z * TANH), try: () => { LIGHTS[2].x = 11; LIGHTS[2].z = 2.5; drawAll(); },
+      done: "That lantern's pass now touches no pixel at all, and the deferred tile dropped. The forward tile did not move: forward's loop still asks every fragment about it. Deferred's lighting bill follows the rings; forward's follows the lantern count." },
+    { say: "Forward pays fragments times lanterns. Deferred pays a fixed memory bill, then one evaluation per pixel per ring that covers it. With a few lanterns the memory bill loses; with dozens of overlapping rings it wins. The cost formula is under the hood." } ] });
+
+  L4 = lesson("tiled", { next: { id: "clustered", title: "Clustered: slice the tiles by distance" }, steps: [
+    { say: "Both renderers can share a shortcut: cut the screen into <b>tiles</b> of 4×4 squares (120×120 real pixels) and give each tile a list of only the lanterns that can reach something in it. The number on a tile is its list length; brighter is longer. On the right, the red tile becomes a wedge from the nearest thing in it to the farthest, and any lantern whose ring touches the wedge goes on the list.", enter: () => setF({ tile: 4, nl: 12, reset: true }) },
+    { say: "<b>Hover a tile near the bottom of the screen</b>, on the cobbles close to the player.", todo: "hover a tile on the near cobbles", goal: () => st.s3 && st.s3.hoverGap !== null && st.s3.hoverGap < 4, try: () => { const nt = tiles.tx * tiles.ty; for (let t = nt - 1; t >= 0; t--) if (tiles.minZ[t] !== Infinity && tiles.maxZ[t] - tiles.minZ[t] < 2) { st.hoverTile = t; break; } drawAll(); },
+      done: "Its wedge on the right is short, because everything in that tile is about the same distance away. Only lanterns whose ring crosses that short wedge stay green; the rest are dimmed and dropped from the list." },
+    { say: "<b>Hover the red tile.</b>", todo: "hover the red tile", goal: () => st.s3 && st.s3.worst >= 0 && st.s3.hoverTile === st.s3.worst, try: () => { st.hoverTile = st.s3.worst; drawAll(); },
+      done: "The edge of the market stall is in that tile, and so are the cobbles far behind it. Its wedge runs most of the way up the square and catches lanterns the whole way, so every pixel in the tile, near or far, walks the longest list on the screen. Any edge where a near thing meets a far one does this." },
+    { say: "", quiz: { q: "Switch to 2×2 tiles. What changes?", options: [
+        { t: "Lists get longer, because there are more of them", why: "A smaller tile covers a smaller wedge, so fewer rings touch it. Lists get shorter, not longer." },
+        { t: "Lists get shorter on average, but there are four times as many to build", ok: true, why: "Smaller wedges catch fewer lanterns, so the average drops. The price is four times the lists, each rebuilt every frame." },
+        { t: "The red tile goes away", why: "The stall's edge still meets the far cobbles somewhere. A smaller tile makes the gap tile smaller, not gone." } ] },
+      todo: "switch to 2×2 below", goal: () => st.tile === 2, try: () => { $("segTile").querySelector('[data-v="2"]').click(); drawAll(); }, enter: () => setF({ tile: 4 }),
+      done: "The average per tile fell and the tile count went up four times. The red tile is still there, just smaller." },
+    { say: "<b>Push Lanterns to 64.</b>", todo: "drag Lanterns to 64 below", goal: () => st.nl >= 60, try: () => slide("nl3", 64), enter: () => setF({ nl: 12 }),
+      done: "The evaluations tile grew far less than plain forward did in the first section: with tiles, a lantern only costs the pixels in tiles it can reach. Forward with tile lists is called Forward+, and the same lists work in front of a deferred lighting pass." },
+    { say: "Tiles turn a loop over every lantern into a loop over a short list, at the cost of building one list per tile per frame. The weak spot is a tile whose nearest and farthest things are far apart. The plane test and the list-building code are under the hood." } ] });
+
+  L5 = lesson("clustered", { next: { id: "compare", title: "What one pixel keeps" }, steps: [
+    { say: "The fix for the red tile: slice each tile by distance too. A tile becomes a stack of wedges, thin near the player and thicker far away, and each wedge, a <b>cluster</b>, keeps its own lantern list. Left: the screen coloured by the list length of each square's cluster. Right: one row of tiles seen from above, cut into its wedges; hovering the screen picks the row.", enter: () => setF({ tile: 4, slices: 16, hover: -1 }) },
+    { say: "<b>Hover a square of far cobbles just beside the market stall's edge</b>, inside what was the red tile.", todo: "hover the far cobbles beside the stall's edge", goal: () => st.s4 && st.s4.hoverDiff !== null && st.s4.hoverDiff >= 3, try: () => { let best = -1, bk = -1; for (let k = 0; k < NPX; k++) { if (depth[k] === Infinity) continue; const d = tiles.count[tileOf(k)] - clus.count[clusterOf(k)]; if (d > best) { best = d; bk = k; } } setF({ hover: bk }); },
+      done: "The caption compares the two lists. The tile list had to cover the stall and everything behind it; this square's cluster only covers a thin band of distance, so it lists far fewer lanterns." },
+    { say: "The cluster lists never read the distance image; the slices are fixed before anything is drawn.", quiz: { q: "Why does that matter?", options: [
+        { t: "It makes the lists shorter", why: "Length comes from the slicing, not from when the lists are built." },
+        { t: "Glass, smoke and other see-through things can use the same lists", ok: true, why: "A see-through surface has no single stored distance, so tile lists, which need the distance image, cannot serve it. Cluster lists exist before anything is drawn and cover every distance." },
+        { t: "It saves memory", why: "Clusters use more memory than tiles, not less. The fourth tile shows the list storage." } ] } },
+    { say: "<b>Drag Depth slices to 32.</b>", todo: "drag Depth slices to 32 below", goal: () => st.slices >= 30, try: () => slide("nsl", 32), enter: () => setF({ slices: 16 }),
+      done: "Thinner wedges: the per-pixel average dropped a little more and the memory for the lists went up. Real engines settle around 16 to 32 slices." },
+    { say: "<b>Drag a lantern on the right</b> and watch which wedges change colour.", todo: "drag a lantern on the right", enter: () => { st.snap5 = LIGHTS.map(L => [L.x, L.z]); }, goal: () => st.snap5 && LIGHTS.slice(0, st.nl).some((L, i) => Math.hypot(L.x - st.snap5[i][0], L.z - st.snap5[i][1]) > 0.5), try: () => { LIGHTS[1].x += 2; drawAll(); },
+      done: "Only the wedges its ring touches changed. Every cluster's list is rebuilt each frame from where the lanterns are, before a single building is drawn, so the lists are ready whatever gets drawn afterwards." },
+    { say: "Clusters give every small piece of the view its own short list, fixed ahead of time, so near and far stop sharing a bill and see-through things get lit the same way. The slice formula and the lookup code are under the hood." } ] });
+
+  L6 = lesson("compare", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "Three renderers, same frame. Top row: the lit village as Forward+ makes it, the colour notes deferred wrote, and a third design, the <b>visibility buffer</b>, which keeps only which triangle landed on each pixel, here with every triangle in its own colour. Bottom row: what each one keeps or works out at lighting time. The bars are bytes kept per pixel between drawing and lighting.", enter: () => setF({ msaa: false, hover: -1 }) },
+    { say: "<b>Hover a house wall in the right-hand panel.</b>", todo: "hover a wall in the triangle panel", goal: () => st.s5 && st.s5.hovered, try: () => setF({ hover: 1308 }),
+      done: "One number per pixel: which building and which triangle. At lighting time the pass looks that triangle up again, works out where inside it the pixel sits (the three weights in the caption), and rebuilds colour, facing and the rest from there." },
+    { say: "", quiz: { q: "Which of the three keeps the least per pixel?", options: [
+        { t: "The visibility buffer", why: "It keeps the triangle id plus distance plus colour. Small, but not the smallest." },
+        { t: "Forward+", ok: true, why: "Forward+ keeps only distance and the final colour. It never needs the notes, because it lights while it draws." },
+        { t: "Deferred", why: "Deferred keeps the whole G-buffer plus colour, the longest bar." } ] },
+      todo: "tick 4× MSAA below", goal: () => st.msaa, try: () => { $("msaa").click(); drawAll(); }, enter: () => setF({ msaa: false }),
+      done: "MSAA keeps four samples per pixel instead of one, to smooth edges. Forward+ and the visibility buffer grew; deferred greyed out, since it would need four full sets of notes and four lighting passes." },
+    { say: "Keep the surface (deferred), or keep only the triangle and rebuild the surface later (visibility buffer). The second is smaller, gets hardware anti-aliasing back, and moves the work to the lighting pass. The id packing and the rebuild code are under the hood." } ] });
   drawAll();
 })();
 </script>
