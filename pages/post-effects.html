@@ -238,94 +238,56 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">256×144 HDR village street at night · 7 street lamps at 6–50× white · a car passing at 14 px/frame · 60 Hz</p>
+    <p class="eyebrow">a village street at night · six guided demos · nothing to install</p>
     <h1>Post Effects</h1>
-    <p class="lead">Bloom, depth of field and motion blur are the last passes that run over the finished picture, before it is squeezed down to the 8-bit colours a monitor can show. They are what makes a street lamp glow, the trees behind the player go soft and a passing car leave a streak, and each one costs a fraction of a millisecond per million pixels. Each reads a different input: bloom reads raw brightness, depth of field reads how far away each pixel is, motion blur reads how far each pixel moved. The thing people get wrong is treating them as decoration painted on top; they are filters over real data, and fed the wrong data they turn into haze and smears.</p>
+    <p class="lead">A game draws its picture, then runs a few last passes over the finished image before it goes to the screen. Bloom puts a soft glow around bright things, depth of field softens whatever is nearer or farther than the thing you are looking at, and motion blur smears whatever moved. Each pass is a filter that reads real data about the picture: how bright each pixel is, how far away it is, how far it moved since the last frame. <b>The thing people get wrong:</b> these are not decoration painted on top. Feed them the wrong data, or run them in the wrong order, and they turn into haze and smears.</p>
     <div class="key">
-      <span style="--sw:#f2a341">brighter than the threshold · behind the focus · longest move in a tile</span>
-      <span style="--sw:#4aa3ff">in front of the focus · longest move nearby</span>
+      <span style="--sw:#f2a341">bright enough to glow · behind the focus · the longest move in a block</span>
+      <span style="--sw:#4aa3ff">in front of the focus · the longest move in the blocks around</span>
       <span style="--sw:#ffffff">movement arrows, markers</span>
       <span style="--sw:#5ad48a">fits in a 16.7 ms frame</span>
       <span style="--sw:#ef5d5d">over budget</span>
     </div>
     <dl class="terms">
       <dt>HDR</dt><dd>colour stored as real brightness with no ceiling; a lamp can be 50 times brighter than white paper</dd>
-      <dt>tone mapping</dt><dd>the curve that squeezes HDR brightness into the 0 to 1 range a screen can show</dd>
+      <dt>tone mapping</dt><dd>the squeeze that fits real brightness into the 0 to 1 range a screen can show</dd>
       <dt>threshold</dt><dd>the brightness a pixel must beat before it is allowed to glow</dd>
       <dt>mip chain</dt><dd>a stack of copies of an image, each half the size of the one before</dd>
-      <dt>circle of confusion</dt><dd>the blurry disc an out-of-focus point makes; its size in pixels is how much to blur</dd>
+      <dt>circle of confusion</dt><dd>the blurry disc an out-of-focus point makes; its width in pixels is how much to blur</dd>
       <dt>velocity buffer</dt><dd>a per-pixel record of how far that pixel moved since the last frame</dd>
       <dt>tile max</dt><dd>the longest movement inside each 16 by 16 pixel block of the screen</dd>
       <dt>render target</dt><dd>an image the GPU draws into; every pass here writes at least one</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#bloom"><span class="n">01</span>Bloom is a stack of shrinking blurs</a></li><li><a href="#order"><span class="n">02</span>Why bloom runs before tone mapping</a></li><li><a href="#dof"><span class="n">03</span>Depth of field</a></li><li><a href="#mblur"><span class="n">04</span>Motion blur</a></li><li><a href="#cost"><span class="n">05</span>What the whole stack costs</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#bloom"><span class="n">01</span>Bloom: which pixels get to glow</a></li><li><a href="#chain"><span class="n">02</span>Why the glow is cheap</a></li><li><a href="#order"><span class="n">03</span>Glow first, then squeeze for the screen</a></li><li><a href="#dof"><span class="n">04</span>Depth of field: blur by distance</a></li><li><a href="#mblur"><span class="n">05</span>Motion blur: smear along the movement</a></li><li><a href="#cost"><span class="n">06</span>What the whole stack costs</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="bloom">
-    <h2>Bloom is a stack of shrinking blurs</h2>
-    <p class="sub">A player stands in a village street at night: seven street lamps, a lit tavern window and the moon. Move the threshold and intensity to pick which of them get to glow, and watch every in-between image the bloom pass makes.</p>
-    <div class="cols two">
+  <section id="bloom" class="stage">
+    <h2>Bloom: which pixels get to glow</h2>
+    <p class="sub">A player stands in a village street at night with seven street lamps, a lit tavern and the moon. The bright things glow, and one number decides which count as bright.</p>
+    <div class="cols">
       <div class="vp">
         <canvas id="c1a" class="r169" width="640" height="360" aria-label="A village street at night with the player, crates, street lamps, a tavern and the moon, drawn with bloom added"></canvas>
-        <div class="cap"><span id="c1a-read"></span><span>Reinhard display</span></div>
+        <div class="cap"><span id="c1a-read"></span><span>squeezed for the screen</span></div>
       </div>
-      <div class="vp">
-        <canvas id="c1b" class="r169" width="640" height="360" aria-label="The bloom chain for that street: the bright pixels shrunk six times, then grown back and added up"></canvas>
-        <div class="cap"><span id="c1b-read"></span><span>display gain ×4</span></div>
+      <div class="lesson" data-lesson="bloom">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="thr1">Glow threshold, 1 = white paper <span class="val" id="thr1v">1.00</span></label><input type="range" id="thr1" min="0" max="3" step="0.05" value="1"></div>
+          <div class="ctl"><label for="int1">Glow strength <span class="val" id="int1v">0.20</span></label><input type="range" id="int1" min="0" max="1" step="0.01" value="0.2"></div>
+          <div class="ctl"><label for="knee1">Soft edge around the threshold <span class="val" id="knee1v">0.50</span></label><input type="range" id="knee1" min="0" max="1" step="0.05" value="0.5"></div>
+          <div class="ctl"><span class="lab">View</span><div class="seg" id="seg1v" role="group" aria-label="Bloom view"><button data-v="composite" aria-pressed="true">full picture</button><button data-v="bloom">glow only</button><button data-v="pre">pixels allowed to glow</button></div></div>
+        </div>
       </div>
     </div>
-    <div class="prose below">
-      <p class="plain">Bloom is the <b>soft glow around bright things</b>. The cheap way to get a wide, soft glow is to <b>keep only the bright pixels</b>, shrink that image by half six times over, blur a little at each size, then <b>add all the sizes back together</b>. A small blur on a tiny image is a huge blur on the full one, so the whole thing costs about 16 texture reads per pixel instead of thousands.</p>
-
-      <h3>What you're seeing</h3>
-      <p>Left is the street with bloom added. The lamps, the tavern window and the moon are brighter than white paper, so they glow; the player, the crates and the houses are not, so they stay crisp. Right is every in-between image: the top row shrinks the bright pixels down step by step (amber label), the bottom row grows them back up and adds each level in (blue label). The brightness is boosted four times so you can see the small images.</p>
-      <p>Tick "firefly" and a circled dot appears over the trees: a single pixel at 400 times white, the kind of stray spark a specular glint makes. Graphics people call any such pixel a firefly. It is there to show the flicker problem that the Karis tickbox fixes, and it starts switched off because its haze spreads over the whole street.</p>
-
-      <h3>Try this</h3>
-      <ul class="try">
-        <li>Drag Threshold T down to 0. The whole street glows, even the road, and the frame goes milky. Push it up to 3 and only the lamps and the moon survive.</li>
-        <li>Tick "firefly", then "animate the offset". The firefly's glow pulses as it slides between pixels. Tick "Karis average" and the pulse almost stops; compare the two flicker tiles.</li>
-        <li>Switch View to "prefilter" to see exactly which pixels are allowed to glow: lamp heads, windows, moon, and nothing of the player.</li>
-      </ul>
-    </div>
-    <div class="controls">
-      <div class="ctl"><label for="thr1">Threshold T <span class="val" id="thr1v">1.00</span></label><input type="range" id="thr1" min="0" max="3" step="0.05" value="1"></div>
-      <div class="ctl"><label for="knee1">Knee K <span class="val" id="knee1v">0.50</span></label><input type="range" id="knee1" min="0" max="1" step="0.05" value="0.5"></div>
-      <div class="ctl"><label for="int1">Intensity I <span class="val" id="int1v">0.20</span></label><input type="range" id="int1" min="0" max="1" step="0.01" value="0.2"></div>
-      <div class="ctl"><span class="lab">View</span><div class="seg" id="seg1v" role="group" aria-label="Bloom view"><button data-v="composite" aria-pressed="true">composite</button><button data-v="bloom">bloom only</button><button data-v="pre">prefilter</button></div></div>
-      <div class="ctl"><label class="chk"><input type="checkbox" id="ff1"> firefly, 400× white, 1 px</label></div>
-      <div class="ctl"><label class="chk"><input type="checkbox" id="karis1"> Karis average on mip 1</label></div>
-      <div class="ctl"><label for="off1">Firefly sub-pixel offset <span class="val" id="off1v">0.00 px</span></label><input type="range" id="off1" min="0" max="1" step="0.05" value="0"></div>
-      <div class="ctl"><label class="chk"><input type="checkbox" id="anim1"> animate the offset</label></div>
-    </div>
-    <div class="tiles four">
-      <div class="tile" id="t1-plain"><div class="n">—</div><div class="l">firefly flicker, plain (peak swing)</div></div>
-      <div class="tile" id="t1-karis"><div class="n">—</div><div class="l">flicker with Karis (peak swing)</div></div>
-      <div class="tile"><div class="n" id="t1-mem">—</div><div class="l">chain memory, RGBA16F</div></div>
-      <div class="tile"><div class="n" id="t1-reads">—</div><div class="l">texture reads per frame</div></div>
-    </div>
-    <div class="cols two below">
-      <div class="prose">
-        <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">A threshold picks which pixels may glow and a strength scales the glow; the threshold is a brightness, not a list of objects.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The first step is the prefilter. It keeps only pixels brighter than the threshold T. A hard cut at exactly 1.0 flickers when a pixel hovers near it, so a knee K ramps the pixel in gently between T−K and T+K.</p>
-        <p>Next the chain halves the image six times. Each halving is a downsample, a pass that reads 13 taps, where a tap is one bilinear texture read that already averages a 2×2 block. Six halvings at 13 taps give a blur that reaches 6·2⁶ pixels wide for about 16 reads per full-res pixel.</p>
-        <p>Then the upsample walks back up. Each level applies a 3×3 tent filter (a small blur with a peak in the middle) to the smaller image and adds it to the image at this level. Adding at every step is what gives a bright core with a wide soft falloff, without ever computing a blur that wide.</p>
-        <p class="words">In words: fade a pixel in around the threshold, average 13 neighbouring reads to make each smaller image, and on the first shrink let dim pixels outvote one very bright one.</p>
+        <p class="words">In words: fade a pixel in around the threshold instead of cutting it off hard, then add the finished glow to the picture.</p>
         <div class="math">br   = max(r, g, b)
 soft = clamp(br − T + K, 0, 2K)² / (4K + ε)
-c'   = c · max(soft, br − T) / max(br, ε)
-
-down = ½·avg(j,k,l,m) + ⅛·[avg(a,b,d,e) + avg(b,c,e,f)
-                          + avg(d,e,g,h) + avg(e,f,h,i)]
-per texel: e ⅛ · b,d,f,h 1/16 · a,c,g,i 1/32 · j,k,l,m ⅛  (Σ = 1)
-
-Karis, mip 1 only: inside each group of 4 taps
-g = Σ w_t·t / Σ w_t,   w_t = 1 / (1 + luma(t))</div>
-        <p style="margin-top:14px">Here br is the brightest of the three colour channels, c is the pixel's colour and c' is what survives the prefilter. The letters a to m are the 13 tap positions, and the fractions are how much each one counts. In the Karis line, luma is the perceived brightness of a tap and w_t is its vote.</p>
-        <p style="margin-top:14px">The firefly is one 400× white pixel. Depending on where it sits, a 2×2 read covers it with one pixel or two, so its energy doubles and halves as it slides. The tiles measure the bloom peak the firefly adds across eight positions and report the swing, max minus min, which is what flickers on screen. The Karis average weights each tap in its group of four by 1/(1+luma), so one 400× tap cannot outvote three dim ones, and the swing drops by more than ten times.</p>
-      </div>
-      <div class="prose">
-        <p class="words">What this code does: runs the soft threshold, then builds the first small image from five groups of four reads, with the Karis vote applied inside each group.</p>
+c'   = c · max(soft, br − T) / max(br, ε)</div>
+        <p style="margin-top:14px">Here br is the brightest of the three colour channels, c is the pixel's colour and c' is what survives the prefilter.</p>
+        <p class="words">What this code does: runs the soft threshold, and at the very end adds the glow to the raw picture.</p>
 <pre class="code"><span class="c">// prefilter, full res: soft-knee threshold</span>
 <span class="k">vec3</span> c = texture(sceneHDR, uv).rgb;
 <span class="k">float</span> br = max(c.r, max(c.g, c.b));
@@ -333,7 +295,51 @@ g = Σ w_t·t / Σ w_t,   w_t = 1 / (1 + luma(t))</div>
 soft = soft * soft / (4.0 * K + 1e-5);
 c *= max(soft, br - T) / max(br, 1e-5);   <span class="c">// 0 below T-K, 1 above T+K</span>
 
-<span class="c">// mip 1: 13 bilinear taps = five 2x2 groups, partial Karis average</span>
+<span class="c">// composite: bilinear read of u1, the prefilter itself is never added back</span>
+color = sceneHDR + I * texture(bloomU1, uv).rgb;</pre>
+    </div></details>
+    </div>
+  </section>
+
+  <section id="chain" class="stage">
+    <h2>Why the glow is cheap</h2>
+    <p class="sub">The same street's glow, built from a stack of shrinking copies, and the one-pixel spark that makes it flicker.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c1b" class="r169" width="640" height="360" aria-label="The bloom chain for that street: the bright pixels shrunk six times, then grown back and added up"></canvas>
+        <div class="cap"><span id="c1b-read"></span><span>shown 4 times brighter so the small copies are visible</span></div>
+      </div>
+      <div class="lesson" data-lesson="chain">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label class="chk"><input type="checkbox" id="ff1"> add a firefly: one pixel at 400 times white</label></div>
+          <div class="ctl"><label class="chk"><input type="checkbox" id="anim1"> slide the firefly back and forth</label></div>
+          <div class="ctl"><label for="off1">Firefly slid sideways, fraction of a pixel <span class="val" id="off1v">0.00 px</span></label><input type="range" id="off1" min="0" max="1" step="0.05" value="0"></div>
+          <div class="ctl"><label class="chk"><input type="checkbox" id="karis1"> Karis vote: dim pixels outvote a bright one on the first shrink</label></div>
+        </div>
+        <div class="tiles four" data-step-min="2">
+          <div class="tile" id="t1-plain"><div class="n">—</div><div class="l">flicker without Karis, glow swing</div></div>
+          <div class="tile" id="t1-karis"><div class="n">—</div><div class="l">flicker with Karis, glow swing</div></div>
+          <div class="tile"><div class="n" id="t1-mem">—</div><div class="l">memory for all the copies</div></div>
+          <div class="tile"><div class="n" id="t1-reads">—</div><div class="l">pixel reads per frame</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Shrink, blur a little, grow back and add: about 16 reads per pixel for a glow hundreds of pixels wide.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+        <p>Next the chain halves the image six times. Each halving is a downsample, a pass that reads 13 taps, where a tap is one bilinear texture read that already averages a 2×2 block. Six halvings at 13 taps give a blur that reaches 6·2⁶ pixels wide for about 16 reads per full-res pixel.</p>
+        <p>Then the upsample walks back up. Each level applies a 3×3 tent filter (a small blur with a peak in the middle) to the smaller image and adds it to the image at this level. Adding at every step is what gives a bright core with a wide soft falloff, without ever computing a blur that wide.</p>
+        <p class="words">In words: fade a pixel in around the threshold, average 13 neighbouring reads to make each smaller image, and on the first shrink let dim pixels outvote one very bright one.</p>
+        <div class="math">down = ½·avg(j,k,l,m) + ⅛·[avg(a,b,d,e) + avg(b,c,e,f)
+                          + avg(d,e,g,h) + avg(e,f,h,i)]
+per texel: e ⅛ · b,d,f,h 1/16 · a,c,g,i 1/32 · j,k,l,m ⅛  (Σ = 1)
+
+Karis, mip 1 only: inside each group of 4 taps
+g = Σ w_t·t / Σ w_t,   w_t = 1 / (1 + luma(t))</div>
+        <p style="margin-top:14px">The letters a to m are the 13 tap positions, and the fractions are how much each one counts. In the Karis line, luma is the perceived brightness of a tap and w_t is its vote.</p>
+        <p style="margin-top:14px">The firefly is one 400× white pixel. Depending on where it sits, a 2×2 read covers it with one pixel or two, so its energy doubles and halves as it slides. The tiles measure the bloom peak the firefly adds across eight positions and report the swing, max minus min, which is what flickers on screen. The Karis average weights each tap in its group of four by 1/(1+luma), so one 400× tap cannot outvote three dim ones, and the swing drops by more than ten times.</p>
+        <p class="words">What this code does: builds the first small image from five groups of four reads, with the Karis vote applied inside each group, then grows one level back up.</p>
+<pre class="code"><span class="c">// mip 1: 13 bilinear taps = five 2x2 groups, partial Karis average</span>
 <span class="k">vec3</span> box(<span class="k">vec2</span> o) { <span class="k">return</span> texture(src, uv + o * texel).rgb; } <span class="c">// bilinear at a corner = 2x2 box</span>
 <span class="k">vec3</span> grp(<span class="k">vec3</span> a, <span class="k">vec3</span> b, <span class="k">vec3</span> c, <span class="k">vec3</span> d) {
   <span class="k">if</span> (!firstMip) <span class="k">return</span> 0.25 * (a + b + c + d);
@@ -346,46 +352,33 @@ c *= max(soft, br - T) / max(br, 1e-5);   <span class="c">// 0 below T-K, 1 abov
 <span class="k">vec3</span> down = 0.5 * g0 + 0.125 * (g1 + g2 + g3 + g4);
 
 <span class="c">// upsample, one level: 3x3 tent of the smaller mip, added to this mip</span>
-<span class="k">vec3</span> up = mipHere + tent9(smallerMip, uv, radius);
-<span class="c">// composite: bilinear read of u1, the prefilter itself is never added back</span>
-color = sceneHDR + I * texture(bloomU1, uv).rgb;</pre>
-        <p class="tldr">Bloom is a threshold, six halvings and six add-backs; the shrinking is what makes a wide glow cheap.</p>
-      </div>
+<span class="k">vec3</span> up = mipHere + tent9(smallerMip, uv, radius);</pre>
+    </div></details>
     </div>
   </section>
 
-  <section id="order">
-    <h2>Why bloom runs before tone mapping</h2>
-    <p class="sub">The same street bloomed twice: once on the raw brightness, once on the already-squeezed picture. One of them makes the house walls glow.</p>
-    <div class="cols two">
+  <section id="order" class="stage">
+    <h2>Glow first, then squeeze for the screen</h2>
+    <p class="sub">The same street bloomed twice, in the two possible orders. One of them makes the house walls glow.</p>
+    <div class="cols three">
       <div class="vp">
         <canvas id="c2a" class="r169" width="640" height="360" aria-label="The street with bloom run on raw HDR brightness, then tone mapped: only the lamps, windows and moon glow"></canvas>
-        <div class="cap"><strong>HDR → bloom → tone map</strong><span id="c2a-read"></span></div>
+        <div class="cap"><strong>glow first, then squeeze</strong><span id="c2a-read"></span></div>
       </div>
       <div class="vp">
         <canvas id="c2b" class="r169" width="640" height="360" aria-label="The street tone mapped first, then bloomed: house walls and the road glow too"></canvas>
-        <div class="cap"><strong>tone map → bloom on LDR</strong><span id="c2b-read"></span></div>
+        <div class="cap"><strong>squeeze first, then glow</strong><span id="c2b-read"></span></div>
+      </div>
+      <div class="lesson" data-lesson="order">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label class="chk"><input type="checkbox" id="mask2"> highlight the pixels allowed to glow</label></div>
+          <div class="ctl"><label for="thr2">Threshold on the squeezed picture <span class="val" id="thr2v">0.30</span></label><input type="range" id="thr2" min="0.1" max="1" step="0.02" value="0.3"></div>
+        </div>
       </div>
     </div>
-    <div class="prose below">
-      <p class="plain">Bloom stands in for <b>light scattering inside a lens and an eye</b>, and that happens to real light before any screen curve. So bloom must run on the <b>raw HDR brightness</b>, where "brighter than 1.0" means brighter than white paper. Run it after tone mapping, where nothing is above 1.0, and you have to lower the threshold until <b>ordinary crates glow too</b>. That is the foggy "too much bloom" look.</p>
-
-      <h3>What you're seeing</h3>
-      <p>Left: bloom on HDR data with the threshold at 1.0, then the tone curve; the street looks like the one in section 1. Right: tone curve first, then bloom on the squeezed image with a lower threshold. Same chain, same intensity 0.2, but now the beige house walls and the road haze over. The readouts count how many pixels feed the bloom in each case.</p>
-
-      <h3>Try this</h3>
-      <ul class="try">
-        <li>Tick "show pixels above threshold". Left, only the lamp heads, the tavern sign, the windows and the moon light up. Right, whole house walls, the road and the player do.</li>
-        <li>Drag the LDR threshold up toward 1.0. The right image loses its glow entirely, because no tone-mapped pixel ever reaches 1.0.</li>
-      </ul>
-    </div>
-    <div class="controls">
-      <div class="ctl"><label for="thr2">LDR threshold <span class="val" id="thr2v">0.30</span></label><input type="range" id="thr2" min="0.1" max="1" step="0.02" value="0.3"></div>
-      <div class="ctl"><label class="chk"><input type="checkbox" id="mask2"> show pixels above threshold</label></div>
-    </div>
-    <div class="cols two below">
-      <div class="prose">
-        <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">Blur the raw brightness, then squeeze it to the screen; never the other way round.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>On HDR data the threshold at 1.0 is a physical statement: only things brighter than a white diffuse surface glow. In this street that is the seven lamp heads, the tavern's neon sign, the two lit windows and the moon, under 2 % of the pixels. Everything else contributes exactly zero.</p>
         <p>After a tone curve every value sits between 0 and 1 and nothing passes a threshold of 1.0. To get any glow, the threshold has to move down to 0.3 or 0.4, and now the beige wall of a house contributes as much as a lamp. The result is a low-contrast fog over the whole frame. The bloom was fine; it ran on the wrong data.</p>
         <p class="words">In words: add the glow to the raw brightness first and squeeze once at the end. Squeezing first caps every value below 1.0, so the threshold has to drop.</p>
@@ -395,8 +388,6 @@ wrong:  tonemap(hdr) + I·blur(thr(tonemap(hdr), t))
 tonemap(x) = x / (1 + x)  never reaches 1.0,
 so thr(tonemap(hdr), 1.0) = 0 everywhere and t must be &lt; 1</div>
         <p style="margin-top:14px">Here hdr is the raw scene colour, thr is the threshold step, blur is the mip chain, I is the intensity slider, and t is the lowered threshold the wrong order is forced to use.</p>
-      </div>
-      <div class="prose">
         <p class="words">What this code does: the top block keeps everything in raw brightness and applies one curve at the end; the bottom block is the haze version, with the curve first.</p>
 <pre class="code"><span class="c">// correct: everything in linear HDR, one curve at the end</span>
 <span class="k">vec3</span> hdr   = texture(sceneHDR, uv).rgb;   <span class="c">// ground 0.1, lamps 8..50</span>
@@ -409,49 +400,39 @@ outColor   = encodeSRGB(ldr);
 <span class="k">vec3</span> glow  = blur(thr(ldr0, 0.3));        <span class="c">// house walls now pass</span>
 outColor   = encodeSRGB(ldr0 + I * glow);  <span class="c">// low contrast everywhere</span></pre>
         <p style="margin-top:14px">The same rule applies to depth of field and motion blur: averaging tone-mapped values gives the wrong average. A 50× lamp blurred in HDR still reads as a bright disc after the curve. Blurred after the curve it becomes a grey smudge, because 0.98 spread over 60 pixels is 0.016 each.</p>
-        <p class="tldr">Blur the raw brightness, then squeeze it to the screen; never the other way round.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="dof">
-    <h2>Depth of field: near and far blur</h2>
-    <p class="sub">The player stands in the street with crates at their feet and lamps, houses and trees behind. Change the lens, pick what to focus on, and hover the picture to read how blurry each pixel should be.</p>
-    <div class="cols two">
-      <div class="vp">
-        <canvas id="c3a" class="r169" width="640" height="360" aria-label="Graph of blur disc size against distance, with the crates, player, lamp, houses and trees marked at their distances"></canvas>
-        <div class="cap"><span id="c3a-read"></span><span>dots: things in the street</span></div>
-      </div>
+  <section id="dof" class="stage">
+    <h2>Depth of field: blur by distance</h2>
+    <p class="sub">The player stands 4 m away with crates at their feet and lamps, houses and trees behind. A camera lens is sharp at one distance only.</p>
+    <div class="cols">
       <div class="vp">
         <canvas id="c3b" class="r169" width="640" height="360" aria-label="The street with depth of field: the player sharp at 4 metres, the crates in front blurred, the lamps and trees behind blurred"></canvas>
-        <div class="cap"><span id="c3b-read">hover for depth and CoC</span><span id="c3b-cost"></span></div>
+        <div class="cap"><span id="c3b-read">hover the picture to read a pixel's distance and blur size</span><span id="c3b-cost"></span></div>
+      </div>
+      <div class="lesson" data-lesson="dof">
+        <div class="lesson-top"><div class="vp">
+          <canvas id="c3a" class="r169" width="640" height="360" aria-label="Graph of blur disc size against distance, with the crates, player, lamp, houses and trees marked at their distances"></canvas>
+          <div class="cap"><span id="c3a-read"></span></div>
+        </div></div>
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="fd3">Focus distance <span class="val" id="fd3v">4.0 m</span></label><input type="range" id="fd3" min="1" max="20" step="0.1" value="4"></div>
+          <div class="ctl"><label for="fs3">f-stop, the lens opening; lower is wider <span class="val" id="fs3v">f/1.4</span></label><input type="range" id="fs3" min="1.4" max="16" step="0.1" value="1.4"></div>
+          <div class="ctl"><label for="fl3">Focal length, the zoom <span class="val" id="fl3v">100 mm</span></label><input type="range" id="fl3" min="24" max="135" step="1" value="100"></div>
+        </div>
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><span class="lab">How to blur</span><div class="seg" id="seg3m" role="group" aria-label="DoF method"><button data-v="naive">each pixel by its own disc size</button><button data-v="gather" aria-pressed="true">near and far apart, with a disc check</button></div></div>
+          <div class="ctl"><span class="lab">Shape of a blurred light</span><div class="seg" id="seg3s" role="group" aria-label="Bokeh shape"><button data-v="circle" aria-pressed="true">circle</button><button data-v="hex">hexagon</button></div></div>
+          <div class="ctl"><span class="lab">Reads per pixel</span><div class="seg" id="seg3n" role="group" aria-label="Sample count"><button data-v="16">16</button><button data-v="32" aria-pressed="true">32</button><button data-v="64">64</button></div></div>
+          <div class="ctl"><span class="lab">View</span><div class="seg" id="seg3v" role="group" aria-label="DoF view"><button data-v="image" aria-pressed="true">picture</button><button data-v="coc">blur size per pixel</button></div></div>
+        </div>
       </div>
     </div>
-    <div class="prose below">
-      <p class="plain">A camera lens is sharp at <b>one distance only</b>. Anything closer or farther shows up as a small disc instead of a point, and the disc grows the farther you get from the focus. Depth of field copies that: each pixel gets a <b>disc size from its distance</b>, then a blur spreads it out. The catch is direction. <b>Blurry things in front spill over sharp things behind</b>, but blurry things behind must stay hidden by sharp things in front, and one plain blur cannot do both.</p>
-
-      <h3>What you're seeing</h3>
-      <p>Left is a graph of blur disc size against distance for the current lens: amber above the line means behind the focus (far field), blue below means in front of it (near field). The dots are the things in the street, from the crates at 2.5 m to the trees at 22 m. Right is the street as the player sees it, with labels naming which side of the focus each thing is on; hover it to read each pixel's distance and disc size.</p>
-
-      <h3>Try this</h3>
-      <ul class="try">
-        <li>Switch Gather to "naive blur by own CoC". The blurry crates at 2.5 m get a razor-sharp edge against the player behind them, and the sharp player grows a halo into the blurred street behind.</li>
-        <li>Drag the f-stop to f/16. The graph flattens and the whole street is sharp; drag it back to f/1.4 and only a thin slice around the player at 4 m stays sharp.</li>
-        <li>Pick "hexagon" and set Samples to 16. Each street lamp becomes a six-sided iris, and at 16 samples it breaks into visible dots.</li>
-      </ul>
-    </div>
-    <div class="controls">
-      <div class="ctl"><label for="fl3">Focal length f <span class="val" id="fl3v">100 mm</span></label><input type="range" id="fl3" min="24" max="135" step="1" value="100"></div>
-      <div class="ctl"><label for="fs3">f-stop N <span class="val" id="fs3v">f/1.4</span></label><input type="range" id="fs3" min="1.4" max="16" step="0.1" value="1.4"></div>
-      <div class="ctl"><label for="fd3">Focus distance <span class="val" id="fd3v">4.0 m</span></label><input type="range" id="fd3" min="1" max="20" step="0.1" value="4"></div>
-      <div class="ctl"><span class="lab">Gather</span><div class="seg" id="seg3m" role="group" aria-label="DoF method"><button data-v="naive">naive blur by own CoC</button><button data-v="gather" aria-pressed="true">near / far with CoC compare</button></div></div>
-      <div class="ctl"><span class="lab">Bokeh</span><div class="seg" id="seg3s" role="group" aria-label="Bokeh shape"><button data-v="circle" aria-pressed="true">circle</button><button data-v="hex">hexagon</button></div></div>
-      <div class="ctl"><span class="lab">Samples</span><div class="seg" id="seg3n" role="group" aria-label="Sample count"><button data-v="16">16</button><button data-v="32" aria-pressed="true">32</button><button data-v="64">64</button></div></div>
-      <div class="ctl"><span class="lab">View</span><div class="seg" id="seg3v" role="group" aria-label="DoF view"><button data-v="image" aria-pressed="true">image</button><button data-v="coc">signed CoC</button></div></div>
-    </div>
-    <div class="cols two below">
-      <div class="prose">
-        <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">Blur size comes from distance to the focus, and near things spill over far things, never the reverse.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>A thin lens focuses one distance exactly. A point at any other depth lands on the sensor as a disc, the circle of confusion (CoC), whose diameter grows with the aperture A = f/N and with the distance from the focus plane. The aperture is the hole light comes through: focal length f divided by the f-stop N.</p>
         <p>The sign matters. Objects in front of the focus plane (near field, blue) blur over whatever is behind them, including sharp things. Objects behind it (far field, amber) are hidden by sharp things in front. A single blur cannot honour both rules, so engines split the two fields and composite near over far.</p>
         <p>The naive method blurs every pixel by its own CoC. The crates' edge stays sharp against the player because the player's pixels have CoC 0 and never gather it, and the in-focus player leaks a halo into the blurred street behind because those far pixels gather the player. The gather with a CoC compare fixes both: a sample contributes only if its own disc reaches this pixel, and a farther sample can only leak onto a pixel that is itself blurry.</p>
@@ -465,8 +446,6 @@ gather: w_q = clamp(|c_q| − ‖q − p‖ + 1)      does q's disc cover p?
 far:    if z_q &gt; z_p then w_q *= |c_p| / c_q   occlusion by sharper pixels
 near:   α = Σ w_q / N,  out = lerp(far, near, α)</div>
         <p style="margin-top:14px">Here d is a pixel's distance, d_f is the focus distance, and 36 mm is the width of the sensor. p is the pixel being shaded, q is a neighbour, c is the signed CoC in pixels, z is depth, w_q is the neighbour's weight, and α is how much near field covers this pixel.</p>
-      </div>
-      <div class="prose">
         <p class="words">What this code does: loops over N neighbours inside the widest nearby disc, keeps each one only if its own disc reaches this pixel, and cuts its weight when it is farther away than a sharper pixel here.</p>
 <pre class="code"><span class="c">// half-res far-field gather. coc is signed px, + behind the focus plane</span>
 <span class="k">float</span> cocP = texture(cocTex, uv).r;  <span class="k">float</span> zP = texture(depthHalf, uv).r;
@@ -484,44 +463,36 @@ near:   α = Σ w_q / N,  out = lerp(far, near, α)</div>
 <span class="c">// near field: same loop over cocQ &lt; 0 with R = tile max of -coc,</span>
 <span class="c">// alpha = wsum / N, then full res: lerp(lerp(sharp, far, |coc|-0.5), near, alpha)</span></pre>
         <p style="margin-top:14px">The sample pattern is the bokeh, the shape a blurred light takes. With a circular pattern every street lamp becomes a disc; with a hexagonal pattern and a hexagonal distance rule it becomes a six-sided iris. At 16 samples and a 12 px radius the disc breaks into visible dots, which is why engines either take 64 samples or run the pass at half resolution, or both.</p>
-        <p class="tldr">Blur size comes from distance to the focus, and near things spill over far things, never the reverse.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="mblur">
+  <section id="mblur" class="stage">
     <h2>Motion blur: smear along the movement</h2>
-    <p class="sub">A car drives past behind the player while the camera pans. Change the car speed and the pan, then switch the weighting to see why the car has to smear past its own edge.</p>
+    <p class="sub">A car drives past behind the player while the camera pans. Each pixel gets smeared along the way it moved since the last frame.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c4" class="r169" width="640" height="360" aria-label="The street with a car passing behind the player, motion blurred, with velocity and tile-max views"></canvas>
         <div class="cap"><span id="c4-read"></span><span id="c4-cost"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Motion blur smears each pixel <b>along the direction it moved</b> since the last frame. The trap is that a passing car has to <b>smear past its own edge</b> onto the street behind it, but the street pixels there did not move the same way, so blurring each pixel by its own movement stops dead at the edge. The fix is to <b>blur along the longest movement nearby</b> and let depth decide who smears over whom.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The car crosses behind the player at 6 m; the player, the houses and the lamps only move because the camera pans. The "velocity" view draws one arrow per 16 px tile showing how far pixels there moved. The "tile max" view shows the longest movement in each tile (amber) and the longest in the 3×3 tiles around it (blue). "blurred" is the street as the player sees it.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Switch Weighting to "own velocity". The car's smear is clipped to a hard car-shaped cut-out.</li>
-          <li>Set Camera pan to −8 and Car speed to 8. The car now stands still on screen while the street slides past it. Flip between "neighbour max" and "neighbour max + depth": without the depth compare the moving street behind the car eats the car's edge.</li>
-          <li>Drag Shutter to 0. No blur at all; at 1.0 the car smears a full frame's travel.</li>
-        </ul>
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><span class="lab">View</span><div class="seg" id="seg4v" role="group" aria-label="Motion blur view"><button data-v="vel">velocity</button><button data-v="tile">tile max</button><button data-v="result" aria-pressed="true">blurred</button></div></div>
-          <div class="ctl"><span class="lab">Weighting</span><div class="seg" id="seg4w" role="group" aria-label="Weighting"><button data-v="own">own velocity</button><button data-v="nmax">neighbour max</button><button data-v="depth" aria-pressed="true">neighbour max + depth</button></div></div>
-          <div class="ctl"><label for="sh4">Shutter <span class="val" id="sh4v">0.50 frame</span></label><input type="range" id="sh4" min="0" max="1" step="0.05" value="0.5"></div>
-          <div class="ctl"><span class="lab">Samples</span><div class="seg" id="seg4n" role="group" aria-label="Sample count"><button data-v="4">4</button><button data-v="8" aria-pressed="true">8</button><button data-v="16">16</button></div></div>
+      <div class="lesson" data-lesson="mblur">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">View</span><div class="seg" id="seg4v" role="group" aria-label="Motion blur view"><button data-v="vel">movement arrows</button><button data-v="tile">longest move per block</button><button data-v="result" aria-pressed="true">blurred picture</button></div></div>
+        </div>
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><span class="lab">Smear each pixel along</span><div class="seg" id="seg4w" role="group" aria-label="Weighting"><button data-v="own">its own movement</button><button data-v="nmax">the longest move nearby</button><button data-v="depth" aria-pressed="true">the longest move nearby, checking depth</button></div></div>
+          <div class="ctl"><label for="sh4">Shutter: how much of the frame's travel to smear <span class="val" id="sh4v">0.50 frame</span></label><input type="range" id="sh4" min="0" max="1" step="0.05" value="0.5"></div>
+          <div class="ctl"><span class="lab">Reads per pixel</span><div class="seg" id="seg4n" role="group" aria-label="Sample count"><button data-v="4">4</button><button data-v="8" aria-pressed="true">8</button><button data-v="16">16</button></div></div>
+        </div>
+        <div class="controls" data-step-min="5">
           <div class="ctl"><label for="ov4">Car speed <span class="val" id="ov4v">14 px/frame</span></label><input type="range" id="ov4" min="-16" max="16" step="1" value="14"></div>
           <div class="ctl"><label for="pan4">Camera pan <span class="val" id="pan4v">−4 px/frame</span></label><input type="range" id="pan4" min="-16" max="16" step="1" value="-4"></div>
         </div>
       </div>
     </div>
-    <div class="cols two below">
-      <div class="prose">
-        <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">Smear along the longest movement in the neighbourhood, and let depth decide who smears over whom.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The car moves in the world; the camera pans. Both end up in the velocity buffer as pixels per frame, written by the geometry pass from where each pixel was this frame and last frame. The shutter is the fraction of the frame the blur covers: at 0.5 it covers half the distance moved in 16.7 ms.</p>
         <p>Blurring each pixel along its own velocity stops at the silhouette, because the street behind the car has a different velocity. McGuire's 2012 filter takes the longest velocity per 16 px tile, widens it to the 3×3 tiles around (that is the dilation), and samples along that instead. Each sample then gets a weight from whether its own velocity is long enough to reach this pixel, so the still street stays sharp while the car's colour spreads over it.</p>
         <p>The depth terms decide which way the smear goes. The car must smear over the street behind it, but it must not smear over the player standing in front of it, and a moving street behind a still car must not eat the car's edge.</p>
@@ -538,8 +509,6 @@ w_i = front(z_p, z_i)·cone(d_i, v_i)        blurry thing in front smears over u
     + front(z_i, z_p)·cone(d_i, v_p)        we are in front and blurry ourselves
     + 2·cyl(d_i, v_i)·cyl(d_i, v_p)         both moving together</div>
         <p style="margin-top:14px">Here v is a pixel's velocity, p is the pixel being shaded, p_i is the i-th sample position and d_i how far away it is. z is depth and Δz the soft depth margin. cone says how far a moving pixel's blur reaches, cyl is a soft "about the same distance" test, and w_i is the sample's final weight.</p>
-      </div>
-      <div class="prose">
         <p class="words">What this code does: reads the longest velocity around this pixel, steps along it N times with a small per-pixel jitter, and weights each sample by the depth and reach tests above.</p>
 <pre class="code"><span class="k">vec2</span> vN = texture(neighbourMax, tileUV).xy * shutter;  <span class="c">// longest velocity in 3x3 tiles</span>
 <span class="k">if</span> (length(vN) &lt; 0.5) <span class="k">return</span> colorX;
@@ -556,52 +525,35 @@ w_i = front(z_p, z_i)·cone(d_i, v_i)        blurry thing in front smears over u
   sum += w * texture(color, p).rgb;  wsum += w;
 }
 <span class="k">return</span> sum / wsum;</pre>
-        <p class="tldr">Blur along the longest movement in the neighbourhood, and let depth decide who smears over whom.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="cost">
+  <section id="cost" class="stage">
     <h2>What the whole stack costs</h2>
-    <p class="sub">The same street goes through six passes before it reaches the screen. Pick an output resolution and an anti-aliasing setup, and see how much of a 60 Hz frame those passes eat.</p>
+    <p class="sub">The street goes through six passes before it reaches the screen. See how much of one 60 Hz frame they take.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c5" class="r169" width="640" height="360" aria-label="The street after each post pass along the top, then the estimated time per pass, the share of a 16.7 ms frame, and render target sizes to scale"></canvas>
-        <div class="cap"><span id="c5-read"></span><span>estimates, mid-range 2020 GPU</span></div>
+        <div class="cap"><span id="c5-read"></span><span>estimates for a mid-range 2020 graphics card</span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Each post pass is cheap per pixel, a <b>few hundred picoseconds</b>, but there are <b>two to eight million pixels</b> and every pass touches all of them. Six passes add up to a real slice of the 16.7 ms you get at 60 Hz. The usual tricks are to <b>run depth of field at half resolution</b> and start bloom from a small image, which is why the stack fits in a few milliseconds.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The strip along the top is the street after each pass, in the order they run: the car smears, the crates and trees soften, the lamps glow, the colours get squeezed, and the health bar goes on last. The bars under it are each pass's estimated time. The long bar is the whole stack against one 16.7 ms frame: green if it fits, red if not. The rectangles on the right are the images each pass draws into, to scale.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Switch Output to 3840×2160. The stack roughly quadruples; watch the frame bar.</li>
-          <li>Untick "half-res depth of field". Its pass gets about four times longer, because it now touches four times the pixels.</li>
-          <li>Pick "upscaler, post before it at 67 %". Every pass before the upscaler runs on a smaller image.</li>
-        </ul>
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><span class="lab">Output</span><div class="seg" id="seg5r" role="group" aria-label="Output resolution"><button data-v="1080p" aria-pressed="true">1920×1080</button><button data-v="1440p">2560×1440</button><button data-v="4K">3840×2160</button></div></div>
-          <div class="ctl"><span class="lab">Anti-aliasing</span><div class="seg" id="seg5a" role="group" aria-label="AA mode"><button data-v="taa" aria-pressed="true">TAA at output res</button><button data-v="upBefore">upscaler, post before it at 67 %</button><button data-v="upAfter">upscaler, post after it</button></div></div>
-          <div class="ctl"><label class="chk"><input type="checkbox" id="half5" checked> half-res depth of field</label></div>
-          <div class="ctl"><label class="chk"><input type="checkbox" id="quart5"> bloom from quarter res</label></div>
+      <div class="lesson" data-lesson="cost">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">Screen size</span><div class="seg" id="seg5r" role="group" aria-label="Output resolution"><button data-v="1080p" aria-pressed="true">1920×1080</button><button data-v="1440p">2560×1440</button><button data-v="4K">3840×2160</button></div></div>
+          <div class="ctl"><label class="chk"><input type="checkbox" id="half5" checked> depth of field at half size</label></div>
+          <div class="ctl"><label class="chk"><input type="checkbox" id="quart5"> bloom starts from a quarter-size copy</label></div>
+          <div class="ctl"><span class="lab">Edge smoothing and upscaling</span><div class="seg" id="seg5a" role="group" aria-label="AA mode"><button data-v="taa" aria-pressed="true">smooth edges at full size (TAA)</button><button data-v="upBefore">upscaler, effects before it at 67 % size</button><button data-v="upAfter">upscaler, effects after it</button></div></div>
         </div>
-        <div class="tiles">
-          <div class="tile"><div class="n" id="t5-ms">—</div><div class="l">post stack, est. ms</div></div>
-          <div class="tile"><div class="n" id="t5-pct">—</div><div class="l">of 16.7 ms</div></div>
-          <div class="tile"><div class="n" id="t5-mem">—</div><div class="l">post targets, memory</div></div>
+        <div class="tiles" data-step-min="2">
+          <div class="tile"><div class="n" id="t5-ms">—</div><div class="l">all six passes, estimated ms</div></div>
+          <div class="tile"><div class="n" id="t5-pct">—</div><div class="l">of one 60 Hz frame</div></div>
+          <div class="tile"><div class="n" id="t5-mem">—</div><div class="l">memory for the images they draw into</div></div>
         </div>
       </div>
     </div>
-    <div class="tbl-wrap">
-      <table class="stats" id="tbl5">
-        <thead><tr><th>Pass</th><th>Runs at</th><th>Pixels</th><th>est. ms</th><th>Targets</th></tr></thead>
-        <tbody id="tbl5-body"></tbody>
-      </table>
-    </div>
-    <div class="prose below">
-      <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">Post passes are cheap per pixel and expensive per frame; shrink the image before you blur it.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
       <p>The order in the bar is a common one: motion blur and depth of field want linear HDR and depth, bloom wants the result of those, tone mapping ends the HDR part, and anti-aliasing or the upscaler follows. Orders vary. Unreal runs its temporal AA before motion blur and bloom so that the blur hides temporal noise. DLSS, FSR and XeSS are built to sit where temporal AA sat, so everything after them runs at output resolution.</p>
       <p>Depth of field at half resolution costs a quarter of the gather and needs one extra composite pass. Bloom starting from a half or quarter mip costs almost nothing.</p>
       <p class="words">In words: a pass costs its pixel count times a fixed time per pixel, and a colour image costs 8 bytes per pixel.</p>
@@ -609,26 +561,32 @@ w_i = front(z_p, z_i)·cone(d_i, v_i)        blurry thing in front smears over u
                                    tone map 0.12 · TAA 0.35 · upscaler 0.28 per output px · UI 0.05
 bytes = pixels · 8 (RGBA16F) per colour target, · 4 for RG16F velocity or 32-bit depth</div>
       <p style="margin-top:14px">ns_per_pixel is the per-pass cost in nanoseconds, listed on the right. RGBA16F is four 16-bit channels per pixel, so 8 bytes; RG16F velocity and 32-bit depth are 4 bytes each.</p>
-      <p class="tldr">Post passes are cheap per pixel and expensive per frame; shrink the image before you blur it.</p>
+    <div class="tbl-wrap">
+      <table class="stats" id="tbl5">
+        <thead><tr><th>Pass</th><th>Runs at</th><th>Pixels</th><th>est. ms</th><th>Targets</th></tr></thead>
+        <tbody id="tbl5-body"></tbody>
+      </table>
+    </div>
+    </div></details>
     </div>
   </section>
 
   <section id="tradeoffs">
     <h2>Tradeoffs</h2>
-    <p class="sub">Costs are estimates at 1920×1080 on a mid-range GPU. Memory counts only what the effect adds beyond the HDR colour buffer.</p>
+    <p class="sub">Costs are estimates at 1920×1080 on a mid-range graphics card. Memory counts only what the effect adds beyond the HDR colour buffer.</p>
     <p class="plain">Each row is one way to build one of the three effects. You are choosing between <b>time per frame</b>, <b>memory</b>, and <b>the way it breaks</b>. The first row in each group is what nearly everyone ships; the others buy a specific look at a specific price.</p>
     <div class="tbl-wrap">
       <table class="stats left">
         <thead><tr><th>Way to do it</th><th class="n">Time, est.</th><th class="n">Extra memory</th><th>How it breaks</th><th>Pick it when</th></tr></thead>
         <tbody>
-          <tr><td>Bloom, mip chain</td><td class="n">0.2–0.4 ms</td><td class="n">≈ 5.5 MB from half res</td><td>Single bright pixels flicker unless you add Karis; the glow shape is fixed, so no streaks or lens shapes.</td><td>The default. Every real-time engine ships one.</td></tr>
-          <tr><td>Bloom, FFT convolution</td><td class="n">1–3 ms at half res</td><td class="n">≈ 20 MB, complex ping-pong buffers</td><td>Cost grows fast with resolution; a hard-edged kernel rings; the glow shape is an authored image, not a slider.</td><td>Cinematic starbursts and streaks from a photographed kernel.</td></tr>
-          <tr><td>DoF, gather (scatter-as-gather)</td><td class="n">0.8–1.2 ms at half res</td><td class="n">≈ 9 MB, two half-res fields + CoC</td><td>Big discs with few samples show dots; the near/far split still leaks where depth jumps.</td><td>The default for gameplay and cinematics alike.</td></tr>
-          <tr><td>DoF, scatter (bokeh sprites)</td><td class="n">0.5–6 ms, overdraw bound</td><td class="n">≈ 4 MB half-res accumulation</td><td>Fill rate explodes when many pixels are bright; needs a sort or additive blend.</td><td>A few bright highlights that must show an exact aperture shape.</td></tr>
-          <tr><td>DoF, ray traced</td><td class="n">tens of ms per sample set</td><td class="n">accumulation + denoiser history</td><td>Noisy unless built up over many frames or denoised.</td><td>Path-traced or offline modes; ground truth for tuning the gather.</td></tr>
-          <tr><td>Motion blur, camera only</td><td class="n">0.2–0.3 ms</td><td class="n">none beyond depth</td><td>Objects moving in the world get no blur; only the camera's motion counts.</td><td>Mobile, or a fixed-camera game.</td></tr>
-          <tr><td>Motion blur, per pixel along own velocity</td><td class="n">0.3–0.5 ms</td><td class="n">8.3 MB RG16F velocity</td><td>Blur stops at edges; fast objects look like sharp cut-outs with a smeared inside.</td><td>Rarely. It is the naive baseline.</td></tr>
-          <tr><td>Motion blur, tile-based (McGuire 2012)</td><td class="n">0.5–0.8 ms</td><td class="n">8.3 MB velocity + two tiny tile textures</td><td>Tile shapes leak where a fast object passes a still one; without the depth terms a moving background eats a still foreground.</td><td>The default in Unreal, Unity HDRP and most in-house engines.</td></tr>
+          <tr><td>Bloom, shrinking chain (this page)</td><td class="n">0.2–0.4 ms</td><td class="n">≈ 5.5 MB from half res</td><td>Single bright pixels flicker unless you add the Karis vote; the glow shape is fixed, so no streaks or lens shapes.</td><td>The default. Every real-time engine ships one.</td></tr>
+          <tr><td>Bloom by convolution (FFT)</td><td class="n">1–3 ms at half res</td><td class="n">≈ 20 MB of working images</td><td>Cost grows fast with screen size; a hard-edged glow shape leaves ripples; the glow shape is an authored image, not a slider.</td><td>Cinematic starbursts and streaks from a photographed kernel.</td></tr>
+          <tr><td>Depth of field, gather (this page)</td><td class="n">0.8–1.2 ms at half res</td><td class="n">≈ 9 MB, two half-size images plus the disc sizes</td><td>Big discs with few reads show dots; the near/far split still leaks where the distance jumps.</td><td>The default for gameplay and cinematics alike.</td></tr>
+          <tr><td>Depth of field, scatter (one sprite per bright pixel)</td><td class="n">0.5–6 ms, overdraw bound</td><td class="n">≈ 4 MB half-size image to add into</td><td>Drawing cost explodes when many pixels are bright; the sprites need sorting or adding up.</td><td>A few bright highlights that must show an exact aperture shape.</td></tr>
+          <tr><td>Depth of field, ray traced</td><td class="n">tens of ms per sample set</td><td class="n">an image to add into, plus the denoiser's memory of past frames</td><td>Grainy unless built up over many frames or cleaned by a denoiser.</td><td>Path-traced or offline modes; ground truth for tuning the gather.</td></tr>
+          <tr><td>Motion blur, camera only</td><td class="n">0.2–0.3 ms</td><td class="n">none beyond the depth map</td><td>Objects moving in the world get no blur; only the camera's motion counts.</td><td>Mobile, or a fixed-camera game.</td></tr>
+          <tr><td>Motion blur, each pixel along its own movement</td><td class="n">0.3–0.5 ms</td><td class="n">8.3 MB movement map</td><td>Blur stops at edges; fast objects look like sharp cut-outs with a smeared inside.</td><td>Rarely. It is the naive baseline.</td></tr>
+          <tr><td>Motion blur, by blocks (McGuire 2012, this page)</td><td class="n">0.5–0.8 ms</td><td class="n">8.3 MB movement map plus two tiny block maps</td><td>Block shapes leak where a fast object passes a still one; without the depth check a moving background eats a still foreground.</td><td>The default in Unreal, Unity HDRP and most in-house engines.</td></tr>
         </tbody>
       </table>
     </div>
@@ -636,7 +594,7 @@ bytes = pixels · 8 (RGBA16F) per colour target, · 4 for RG16F velocity or 32-b
 
   <section id="uses">
     <h2>Where it shows up in shipped games</h2>
-    <p class="sub">Three effects, three inputs. The table names only what the authors published.</p>
+    <p class="sub">Three effects, three kinds of input data. The table names only what the authors published.</p>
     <p class="plain">Each row is one technique as a shipped engine or paper describes it. Read across: <b>what the pass computes</b>, <b>what data it has to read</b>, and <b>who published it</b>.</p>
     <div class="tbl-wrap">
       <table class="uses">

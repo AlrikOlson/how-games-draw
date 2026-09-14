@@ -232,16 +232,16 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">8 m × 8 m castle hall, cut open from the side · red wall left, green wall right · drag the lantern</p>
+    <p class="eyebrow">a castle hall lit by one lantern · five guided demos · nothing to install</p>
     <h1>Global Illumination</h1>
-    <p class="lead">Direct light is the light a lamp puts on a surface it can see, with nothing in the way. <b>Global illumination</b> is all the light that arrives after a bounce: the red wall tinting the crates, the floor lighting the ceiling, the player behind the screen who is not black. Every real-time method on this page is a different way to store or fake that bounce light, and the choice sets your memory budget, your frame cost, and what is allowed to move. The part people get wrong is that none of them replaces direct light or mirror-like reflections; they add a soft, blurry layer on top.</p>
+    <p class="lead">A lamp lights what it can see. That is direct light, and it is the easy part. Light does not stop at the first thing it hits: it bounces off the floor, the walls and everything else, and that <b>bounce light</b> is why the corner behind a cupboard is not pitch black. Games call it global illumination, and working it out properly takes far longer than one frame. This page plays through five ways games store or fake it, and what each one gets wrong.</p>
     <div class="key">
-      <span style="--sw:#f2a341">the lantern and the light it gives off</span>
-      <span style="--sw:#4aa3ff">probe, camera or cone</span>
-      <span style="--sw:#ffffff">drag handle or ray</span>
-      <span style="--sw:#ef5d5d">missing or leaked light</span>
-      <span style="--sw:#c8403a">red wall, albedo ρ = (0.75, 0.15, 0.15)</span>
-      <span style="--sw:#3fa85a">green wall, albedo ρ = (0.15, 0.65, 0.2)</span>
+      <span style="--sw:#f2a341">the lantern and its light</span>
+      <span style="--sw:#4aa3ff">a probe, the camera or a cone</span>
+      <span style="--sw:#ffffff">something to drag, or a ray</span>
+      <span style="--sw:#ef5d5d">light that is missing or leaked</span>
+      <span style="--sw:#c8403a">the red wall (throws back mostly red)</span>
+      <span style="--sw:#3fa85a">the green wall (throws back mostly green)</span>
     </div>
     <dl class="terms">
       <dt>direct light</dt><dd>light that goes straight from the lamp to a surface with nothing in between</dd>
@@ -254,44 +254,31 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
       <dt>voxel</dt><dd>one cube in a 3D grid, the volume version of a pixel</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#reference"><span class="n">01</span>Direct light vs the full picture</a></li><li><a href="#radiosity"><span class="n">02</span>Radiosity</a></li><li><a href="#probes"><span class="n">03</span>Probes</a></li><li><a href="#ssgi"><span class="n">04</span>Screen-space GI</a></li><li><a href="#voxel"><span class="n">05</span>Voxel cones and the surface cache</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#reference"><span class="n">01</span>Direct light and bounce light</a></li><li><a href="#radiosity"><span class="n">02</span>Chop the walls up and solve once</a></li><li><a href="#probes"><span class="n">03</span>Bounce light for things that move</a></li><li><a href="#ssgi"><span class="n">04</span>Bounce light from the frame you already drew</a></li><li><a href="#voxel"><span class="n">05</span>Cubes, cones and a cache</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="reference">
-    <h2>Direct light vs the full picture</h2>
-    <p class="sub">A lantern hangs in a castle hall. A player stands behind a tall wooden screen, out of the lantern's direct light. Drag the lantern in either view and compare the hall lit by direct light alone to one where the light keeps bouncing.</p>
-    <div class="cols two">
+  <section id="reference" class="stage">
+    <h2>Direct light and bounce light</h2>
+    <p class="sub">A lantern hangs in a castle hall and a player hides behind a tall wooden screen. Left: only the light that reaches a surface straight from the lantern. Right: the same hall when light keeps bouncing.</p>
+    <div class="cols three">
       <div class="vp">
-        <canvas id="c1a" width="512" height="512" class="grab" aria-label="Castle hall cut open from the side, lit by the lantern's direct light only: the player behind the wooden screen and the ceiling are black"></canvas>
-        <div class="cap"><strong>direct only</strong><span id="c1a-cap"></span></div>
+        <canvas id="c1a" width="512" height="512" class="grab sq" aria-label="Castle hall cut open from the side, lit by the lantern's direct light only: the player behind the wooden screen and the space behind it are black"></canvas>
+        <div class="cap"><strong>direct light only</strong><span id="c1a-cap"></span></div>
       </div>
       <div class="vp">
-        <canvas id="c1b" width="512" height="512" class="grab" aria-label="The same castle hall with light bouncing up to four times: the red wall lights the crates and the player behind the screen, and the floor lights the ceiling"></canvas>
+        <canvas id="c1b" width="512" height="512" class="grab sq" aria-label="The same castle hall with light bouncing up to four times: the red wall lights the crates and the player behind the screen, and the floor lights the ceiling"></canvas>
         <div class="cap"><strong id="c1b-title">up to 4 bounces</strong><span id="c1b-cap"></span></div>
       </div>
-    </div>
-    <div class="controls">
-      <div class="ctl"><label for="bounces">Max bounces <span class="val" id="bouncesv">4</span></label><input type="range" id="bounces" min="1" max="5" step="1" value="4"></div>
-      <div class="ctl"><label for="rpf">Rays per frame <span class="val" id="rpfv">300</span></label><input type="range" id="rpf" min="50" max="800" step="50" value="300"></div>
-      <div class="ctl"><span class="lab">Accumulation</span><div class="seg"><button id="b1reset">restart</button></div></div>
-    </div>
-    <div class="pair">
-      <div class="prose">
-        <p class="plain">The left picture stops each light path at the <b>first surface it hits</b>. The right picture lets it <b>keep bouncing</b>, up to the number on the slider. Everything on the right that is missing on the left is bounce light, and it is <b>what every method below is trying to fake cheaply</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Both views are the hall cut open from the side, 8 m across, with the lantern as the amber dot. The glow in the air is how much light passes through each spot. The lit bands along the walls, the crates and the screen are how much light lands there. The player standing behind the screen is tinted by the light reaching the floor at his feet.</p>
-        <p>On the left the space behind the screen is black, and so is the player; the crates are lit on one side only. On the right the red wall spills onto the crates and onto the player, the corners brighten, and the shadows fill in.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the lantern down and to the left so the screen hides it from the crates. On the left the crates go black. On the right they stay dimly lit by light coming off the walls.</li>
-          <li>Drag the lantern into the left half, below the top of the screen. Now the player is in direct light in both views, and the crates are the ones only the right view lights.</li>
-          <li>Set max bounces to 1. The right view becomes the direct-only picture, and its caption says so.</li>
-          <li>Press restart and watch the right view. It starts grainy and smooths out as the ray count climbs and the noise percentage in the caption drops.</li>
-        </ul>
+      <div class="lesson" data-lesson="reference">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><label for="bounces">Bounces allowed <span class="val" id="bouncesv">4</span></label><input type="range" id="bounces" min="1" max="5" step="1" value="4"></div>
+          <div class="ctl"><label for="rpf">Light paths traced per frame <span class="val" id="rpfv">300</span></label><input type="range" id="rpf" min="50" max="800" step="50" value="300"></div>
+          <div class="ctl"><span class="lab">Start the count again</span><div class="seg"><button id="b1reset">restart</button></div></div>
+        </div>
       </div>
-      <div class="prose">
-        <h3>The real version</h3>
+    </div>
+    <div class="foot">
+    <p class="tldr">Bounce light is what the right picture has and the left one lacks; getting it fast, without grain, is the whole problem.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Both views are path tracers: they follow light paths one random bounce at a time and add up where each path goes. This one starts paths at the lantern, a few hundred per frame, and keeps adding. The picture it settles on is unbiased, meaning that with enough rays it is the exact answer rather than an approximation.</p>
         <p>The catch is noise. The readout compares two independent halves of the accumulation, and the gap between them is the grain you can see. A game gets one sample per pixel per frame, so a path tracer in a game needs a denoiser and a history buffer, which is a copy of last frame's result that this frame blends into. Every other method on this page gives up exactness for a picture that is stable on frame one.</p>
         <p class="words">In words: the light leaving a point is what the point emits itself, plus every bit of incoming light scaled by how the surface reflects it and by how steeply it arrives. The incoming light is just someone else's outgoing light, which is what makes it a bounce.</p>
@@ -314,46 +301,35 @@ vec3 throughput = lightPower / float(raysPerFrame);
 }
 <span class="c">// noise estimate: two independent accumulators A and B</span>
 noise = sum(|A - B|) / sum(A + B);</pre>
-        <p class="tldr">Bounce light is everything the right view has and the left view does not, and getting it without the grain is the whole problem.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="radiosity">
-    <h2>Radiosity: solve once, bake to a texture</h2>
-    <p class="sub">Cut the hall's walls into patches, pass light between them one step at a time, then bake the answer into a texture and drag the crates out from under their own shadow.</p>
+  <section id="radiosity" class="stage">
+    <h2>Chop the walls up and solve once</h2>
+    <p class="sub">The same hall, with every wall cut into patches that pass light to each other. Solve it once, write the answer onto the walls, then see what happens when the crates move.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" width="512" height="512" class="grab" aria-label="Castle hall with every wall, the crates and the wooden screen cut into radiosity patches, a lantern to drag, and baked lightmap strips outside the walls"></canvas>
+        <canvas id="c2" width="512" height="512" class="grab sq" aria-label="Castle hall with every wall, the crates and the wooden screen cut into patches, a lantern to drag, and baked lightmap strips outside the walls"></canvas>
         <div class="cap"><span id="c2-read"></span><span id="c2-mem"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Chop every wall into small <b>patches</b>. Each pass, every patch <b>collects light from every other patch it can see</b>, so each pass adds one more bounce. When it settles, <b>write the answer into a texture</b> on each wall and never compute it again. That texture is a lightmap, and it costs nothing per frame right up until something moves.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Each wall of the hall is drawn as a row of patches lit by how much light they hold, and so are the faces of the crates and the screen. Hover a patch and white lines show which other patches it trades light with; brighter lines carry more. Once you bake, the strips outside the four room walls are the lightmaps, one texel (a texture pixel) every few centimetres, at the size on the slider.</p>
-        <p>The player behind the screen is not part of the solve. He is tinted by the floor patch under his feet, which is roughly what a lightmap can do for a character.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Press step one pass a few times. The ceiling and the far side of the screen brighten one bounce per pass, and the passes tile counts along.</li>
-          <li>Press bake, then drag the crates. Their shadow stays on the floor where the bake put it, marked in red.</li>
-          <li>Push patches per wall to 64. The form factor count in the tiles grows with the square of the patch count, and the milliseconds to build them follow.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
+      <div class="lesson" data-lesson="radiosity">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">Solve</span><div class="seg"><button id="rStep">add one pass</button><button id="rRun">run 24 passes</button><button id="rReset">reset</button></div></div>
+          <div class="ctl"><span class="lab">Lightmap</span><div class="seg"><button id="rBake">bake</button><button id="rUnbake">throw the bake away</button></div></div>
           <div class="ctl"><label for="ppw">Patches per 8 m wall <span class="val" id="ppwv">16</span></label><input type="range" id="ppw" min="8" max="64" step="8" value="16"></div>
-          <div class="ctl"><label for="texel">Lightmap texel <span class="val" id="texelv">25 cm</span></label><input type="range" id="texel" min="5" max="50" step="5" value="25"></div>
-          <div class="ctl"><span class="lab">Solve</span><div class="seg"><button id="rStep">step one pass</button><button id="rRun">run 24</button><button id="rReset">reset</button></div></div>
-          <div class="ctl"><span class="lab">Lightmap</span><div class="seg"><button id="rBake">bake</button><button id="rUnbake">rebuild</button></div></div>
+          <div class="ctl"><label for="texel">Lightmap texel, one texture pixel <span class="val" id="texelv">25 cm</span></label><input type="range" id="texel" min="5" max="50" step="5" value="25"></div>
         </div>
         <div class="tiles">
-          <div class="tile" id="t2-pass"><div class="n">0</div><div class="l">passes = bounces</div></div>
-          <div class="tile" id="t2-ff"><div class="n">—</div><div class="l">form factors</div></div>
-          <div class="tile" id="t2-ms"><div class="n">—</div><div class="l">ms to build F</div></div>
+          <div class="tile" id="t2-pass"><div class="n">0</div><div class="l">passes run, one bounce each</div></div>
+          <div class="tile" id="t2-ff"><div class="n">—</div><div class="l">patch pairs that trade light</div></div>
+          <div class="tile" id="t2-ms"><div class="n">—</div><div class="l">milliseconds to build the pair table</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Cut the walls into patches, pass light between them a few times, and write the answer onto the walls: free to read, wrong once anything moves.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Radiosity assumes every surface is diffuse, meaning it scatters light evenly in all directions like matte paint. Then the light leaving a patch is one number per colour with no direction attached, and the whole problem turns into a linear system: a big table of numbers you solve pass by pass.</p>
         <p>The entry that links patch i to patch j is the form factor <code>F_ij</code>, the fraction of light leaving patch i that lands on patch j. It depends only on geometry, so it is computed once. The direct light from the lantern is computed once too and folded into the emission term, so the solve only carries the bounces.</p>
         <p>Each pass is one Jacobi step, meaning every patch gathers from last pass's values at the same time. A handful of passes is enough. The result lives on the surfaces, which is exactly what a lightmap is, and reading it costs one texture fetch. Bake it and the lighting is frozen: move the crates and their shadow stays where the bake left it.</p>
@@ -374,39 +350,29 @@ E_i = ρ_i · I · cosθ_i / r_i · V_i           <span class="c">// direct ligh
 }
 <span class="c">// bake: one texel per (texelSize) along the wall, RGBA8 or RGBM</span>
 lightmap[wall][t] = B[patchAt(wall, (t + 0.5) * texelSize)];</pre>
-        <p class="tldr">Radiosity turns bounce light into a table you solve once; a lightmap is that answer stored on the walls, free to read and wrong the moment anything moves.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="probes">
-    <h2>Probes: bounce light for things that move</h2>
-    <p class="sub">The player walks behind the wooden screen, where the lantern cannot reach. Drag the player, then drag the lantern, and watch a moving character borrow bounce light from probes in the air.</p>
+  <section id="probes" class="stage">
+    <h2>Bounce light for things that move</h2>
+    <p class="sub">The player walks behind the screen. He was not there when the walls were baked, so he borrows bounce light from probes floating in the air.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c3" width="512" height="512" class="grab" aria-label="Grid of light probes in the castle hall shading the player as he walks behind the wooden screen, with an inset of how he looks on screen"></canvas>
+        <canvas id="c3" width="512" height="512" class="grab sq" aria-label="Grid of light probes in the castle hall shading the player as he walks behind the wooden screen, with an inset of how he looks on screen"></canvas>
         <div class="cap"><span id="c3-read"></span><span id="c3-mem"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">A lightmap only helps surfaces that existed when it was baked. A character walking through the hall needs the same bounce light, so engines <b>store it at points in the air</b> called probes. Each probe <b>remembers the light arriving from each direction</b>, and a moving character <b>blends the nearest few probes</b>. The trap is that blending across a wall <b>pulls light through the wall</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The blue dots are a grid of probes at the spacing on the slider. Each stores incoming light in 16 direction bins plus a distance per bin. The player is the moving object: every point around his outline is shaded from the 4 probes around it, so his red-wall side goes red and his screen side goes dark. The inset shows him as he would look on screen. The blue lobe on the highlighted probe is the compressed version of its 16 bins, drawn over the raw ones.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the player behind the screen with the weights set to bilinear only. The caption turns red and reports how much light leaked through the screen, and the player brightens as if the screen were not there.</li>
-          <li>Switch the weights to + visibility (DDGI). The leak goes away and the player darkens to what can reach him.</li>
-          <li>Widen the spacing to 2 m. Fewer probes, less memory in the caption, and more chances for a probe on the wrong side of the screen to get a vote.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="spacing">Probe spacing <span class="val" id="spacingv">1.0 m</span></label><input type="range" id="spacing" min="0.5" max="2" step="0.25" value="1"></div>
-          <div class="ctl"><span class="lab">Weights</span><div class="seg" id="segVis" role="group" aria-label="Probe weighting"><button data-v="0" aria-pressed="true">bilinear only</button><button data-v="1">+ visibility (DDGI)</button></div></div>
-          <div class="ctl"><span class="lab">Show on player</span><div class="seg" id="segLit" role="group" aria-label="Player lighting term"><button data-v="full" aria-pressed="true">direct + indirect</button><button data-v="ind">indirect only</button></div></div>
+      <div class="lesson" data-lesson="probes">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><label for="spacing">Probe spacing <span class="val" id="spacingv">1.5 m</span></label><input type="range" id="spacing" min="0.5" max="2" step="0.25" value="1.5"></div>
+          <div class="ctl"><span class="lab">How the four probes are blended</span><div class="seg" id="segVis" role="group" aria-label="Probe weighting"><button data-v="0" aria-pressed="true">by distance only</button><button data-v="1">distance, plus a can-it-see check (DDGI)</button></div></div>
+          <div class="ctl"><span class="lab">Light shown on the player</span><div class="seg" id="segLit" role="group" aria-label="Player lighting term"><button data-v="full" aria-pressed="true">direct plus bounce</button><button data-v="ind">bounce only</button></div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Probes give moving things bounce light from the air; store a distance per direction too, or the blend hands light through walls.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Each probe shoots rays and keeps the radiance it saw per direction; the 16 bins are the raw data. What ships is usually a projection onto a few basis functions, a handful of smooth curves that together approximate the bins. In this flat slice the equivalent of L1 spherical harmonics (the first, smoothest set of those curves on a sphere) is 3 numbers per colour channel, and the irradiance for any surface direction falls out of a dot product.</p>
         <p>The failure is interpolation. Bilinear weighting, the plain blend by distance along each axis, knows nothing about walls. The player behind the screen sits in a cell whose right-hand probes are in the lit half of the hall, so their lit values get blended straight through the screen.</p>
         <p>DDGI (dynamic diffuse global illumination) fixes this by storing a depth per bin: how far each probe can see in that direction. When the stored depth says the probe cannot see the shading point, its weight drops to almost nothing.</p>
@@ -431,45 +397,34 @@ vec3 sum = vec3(0.0); float wsum = 0.0;
   sum += w * shEvalIrradiance(probeSH(id), n);  wsum += w;
 }
 vec3 indirect = albedo * sum / max(wsum, 1e-4);</pre>
-        <p class="tldr">Probes give moving characters bounce light from the air; store a depth per direction, or the blend will hand light straight through walls.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="ssgi">
-    <h2>Screen-space GI: only what the camera sees</h2>
-    <p class="sub">A camera in the hall sees only part of it. Drag the camera and its aim point and watch bounce light appear and vanish as the red wall leaves the frame.</p>
+  <section id="ssgi" class="stage">
+    <h2>Bounce light from the frame you already drew</h2>
+    <p class="sub">A camera in the hall sees only part of it. Its bounce light is found by searching the picture it just drew, so anything outside the frame gives nothing.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" width="512" height="512" class="grab" aria-label="Camera inside the castle hall with its view wedge, the wall and crate surfaces it can see drawn bright, screen-space bounce rays from one pixel, and the frame it drew as a strip below"></canvas>
+        <canvas id="c4" width="512" height="512" class="grab sq" aria-label="Camera inside the castle hall with its view wedge, the wall and crate surfaces it can see drawn bright, bounce rays from one pixel walked across the frame, and the frame it drew as a strip below"></canvas>
         <div class="cap"><span id="c4-read"></span><span id="c4-miss"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The cheapest bounce light comes from <b>reusing the frame you already drew</b>. The frame has a colour for every pixel and a depth for every pixel. Walk a ray across that picture until it dips behind something and <b>call that a hit</b>. It needs no scene data and everything can move. The cost is that <b>anything off screen does not exist</b>, so its light vanishes too.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The blue wedge is the camera's view; it sees a 1D image of 160 pixels. Only the wall, crate and screen surfaces inside that wedge are in the depth and colour buffers, and they are drawn bright; everything else in the hall is faint. From the inspected pixel, bounce rays are marched across the screen. Red rays left the screen or slipped behind something and came back with nothing.</p>
-        <p>The three strips under the hall are the frame the camera drew, the bounce light found in that frame, and the same rays traced against the real hall for comparison.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the aim point so the red wall leaves the frame. The crates stop receiving red light, because the red wall is no longer in the buffer.</li>
-          <li>Narrow the field of view to 40°. Less of the hall is in the buffer, and the rays lost off screen tile climbs.</li>
-          <li>Drop the thickness to 0.1 m and watch the behind-depth percentage in the caption rise.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="fov">Camera FOV <span class="val" id="fovv">90°</span></label><input type="range" id="fov" min="40" max="120" step="5" value="90"></div>
-          <div class="ctl"><label for="thick">Thickness <span class="val" id="thickv">0.5 m</span></label><input type="range" id="thick" min="0.1" max="2" step="0.1" value="0.5"></div>
-          <div class="ctl"><label for="pix">Inspect pixel <span class="val" id="pixv">80</span></label><input type="range" id="pix" min="0" max="159" step="1" value="80"></div>
+      <div class="lesson" data-lesson="ssgi">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="fov">How wide the camera sees <span class="val" id="fovv">100°</span></label><input type="range" id="fov" min="40" max="120" step="5" value="100"></div>
+          <div class="ctl"><label for="thick">How thick surfaces are assumed to be <span class="val" id="thickv">0.5 m</span></label><input type="range" id="thick" min="0.1" max="2" step="0.1" value="0.5"></div>
+          <div class="ctl"><label for="pix">Which pixel to inspect, 0 to 159 <span class="val" id="pixv">15</span></label><input type="range" id="pix" min="0" max="159" step="1" value="15"></div>
         </div>
         <div class="tiles">
-          <div class="tile" id="t4-vis"><div class="n">—</div><div class="l">m of wall in buffer</div></div>
-          <div class="tile" id="t4-ss"><div class="n">—</div><div class="l">bounce captured</div></div>
-          <div class="tile" id="t4-off"><div class="n">—</div><div class="l">rays lost off screen</div></div>
+          <div class="tile" id="t4-vis"><div class="n">—</div><div class="l">metres of wall inside the frame, of 48</div></div>
+          <div class="tile" id="t4-ss"><div class="n">—</div><div class="l">share of the true bounce light found</div></div>
+          <div class="tile" id="t4-off"><div class="n">—</div><div class="l">rays that ran off the frame</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Screen-space bounce light comes from the frame you already drew: no scene data, everything can move, and anything off screen is gone.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Screen-space GI reads two buffers the frame already produced: the depth buffer and the lit colour buffer. For each bounce ray it steps forward a little, projects the point back onto the screen, and compares the ray's depth with the stored depth at that pixel. If the ray has gone behind the stored surface by less than a thickness margin, that is a hit, and the colour stored there is the bounce light.</p>
         <p>That is why it is cheap and fully dynamic, and why it shows up as the lowest tier in most engines and as the first trace in Lumen. The ray only knows what the camera knows. Rays that leave the screen or pass behind a thin object return nothing.</p>
         <p class="words">In words: step along the ray, look up the depth at that screen column, and call it a hit if the ray is just behind the stored surface. Average the colours of the hits.</p>
@@ -495,44 +450,34 @@ vec3 gi = vec3(0.0);
   }
 }
 gi *= albedo / float(K);   <span class="c">// then temporally accumulate: 1 spp is far too noisy</span></pre>
-        <p class="tldr">Screen-space GI is bounce light from the frame you already have: free of scene data, and blind to anything the camera cannot see.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="voxel">
-    <h2>Voxel cones and the surface cache</h2>
-    <p class="sub">Turn the hall into coarse cubes. Drag the shading spot along any wall, drag the lantern, and watch the cubes stand in for the room while the cache catches up.</p>
+  <section id="voxel" class="stage">
+    <h2>Cubes, cones and a cache</h2>
+    <p class="sub">The hall is turned into a coarse grid of cells. A few fat cones read the grid instead of hundreds of rays, and the walls keep a cache of light that refreshes a little each frame.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="512" height="512" class="grab" aria-label="Castle hall turned into a voxel grid, with fattening cones traced from a spot on the floor and surface cache strips outside the walls"></canvas>
+        <canvas id="c5" width="512" height="512" class="grab sq" aria-label="Castle hall turned into a grid of cells, with fattening cones traced from a spot on the floor and surface cache strips outside the walls"></canvas>
         <div class="cap"><span id="c5-read"></span><span id="c5-mem"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Turn the hall into a <b>coarse grid of cubes</b>, each storing how solid it is and how much light it gives off. From a spot on a wall, send out a few <b>cones that get fatter as they go</b>, reading coarser copies of the grid as they widen. Five cones stand in for hundreds of rays. The price is <b>blur</b>, and <b>thin walls that leak</b>, because a thin screen barely fills a fat cube.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The grid of squares is the voxelized hall at the resolution you pick: the walls, the crates and the screen become filled cells holding their light. The blue circles are the cone samples, starting at the white shading spot and growing with distance. The strips outside the walls are the surface cache: small lighting textures on the surfaces, with the texels updated this frame marked in white.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the shading spot behind the screen on the 16² grid. The caption reports a leak: the 12 cm screen inside a 50 cm voxel is only 24 % solid, so most of each cone passes through it.</li>
-          <li>Switch to 64². The screen nearly fills its voxels, the leak closes, and the memory in the caption climbs.</li>
-          <li>Drag the lantern, then watch the frames since light moved tile. The cache refreshes a few texels per frame, so the new lighting arrives over several frames; lower the budget and the lag grows.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><span class="lab">Voxel grid</span><div class="seg" id="segRes" role="group" aria-label="Voxel resolution"><button data-v="16">16²</button><button data-v="32" aria-pressed="true">32²</button><button data-v="64">64²</button></div></div>
-          <div class="ctl"><label for="aperture">Cone aperture <span class="val" id="aperturev">30°</span></label><input type="range" id="aperture" min="10" max="70" step="5" value="30"></div>
-          <div class="ctl"><label for="budget">Cache texels per frame <span class="val" id="budgetv">32</span></label><input type="range" id="budget" min="4" max="128" step="4" value="32"></div>
+      <div class="lesson" data-lesson="voxel">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">Grid size</span><div class="seg" id="segRes" role="group" aria-label="Voxel resolution"><button data-v="16">16 by 16</button><button data-v="32" aria-pressed="true">32 by 32</button><button data-v="64">64 by 64</button></div></div>
+          <div class="ctl"><label for="aperture">How wide each cone opens <span class="val" id="aperturev">30°</span></label><input type="range" id="aperture" min="10" max="70" step="5" value="30"></div>
+          <div class="ctl"><label for="budget">Cache cells refreshed per frame <span class="val" id="budgetv">32</span></label><input type="range" id="budget" min="4" max="128" step="4" value="32"></div>
         </div>
         <div class="tiles">
-          <div class="tile" id="t5-cone"><div class="n">—</div><div class="l">cone-traced E</div></div>
-          <div class="tile" id="t5-ref"><div class="n">—</div><div class="l">64-ray reference E</div></div>
-          <div class="tile" id="t5-age"><div class="n">—</div><div class="l">frames since light moved</div></div>
+          <div class="tile" id="t5-cone"><div class="n">—</div><div class="l">light the five cones found</div></div>
+          <div class="tile" id="t5-ref"><div class="n">—</div><div class="l">light 64 true rays found</div></div>
+          <div class="tile" id="t5-age"><div class="n">—</div><div class="l">frames since the lantern moved</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Cones trade hundreds of rays for a few blurry reads of a coarse grid, and the cache spreads relighting over frames.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>A cone trace is a ray march that takes bigger steps as it goes. At distance t the cone is <code>2·t·tan(θ/2)</code> wide, so the sampler reads the mip level (the downscaled copy of the grid) whose voxel is that size, and the number of steps grows with the logarithm of the distance instead of the distance. Occlusion builds up front to back with the same blend a volume renderer uses, so once the cone is 95 % blocked it stops.</p>
         <p>Re-lighting the whole voxel grid every frame is the expensive part. Lumen keeps a surface cache instead: small radiance textures on the surfaces, updated a budgeted number of texels per frame, and each update gathers from last frame's cache. That gives multiple bounces for free and a visible lag when the light moves. SDFGI in Godot 4 and Lumen's software path swap the voxel opacity for a signed distance field, a grid that stores the distance to the nearest surface, and keep the same idea.</p>
         <p class="words">In words: step along the cone, pick the mip whose voxel matches the cone's width there, blend in that voxel's colour by how solid it is, and stop when the cone is mostly blocked. Add the cones up, weighted by how well each one faces the surface.</p>
@@ -557,8 +502,7 @@ float t = voxelSize;                                       <span class="c">// sk
   t += diameter * 0.5;
 }
 <span class="c">// 5 cones per pixel, then albedo * sum(w_c * color_c)</span></pre>
-        <p class="tldr">Cones trade hundreds of rays for a few blurry reads of a coarse grid; the surface cache spreads the relighting over frames, so light moves with a lag.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
@@ -721,7 +665,76 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
+  const $ = id => document.getElementById(id);
+  let L1, L2, L3, L4, L5;
   // ---------- scene: 8 m × 8 m castle hall cut open from the side, y down (0 = ceiling, 8 = floor) ----------
   const W = 512, ROOM = 8;
   const RED = [0.75, 0.15, 0.15], GREEN = [0.15, 0.65, 0.2], GREY = [0.72, 0.72, 0.72], WOODC = [0.6, 0.42, 0.25];
@@ -931,12 +944,13 @@ function kitInset(ctx, x, y, w, h, title) {
       hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
       if (best >= 0) { active = best; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); }
     });
+    let last = null;
     canvas.addEventListener("pointermove", ev => {
       const [x, y] = worldOf(canvas, ev, map);
-      if (active >= 0) onMove(active, Math.max(0.05, Math.min(7.95, x)), Math.max(0.05, Math.min(7.95, y)));
+      if (active >= 0) { last = [Math.max(0.05, Math.min(7.95, x)), Math.max(0.05, Math.min(7.95, y))]; onMove(active, last[0], last[1]); }
       else if (onHover) onHover(x, y);
     });
-    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    const end = ev => { if (active >= 0) { if (last) onMove(active, last[0], last[1]); active = -1; last = null; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
     canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
     canvas.addEventListener("pointerleave", () => { if (onHover) onHover(-99, -99); });
   }
@@ -1025,26 +1039,30 @@ function kitInset(ctx, x, y, w, h, title) {
     kitLabel(ctx, lum(Eb) < 0.01 ? "behind the screen: no light at all" : "behind the screen: bounce light only", X(0.1), Y(3.3), "left", lum(Eb) < 0.01 ? "#ef5d5d" : "#f2a341");
     if (full) { const El = segE(acc, 5, kw); if (lum(El) > 0.01 && El[0] > 1.25 * El[1]) { kitArrow(ctx, X(b.x) - 40, Y(8 - b.h / 2) - 40, X(b.x) - 8, Y(8 - b.h / 2) - 6, "#f2a341"); kitLabel(ctx, "red wall spills onto the crates", X(b.x) - 34, Y(8 - b.h / 2) - 50, "right", "#f2a341"); } }
     const noise = den > 0 ? num / den : 1;
-    capEl.innerHTML = `<strong>${fmtN(acc.rays)} rays</strong> · noise ${(100 * noise).toFixed(1)} %`;
+    capEl.innerHTML = `<strong>${fmtN(acc.rays)} light paths</strong> · grain ${(100 * noise).toFixed(1)} %`;
   }
   const c1a = document.getElementById("c1a"), c1b = document.getElementById("c1b"), x1a = c1a.getContext("2d"), x1b = c1b.getContext("2d");
   watch(c1a); watch(c1b);
   let ms1 = 0;
+  function render1() {
+    drawAccum(x1a, acc1[0], document.getElementById("c1a-cap"), false);
+    drawAccum(x1b, acc1[1], document.getElementById("c1b-cap"), d1.bounces > 1);
+    L1 && L1.check();
+  }
   function frame1() {
     if (visible.get(c1a) || visible.get(c1b)) {
       const t0 = performance.now();
       if (acc1[0].rays < 400000) traceRays(acc1[0], 1, d1.rpf);
       if (acc1[1].rays < 400000) traceRays(acc1[1], d1.bounces, d1.rpf);
-      drawAccum(x1a, acc1[0], document.getElementById("c1a-cap"), false);
-      drawAccum(x1b, acc1[1], document.getElementById("c1b-cap"), d1.bounces > 1);
+      render1();
       ms1 = 0.9 * ms1 + 0.1 * (performance.now() - t0);
-      document.getElementById("c1a-cap").innerHTML += ` · ${ms1.toFixed(1)} ms/frame`;
+      document.getElementById("c1a-cap").innerHTML += ` · ${ms1.toFixed(1)} ms a frame`;
     }
     requestAnimationFrame(frame1);
   }
   for (const c of [c1a, c1b]) drag(c, () => [d1.L], (i, x, y) => { d1.L = [x, y]; resetAccum(); });
   const bEl = document.getElementById("bounces");
-  bEl.addEventListener("input", () => { d1.bounces = +bEl.value; document.getElementById("bouncesv").textContent = bEl.value; document.getElementById("c1b-title").textContent = d1.bounces === 1 ? "1 bounce (= direct)" : `up to ${d1.bounces} bounces`; acc1[1].A.fill(0); acc1[1].B.fill(0); acc1[1].rays = 0; acc1[1].bins.forEach(p => p.acc = [0, 0, 0]); });
+  bEl.addEventListener("input", () => { d1.bounces = +bEl.value; document.getElementById("bouncesv").textContent = bEl.value; document.getElementById("c1b-title").textContent = d1.bounces === 1 ? "1 bounce: direct light only" : `up to ${d1.bounces} bounces`; acc1[1].A.fill(0); acc1[1].B.fill(0); acc1[1].rays = 0; acc1[1].bins.forEach(p => p.acc = [0, 0, 0]); });
   const rpfEl = document.getElementById("rpf");
   rpfEl.addEventListener("input", () => { d1.rpf = +rpfEl.value; document.getElementById("rpfv").textContent = rpfEl.value; });
   document.getElementById("b1reset").addEventListener("click", resetAccum);
@@ -1076,6 +1094,7 @@ function kitInset(ctx, x, y, w, h, title) {
       standingPlayer(x2, B.map(v => v / GREY[0]), null); }
     // hovered patch: lines to its form-factor partners
     if (d2.hover >= 0) {
+      d2.hovered = true;
       const i = d2.hover, a = P[i], o = i * N; let mx = 0;
       for (let j = 0; j < N; j++) mx = Math.max(mx, d2.F[o + j]);
       for (let j = 0; j < N; j++) { const f = d2.F[o + j]; if (f < 0.004) continue;
@@ -1117,14 +1136,15 @@ function kitInset(ctx, x, y, w, h, title) {
     document.querySelector("#t2-pass .n").textContent = d2.passes;
     document.querySelector("#t2-ff .n").textContent = `${fmtN(nz)} / ${fmtN(N * N)}`;
     document.querySelector("#t2-ms .n").textContent = d2.msF.toFixed(0);
-    let read = `<strong>${N} patches</strong> · pass ${d2.passes}`;
+    let read = `<strong>${N} patches</strong> · ${d2.passes} passes run`;
     if (d2.hover >= 0) { const a = P[d2.hover]; let row = 0; for (let j = 0; j < N; j++) row += d2.F[d2.hover * N + j];
-      read = `<strong>${sc.segs[a.seg].name}</strong> patch · B = (${a.B.map(v => v.toFixed(2)).join(", ")}) · Σ F = ${row.toFixed(2)}`; }
-    if (d2.baked && Math.abs(d2.box.x - bk_x()) > 0.02) read += ` · <span class="bad">baked with crates at x = ${bk_x().toFixed(1)} m, crates now at ${d2.box.x.toFixed(1)} m</span>`;
+      read = `<strong>${sc.segs[a.seg].name}</strong> patch · light leaving it (r, g, b) = (${a.B.map(v => v.toFixed(2)).join(", ")}) · its shares add up to ${row.toFixed(2)}`; }
+    if (d2.baked && Math.abs(d2.box.x - bk_x()) > 0.02) read += ` · <span class="bad">baked with the crates at x = ${bk_x().toFixed(1)} m, they are now at ${d2.box.x.toFixed(1)} m</span>`;
     document.getElementById("c2-read").innerHTML = read;
     const tx = d2.texel / 100; let tex2 = 0; sc.segs.forEach(s => tex2 += Math.ceil(s.len / tx));
     const tex3 = 6 * Math.ceil(ROOM / tx) ** 2;
-    document.getElementById("c2-mem").innerHTML = d2.baked ? `baked: <strong>${fmtN(tex2)} texels · ${fmtBytes(tex2 * 4)}</strong> RGBA8 in 2D · 3D hall ${fmtBytes(tex3 * 4)}` : `not baked · ${d2.texel} cm texels would be ${fmtN(tex2)} texels (${fmtBytes(tex3 * 4)} as a 3D hall)`;
+    document.getElementById("c2-mem").innerHTML = d2.baked ? `baked: <strong>${fmtN(tex2)} texels · ${fmtBytes(tex2 * 4)}</strong> for this flat slice · a full 3D hall would take ${fmtBytes(tex3 * 4)}` : `not baked · ${d2.texel} cm texels would make ${fmtN(tex2)} texels (${fmtBytes(tex3 * 4)} as a 3D hall)`;
+    L2 && L2.check();
   }
   function bk_x() { return d2.baked.boxX; }
   function nearestPatch(x, y) {
@@ -1171,7 +1191,7 @@ function kitInset(ctx, x, y, w, h, title) {
   // ---------- 3. irradiance probes ----------
   const c3 = document.getElementById("c3"), x3 = c3.getContext("2d");
   const PLR = { rx: 0.4, ry: 0.85 };   // the player's outline: an ellipse 0.8 m wide and 1.7 m tall
-  const d3 = { L: [5.6, 1.0], spacing: 1, vis: 0, lit: "full", obj: [1.7, 8 - PLR.ry - 0.02], scene: makeScene(BOX0) };
+  const d3 = { L: [5.6, 1.0], spacing: 1.5, vis: 0, lit: "full", obj: [1.7, 8 - PLR.ry - 0.02], scene: makeScene(BOX0) };
   d3.src = radSource(d3.scene, 32); d3.src.update(d3.L);
   const NB = 16;
   function inSolid(x, y) { return (x >= BOX0.x && x <= BOX0.x + BOX0.w && y >= 8 - BOX0.h) || (Math.abs(x - PART.x) <= PART.half && y >= PART.top); }
@@ -1275,10 +1295,12 @@ function kitInset(ctx, x, y, w, h, title) {
       // depth per bin as short ticks
       for (let b = 0; b < NB; b++) { const th = (b + 0.5) / NB * Math.PI * 2, r = Math.min(d3.spacing, pr.depth[b]) * S;
         x3.strokeStyle = "rgba(74,163,255,0.25)"; x3.beginPath(); x3.moveTo(X(pr.x) + Math.cos(th) * (r - 4), Y(pr.y) + Math.sin(th) * (r - 4)); x3.lineTo(X(pr.x) + Math.cos(th) * r, Y(pr.y) + Math.sin(th) * r); x3.stroke(); }
-      kitLabel(x3, "this probe: 16 bins (grey), 3 numbers (blue)", Math.min(W - 8, Math.max(8, X(pr.x) + (X(pr.x) > W / 2 ? 20 : -20))), pr.y > 4 ? Math.min(W - 12, Y(pr.y) + 52) : Y(pr.y) - 46, X(pr.x) > W / 2 ? "right" : "left", "#4aa3ff");
+      kitLabel(x3, "this probe: 16 directions (grey), squeezed to 3 numbers (blue)", Math.min(W - 8, Math.max(8, X(pr.x) + (X(pr.x) > W / 2 ? 20 : -20))), pr.y > 4 ? Math.min(W - 12, Y(pr.y) + 52) : Y(pr.y) - 46, X(pr.x) > W / 2 ? "right" : "left", "#4aa3ff");
     }
     roomFrame(x3); lantern(x3, d3.L); handle(x3, X(cx), Y(cy), 5);
-    const live = d3.probes.filter(p => !p.dead).length, leak = sumVis > 1e-4 ? (sumBi - sumVis) / sumVis : 0, leaking = leak > 0.25 && !d3.vis;
+    let share = 0; cen.ids.forEach((pr, k) => { if (!pr.dead && (pr.x - PART.x) * (cx - PART.x) < 0) share += cen.w[k]; });
+    const live = d3.probes.filter(p => !p.dead).length, leaking = share > 0.15 && !d3.vis;
+    d3.stats = { share, leaking };
     // callouts
     lanternLabel(x3, d3.L);
     kitLabel(x3, "player · drag", X(cx), Y(cy - PLR.ry) - 16, "center");
@@ -1288,14 +1310,15 @@ function kitInset(ctx, x, y, w, h, title) {
     { const ix = W - 118, iy = W - 132, iw = 110, ih = 124; kitInset(x3, ix, iy, iw, ih, "on screen");
       x3.fillStyle = "#151920"; x3.fillRect(ix + 1, iy + ih - 12, iw - 2, 11);
       shadedPlayer(x3, ix + iw / 2, iy + ih - 12, 90, cols); }
-    document.getElementById("c3-read").innerHTML = `player's bounce light E: bilinear <strong>${(sumBi / K).toFixed(3)}</strong> · with visibility <strong>${(sumVis / K).toFixed(3)}</strong> · ${leak > 0.25 ? `<span class="bad">${(100 * leak).toFixed(0)} % leaked through the screen</span>` : `<span class="ok">${(100 * Math.abs(leak)).toFixed(0)} % difference</span>`}`;
-    document.getElementById("c3-mem").innerHTML = `${live} probes · 16 bins RGB16F + depth = ${fmtBytes(live * 128)} · as L1 SH ${fmtBytes(live * 18)}`;
+    document.getElementById("c3-read").innerHTML = `bounce light on the player: <strong>${(sumBi / K).toFixed(3)}</strong> blended by distance · <strong>${(sumVis / K).toFixed(3)}</strong> with the can-it-see check · ${leaking ? `<span class="bad">${(100 * share).toFixed(0)} % of his blend comes from the lit side of the screen</span>` : `<span class="ok">${(100 * share).toFixed(0)} % of his blend crosses the screen</span>`}`;
+    document.getElementById("c3-mem").innerHTML = `${live} probes · ${fmtBytes(live * 128)} with 16 directions and a distance each · ${fmtBytes(live * 18)} squeezed to 3 numbers per colour`;
+    L3 && L3.check();
   }
   let pend3 = false;
   function req3(full) { if (pend3) return; pend3 = true; requestAnimationFrame(() => { pend3 = false; if (full) { d3.src.update(d3.L); buildProbes(); } draw3(); }); }
   drag(c3, () => [d3.L, d3.obj], (i, x, y) => { if (i === 0) { d3.L = [x, y]; req3(true); } else { d3.obj = [Math.max(PLR.rx, Math.min(8 - PLR.rx, x)), Math.max(PLR.ry, Math.min(8 - PLR.ry - 0.02, y))]; req3(false); } });
   const spEl = document.getElementById("spacing");
-  spEl.addEventListener("input", () => { d3.spacing = +spEl.value; document.getElementById("spacingv").textContent = (+spEl.value).toFixed(2) + " m"; buildProbes(); draw3(); });
+  spEl.addEventListener("input", () => { d3.spacing = +spEl.value; document.getElementById("spacingv").textContent = +spEl.value + " m"; buildProbes(); draw3(); });
   document.getElementById("segVis").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; d3.vis = +b.dataset.v; segOn(ev.currentTarget, d3.vis); draw3(); });
   document.getElementById("segLit").addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; d3.lit = b.dataset.v; segOn(ev.currentTarget, d3.lit); draw3(); });
   buildProbes(); draw3();
@@ -1303,7 +1326,7 @@ function kitInset(ctx, x, y, w, h, title) {
   // ---------- 4. screen-space GI ----------
   const c4 = document.getElementById("c4"), x4 = c4.getContext("2d");
   const NPIX = 160, K4 = 16;
-  const d4 = { L: [5.6, 1.0], C: [6.6, 2.4], A: [2.8, 6.4], fov: 90, thick: 0.5, pix: 80, scene: makeScene(BOX0) };
+  const d4 = { L: [5.6, 1.0], C: [7.0, 2.6], A: [1.8, 4.6], fov: 100, thick: 0.5, pix: 15, scene: makeScene(BOX0) };
   d4.src = radSource(d4.scene, 32); d4.src.update(d4.L);
   const ROOM4 = 300, T4 = { k: ROOM4 / (ROOM * S) };   // hall drawn at 300 px, centred, with the frame strips below it
   T4.tx = (W - ROOM4) / 2 - O * T4.k; T4.ty = 50 - O * T4.k; T4.left = (W - ROOM4) / 2;
@@ -1388,9 +1411,9 @@ function kitInset(ctx, x, y, w, h, title) {
         kitLabel(x4, "this pixel's spot", Math.min(W - 60, Math.max(60, px + g.nx * 14)), py + g.ny * 14 + (g.ny === 0 ? -14 : 0), g.nx > 0 ? "left" : g.nx < 0 ? "right" : "center");
         let offRay = null, bd = -1;
         for (const q of r.inspect.rays) if (q.res === "off") { const d = Math.hypot(q.end[0] - d4.C[0], q.end[1] - d4.C[1]); if (d > bd) { bd = d; offRay = q; } }
-        if (offRay) { const [ex, ey] = P4(offRay.end[0], offRay.end[1]); kitLabel(x4, "ran off screen: no data", Math.min(W - 80, Math.max(80, ex)), Math.max(14, Math.min(390, ey + 16)), "center", "#ef5d5d"); } }
+        if (offRay) { const [ex, ey] = P4(offRay.end[0], offRay.end[1]); kitLabel(x4, "ran off the frame: nothing there", Math.min(W - 80, Math.max(80, ex)), Math.max(14, Math.min(390, ey + 16)), "center", "#ef5d5d"); } }
       kitLabel(x4, "bright = in the camera's frame", T4.left + ROOM4 / 2, 12, "center", "#c7cdd8"); }
-    const rows = [["the frame the camera drew (colour buffer)", g => g.color], ["bounce light found inside that frame", g => g.ss], ["true bounce light, for comparison", g => g.ref]];
+    const rows = [["the frame the camera drew", g => g.color], ["bounce light found inside that frame", g => g.ss], ["true bounce light, for comparison", g => g.ref]];
     const y0 = 410, hRow = 22, wCol = ROOM4 / NPIX, x0 = T4.left;
     x4.font = "11px IBM Plex Mono, monospace"; x4.textBaseline = "middle";
     rows.forEach(([label, fn], i) => {
@@ -1407,8 +1430,10 @@ function kitInset(ctx, x, y, w, h, title) {
     document.querySelector("#t4-ss .n").textContent = (100 * cap).toFixed(0) + " %";
     document.querySelector("#t4-off .n").textContent = (100 * r.off / Math.max(1, r.total)).toFixed(0) + " %";
     const g = r.inspect && r.inspect.g;
-    document.getElementById("c4-read").innerHTML = g ? `pixel ${d4.pix} sees the <strong>${d4.scene.segs[g.seg].name}</strong> at ${g.depth.toFixed(2)} m · bounce ss (${g.ss.map(v => v.toFixed(2)).join(", ")}) vs world (${g.ref.map(v => v.toFixed(2)).join(", ")})` : `pixel ${d4.pix} sees nothing`;
-    document.getElementById("c4-miss").innerHTML = `<span class="bad">${(100 * r.off / Math.max(1, r.total)).toFixed(0)} % of rays off screen · ${(100 * r.behind / Math.max(1, r.total)).toFixed(0)} % behind depth</span>`;
+    document.getElementById("c4-read").innerHTML = g ? `pixel ${d4.pix} sees the <strong>${d4.scene.segs[g.seg].name}</strong> ${g.depth.toFixed(2)} m away · bounce light found in the frame (${g.ss.map(v => v.toFixed(2)).join(", ")}) vs the true amount (${g.ref.map(v => v.toFixed(2)).join(", ")})` : `pixel ${d4.pix} sees nothing`;
+    document.getElementById("c4-miss").innerHTML = `<span class="bad">${(100 * r.off / Math.max(1, r.total)).toFixed(0)} % of rays ran off the frame · ${(100 * r.behind / Math.max(1, r.total)).toFixed(0)} % slipped behind something</span>`;
+    d4.stats = { red: G.some(q => q && q.seg === 0), off: r.off / Math.max(1, r.total), behind: r.behind / Math.max(1, r.total), cap };
+    L4 && L4.check();
   }
   let pend4 = false;
   function req4(full) { if (pend4) return; pend4 = true; requestAnimationFrame(() => { pend4 = false; if (full) d4.src.update(d4.L); draw4(); }); }
@@ -1542,9 +1567,11 @@ function kitInset(ctx, x, y, w, h, title) {
     document.querySelector("#t5-ref .n").textContent = lum(ref).toFixed(3);
     const since = d5.frame - d5.movedAt, N = d5.P.length;
     document.querySelector("#t5-age .n").textContent = `${since} · ${Math.min(100, (100 * since * d5.budget / N)).toFixed(0)} % refreshed`;
-    document.getElementById("c5-read").innerHTML = `spot on the <strong>${wall}</strong> · ${nsteps} cone steps · cone / reference = ${ratio > 1.4 ? `<span class="bad">${ratio.toFixed(2)} (leak)</span>` : `<span class="ok">${ratio.toFixed(2)}</span>`} · screen α = ${Math.min(1, 2 * PART.half / vs).toFixed(2)}`;
+    document.getElementById("c5-read").innerHTML = `spot on the <strong>${wall}</strong> · ${nsteps} cone steps · the cones found ${ratio > 1.4 ? `<span class="bad">${ratio.toFixed(2)}× what 64 true rays find (leaking through the screen)</span>` : `<span class="ok">${ratio.toFixed(2)}× what 64 true rays find</span>`} · the screen fills its cells ${(100 * Math.min(1, 2 * PART.half / vs)).toFixed(0)} %`;
     const vox2 = R * R * 8 * 4 / 3, vox3 = R * R * R * 8 * 8 / 7;
-    document.getElementById("c5-mem").innerHTML = `${R}² voxels ${(vs * 100).toFixed(1)} cm · RGBA16F + mips ${fmtBytes(vox2)} (3D ${fmtBytes(vox3)}) · cache ${N} texels`;
+    document.getElementById("c5-mem").innerHTML = `${R} by ${R} cells of ${(vs * 100).toFixed(1)} cm · grid plus its coarser copies ${fmtBytes(vox2)} (${fmtBytes(vox3)} as a 3D hall) · cache: ${N} cells`;
+    d5.stats = { ratio };
+    L5 && L5.check();
   }
   function frame5() {
     if (visible.get(c5)) { d5.frame++; updateCache(); voxelize(); draw5(); }
@@ -1563,5 +1590,85 @@ function kitInset(ctx, x, y, w, h, title) {
   buEl.addEventListener("input", () => { d5.budget = +buEl.value; document.getElementById("budgetv").textContent = buEl.value; });
   for (let k = 0; k < 12; k++) updateCache();   // warm the cache so the page is lit at rest
   voxelize(); draw5(); frame5();
+  // ---------- guided steps ----------
+  const set1 = (L, bounces) => { d1.L = L.slice(); bEl.value = bounces; bEl.dispatchEvent(new Event("input")); resetAccum(); render1(); };
+  L1 = lesson("reference", { next: { id: "radiosity", title: "Chop the walls up and solve once" }, steps: [
+    { say: "This is the castle hall cut open from the side, like a doll's house: red wall on the left, green wall on the right, floor at the bottom. The amber dot is a lantern. The left picture keeps only <b>direct light</b>, light that travels from the lantern to a surface with nothing in the way. The right picture lets light <b>bounce</b> up to four times. Behind the wooden screen the player is black on the left and lit on the right.", enter: () => set1([5.6, 1.0], 4) },
+    { say: "", quiz: { q: "Where does the light on the player in the right picture come from?", options: [
+        { t: "The lantern shines through the wooden screen", why: "The screen is solid wood. Nothing passes through it in either picture." },
+        { t: "Light that hit the floor and the walls first, then carried on to him", ok: true, why: "Light that has already hit something is bounce light. It arrives from every lit surface at once, which is why it is soft and fills corners." },
+        { t: "The player gives off a faint light of his own", why: "He does not. Every bit of light in the hall started at the lantern." } ] } },
+    { say: "<b>Drag the lantern</b> into the left half of the hall, below the top of the screen, so it can see the player.", todo: "drag the lantern left of the screen, below its top", goal: () => d1.L[0] < PART.x - 0.4 && d1.L[1] > PART.top + 0.4, try: () => { d1.L = [1.3, 4.5]; resetAccum(); render1(); },
+      done: "Now he is in direct light in both pictures. The crates are the ones in the dark: on the left they are black, and on the right the floor and the red wall bounce light onto them." },
+    { say: "<b>Set the bounces allowed to 1.</b>", todo: "set the bounces slider to 1", goal: () => d1.bounces === 1, try: () => { bEl.value = 1; bEl.dispatchEvent(new Event("input")); },
+      done: "The right picture turns into the left one. One bounce means each light path stops at the first thing it hits, which is just direct light. Everything you lost is bounce light, and every method on this page is a cheaper way to get it back." },
+    { say: "Put the bounces back up to 4, then <b>press restart</b> and watch the right picture closely.", todo: "set bounces to 4 and press restart", goal: () => d1.bounces >= 3 && acc1[1].rays < 20000, try: () => { bEl.value = 4; bEl.dispatchEvent(new Event("input")); $("b1reset").click(); render1(); },
+      done: "It starts grainy and smooths out as the count under it climbs. The grain is noise: with only a few thousand paths, some spots got lucky and others did not. A game can afford about one path per pixel per frame, so this exact method is too grainy to use as it is." },
+    { say: "Bounce light is everything the right picture has that the left one lacks. Getting it without the grain, in a fraction of a frame, is the whole problem. The light formula and the path loop are under the hood." } ] });
+
+  const set2 = o => { d2.baked = null; d2.hover = -1; d2.hovered = false; d2.box.x = BOX0.x; d2.L = [5.6, 1.0]; d2.perWall = 16; ppwEl.value = 16; $("ppwv").textContent = "16"; d2.passes = o.passes || 0; rebuild2(true); };
+  L2 = lesson("radiosity", { next: { id: "probes", title: "Bounce light for things that move" }, steps: [
+    { say: "Every wall, the crates and the screen have been cut into small <b>patches</b>, 16 for each 8 m wall, and each patch is drawn with the light it holds. Right now only direct light is in. The space behind the screen is black, and so is the player.", enter: () => set2({ passes: 0 }) },
+    { say: "<b>Press add one pass.</b>", todo: "press add one pass", goal: () => d2.passes >= 1, try: () => $("rStep").click(), enter: () => set2({ passes: 0 }),
+      done: "Every patch collected light from every other patch it can see, all at the same time. That is one bounce. The patches behind the screen came up, lit by the floor and the red wall, and the player came up with them." },
+    { say: "Press it a few more times.", quiz: { q: "What does each extra pass add?", options: [
+        { t: "One more bounce", ok: true, why: "Each pass lets light travel one more step, patch to patch to patch. The changes shrink each time because every bounce leaves some light behind in the wall it hit." },
+        { t: "More patches, so a sharper picture", why: "The patches never change during the solve. Only the light stored in them does." },
+        { t: "More light from the lantern", why: "The lantern's direct light was put in once at the start. Passes only move light that is already in the hall." } ] },
+      todo: "press add one pass until the passes tile reads 4 or more", goal: () => d2.passes >= 4, try: () => { for (let k = 0; k < 4; k++) $("rStep").click(); },
+      done: "By the fourth pass hardly anything changes. A handful of passes is enough, and the solve is done." },
+    { say: "<b>Hover over a patch on the red wall.</b>", todo: "hover a patch on the red wall", goal: () => d2.hovered, try: () => { d2.hover = d2.P.findIndex(p => p.seg === 0 && p.cy > 1 && p.cy < 2); draw2(); },
+      done: "White lines join it to every patch it trades light with, brighter for bigger shares. A share depends only on where the two patches are, so it is worked out once for every pair, and the tile shows how many pairs there are." },
+    { say: "<b>Press bake</b>, then <b>drag the crates</b> to the right.", todo: "press bake, then drag the crates", goal: () => !!d2.baked && Math.abs(d2.box.x - d2.baked.boxX) > 0.5, try: () => { $("rBake").click(); d2.box.x = 6.0; d2.scene = makeScene(d2.box); d2.P = buildPatches(d2.scene, d2.perWall); draw2(); }, enter: () => { d2.baked = null; d2.hover = -1; d2.box.x = BOX0.x; rebuild2(true); },
+      done: "The strips outside the walls are the <b>lightmap</b>: the answer written into a texture, one texel (one texture pixel) every 25 cm. The crates moved, but their shadow stayed on the floor where the bake put it, outlined in red. A lightmap costs nothing to read and is wrong the moment anything moves." },
+    { say: "Cut the walls into patches, pass light between them a few times, write the result onto the walls and never compute it again. Most games still do exactly this for everything that stands still. The pair formula and the pass loop are under the hood." } ] });
+
+  const PY3 = 8 - PLR.ry - 0.02;
+  const set3 = o => { Object.assign(d3, o); spEl.value = d3.spacing; $("spacingv").textContent = d3.spacing + " m"; segOn($("segVis"), d3.vis); segOn($("segLit"), d3.lit); buildProbes(); draw3(); };
+  L3 = lesson("probes", { next: { id: "ssgi", title: "Bounce light from the frame you already drew" }, steps: [
+    { say: "A lightmap only knows about walls that were there when it was baked. The player walks, so he gets his bounce light from <b>probes</b>: the blue dots, points in the air that each remember how much light arrives from every direction. He is shaded from the four probes around him, joined to him by blue lines, blended by how close each one is.", enter: () => set3({ obj: [3.6, PY3], spacing: 1.5, vis: 0, lit: "full" }) },
+    { say: "<b>Drag the player behind the wooden screen</b>, right up close to it.", todo: "drag the player behind the screen, close to it", goal: () => d3.obj[0] > 1.8 && d3.obj[0] < PART.x - 0.15, try: () => { d3.obj = [2.1, PY3]; draw3(); }, enter: () => set3({ spacing: 1.5, vis: 0 }),
+      done: "The caption turns red. One of his four probes is on the lit side of the screen, and the blend gives it a big share, so his side facing the screen is lit as if the screen were not there. That is light leaking through a wall, and every probe grid has this problem." },
+    { say: "", quiz: { q: "Why is he too bright?", options: [
+        { t: "The screen lets a little light through", why: "It is solid wood. The leak is in the blending, not in the screen." },
+        { t: "A probe on the lit side is blended in, and the blend knows nothing about walls", ok: true, why: "The blend only asks how close each probe is. A probe 40 cm away on the other side of a wall counts as much as one 40 cm away in the open." },
+        { t: "The probes are too far apart", why: "Closer probes make the leaking strip narrower, but any probe grid has cells that straddle a wall." } ] } },
+    { say: "<b>Set the spacing to 0.75 m</b>, twice as many probes along each wall.", todo: "set the probe spacing to 0.75 m", goal: () => d3.spacing <= 0.8, try: () => { spEl.value = 0.75; spEl.dispatchEvent(new Event("input")); }, enter: () => set3({ obj: [2.1, PY3], spacing: 1.5, vis: 0 }),
+      done: "The leak closed for this spot: both probes beside him are now on his side of the screen. Walk him a little closer to the screen and it opens again. More probes shrink the leaking strip, they do not remove it, and the caption shows the memory climbing." },
+    { say: "Back at 1.5 m spacing, <b>switch the blend to add the can-it-see check</b>.", todo: "switch the blend below", goal: () => d3.vis === 1, try: () => $("segVis").querySelector('[data-v="1"]').click(), enter: () => set3({ obj: [2.1, PY3], spacing: 1.5, vis: 0 }),
+      done: "Each probe also remembers how far it can see in each direction. The lit-side probe's stored distance stops at the screen, short of the player, so its vote drops to almost nothing and the leak closes. That check is what DDGI added to probes." },
+    { say: "Probes give moving things bounce light from the air. Store a distance with the light in each direction, or the blend hands light straight through walls. The three numbers each probe keeps and the weight formula are under the hood." } ] });
+
+  const set4 = () => { d4.C = [7.0, 2.6]; d4.A = [1.8, 4.6]; d4.fov = 100; fovEl.value = 100; $("fovv").textContent = "100°"; d4.thick = 0.5; thEl.value = 0.5; $("thickv").textContent = "0.5 m"; d4.pix = 15; pixEl.value = 15; $("pixv").textContent = "15"; draw4(); };
+  L4 = lesson("ssgi", { next: { id: "voxel", title: "Cubes, cones and a cache" }, steps: [
+    { say: "The cheapest bounce light comes from the frame the game already drew. The blue camera sees the hall through the blue wedge, and the top strip under the hall is its picture, 160 pixels wide. Only surfaces inside the wedge are in that picture, drawn bright. From one pixel's spot, the white dot, rays walk across the picture looking for bounce light: white ones found a surface, red ones did not.", enter: set4 },
+    { say: "", quiz: { q: "A ray heads toward a part of the hall the camera cannot see. What does it bring back?", options: [
+        { t: "The right light, since the hall is still there", why: "This method never looks at the hall. It only has the picture, and the picture has no pixel for that spot." },
+        { t: "Nothing", ok: true, why: "To this method, anything outside the frame does not exist, and neither does its light." },
+        { t: "The light of the nearest pixel that is in the picture", why: "It gives up instead. Borrowing a neighbour's light would smear light where it does not belong." } ] } },
+    { say: "<b>Drag the aim point to the right</b>, toward the green wall, so the red wall leaves the frame.", todo: "drag the aim point right until the red wall is out of the frame", goal: () => !!d4.stats && !d4.stats.red, try: () => { d4.A = [7.9, 3.0]; draw4(); }, enter: set4,
+      done: "The red wall is gone from the picture, and its red light went with it: the bounce strip lost everything the rays used to find there. Turn the camera in a real game and bounce light fades in and out just like this, which is why engines smooth it over several frames." },
+    { say: "<b>Narrow how wide the camera sees to 40°.</b>", todo: "drag the width slider down to 40°", goal: () => d4.fov <= 45, try: () => { fovEl.value = 40; fovEl.dispatchEvent(new Event("input")); draw4(); }, enter: set4,
+      done: "Only about 4 m of wall are in the frame now, down from about 15, and every ray from the inspected pixel runs off the edge. The narrower the view, the less the frame knows." },
+    { say: "<b>Set the assumed thickness to 0.1 m.</b>", todo: "drag the thickness slider to 0.1 m", goal: () => d4.thick <= 0.15, try: () => { thEl.value = 0.1; thEl.dispatchEvent(new Event("input")); draw4(); }, enter: set4,
+      done: "More rays now count as slipped behind something and come back empty. The picture only stores the front of each surface, with no idea how deep it goes, so thickness is a guess: too thin and rays fall through walls, too thick and they stop early on things they should pass." },
+    { say: "Screen-space bounce light needs no scene data at all, so everything can move, and it is blind to anything the camera cannot see. Most engines run it first and fall back to something else where it fails. The step loop is under the hood." } ] });
+
+  const set5 = o => { d5.res = o.res; segOn($("segRes"), d5.res); d5.L = [5.6, 1.0]; d5.movedAt = d5.frame; snapToWall(o.x, 8); voxelize(); draw5(); };
+  L5 = lesson("voxel", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "The hall has been turned into a grid of 32 by 32 <b>cells</b>, each storing how solid it is and how much light it gives off. In 3D the cells are cubes, called voxels. From the white spot on the floor, five <b>cones</b> fan out and get fatter as they go, the blue circles, reading coarser and coarser copies of the grid as they widen. Five cones stand in for hundreds of rays.", enter: () => set5({ res: 32, x: 3.4 }) },
+    { say: "<b>Switch to the coarse 16 by 16 grid.</b>", todo: "switch the grid size below", goal: () => d5.res === 16, try: () => { $("segRes").querySelector('[data-v="16"]').click(); voxelize(); draw5(); }, enter: () => set5({ res: 32, x: 3.4 }),
+      done: "Each cell is now 50 cm across. The wooden screen is 12 cm thick, so the cells it sits in count as only a quarter solid. The label on the screen says so." },
+    { say: "<b>Drag the spot onto the floor behind the screen</b>, to its left.", todo: "drag the spot to the floor left of the screen", goal: () => d5.res === 16 && d5.seg === 2 && d5.p[0] < PART.x - 0.3 && d5.p[0] > 0.3, try: () => { snapToWall(1.5, 8); voxelize(); draw5(); }, enter: () => set5({ res: 16, x: 3.4 }),
+      done: "The caption reports a leak: the cones found about 1.7 times the light that 64 true rays find. Three quarters of each cone passes straight through the quarter-solid screen cells and picks up the lit half of the hall. Thin walls in fat cells always leak." },
+    { say: "", quiz: { q: "Switch to the fine 64 by 64 grid. Does the leak close?", options: [
+        { t: "Yes, the screen nearly fills its 12.5 cm cells", ok: true, why: "A 12 cm screen in 12.5 cm cells is almost solid, so the cones stop at it. The price is memory: sixteen times the cells of the 16 by 16 grid, and in 3D sixty-four times." },
+        { t: "No, cones always leak", why: "Cones leak where cells are less solid than the real wall. Make the cells small enough and the screen fills them." },
+        { t: "No, the leak gets worse", why: "Smaller cells fit the screen better, not worse." } ] },
+      todo: "switch to 64 by 64", goal: () => d5.res === 64, try: () => { $("segRes").querySelector('[data-v="64"]').click(); voxelize(); draw5(); }, enter: () => set5({ res: 16, x: 1.5 }),
+      done: "The cones now read about the same as the true rays, and the memory in the caption climbed. Real engines pick a cell size and live with leaks through anything thinner." },
+    { say: "<b>Drag the lantern</b> somewhere else and watch the tile for frames since the lantern moved.", todo: "drag the lantern", goal: () => Math.hypot(d5.L[0] - 5.6, d5.L[1] - 1.0) > 0.5, try: () => { d5.L = [2.5, 1.5]; d5.movedAt = d5.frame; draw5(); }, enter: () => { d5.L = [5.6, 1.0]; d5.movedAt = d5.frame; draw5(); },
+      done: "The walls do not relight at once. The strips outside the walls are the <b>surface cache</b>, light stuck to the walls, and only 32 of its cells are refreshed each frame, marked in white. New lighting arrives over a second or so, and each refresh reads last frame's cache, which is how it gets extra bounces for free. Lower the budget and the lag grows." },
+    { say: "Cones trade hundreds of rays for a few blurry reads of a coarse grid, and the cache spreads the relighting over frames. That is roughly how Lumen in Unreal Engine 5 works, lag and all. The cone step and the cache update are under the hood." } ] });
 })();
 </script>

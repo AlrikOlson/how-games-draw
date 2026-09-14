@@ -233,129 +233,107 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a 1 km painted world · 32k × 32k texture in 128² pages · 2048² cache · fly the camera over it</p>
+    <p class="eyebrow">a painted 1 km world · five guided demos · fly the camera and watch what stays in memory</p>
     <h1>Virtual Texturing</h1>
-    <p class="lead">A virtual texture is one enormous image, 32,768 texels (texture pixels) on a side here, that the GPU never holds in full. On this page it is the painted map of a one-kilometre game world: forest, river, village, fields. The GPU keeps only the small squares the camera is looking at right now, so texture memory stays at a <b>fixed size no matter how big the world gets</b>. People assume this shrinks the download, and it doesn't: the whole painting still sits on disk. What shrinks is the amount in graphics memory at any one moment, and the cost of a texture stops depending on how big it is and starts depending on how many pixels it covers.</p>
+    <p class="lead">A texture is a picture wrapped over a surface, and a virtual texture is one so big that the graphics card never holds it all. On this page it is the painting of a one-kilometre game world: forest, river, village, fields. The card keeps only the small squares the camera is looking at right now, so texture memory stays at a <b>fixed size no matter how big the world gets</b>. <b>The thing people get wrong:</b> this does not make the game smaller to download. The whole painting still sits on disk. What shrinks is the amount in graphics memory at any one moment, and the cost of a texture stops depending on how big it is and starts depending on how many pixels it covers on screen.</p>
     <div class="key">
       <span style="--sw:#3f8f4a">the world map itself (forest, river, village)</span>
-      <span style="--sw:#f2a341">sharp page (mip 0), loaded</span>
-      <span style="--sw:#4aa3ff">blurry page (mip 8), loaded</span>
+      <span style="--sw:#f2a341">a sharp page, loaded</span>
+      <span style="--sw:#4aa3ff">a blurry page, loaded</span>
       <span style="--sw:#ffffff">camera, drag handles, sample points</span>
       <span style="--sw:#ef5d5d">nothing loaded, or a seam</span>
       <span style="--sw:#1a1f27">empty cache slot</span>
     </div>
     <dl class="terms">
-      <dt>texel</dt><dd>one pixel of a texture, the image wrapped over a surface</dd>
-      <dt>page</dt><dd>a 128×128 texel square of the painting, 4 m of ground here; the unit that gets loaded and thrown out</dd>
-      <dt>mip</dt><dd>a half-size copy of a texture; mip 0 is full size, each step halves the width, mip 8 here is a single page covering the whole map</dd>
-      <dt>physical cache</dt><dd>the one real GPU texture (2048² texels, 256 slots) that holds the loaded pages</dd>
-      <dt>page table</dt><dd>a small lookup image that says which cache slot each page went to</dd>
-      <dt>feedback pass</dt><dd>a cheap low-resolution render whose only output is the list of pages the pixels wanted</dd>
-      <dt>resident</dt><dd>loaded and sitting in the cache right now</dd>
-      <dt>anisotropic filtering</dt><dd>extra samples along a surface seen at a grazing angle, so it stays sharp instead of smearing</dd>
+      <dt>texel</dt><dd>one pixel of a texture, the picture wrapped over a surface</dd>
+      <dt>page</dt><dd>a 128×128 texel square piece of the painting, 4 m of ground here; the unit that gets loaded and thrown out</dd>
+      <dt>mip</dt><dd>a half-size blurrier copy of a texture; mip 0 is full size, each step halves the width, mip 8 here is a single page covering the whole map</dd>
+      <dt>cache</dt><dd>the one real texture in graphics memory (2048² texels, 256 slots) that holds the loaded pages</dd>
+      <dt>page table</dt><dd>a small lookup list that says which cache slot each page went to</dd>
+      <dt>feedback pass</dt><dd>a cheap, tiny render whose only output is the list of pages the pixels wanted</dd>
+      <dt>loaded</dt><dd>sitting in the cache right now; the hood calls this resident</dd>
+      <dt>anisotropic filtering</dt><dd>extra texel reads along the ground seen at a low angle, so it stays sharp instead of smearing</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#spaces"><span class="n">01</span>One huge texture, one small cache</a></li><li><a href="#pagetable"><span class="n">02</span>Finding a page in the cache</a></li><li><a href="#feedback"><span class="n">03</span>How the GPU asks for pages</a></li><li><a href="#eviction"><span class="n">04</span>When the cache runs out of room</a></li><li><a href="#borders"><span class="n">05</span>Why pages need a border</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#spaces"><span class="n">01</span>A huge painting, a small cache</a></li><li><a href="#pagetable"><span class="n">02</span>Finding a page in the cache</a></li><li><a href="#feedback"><span class="n">03</span>How the GPU asks for pages</a></li><li><a href="#eviction"><span class="n">04</span>When the cache runs out of room</a></li><li><a href="#borders"><span class="n">05</span>Why pages need a border</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="spaces">
-    <h2>One huge texture, one small cache</h2>
-    <p class="sub">A camera flies low over a painted 1 km world. Drag the camera and its aim point on the map, and the grid beside it shows which pieces of the painting are in memory right now.</p>
-    <div class="cols two">
+  <section id="spaces" class="stage">
+    <h2>A huge painting, a small cache</h2>
+    <p class="sub">A camera flies low over a painted 1 km world. Drag the camera on the map, and the grid beside it shows which pieces of the painting are in memory right now.</p>
+    <div class="cols three">
       <div class="vp">
         <canvas id="c1map" class="sq grab" width="512" height="512" aria-label="Top-down painted map of a 1 km world with forest, river, village and fields; the camera's view wedge and the loaded pages tinted amber to blue by mip"></canvas>
         <div class="cap"><span id="c1-virt"></span></div>
       </div>
       <div class="vp">
-        <canvas id="c1cache" class="sq" width="512" height="512" aria-label="The physical cache: 256 slots, each showing the piece of map it holds and its mip number"></canvas>
+        <canvas id="c1cache" class="sq" width="512" height="512" aria-label="The cache: 256 slots, each showing the piece of map it holds and its mip number"></canvas>
         <div class="cap"><span id="c1-res"></span></div>
       </div>
+      <div class="lesson" data-lesson="spaces">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="c1h">Camera height <span class="val" id="c1hv">2 m</span></label><input type="range" id="c1h" min="0" max="100" step="1" value="9"></div>
+          <div class="ctl"><span class="lab">Far ground sharpness (anisotropic filtering)</span><div class="seg" id="c1aniso" role="group" aria-label="Maximum anisotropy"><button data-v="1" aria-pressed="true">off (1×)</button><button data-v="4">4×</button><button data-v="8">8×</button><button data-v="16">16×</button></div></div>
+        </div>
+      </div>
     </div>
-    <div class="prose full">
-      <p class="plain">The texture is a 32k by 32k painting laid over one kilometre of ground. Nothing can hold that in graphics memory, so it's <b>cut into 128×128 squares called pages</b>, 4 m of ground each, and only the pages under the camera's view get loaded into a <b>small cache of fixed size</b>. The surprise is that <b>a view needs about the same number of pages</b> whether you look at your feet or at the horizon.</p>
-
-      <h3>What you're seeing</h3>
-      <p>The left square is the whole map from above, 1024 m across: forest in the north-west, the river, the village at the crossroads, fields to the east. The blue figure is the camera and the white wedge is what it can see. Each tinted square is a loaded page: amber is a sharp mip-0 page 4 m wide, blue is a blurry page that covers hundreds of metres. Bright tints are in view this frame; the biggest pages are drawn as outlines so the map stays readable.</p>
-      <p>The right grid is the cache: 256 slots, each showing the piece of the map it holds and that page's mip number. Neighbouring slots hold unrelated pieces, forest next to river next to roof. Dark slots are empty.</p>
-
-      <h3>Try this</h3>
-      <ul class="try">
-        <li>Drag the camera into the forest or across the river. The tinted squares follow it, the cache fills with different pieces, but the "view needs" count in the caption barely changes.</li>
-        <li>Push camera height all the way up. Amber squares give way to blue ones, sharp pages to blurry, and the count still holds roughly steady.</li>
-        <li>Switch anisotropy from 8× to 16×. Fine amber squares reach further toward the horizon and the count goes up.</li>
-      </ul>
-    </div>
-    <div class="controls">
-      <div class="ctl"><label for="c1h">Camera height <span class="val" id="c1hv">2 m</span></label><input type="range" id="c1h" min="0" max="100" step="1" value="9"></div>
-      <div class="ctl"><span class="lab">Max anisotropy</span><div class="seg" id="c1aniso" role="group" aria-label="Maximum anisotropy"><button data-v="1">1×</button><button data-v="4">4×</button><button data-v="8" aria-pressed="true">8×</button><button data-v="16">16×</button></div></div>
-    </div>
-    <div class="prose full">
-      <h3>The real version</h3>
-      <p>Numbers first. 32,768² texels at 4 bytes each (RGBA8: one byte each for red, green, blue and transparency) is 4 GiB. Add the mip chain, the stack of half-size copies down to a single page at mip 8, and it's 5.33 GiB. Compressed as BC7, a GPU format that spends about one byte per texel, it's 1.33 GiB.</p>
-      <p>Cut into 128² pages, that's 256×256 pages at mip 0, 128×128 at mip 1, and one page at mip 8. The physical cache is an ordinary GPU texture of 2048² texels: 16×16 slots, 4 MiB as BC7. A page's slot has nothing to do with where it sits on the map; the page table in the next section remembers where each one went.</p>
-      <p>What one view needs is bounded by screen pixels, not by world area. A 1920×1080 frame at one texel per pixel touches about 127 pages plus the partial pages along their edges, whichever mips they come from. Next to the camera those are mip-0 pages covering 4 m of ground; at the horizon one mip-8 page covers the whole kilometre. Raising the camera moves demand to coarser mips without adding much.</p>
-      <p>Anisotropic filtering does add. At a grazing angle a pixel's footprint on the ground is long and thin. The sampler picks the mip that suits the thin axis, so the ground near the horizon asks for finer pages, and there are many more of those.</p>
-      <p class="words">In words: the full texture is gigabytes, the cache is 4 MiB, and a 1080p view needs about 127 pages of it.</p>
-      <div class="math">virtual   = 32768² · 4 B = 4.00 GiB at mip 0 · ×4/3 with mips = 5.33 GiB · BC7 (1 B/texel) = 1.33 GiB
+    <div class="foot">
+      <p class="tldr">How many pages a view needs is set by the pixels on screen, so a 4 MiB cache can serve a 4 GiB painting.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+        <p>Numbers first. 32,768² texels at 4 bytes each (RGBA8: one byte each for red, green, blue and transparency) is 4 GiB. Add the mip chain, the stack of half-size copies down to a single page at mip 8, and it's 5.33 GiB. Compressed as BC7, a GPU format that spends about one byte per texel, it's 1.33 GiB.</p>
+        <p>Cut into 128² pages, that's 256×256 pages at mip 0, 128×128 at mip 1, and one page at mip 8. The physical cache is an ordinary GPU texture of 2048² texels: 16×16 slots, 4 MiB as BC7. A page's slot has nothing to do with where it sits on the map; the page table in the next section remembers where each one went.</p>
+        <p>What one view needs is bounded by screen pixels, not by world area. A 1920×1080 frame at one texel per pixel touches about 127 pages plus the partial pages along their edges, whichever mips they come from. Next to the camera those are mip-0 pages covering 4 m of ground; at the horizon one mip-8 page covers the whole kilometre. Raising the camera moves demand to coarser mips without adding much.</p>
+        <p>Anisotropic filtering does add. At a grazing angle a pixel's footprint on the ground is long and thin. The sampler picks the mip that suits the thin axis, so the ground near the horizon asks for finer pages, and there are many more of those.</p>
+        <p class="words">In words: the full texture is gigabytes, the cache is 4 MiB, and a 1080p view needs about 127 pages of it.</p>
+        <div class="math">virtual   = 32768² · 4 B = 4.00 GiB at mip 0 · ×4/3 with mips = 5.33 GiB · BC7 (1 B/texel) = 1.33 GiB
 pages(m)  = (256 &gt;&gt; m)²         256² + 128² + … + 1² = 87,381 pages in the chain
 cache     = 256 slots · 128² · 1 B = 4 MiB          one page = 16 KiB as BC7
 need      ≈ W·H / 128² + partials = 1920·1080 / 16384 ≈ 127 pages at 1 texel per pixel</div>
-      <p>pages(m) is the number of pages per side at mip m. W·H is the screen size in pixels, and 128² is the texels in one page.</p>
-      <p class="words">What this code does: measures how many texels one screen pixel covers, turns that into a mip level, and finds which page that lands in.</p>
-      <pre class="code"><span class="c">// which page does this pixel want? (same rule in the feedback pass and the sampler)</span>
+        <p>pages(m) is the number of pages per side at mip m. W·H is the screen size in pixels, and 128² is the texels in one page.</p>
+        <p class="words">What this code does: measures how many texels one screen pixel covers, turns that into a mip level, and finds which page that lands in.</p>
+        <pre class="code"><span class="c">// which page does this pixel want? (same rule in the feedback pass and the sampler)</span>
 vec2  dx = dFdx(uv) * VT_SIZE, dy = dFdy(uv) * VT_SIZE;   <span class="c">// texels per screen pixel</span>
 float rhoMax = max(length(dx), length(dy));
 float rhoMin = min(length(dx), length(dy));
 float lod = log2(max(rhoMax / MAX_ANISO, rhoMin));        <span class="c">// aniso: the thin axis picks the mip, capped</span>
 <span class="k">uint</span>  mip = <span class="k">uint</span>(clamp(floor(lod), 0.0, 8.0));
 <span class="k">uvec2</span> page = <span class="k">uvec2</span>(uv * float(256u &gt;&gt; mip));               <span class="c">// 256 pages per side at mip 0</span></pre>
-      <p class="tldr">Demand is set by the pixels on screen, so a fixed 4 MiB cache can serve a 4 GiB texture.</p>
+      </div></details>
     </div>
   </section>
 
-  <section id="pagetable">
+  <section id="pagetable" class="stage">
     <h2>Finding a page in the cache</h2>
-    <p class="sub">Hover the 256 m of map around the camera to follow one sample from its spot on the painting to the cache slot that holds it.</p>
-    <div class="cols two">
+    <p class="sub">Hover the 256 m of map around the camera to follow one pixel's question from its spot on the painting to the cache slot that answers it.</p>
+    <div class="cols three">
       <div class="vp">
         <canvas id="c2uv" class="sq grab" width="512" height="512" aria-label="A 256 m window of the painted map around the camera; loaded pages are bright, unloaded ground is veiled, and the hovered sample's page and its fallback parents are outlined"></canvas>
         <div class="cap"><span id="c2-uv"></span></div>
       </div>
       <div class="vp">
-        <canvas id="c2pt" class="sq" width="512" height="512" aria-label="Page table entries above the physical cache mosaic, with an arrow from the looked-up entry to the slot it names"></canvas>
+        <canvas id="c2pt" class="sq" width="512" height="512" aria-label="Page table entries above the cache mosaic, with an arrow from the looked-up entry to the slot it names"></canvas>
         <div class="cap"><span id="c2-pt"></span></div>
       </div>
+      <div class="lesson" data-lesson="pagetable">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><span class="lab">Which copy the pixel asks for (mip)</span><div class="seg" id="c2mip" role="group" aria-label="Requested mip level"><button data-v="0" aria-pressed="true">0, sharpest</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button></div></div>
+        </div>
+      </div>
     </div>
-    <div class="prose full">
-      <p class="plain">Every sample starts as a spot on the huge painting, but the data lives in some unrelated slot of the cache. The <b>page table is the lookup that turns one into the other</b>: a tiny image with one entry per page saying which slot holds it. If a page isn't loaded, its entry <b>already points at the nearest blurrier page that is</b>, so the shader does one lookup and never has to search. It works like a coat check: the ticket number says nothing about where the coat hangs, the board behind the counter does.</p>
-
-      <h3>What you're seeing</h3>
-      <p>The left square is 256 m of the map around the camera from the first demo, 64 pages on a side at mip 0. Bright pieces are loaded at a useful sharpness; the dark veil is ground that only the blurry pinned pages cover. The white dot is your sample point. The solid outline is the page it asked for, dashed outlines are the blurrier parents it fell back through, and the last outline is white if a loaded page was found, red if none was. The small inset compares the detail the pixel wanted with what it actually gets.</p>
-      <p>The right side lists the matching page-table entries as slot x, slot y · mip. Dimmed entries point at a parent. Below them is the cache mosaic, with an arrow from the entry to the slot it names and the exact texel marked with a white dot.</p>
-
-      <h3>Try this</h3>
-      <ul class="try">
-        <li>Move the pointer over the bright pieces near the camera. The entry is one hop, the outline is solid white, and the two inset swatches match.</li>
-        <li>Move onto the veiled ground off to the side. The dashed outlines climb through bigger parent pages, the caption says how many levels it fell back, and the "got" swatch turns to flat blocks.</li>
-        <li>Set requested mip to 4. The page you ask for is 16× wider, so fewer pages stand between you and a loaded one.</li>
-      </ul>
-    </div>
-    <div class="controls">
-      <div class="ctl"><span class="lab">Requested mip</span><div class="seg" id="c2mip" role="group" aria-label="Requested mip level"><button data-v="0" aria-pressed="true">0</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button></div></div>
-    </div>
-    <div class="prose full">
-      <h3>The real version</h3>
-      <p>The page table is itself a small mip-mapped texture: one texel per page, 256² texels at mip 0, 87,381 texels across the whole chain, about 340 KB as RGBA8. Each entry stores the slot coordinates and the mip of the page that sits in that slot.</p>
-      <p>Entries for pages that aren't resident are filled with their nearest resident ancestor, the closest blurrier page up the mip chain that is loaded. So the shader never walks. One fetch at the requested mip returns a page it can use, and the gap between the mip it asked for and the mip it got is how blurry that pixel will be.</p>
-      <p>The physical coordinate is scale and bias. Take the uv (the sample's position on the texture, 0 to 1 on each axis), keep the fraction that falls inside the resident page, add the slot's origin, and multiply by page size over cache size. The screen-space derivatives, how much uv changes from one pixel to the next, have to go through the same scale, or the hardware picks the wrong mip inside the cache. That's why the fetch is a <code>textureGrad</code> and not a plain <code>texture</code> call.</p>
-      <p class="words">In words: look up the entry for the page you want, then place your sample inside whichever slot the entry names.</p>
-      <div class="math">pagesAt(m) = 256 &gt;&gt; m
+    <div class="foot">
+      <p class="tldr">One table read, one cache read: the table always hands back something usable, just maybe blurrier than you asked for.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+        <p>The page table is itself a small mip-mapped texture: one texel per page, 256² texels at mip 0, 87,381 texels across the whole chain, about 340 KB as RGBA8. Each entry stores the slot coordinates and the mip of the page that sits in that slot.</p>
+        <p>Entries for pages that aren't resident are filled with their nearest resident ancestor, the closest blurrier page up the mip chain that is loaded. So the shader never walks. One fetch at the requested mip returns a page it can use, and the gap between the mip it asked for and the mip it got is how blurry that pixel will be.</p>
+        <p>The physical coordinate is scale and bias. Take the uv (the sample's position on the texture, 0 to 1 on each axis), keep the fraction that falls inside the resident page, add the slot's origin, and multiply by page size over cache size. The screen-space derivatives, how much uv changes from one pixel to the next, have to go through the same scale, or the hardware picks the wrong mip inside the cache. That's why the fetch is a <code>textureGrad</code> and not a plain <code>texture</code> call.</p>
+        <p class="words">In words: look up the entry for the page you want, then place your sample inside whichever slot the entry names.</p>
+        <div class="math">pagesAt(m) = 256 &gt;&gt; m
 page id    = ( m, ⌊u·pagesAt(m)⌋, ⌊v·pagesAt(m)⌋ )
 entry      = pageTable[m][py][px] = (sx, sy, m_res)     m_res ≥ m, copied from the nearest resident ancestor
 inPage     = frac( uv · pagesAt(m_res) )
 uv_phys    = ( (sx, sy) + inPage ) · 128 / 2048</div>
-      <p>m is the requested mip, (px, py) the page's grid position, (sx, sy) the slot it lives in, m_res the mip of the page that's really there, and uv_phys the final position in the 2048² cache.</p>
-      <p class="words">What this code does: one page-table read, a little arithmetic, one cache read with the derivatives corrected.</p>
-      <pre class="code"><span class="k">vec4</span> sampleVT(<span class="k">vec2</span> uv, <span class="k">float</span> lod) {
+        <p>m is the requested mip, (px, py) the page's grid position, (sx, sy) the slot it lives in, m_res the mip of the page that's really there, and uv_phys the final position in the 2048² cache.</p>
+        <p class="words">What this code does: one page-table read, a little arithmetic, one cache read with the derivatives corrected.</p>
+        <pre class="code"><span class="k">vec4</span> sampleVT(<span class="k">vec2</span> uv, <span class="k">float</span> lod) {
   <span class="c">// page table: RGBA8, one texel per page, its own mip chain matches the virtual texture</span>
   <span class="k">vec4</span> e = textureLod(pageTable, uv, lod);          <span class="c">// lod = floor(mip the pixel wants)</span>
   <span class="k">float</span> resMip = e.b * 255.0;                        <span class="c">// mip of the page that is really there</span>
@@ -365,38 +343,29 @@ uv_phys    = ( (sx, sy) + inPage ) · 128 / 2048</div>
   <span class="k">float</span> g = scale * (128.0 / 2048.0);                <span class="c">// virtual → physical derivative scale</span>
   <span class="k">return</span> textureGrad(physCache, uvPhys, dFdx(uv) * g, dFdy(uv) * g);
 }</pre>
-      <p class="tldr">One lookup, one fetch: the page table always hands back something usable, just maybe blurrier than you asked for.</p>
+      </div></details>
     </div>
   </section>
 
-  <section id="feedback">
+  <section id="feedback" class="stage">
     <h2>How the GPU asks for pages</h2>
-    <p class="sub">The camera turns and walks over the world, or the autopilot drives it. Watch the ground pop from blurry to sharp a few frames after each page was asked for.</p>
+    <p class="sub">The camera walks over the world on its own, or you drag it. Watch the ground pop from blurry to sharp a few frames after each page was asked for.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c3view" class="r169 grab" width="640" height="360" aria-label="What the player sees: the painted ground in perspective under a dark sky, sharp where pages are loaded and dim and blocky where a blurrier stand-in is used, with an inset of the feedback buffer coloured by requested page"></canvas>
         <canvas id="c3tl" class="tl" width="640" height="80" aria-label="Timeline of missing pages and arrivals per frame"></canvas>
         <div class="cap"><span id="c3-read"></span></div>
-        <div class="controls" style="margin-top:12px">
-          <div class="ctl"><label for="c3budget">Load budget <span class="val" id="c3budgetv">8 pages/frame</span></label><input type="range" id="c3budget" min="1" max="64" step="1" value="8"></div>
-          <div class="ctl chk"><input type="checkbox" id="c3auto" checked><label for="c3auto">autopilot</label></div>
+      </div>
+      <div class="lesson" data-lesson="feedback">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="c3budget">Pages loaded per frame <span class="val" id="c3budgetv">8 pages/frame</span></label><input type="range" id="c3budget" min="1" max="64" step="1" value="8"></div>
+          <div class="ctl chk"><input type="checkbox" id="c3auto" checked><label for="c3auto">the camera walks on its own</label></div>
         </div>
       </div>
-      <div class="prose">
-        <p class="plain">The GPU works out which pages it needs by <b>rendering a tiny version of the frame</b> whose only output is a page number per pixel. The CPU reads that list back, <b>loads the missing pages a few at a time</b>, and until each one lands its pixels <b>borrow a blurrier page</b> that's already there. That wait is the texture pop-in you see when you spin the camera in a game.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The big picture is what the player sees: the painted ground in perspective, hills and sky above. Ground drawn from a loaded page is sharp. Dim, blocky patches are pixels using a blurrier stand-in while their own page is on its way; red would mean nothing loaded at all. The inset in the corner is the GPU's shopping list, the 240×135 feedback buffer, coloured by the page each pixel asked for: amber near the camera, blue toward the horizon.</p>
-        <p>The strip underneath is a timeline of the last 160 frames. Amber bars are pages missing that frame; blue ticks are pages that arrived.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the view sideways fast. Dim blocks flood in on the side you turned toward, then sharpen over a few frames.</li>
-          <li>Drop the load budget to 1 page per frame. The amber bars stay tall and the average wait in the caption climbs.</li>
-          <li>Push the budget to 64. Missing pages clear almost as fast as they appear.</li>
-        </ul>
-
-        <h3>The real version</h3>
+    </div>
+    <div class="foot">
+      <p class="tldr">The GPU draws a tiny shopping list of pages, the CPU loads a few per frame, and everything else waits on a blurry stand-in.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>A 1/8-resolution pass, 240×135 here, writes the page id each pixel would sample into an integer render target. The CPU reads that buffer back a frame or two later, so it never stalls the GPU, and squeezes 32,400 entries down to a few hundred unique page ids. Then it compares them with the resident set, the pages already in the cache.</p>
         <p>1/8 is enough because a page covers at least 128 screen pixels on a side at the mip the pixel asked for, so every page still lands in at least one feedback texel.</p>
         <p>Then there's a budget. The disk read, the BC7 transcode and the upload each cost time, so a frame issues N loads and the rest wait in a queue. Until a page lands, its pixels take the coarser entry the page table already holds. Loads go coarse first: one mip-3 page in flight fixes 64 mip-0 pages' worth of ground at once. When the camera turns fast, requests outrun arrivals, and that gap is the pop-in.</p>
@@ -417,62 +386,50 @@ latency  ≈ 2 frames readback + 1 frame decode and upload = 50 ms at 60 Hz   (e
   <span class="k">uvec2</span> p = <span class="k">uvec2</span>(uv * float(256u &gt;&gt; m));
   <span class="k">return</span> (m &lt;&lt; 24u) | (p.y &lt;&lt; 12u) | p.x;           <span class="c">// 0xFFFFFFFF = nothing sampled here</span>
 }</pre>
-        <p class="tldr">The GPU renders a shopping list of pages, the CPU fills it a few pages per frame, and everything else waits on a blurrier stand-in.</p>
-      </div>
+      </div></details>
     </div>
   </section>
 
-  <section id="eviction">
+  <section id="eviction" class="stage">
     <h2>When the cache runs out of room</h2>
-    <p class="sub">The same world with an "ultra" texture setting turned on. Watch which slots get thrown out when new pages arrive, and what happens when the view wants more than 256 pages.</p>
-    <div class="cols two">
+    <p class="sub">The same world with the texture detail setting turned up. Watch which slots get thrown out when new pages arrive, and what happens when the view wants more than 256 pages.</p>
+    <div class="cols three">
       <div class="vp">
-        <canvas id="c4cache" class="sq" width="512" height="512" aria-label="The physical cache mosaic, each slot showing its piece of map, shaded by age since last use, with red outlines on slots evicted while still needed"></canvas>
+        <canvas id="c4cache" class="sq" width="512" height="512" aria-label="The cache mosaic, each slot showing its piece of map, shaded by age since last use, with red outlines on slots evicted while still needed"></canvas>
         <div class="cap"><span id="c4-cache"></span></div>
       </div>
       <div class="vp">
         <canvas id="c4view" class="r169 grab" width="640" height="360" aria-label="What the player sees while the cache thrashes: the painted ground in perspective with dim blocky patches on a blurrier page, and the feedback buffer inset"></canvas>
         <div class="cap"><span id="c4-view"></span></div>
       </div>
+      <div class="lesson" data-lesson="eviction">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="c4bias">Texture detail (mip bias; lower is sharper) <span class="val" id="c4biasv">+1.0</span></label><input type="range" id="c4bias" min="-3" max="1" step="0.5" value="1"></div>
+          <div class="ctl"><label for="c4budget">Pages loaded per frame <span class="val" id="c4budgetv">16 pages/frame</span></label><input type="range" id="c4budget" min="1" max="64" step="1" value="16"></div>
+          <div class="ctl chk"><input type="checkbox" id="c4pin" checked><label for="c4pin">keep the 21 blurriest pages loaded, always</label></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t4hit">—</div><div class="l">wanted pages already loaded</div></div>
+          <div class="tile"><div class="n" id="t4loads">—</div><div class="l">pages loaded per frame</div></div>
+          <div class="tile"><div class="n" id="t4fb">—</div><div class="l">pixels on a blurry stand-in</div></div>
+        </div>
+      </div>
     </div>
-    <div class="prose full">
-      <p class="plain">The cache has 256 slots. When a new page arrives and every slot is taken, <b>the slot that has gone longest without being used gets overwritten</b>. That works while everything the view wants fits. When it doesn't, <b>the cache thrashes</b>: every slot was used this frame, so each new page kicks out one that's needed again next frame, and it never settles. It's a car park with 256 spaces and 300 cars that all want in at once.</p>
-
-      <h3>What you're seeing</h3>
-      <p>The grid is the cache, each slot showing the piece of map it holds. Brightness is how recently a slot was used: bright means this frame, dim means many frames ago. A red outline marks a slot that was evicted while a pixel this frame still needed it. Slots with a small white dot in the corner are pinned and never evicted.</p>
-      <p>The view on the right is the player's view again, with dim blocks where a pixel is on a blurrier stand-in and the shopping-list inset in the corner. The three tiles below give the hit rate (how often a wanted page was already loaded), loads per frame, and the share of pixels on a stand-in.</p>
-
-      <h3>Try this</h3>
-      <ul class="try">
-        <li>Drag the mip bias down to −3. Demand jumps past 256 pages, red outlines appear across the grid, and the hit rate drops.</li>
-        <li>Put the bias back to 0. The grid calms down and the hit rate climbs.</li>
-        <li>Turn off pinning while the bias is at −3. Some pixels have nothing to fall back on at all, and the caption's no-data figure turns red.</li>
-      </ul>
-    </div>
-    <div class="controls">
-      <div class="ctl"><label for="c4bias">Mip bias <span class="val" id="c4biasv">−1.0</span></label><input type="range" id="c4bias" min="-3" max="1" step="0.5" value="-1"></div>
-      <div class="ctl"><label for="c4budget">Load budget <span class="val" id="c4budgetv">16 pages/frame</span></label><input type="range" id="c4budget" min="1" max="64" step="1" value="16"></div>
-      <div class="ctl chk"><input type="checkbox" id="c4pin" checked><label for="c4pin">pin mips 6 to 8 (21 pages)</label></div>
-    </div>
-    <div class="tiles">
-      <div class="tile"><div class="n" id="t4hit">—</div><div class="l">hit rate</div></div>
-      <div class="tile"><div class="n" id="t4loads">—</div><div class="l">loads per frame</div></div>
-      <div class="tile"><div class="n" id="t4fb">—</div><div class="l">pixels on a coarser page</div></div>
-    </div>
-    <div class="prose full">
-      <h3>The real version</h3>
-      <p>Each slot remembers the last frame a pixel used it. When a page arrives and no slot is free, the least recently used slot (LRU) is overwritten, and the page-table entries that pointed at it revert to the ancestor. That works while the working set, the pages one view needs, fits in the cache.</p>
-      <p>When it doesn't, the loop turns on itself. Every slot was used this frame, so the eviction takes a page that's needed again next frame. Loads per frame sit at the budget forever, and the hit rate can't rise above slots ÷ demand.</p>
-      <p>Mip bias −1 makes every pixel ask for the mip with four times the texels, which is what an "ultra" texture setting or a 4K target does to the same cache. Zooming out doesn't do this: demand is pixel-bounded, so a far view just moves it to coarser mips. Many small objects do, because each one needs at least one page per layer no matter how few pixels it covers.</p>
-      <p>The pinned coarse mips, 21 pages that never leave, are what keeps a thrashing cache from ever showing nothing. The fixes are a bigger physical texture, fewer layers per cache, or a smaller bias, not a cleverer eviction policy.</p>
-      <p class="words">In words: hit rate is the share of wanted pages already loaded, and once demand exceeds the slot count it's capped at slots over demand.</p>
-      <div class="math">hit rate = |requested ∩ resident| / |requested|
+    <div class="foot">
+      <p class="tldr">Throwing out the longest-unused slot works until a view wants more pages than there are slots; then only a bigger cache or less detail helps.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+        <p>Each slot remembers the last frame a pixel used it. When a page arrives and no slot is free, the least recently used slot (LRU) is overwritten, and the page-table entries that pointed at it revert to the ancestor. That works while the working set, the pages one view needs, fits in the cache.</p>
+        <p>When it doesn't, the loop turns on itself. Every slot was used this frame, so the eviction takes a page that's needed again next frame. Loads per frame sit at the budget forever, and the hit rate can't rise above slots ÷ demand.</p>
+        <p>Mip bias −1 makes every pixel ask for the mip with four times the texels, which is what an "ultra" texture setting or a 4K target does to the same cache. Zooming out doesn't do this: demand is pixel-bounded, so a far view just moves it to coarser mips. Many small objects do, because each one needs at least one page per layer no matter how few pixels it covers.</p>
+        <p>The pinned coarse mips, 21 pages that never leave, are what keeps a thrashing cache from ever showing nothing. The fixes are a bigger physical texture, fewer layers per cache, or a smaller bias, not a cleverer eviction policy.</p>
+        <p class="words">In words: hit rate is the share of wanted pages already loaded, and once demand exceeds the slot count it's capped at slots over demand.</p>
+        <div class="math">hit rate = |requested ∩ resident| / |requested|
 steady state with demand D &gt; slots S:   hit ≤ S / D,   loads/frame = budget,   evictions/frame = budget
 bias b:  texels per pixel × 4^(−b)  →  up to 4× the pages per −1 step, less once the near ground clamps at mip 0
 LRU age  = frame − lastUsed[slot]      victim = argmax age over unpinned slots</div>
-      <p>S is the slot count (256), D the pages the view wants, b the mip bias, and lastUsed[slot] the frame a slot was last sampled.</p>
-      <p class="words">What this code does: reads the two-frame-old feedback, marks the hits, loads the missing pages coarse first, and evicts the oldest slot when one arrives.</p>
-      <pre class="code"><span class="c">// CPU, once per frame</span>
+        <p>S is the slot count (256), D the pages the view wants, b the mip bias, and lastUsed[slot] the frame a slot was last sampled.</p>
+        <p class="words">What this code does: reads the two-frame-old feedback, marks the hits, loads the missing pages coarse first, and evicts the oldest slot when one arrives.</p>
+        <pre class="code"><span class="c">// CPU, once per frame</span>
 ids       = readback(feedback[frame - 2]);              <span class="c">// two frames old: never wait on the GPU</span>
 requested = unique(ids);                                 <span class="c">// 32,400 texels → a few hundred pages</span>
 <span class="k">for</span> (p : requested) <span class="k">if</span> (resident(p)) lastUsed[slot(p)] = frame;
@@ -484,62 +441,51 @@ sort(missing, coarseMipFirst);
   upload(p, s);
   pageTable.write(p, s);                                 <span class="c">// and refill the entries of p's non-resident descendants</span>
 }</pre>
-      <p class="tldr">LRU works until demand exceeds 256 slots; after that no eviction rule saves you, only a bigger cache or a lower bias.</p>
+      </div></details>
     </div>
   </section>
 
-  <section id="borders">
+  <section id="borders" class="stage">
     <h2>Why pages need a border</h2>
-    <p class="sub">The village square's cobbles run from one page into the next, but in the cache those pages sit beside strangers. Drag the sample point to watch a filter read a forest page across a slot edge, and see what a border does about it.</p>
-    <div class="cols two">
+    <p class="sub">The village square's cobbles run from one page into the next, but in the cache those pages sit beside strangers. Drag the sample point to watch the GPU read a forest page by mistake, and see what a border does about it.</p>
+    <div class="cols three">
       <div class="vp">
-        <canvas id="c5phys" class="sq grab" width="512" height="512" aria-label="Physical cache texels magnified around a slot edge: cobblestones on the left, a forest page on the right, with the filter taps and the texels they read"></canvas>
+        <canvas id="c5phys" class="sq grab" width="512" height="512" aria-label="Cache texels magnified around a slot edge: cobblestones on the left, a forest page on the right, with the filter taps and the texels they read"></canvas>
         <div class="cap"><span id="c5-phys"></span></div>
       </div>
       <div class="vp">
         <canvas id="c5out" class="sq grab" width="512" height="512" aria-label="The cobbled square as the player sees it, magnified across the page boundary, with any forest-green seam marked"></canvas>
         <div class="cap"><span id="c5-out"></span></div>
       </div>
+      <div class="lesson" data-lesson="borders">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="c5b">Border <span class="val" id="c5bv">2 texels</span></label><input type="range" id="c5b" min="0" max="8" step="1" value="2"></div>
+          <div class="ctl"><span class="lab">Page size</span><div class="seg" id="c5p" role="group" aria-label="Page size"><button data-v="128" aria-pressed="true">128²</button><button data-v="256">256²</button></div></div>
+          <div class="ctl"><span class="lab">How many texels get blended</span><div class="seg" id="c5f" role="group" aria-label="Filter"><button data-v="1">2×2 only (bilinear)</button><button data-v="4">aniso 4×</button><button data-v="8" aria-pressed="true">aniso 8×</button><button data-v="16">aniso 16×</button></div></div>
+          <div class="ctl"><span class="lab">Where pages come from</span><div class="seg" id="c5src" role="group" aria-label="Page source"><button data-v="stream" aria-pressed="true">loaded from disk</button><button data-v="rvt">drawn on the spot</button></div></div>
+        </div>
+        <div class="tiles">
+          <div class="tile on"><div class="n" id="t5a">—</div><div class="l">cache spent on borders, 128² pages</div></div>
+          <div class="tile"><div class="n" id="t5b">—</div><div class="l">cache spent on borders, 256² pages</div></div>
+          <div class="tile"><div class="n" id="t5e">—</div><div class="l">worst seam error, out of 255</div></div>
+        </div>
+      </div>
     </div>
-    <div class="prose full">
-      <p class="plain">Pages that sit side by side on the painting end up in <b>unrelated slots</b> of the cache. When the GPU smooths a sample by blending neighbouring texels, a sample near a slot edge <b>blends in a stranger's texels</b>, forest green in the middle of a cobbled square, and you get a visible seam. The fix is to <b>store each page with a few extra texels copied from its neighbours</b>, at the cost of some cache space.</p>
-
-      <h3>What you're seeing</h3>
-      <p>The left square is 32×32 texels of the cache around a slot edge (the solid white line), magnified. Left of the line is the village square's cobblestone page; right of it is a forest page that happens to be next door in the cache. Dashed lines mark the border ring inside each slot. The white dots are the filter's sample taps; each small box is one texel a tap reads, red when the read crosses into the forest.</p>
-      <p>The right square is the cobbles as the player sees them, 16 texels wide, across the page boundary (dashed line). A green streak along the line is the forest leaking in. The tiles give the share of the cache the border eats, and the worst colour error at the seam out of 255.</p>
-
-      <h3>Try this</h3>
-      <ul class="try">
-        <li>Set the border to 0. The boxes on the left turn red, a green seam appears on the cobbles, and the seam error tile goes red.</li>
-        <li>Raise the border to 4 with the filter at aniso 8×. The taps stay inside the slot, the seam error goes green, and the cache-lost tile reads 12.1 %.</li>
-        <li>Switch the filter to aniso 16×. The taps reach further and cross the edge again; the border has to grow to cover them.</li>
-      </ul>
-    </div>
-    <div class="controls">
-      <div class="ctl"><label for="c5b">Border <span class="val" id="c5bv">2 texels</span></label><input type="range" id="c5b" min="0" max="8" step="1" value="2"></div>
-      <div class="ctl"><span class="lab">Page size</span><div class="seg" id="c5p" role="group" aria-label="Page size"><button data-v="128" aria-pressed="true">128²</button><button data-v="256">256²</button></div></div>
-      <div class="ctl"><span class="lab">Filter</span><div class="seg" id="c5f" role="group" aria-label="Filter"><button data-v="1">bilinear</button><button data-v="4">aniso 4×</button><button data-v="8" aria-pressed="true">aniso 8×</button><button data-v="16">aniso 16×</button></div></div>
-      <div class="ctl"><span class="lab">Page source</span><div class="seg" id="c5src" role="group" aria-label="Page source"><button data-v="stream" aria-pressed="true">streamed</button><button data-v="rvt">runtime composite</button></div></div>
-    </div>
-    <div class="tiles">
-      <div class="tile on"><div class="n" id="t5a">—</div><div class="l">cache lost, 128² pages</div></div>
-      <div class="tile"><div class="n" id="t5b">—</div><div class="l">cache lost, 256² pages</div></div>
-      <div class="tile"><div class="n" id="t5e">—</div><div class="l">max seam error</div></div>
-    </div>
-    <div class="prose full">
-      <h3>The real version</h3>
-      <p>Bilinear filtering reads a 2×2 block of texels and blends them, so any sample within half a texel of a slot edge blends in the neighbouring slot, which holds an unrelated page. The fix is to store each page with a border of b texels copied from its virtual neighbours.</p>
-      <p>The unique content then shrinks to (p − 2b)² texels. A 128² page with a 4-texel border gives up 12.1 % of the cache; a 256² page gives up 6.1 %. Some engines keep 128 unique texels and store 136² slots instead; the arithmetic comes out the same.</p>
-      <p>Anisotropic filtering takes up to N taps along the long axis of the footprint, and the hardware places them in physical space with no idea where the page ends. A 4-texel border covers about 8× anisotropy; past that the seam comes back, which is why engines clamp anisotropy on virtual textures. Trilinear filtering, which also blends in the next blurrier mip, needs the coarser mip of the same page, so physical caches usually carry a short mip chain per slot.</p>
-      <p>A runtime virtual texture never loads pages at all. Each page is drawn into its slot from layers (the terrain material, a splat map saying how much of each material goes where, decals such as the chalk ring on the square) when the feedback pass asks for it. The border comes free: the viewport is widened by b texels and the same layers are drawn once. There's no disk copy of the texture, so the install doesn't grow with it either.</p>
-      <p class="words">In words: a border of b texels leaves (p − 2b)² unique texels and covers filter taps that reach about N/2 texels.</p>
-      <div class="math">inner = p − 2b                     unique texels per side
+    <div class="foot">
+      <p class="tldr">Neighbouring pages are not neighbours in the cache, so every page carries a copied border, and far-ground sharpness gets capped near 8×.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+        <p>Bilinear filtering reads a 2×2 block of texels and blends them, so any sample within half a texel of a slot edge blends in the neighbouring slot, which holds an unrelated page. The fix is to store each page with a border of b texels copied from its virtual neighbours.</p>
+        <p>The unique content then shrinks to (p − 2b)² texels. A 128² page with a 4-texel border gives up 12.1 % of the cache; a 256² page gives up 6.1 %. Some engines keep 128 unique texels and store 136² slots instead; the arithmetic comes out the same.</p>
+        <p>Anisotropic filtering takes up to N taps along the long axis of the footprint, and the hardware places them in physical space with no idea where the page ends. A 4-texel border covers about 8× anisotropy; past that the seam comes back, which is why engines clamp anisotropy on virtual textures. Trilinear filtering, which also blends in the next blurrier mip, needs the coarser mip of the same page, so physical caches usually carry a short mip chain per slot.</p>
+        <p>A runtime virtual texture never loads pages at all. Each page is drawn into its slot from layers (the terrain material, a splat map saying how much of each material goes where, decals such as the chalk ring on the square) when the feedback pass asks for it. The border comes free: the viewport is widened by b texels and the same layers are drawn once. There's no disk copy of the texture, so the install doesn't grow with it either.</p>
+        <p class="words">In words: a border of b texels leaves (p − 2b)² unique texels and covers filter taps that reach about N/2 texels.</p>
+        <div class="math">inner = p − 2b                     unique texels per side
 lost  = 1 − (inner / p)²           p=128, b=4 → 12.1 %   ·   p=256, b=4 → 6.1 %
 reach = 0.5 texel (bilinear)  ·  ≈ N/2 texels (aniso N)     →  need b ≥ N/2 + 0.5
 uv_phys = ( slot·p + b + frac(uv·pagesAt(m_res)) · inner ) / 2048</div>
-      <p>p is the page size in texels, b the border width, N the anisotropy level, and inner the texels that belong to the page alone.</p>
-      <p class="words">What this code does: places the sample inside the inner region of its slot, then, for a runtime page, draws the layers into a slot rectangle widened by the border.</p>
-      <pre class="code"><span class="c">// physical uv with a b-texel border: unique texels live in [b, p − b)</span>
+        <p>p is the page size in texels, b the border width, N the anisotropy level, and inner the texels that belong to the page alone.</p>
+        <p class="words">What this code does: places the sample inside the inner region of its slot, then, for a runtime page, draws the layers into a slot rectangle widened by the border.</p>
+        <pre class="code"><span class="c">// physical uv with a b-texel border: unique texels live in [b, p − b)</span>
 <span class="k">vec2</span> inPage = fract(uv * scale);
 <span class="k">vec2</span> uvPhys = (e.rg * 255.0 * P + b + inPage * (P - 2.0 * b)) / PHYS_SIZE;
 <span class="c">// derivatives scale by inner/P as well, or the cache mip is off by a hair</span>
@@ -550,22 +496,22 @@ uv_phys = ( slot·p + b + frac(uv·pagesAt(m_res)) · inner ) / 2048</div>
   <span class="k">Rect</span> uv = pageRect(p).expand(b / float(P - 2*b));   <span class="c">// same widening in virtual space</span>
   <span class="k">for</span> (layer : [base, splat, decals]) draw(layer, vp, uv);
 }</pre>
-      <p class="tldr">Neighbouring pages aren't neighbours in the cache, so every page carries a copied border, and anisotropy gets capped near 8×.</p>
+      </div></details>
     </div>
   </section>
 
   <section id="tradeoffs">
     <h2>Tradeoffs</h2>
     <p class="sub">Four ways to keep less texture in memory. Numbers are estimates for a 1080p frame; they move with resolution and layer count.</p>
-    <p class="plain">Read across a row to see what one approach costs and where it breaks. You're choosing between <b>how much memory stays in use</b>, <b>what the player sees while data is still loading</b>, and <b>whether the GPU's normal filtering still works</b>. Mip streaming suits ordinary materials; virtual texturing is what you reach for when one texture is huge or every surface is unique.</p>
+    <p class="plain">Read across a row to see what one approach costs and where it breaks. You're choosing between <b>how much memory stays in use</b>, <b>what the player sees while data is still loading</b>, and <b>whether the GPU's normal texel blending still works</b>. Mip streaming, loading whole blurry copies of a texture as needed, suits ordinary materials; virtual texturing is what you reach for when one texture is huge or every surface is unique.</p>
     <div class="tbl-wrap">
     <table class="uses trade">
       <thead><tr><th>Approach</th><th>Memory in use</th><th>Wait time and what it looks like</th><th>Cost per frame</th><th>Filtering</th><th>Pick it when</th></tr></thead>
       <tbody>
-        <tr><td>Mip streaming (per texture)</td><td>Whole mip levels per texture. A 2048² BC7 texture is 4 MiB at mip 0 and 1.3 MiB from mip 1 down. Budgets of 1 to 3 GiB are typical.</td><td>One large read per mip level. When it's late, a whole object goes blurry, then snaps sharp.</td><td>CPU: sort textures by how much screen they cover, ~0.1 ms est. GPU: none, the sampler is untouched.</td><td>Full hardware filtering, no borders, any anisotropy.</td><td>Many mid-sized textures, ordinary materials, nothing uniquely painted.</td></tr>
-        <tr><td>Streaming virtual texture</td><td>Fixed: the physical cache (4 MiB per 2048² BC7 layer here, 16 to 64 MiB in shipped games) plus a page table of a few hundred KB.</td><td>Per page, 16 KiB, about 3 frames plus the disk. When it's late, a blocky blurry patch pops sharp inside one page.</td><td>GPU: the feedback pass plus one extra fetch per sample, ~0.2 to 0.5 ms est. CPU: readback, diff, transcode, ~0.5 to 2 ms est.</td><td>Needs borders; anisotropy capped near 8×; trilinear from per-slot mips.</td><td>Huge or unique textures, terrain, open worlds, a fixed memory ceiling no matter the content.</td></tr>
+        <tr><td>Mip streaming (per texture)</td><td>Whole mip levels per texture. A 2048² BC7 texture is 4 MiB at mip 0 and 1.3 MiB from mip 1 down. Budgets of 1 to 3 GiB are typical.</td><td>One large read per mip level. When it's late, a whole object goes blurry, then snaps sharp.</td><td>CPU: sort textures by how much screen they cover, ~0.1 ms est. GPU: none, texture reads are unchanged.</td><td>Full hardware blending, no borders, any anisotropy.</td><td>Many mid-sized textures, ordinary materials, nothing uniquely painted.</td></tr>
+        <tr><td>Streaming virtual texture</td><td>Fixed: the physical cache (4 MiB per 2048² BC7 layer here, 16 to 64 MiB in shipped games) plus a page table of a few hundred KB.</td><td>Per page, 16 KiB, about 3 frames plus the disk. When it's late, a blocky blurry patch pops sharp inside one page.</td><td>GPU: the feedback pass plus one extra fetch per sample, ~0.2 to 0.5 ms est. CPU: readback, diff, transcode, ~0.5 to 2 ms est.</td><td>Needs borders; anisotropy capped near 8×; blending between mips needs a small mip chain per slot.</td><td>Huge or unique textures, terrain, open worlds, a fixed memory ceiling no matter the content.</td></tr>
         <tr><td>Runtime virtual texture</td><td>Same cache, no disk copy. The source layers stay loaded as ordinary textures.</td><td>Per page, a few draws, usually under a frame. When it's late, a page is drawn late, rarely visible.</td><td>GPU: page fills cost draws when the view moves; a 136² viewport per page. CPU: the same feedback loop.</td><td>Same as streaming VT; borders are drawn rather than copied.</td><td>Terrain built from layers, decals baked at runtime, materials cheaper to draw once than to sample every frame.</td></tr>
-        <tr><td>Hardware tiled resources</td><td>A tile pool of 64 KiB tiles (256² BC7 or 128² RGBA8 per tile) mapped into a real texture.</td><td>Tile mapping updates go through a queue; until then the sampler reads zero or the mapped coarse mip.</td><td>No extra lookup in the shader, no borders; a residency map is still needed to clamp the mip.</td><td>Full hardware filtering across tile edges.</td><td>DX11.2+, DX12 or Vulkan sparse residency is available, and you want the sampler unchanged.</td></tr>
+        <tr><td>Hardware tiled resources</td><td>A tile pool of 64 KiB tiles (256² BC7 or 128² RGBA8 per tile) mapped into a real texture.</td><td>Tile mapping updates go through a queue; until then the sampler reads zero or the mapped coarse mip.</td><td>No extra lookup in the shader, no borders; a map of what is loaded is still needed to pick a safe mip.</td><td>Full hardware blending across tile edges.</td><td>DX11.2+, DX12 or Vulkan sparse residency is available, and you want texture reads unchanged.</td></tr>
       </tbody>
     </table>
     </div>
@@ -707,8 +653,76 @@ function kitInset(ctx, x, y, w, h, title) {
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
 
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   "use strict";
+  let L1, L2, L3, L4, L5;
   // ---------- constants ----------
   const T = 32768, P = 128, NP = 256, SL = 16, SLOTS = 256, WORLD = 1024, TPM = T / WORLD; // 32 texels per metre
   const SW = 1920, SH = 1080, FBS = 8, FW = SW / FBS, FH = SH / FBS; // 240 × 135
@@ -730,6 +744,7 @@ function kitInset(ctx, x, y, w, h, title) {
     c = [(AMBER[0] + (BLUE[0] - AMBER[0]) * t) * b, (AMBER[1] + (BLUE[1] - AMBER[1]) * t) * b, (AMBER[2] + (BLUE[2] - AMBER[2]) * t) * b];
     colCache.set(k, c); return c;
   }
+  function segOn(id, v) { $(id).querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
   function seg(id, fn) {
     const el = $(id);
     el.addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; el.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); fn(b.dataset.v); });
@@ -997,7 +1012,7 @@ function kitInset(ctx, x, y, w, h, title) {
   function placeName(ctx, text, x, y) { ctx.font = "12px 'IBM Plex Mono', Menlo, Consolas, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillText(text, x + 1, y + 1); ctx.fillStyle = "rgba(255,255,255,0.75)"; ctx.fillText(text, x, y); }
 
   // ---------- 1. virtual vs physical ----------
-  const d1 = { cam: { x: 470, z: 880, yaw: Math.atan2(560 - 470, 420 - 880), h: 2, pitch: -12 * Math.PI / 180 }, aniso: 8, cache: new Cache(), fb: makeFB(FW, FH), req: new Set(), hover: null };
+  const d1 = { cam: { x: 470, z: 880, yaw: Math.atan2(560 - 470, 420 - 880), h: 2, pitch: -12 * Math.PI / 180 }, aniso: 1, cache: new Cache(), fb: makeFB(FW, FH), req: new Set(), hover: null, stats: null };
   d1.cache.setPinned(true);
   const c1map = $("c1map"), x1m = c1map.getContext("2d"), c1cache = $("c1cache"), x1c = c1cache.getContext("2d");
   function run1() {
@@ -1041,7 +1056,7 @@ function kitInset(ctx, x, y, w, h, title) {
     ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(cx, cz); ctx.lineTo(ax, az); ctx.stroke(); ctx.setLineDash([]);
     kitPlayerTop(ctx, cx, cz, 8, Math.atan2(Math.cos(cam.yaw), Math.sin(cam.yaw)));
     handle(ctx, ax, az, 5);
-    labelIn(ctx, "1024 m of world · 256 × 256 pages at mip 0 · 4 m per page", 8, 14, "left", "#c7cdd8");
+    labelIn(ctx, "1 km of world · 256 × 256 sharp pages · 4 m each", 8, 14, "left", "#c7cdd8");
     labelIn(ctx, "camera (drag)", cx, cz > 470 ? cz - 22 : cz + 24, "center");
     labelIn(ctx, "aim (drag)", ax, az < 40 ? az + 18 : az - 18, "center");
     if (near) callout(ctx, `sharp ${4 << near[2]} m pages by the camera`, near[0], near[1], near[0] < 256 ? near[0] + 150 : near[0] - 150, near[1] < 300 ? near[1] + 60 : near[1] - 60, "#f2a341");
@@ -1052,10 +1067,13 @@ function kitInset(ctx, x, y, w, h, title) {
     labelIn(x1c, "256 slots · each holds one 128² page: a 4 m piece of the map", 8, 14, "left", "#c7cdd8");
     labelIn(x1c, "digit = mip: 0 sharp … 8 blurry · neighbours are strangers", 504, 498, "right", "#c7cdd8");
     const need = d1.req.size, res = cache.map.size, pinned = cache.pinned.size; let over = 0; for (const k of d1.req) if (!cache.map.has(k)) over++;
-    const mips = perMip.map((n, m) => n ? `m${m}:${n}` : "").filter(Boolean).join(" ");
-    $("c1-virt").innerHTML = `virtual <strong>32768² · 4.00 GiB</strong> RGBA8 (5.33 GiB with mips) · view needs <strong>${need} pages</strong> · ${mips}`;
-    $("c1-res").innerHTML = `resident <strong>${res} of 256 slots</strong> (${pinned} pinned) · <strong>${fmtMiB(res * P * P)}</strong> of 4 MiB BC7` + (over > 0 ? ` · <span style="color:#ef5d5d">${over} pages do not fit</span>` : "");
+    const mips = perMip.map((n, m) => n ? `mip ${m}: ${n}` : "").filter(Boolean).join(", ");
+    $("c1-virt").innerHTML = `the whole painting: <strong>32,768² texels, 4.00 GiB</strong> uncompressed (5.33 GiB with the blurry copies) · this view needs <strong>${need} pages</strong> · loaded by mip: ${mips}`;
+    $("c1-res").innerHTML = `in the cache: <strong>${res} of 256 slots</strong> (${pinned} of them always kept) · <strong>${fmtMiB(res * P * P)}</strong> of 4 MiB compressed` + (over > 0 ? ` · <span style="color:#ef5d5d">${over} pages do not fit</span>` : "");
+    d1.stats = { need, res, over };
+    L1 && L1.check();
   }
+  const hOf = v => Math.round(Math.pow(10, 0.1 + v / 100 * 2.2) * 10) / 10; // 1.3 m .. 200 m, log
   {
     let active = -1, pend = false;
     const req = () => { if (pend) return; pend = true; requestAnimationFrame(() => { pend = false; run1(); }); };
@@ -1075,15 +1093,16 @@ function kitInset(ctx, x, y, w, h, title) {
     const end = ev => { active = -1; try { c1map.releasePointerCapture(ev.pointerId); } catch (e) { } };
     c1map.addEventListener("pointerup", end); c1map.addEventListener("pointercancel", end);
     const hEl = $("c1h");
-    const hOf = v => Math.round(Math.pow(10, 0.1 + v / 100 * 2.2) * 10) / 10; // 1.3 m .. 200 m, log
     hEl.addEventListener("input", () => { d1.cam.h = hOf(+hEl.value); $("c1hv").textContent = d1.cam.h.toFixed(1) + " m"; req(); });
     d1.cam.h = hOf(+hEl.value); $("c1hv").textContent = d1.cam.h.toFixed(1) + " m";
     seg("c1aniso", v => { d1.aniso = +v; req(); });
   }
+  // reset stage 1 to a known state: h is the slider value (0..100), x and z are metres on the map
+  const set1 = o => { if (o.h !== undefined) { $("c1h").value = o.h; d1.cam.h = hOf(o.h); $("c1hv").textContent = d1.cam.h.toFixed(1) + " m"; } if (o.aniso !== undefined) { d1.aniso = o.aniso; segOn("c1aniso", o.aniso); } if (o.x !== undefined) { d1.cam.x = o.x; d1.cam.z = o.z; } if (o.yaw !== undefined) d1.cam.yaw = o.yaw; run1(); };
 
   // ---------- 2. page table and indirection ----------
   const c2uv = $("c2uv"), x2u = c2uv.getContext("2d"), c2pt = $("c2pt"), x2p = c2pt.getContext("2d");
-  const d2 = { mip: 0, hover: null }; // hover in mip-0 page units (continuous)
+  const d2 = { mip: 0, hover: null, stats: null }; // hover in mip-0 page units (continuous); hover[2] is true once the reader has moved it
   function win2() { const cam = d1.cam; return [clamp(Math.round(cam.x / 4) - 32, 0, NP - 64), clamp(Math.round(cam.z / 4) - 32, 0, NP - 64)]; }
   function swatch(ctx, x, y, s, wx, wz, m) { // a 4 m patch of the map around (wx, wz) as a mip-m page shows it
     const out = [0, 0, 0], n = 22, cs = s / n;
@@ -1142,7 +1161,7 @@ function kitInset(ctx, x, y, w, h, title) {
     swatch(ctx, 346, 422, 44, hx * 4, hz * 4, m);
     if (resK >= 0) swatch(ctx, 406, 422, 44, hx * 4, hz * 4, kM(resK)); else { ctx.fillStyle = "rgb(120,40,40)"; ctx.fillRect(406, 422, 44, 44); }
     ctx.font = "10px 'IBM Plex Mono', Menlo, Consolas, monospace"; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = "#c7cdd8";
-    ctx.fillText(`wanted m${m}`, 346, 470); ctx.fillText(resK >= 0 ? `got m${kM(resK)}` : "got none", 406, 470); ctx.fillText("4 m patch", 456, 422); ctx.fillText("of ground", 456, 434);
+    ctx.fillText(`wanted mip ${m}`, 346, 470); ctx.fillText(resK >= 0 ? `got mip ${kM(resK)}` : "got none", 406, 470); ctx.fillText("4 m patch", 456, 422); ctx.fillText("of ground", 456, 434);
     // right: page table window (top) + cache (bottom)
     const pc = x2p; pc.fillStyle = "#0b0e13"; pc.fillRect(0, 0, 512, 512);
     const ex0 = clamp(px - 8, 0, Math.max(0, n - 16)), ey0 = clamp(py - 8, 0, Math.max(0, n - 16)), cnt = Math.min(16, n);
@@ -1157,7 +1176,7 @@ function kitInset(ctx, x, y, w, h, title) {
     pc.strokeStyle = "#fff"; pc.lineWidth = 2; pc.strokeRect(entX, entY, 29, 13);
     pc.fillStyle = "rgba(255,255,255,0.7)"; pc.font = MONO; pc.fillText(`page table, mip ${m}: entries x ${ex0}–${ex0 + cnt - 1}, y ${ey0}–${ey0 + cnt - 1} · (slot x, slot y · mip)`, 16, 2);
     pc.strokeStyle = "rgba(255,255,255,0.2)"; pc.lineWidth = 1; pc.beginPath(); pc.moveTo(0, 248.5); pc.lineTo(512, 248.5); pc.stroke();
-    pc.fillStyle = "rgba(255,255,255,0.7)"; pc.fillText("physical cache 2048² · 16 × 16 slots, each a piece of the map", 16, 252);
+    pc.fillStyle = "rgba(255,255,255,0.7)"; pc.fillText("the cache: 16 × 16 slots, each holding a piece of the map", 16, 252);
     const hi = resK >= 0 ? cache.map.get(resK) : -1;
     drawCacheGrid(pc, cache, 0, 268, 15.25, { digits: false, ages: false, hi });
     let ptText, uvText;
@@ -1169,14 +1188,16 @@ function kitInset(ctx, x, y, w, h, title) {
       pc.beginPath(); pc.arc((sx + fu) * 15.25, 268 + (sy + fv) * 15.25, 3, 0, Math.PI * 2); pc.fillStyle = "#fff"; pc.fill();
       callout(pc, "the entry for that page", entX + 14.5, entY + 6, entX < 256 ? entX + 150 : entX - 150, entY < 40 ? entY + 30 : entY - 26, "#fff");
       callout(pc, "the slot it names, and the exact texel", slotCx, slotCy, 256, slotCy > 400 ? slotCy - 40 : slotCy + 40, "#fff");
-      ptText = `entry (sx <strong>${sx}</strong>, sy <strong>${sy}</strong>, mip <strong>${mr}</strong>) · scale ${scale} · uv_phys (${upx.toFixed(4)}, ${upy.toFixed(4)}) · texel (${(upx * 2048) | 0}, ${(upy * 2048) | 0}) of 2048²`;
-      uvText = `uv (<strong>${u.toFixed(4)}, ${v.toFixed(4)}</strong>) · mip ${m} page (${px}, ${py}) → ` + (chain.length > 1 ? `not resident, fell back <strong>${chain.length - 1} level${chain.length > 2 ? "s" : ""}</strong> to mip ${mr}` : "<strong>resident</strong>");
+      ptText = `the entry says: slot (<strong>${sx}, ${sy}</strong>), holding a mip <strong>${mr}</strong> page · the sample lands on texel (${(upx * 2048) | 0}, ${(upy * 2048) | 0}) of the 2048² cache, at (${upx.toFixed(4)}, ${upy.toFixed(4)}) of its width and height`;
+      uvText = `sample at (<strong>${u.toFixed(4)}, ${v.toFixed(4)}</strong>) of the painting's width and height · wants mip ${m} page (${px}, ${py}) → ` + (chain.length > 1 ? `not loaded, fell back <strong>${chain.length - 1} level${chain.length > 2 ? "s" : ""}</strong> to a mip ${mr} page` : "<strong>loaded: one hop</strong>");
     } else {
       callout(pc, "no slot at any mip: nothing to draw", entX + 14.5, entY + 6, 256, entY < 40 ? entY + 30 : entY - 26, "#ef5d5d");
-      ptText = `no resident page at any mip for this entry`;
-      uvText = `uv (<strong>${u.toFixed(4)}, ${v.toFixed(4)}</strong>) · mip ${m} page (${px}, ${py}) → <span style="color:#ef5d5d">no ancestor resident</span>`;
+      ptText = `no loaded page at any mip for this entry`;
+      uvText = `sample at (<strong>${u.toFixed(4)}, ${v.toFixed(4)}</strong>) of the painting's width and height · wants mip ${m} page (${px}, ${py}) → <span style="color:#ef5d5d">nothing loaded at any mip</span>`;
     }
     $("c2-uv").innerHTML = uvText; $("c2-pt").innerHTML = ptText;
+    d2.stats = { fell: chain.length - 1, res: resK >= 0, user: !!d2.hover[2], mip: m };
+    L2 && L2.check();
   }
   {
     let pend = false; const req = () => { if (pend) return; pend = true; requestAnimationFrame(() => { pend = false; draw2(); }); };
@@ -1187,7 +1208,7 @@ function kitInset(ctx, x, y, w, h, title) {
 
   // ---------- 3. feedback pass ----------
   const c3v = $("c3view"), x3v = c3v.getContext("2d"), c3t = $("c3tl"), x3t = c3t.getContext("2d");
-  const d3 = { cam: { x: 560, z: 640, yaw: 3.1, h: 5, pitch: -18 * Math.PI / 180 }, cache: new Cache(), fb: makeFB(FW, FH), R: makeRender(), budget: 8, latency: 3, auto: true, hist: [], stats: {}, tick: 0 };
+  const d3 = { cam: { x: 560, z: 640, yaw: 3.1, h: 5, pitch: -18 * Math.PI / 180 }, cache: new Cache(), fb: makeFB(FW, FH), R: makeRender(), budget: 8, latency: 3, auto: true, hist: [], stats: {}, tick: 0, dragged: false };
   d3.cache.setPinned(true);
   function step3(draw = true) {
     const cam = d3.cam;
@@ -1209,16 +1230,18 @@ function kitInset(ctx, x, y, w, h, title) {
     t.fillStyle = "rgba(255,255,255,0.7)"; t.font = MONO; t.textAlign = "left"; t.textBaseline = "top"; t.fillText(`last 160 frames · amber: pages missing this frame (max ${mx}) · blue: pages arrived`, 8, 6);
     if ((d3.tick++ % 3) === 0) {
       const wait = d3.waitAvg || 0;
-      $("c3-read").innerHTML = `requested <strong>${st.req} pages</strong> · missing ${st.missing} · in flight ${st.inflight} · queued ${st.queued} · arrived ${st.arrived} · avg wait <strong>${wait.toFixed(1)} frames</strong> (${(wait * 16.7).toFixed(0)} ms at 60 Hz) · ${(100 * d3.stats.fbPix / Math.max(1, d3.stats.ground)).toFixed(0)} % of ground pixels on a coarser page`;
+      $("c3-read").innerHTML = `asked for <strong>${st.req} pages</strong> · ${st.missing} missing · ${st.inflight} on their way · ${st.queued} waiting their turn · ${st.arrived} arrived this frame · average wait <strong>${wait.toFixed(1)} frames</strong> (${(wait * 16.7).toFixed(0)} ms at 60 frames a second) · ${(100 * d3.stats.fbPix / Math.max(1, d3.stats.ground)).toFixed(0)} % of ground pixels on a blurry stand-in`;
     }
+    L3 && L3.check();
   }
-  dragView(c3v, d3.cam, () => { if (d3.auto) { d3.auto = false; $("c3auto").checked = false; } });
+  dragView(c3v, d3.cam, () => { d3.dragged = true; if (d3.auto) { d3.auto = false; $("c3auto").checked = false; } });
   $("c3auto").addEventListener("change", ev => { d3.auto = ev.target.checked; });
   $("c3budget").addEventListener("input", ev => { d3.budget = +ev.target.value; $("c3budgetv").textContent = d3.budget + " pages/frame"; });
+  const set3 = o => { if (o.budget !== undefined) { d3.budget = o.budget; $("c3budget").value = o.budget; $("c3budgetv").textContent = o.budget + " pages/frame"; } if (o.auto !== undefined) { d3.auto = o.auto; $("c3auto").checked = o.auto; } step3(); };
 
   // ---------- 4. cache eviction ----------
   const c4c = $("c4cache"), x4c = c4c.getContext("2d"), c4v = $("c4view"), x4v = c4v.getContext("2d");
-  const d4 = { cam: { x: 690, z: 330, yaw: -2.3, h: 6, pitch: -18 * Math.PI / 180 }, cache: new Cache(), fb: makeFB(FW, FH), R: makeRender(), bias: -1, budget: 16, latency: 3, stats: {}, hit: 0, loads: 0, thrash: 0, tick: 0 };
+  const d4 = { cam: { x: 690, z: 330, yaw: -2.3, h: 6, pitch: -18 * Math.PI / 180 }, cache: new Cache(), fb: makeFB(FW, FH), R: makeRender(), bias: 1, budget: 16, latency: 3, stats: {}, hit: 0, loads: 0, thrash: 0, tick: 0 };
   d4.cache.setPinned(true);
   function step4(draw = true) {
     feedbackPass(d4.fb, d4.cam, d4.bias, 8);
@@ -1237,14 +1260,17 @@ function kitInset(ctx, x, y, w, h, title) {
       $("t4hit").textContent = (100 * d4.hit).toFixed(0) + " %";
       $("t4loads").textContent = d4.loads.toFixed(1);
       $("t4fb").textContent = (100 * d4.stats.fbPix / Math.max(1, d4.stats.ground)).toFixed(0) + " %";
-      $("c4-cache").innerHTML = `demand <strong>${st.req} pages</strong> for 256 slots · resident ${st.resident} · evicted while still needed <strong>${d4.thrash.toFixed(1)}/frame</strong> · in flight ${st.inflight}`;
-      $("c4-view").innerHTML = `fallback pixels <strong>${(100 * d4.stats.fbPix / Math.max(1, d4.stats.ground)).toFixed(0)} %</strong> · mean +${d4.stats.meanDelta.toFixed(1)} mips coarser · no data <span class="${d4.stats.none ? "fail" : "pass"}">${(100 * d4.stats.none / Math.max(1, d4.stats.ground)).toFixed(1)} %</span>`;
+      $("c4-cache").innerHTML = `the view wants <strong>${st.req} pages</strong> for 256 slots · ${st.resident} loaded · thrown out while still needed: <strong>${d4.thrash.toFixed(1)} a frame</strong> · ${st.inflight} on their way`;
+      $("c4-view").innerHTML = `pixels on a blurry stand-in <strong>${(100 * d4.stats.fbPix / Math.max(1, d4.stats.ground)).toFixed(0)} %</strong> · on average ${d4.stats.meanDelta.toFixed(1)} mips blurrier than asked · pixels with nothing at all: <span class="${d4.stats.none ? "fail" : "pass"}">${(100 * d4.stats.none / Math.max(1, d4.stats.ground)).toFixed(1)} %</span>`;
     }
+    L4 && L4.check();
   }
   dragView(c4v, d4.cam, () => { });
-  $("c4bias").addEventListener("input", ev => { d4.bias = +ev.target.value; $("c4biasv").textContent = (d4.bias > 0 ? "+" : d4.bias < 0 ? "−" : "") + Math.abs(d4.bias).toFixed(1); });
+  $("c4bias").addEventListener("input", ev => { d4.bias = +ev.target.value; $("c4biasv").textContent = biasText(d4.bias); });
   $("c4budget").addEventListener("input", ev => { d4.budget = +ev.target.value; $("c4budgetv").textContent = d4.budget + " pages/frame"; });
   $("c4pin").addEventListener("change", ev => { d4.cache.setPinned(ev.target.checked); });
+  const biasText = b => (b > 0 ? "+" : b < 0 ? "−" : "") + Math.abs(b).toFixed(1);
+  const set4 = o => { if (o.bias !== undefined) { d4.bias = o.bias; $("c4bias").value = o.bias; $("c4biasv").textContent = biasText(o.bias); } if (o.budget !== undefined) { d4.budget = o.budget; $("c4budget").value = o.budget; $("c4budgetv").textContent = o.budget + " pages/frame"; } if (o.pin !== undefined) { $("c4pin").checked = o.pin; d4.cache.setPinned(o.pin); } step4(); };
 
   // ---------- 5. borders and filtering ----------
   const c5p = $("c5phys"), x5p = c5p.getContext("2d"), c5o = $("c5out"), x5o = c5o.getContext("2d");
@@ -1358,11 +1384,13 @@ function kitInset(ctx, x, y, w, h, title) {
       labelIn(pd, `${N} filter tap${N > 1 ? "s" : ""} (drag)`, (ph[0] - wx0) * 16, hy2 > 440 ? hy2 - 26 : hy2 + 28, "center");
       if (bleedAt) callout(pd, "this tap reads forest, not cobbles", bleedAt[0], bleedAt[1], 300, hy2 > 300 ? hy2 - 70 : hy2 + 72, "#ef5d5d");
     }
-    $("c5-phys").innerHTML = `sample at boundary ${d5.sx >= 0 ? "+" : "−"}${Math.abs(d5.sx).toFixed(2)} texels · ${N} tap${N > 1 ? "s" : ""}, reach <strong>+${reach.toFixed(1)} texels</strong> · border ${b} → ` + (bleed ? `<span class="fail">taps cross into slot (1,0), the forest page</span>` : `<span class="pass">taps stay inside the slot</span>`);
-    $("c5-out").innerHTML = d5.src === "stream" ? `page fill: <strong>${(p * p / 1024).toFixed(0)} KiB</strong> BC7 read + transcode + upload · borders copied from 8 neighbours` : `page fill: <strong>3 layer draws</strong> into a ${p}² viewport, border rendered not copied · the chalk ring is a decal layer · no disk copy`;
+    $("c5-phys").innerHTML = `sample ${Math.abs(d5.sx).toFixed(2)} texels ${d5.sx >= 0 ? "right" : "left"} of the page boundary · ${N} tap${N > 1 ? "s" : ""}, reaching <strong>${reach.toFixed(1)} texels</strong> past the sample · border ${b} → ` + (bleed ? `<span class="fail">taps cross into slot (1,0), the forest page</span>` : `<span class="pass">taps stay inside the slot</span>`);
+    $("c5-out").innerHTML = d5.src === "stream" ? `filling a page: <strong>${(p * p / 1024).toFixed(0)} KiB</strong> read from disk, decoded and uploaded · border copied from the 8 neighbouring pages` : `filling a page: <strong>3 layer draws</strong> into a ${p}² square, border drawn rather than copied · the chalk ring is a decal layer · no copy on disk`;
     $("t5a").textContent = (100 * (1 - Math.pow((128 - 2 * b) / 128, 2))).toFixed(1) + " %";
     $("t5b").textContent = (100 * (1 - Math.pow((256 - 2 * b) / 256, 2))).toFixed(1) + " %";
     const te = $("t5e"); te.textContent = err + " / 255"; te.className = "n " + (err > 2 ? "fail" : "pass");
+    d5.stats = { err, bleed, reach };
+    L5 && L5.check();
   }
   {
     let pend = false; const req = () => { if (pend) return; pend = true; requestAnimationFrame(() => { pend = false; draw5(); }); };
@@ -1383,6 +1411,7 @@ function kitInset(ctx, x, y, w, h, title) {
     seg("c5src", v => { d5.src = v; rebuild(); });
     build5(); draw5();
   }
+  const set5 = o => { if (o.b !== undefined) { d5.b = o.b; $("c5b").value = o.b; $("c5bv").textContent = o.b + " texel" + (o.b === 1 ? "" : "s"); } if (o.p !== undefined) { d5.p = o.p; segOn("c5p", o.p); } if (o.taps !== undefined) { d5.taps = o.taps; segOn("c5f", o.taps); } if (o.src !== undefined) { d5.src = o.src; segOn("c5src", o.src); } if (o.sx !== undefined) { d5.sx = o.sx; d5.sy = o.sy; } build5(); draw5(); };
 
   // ---------- boot and frame loop ----------
   buildWorld();
@@ -1396,5 +1425,87 @@ function kitInset(ctx, x, y, w, h, title) {
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
+
+  // ---------- guided steps ----------
+  // stage 2 helpers: a loaded and an unloaded sharp page inside the 256 m window, for try()
+  const pageIn2 = loaded => { const [wx0, wz0] = win2(); for (let y = 8; y < 56; y++) for (let x = 8; x < 56; x++) { const k = key(0, wx0 + x, wz0 + y); if (d1.cache.map.has(k) === loaded) return [wx0 + x + 0.5, wz0 + y + 0.5, true]; } return null; };
+  L1 = lesson("spaces", { next: { id: "pagetable", title: "Finding a page in the cache" }, steps: [
+    { say: "The whole world is one painting, 32,768 tiny squares on a side. A picture wrapped over the ground like this is called a <b>texture</b>, and its squares are <b>texels</b>. No graphics card can hold a painting that big. On the left is the map from above. The blue figure is the <b>camera</b>, the player's eye, and the white wedge is what it can see. Each tinted square is a <b>page</b>: a 128×128 texel piece of the painting, 4 m of ground, that is loaded right now. On the right is the <b>cache</b>: 256 slots in graphics memory that hold those pieces.", enter: () => set1({ h: 9, aniso: 1 }) },
+    { say: "<b>Drag the camera</b> across the map into the forest, top left.", todo: "drag the camera into the forest", goal: () => d1.cam.x < 400 && d1.cam.z < 400, try: () => set1({ x: 250, z: 250 }),
+      done: "The tinted squares followed the camera and the cache filled with forest pieces, but the count of pages the view needs, in the caption, stayed about the same. Wherever the camera points, the screen has the same number of pixels, so it needs about the same number of pages." },
+    { say: "Now go up. The slider takes the camera from 2 m to 200 m, where it can see most of the map.", quiz: { q: "At 200 m, how many pages does the view need?", options: [
+        { t: "Thousands: it can see most of the world now", why: "It can see most of the map, but far ground is drawn from blurry pages, and one of those covers hundreds of metres. Try it and read the caption." },
+        { t: "Still around a hundred, drawn from blurrier pages", ok: true, why: "The amber squares give way to blue ones: sharp 4 m pages to blurry copies that each cover far more ground. The caption's list shows only the blurrier mips in use." },
+        { t: "Almost none, the ground is too far away to matter", why: "Every ground pixel still needs some page. What changes is how blurry a page each pixel can get away with." } ] },
+      todo: "drag Camera height to the top", goal: () => d1.cam.h >= 60, try: () => { $("c1h").value = 100; $("c1h").dispatchEvent(new Event("input")); }, enter: () => set1({ h: 9, aniso: 1 }),
+      done: "Still around a hundred pages. A <b>mip</b> is one of those half-size blurry copies: mip 0 is the full painting, each step up halves the width, and mip 8 is one page for the whole map. Far ground asks for a high mip, and one page of it covers a lot of screen." },
+    { say: "Back at 2 m. Looking along the ground at a low angle, each screen pixel covers a long thin sliver of ground, and the sharpness setting says how many texels the GPU reads along that sliver. Games call it <b>anisotropic filtering</b>. <b>Switch it from off to 16×.</b>", todo: "switch far ground sharpness to 16×", goal: () => d1.aniso >= 8, try: () => $("c1aniso").querySelector('[data-v="16"]').click(), enter: () => set1({ h: 9, aniso: 1 }),
+      done: "Fine amber squares now reach far toward the horizon and the count went up several times over. This is the one setting that adds pages: it asks for sharp pages on ground that is far away, and there is a lot of far ground." },
+    { say: "Look at the cache grid. Neighbouring slots hold unrelated pieces: forest next to river next to a roof. A slot's place in the grid says nothing about where its piece sits on the map; a page goes into whichever slot is free. The digit in each slot is the page's mip, 0 sharp to 8 blurry." },
+    { say: "The painting is 4 GiB and the cache is 4 MiB, a thousandth of it. A view needs about a hundred pages because the screen has a fixed number of pixels, not because the world is small. The byte counts and the page-picking code are under the hood." } ] });
+
+  L2 = lesson("pagetable", { next: { id: "feedback", title: "How the GPU asks for pages" }, steps: [
+    { say: "This is 256 m of the map around the camera from the last stage, 64 pages on a side. Bright pieces have their sharp page loaded; the dark veil is ground that only has a blurry page. The white dot is one pixel's question: what colour is the ground here? On the right, the top rows are the <b>page table</b>, a small list with one entry per page saying which cache slot holds it. Below is the cache, with an arrow from the entry to the slot.", enter: () => { set1({ h: 9 }); d2.mip = 0; segOn("c2mip", 0); draw2(); } },
+    { say: "<b>Move the pointer over a bright piece</b> near the camera.", todo: "hover a bright piece of ground", goal: () => d2.stats && d2.stats.user && d2.stats.res && d2.stats.fell === 0 && d2.stats.mip === 0, try: () => { const h = pageIn2(true); if (h) { d2.hover = h; draw2(); } },
+      done: "One hop. The entry names a slot, the arrow points straight at it, and the caption gives the exact texel inside the 2048-wide cache. The GPU does one small read of the table and one read of the cache, and never searches." },
+    { say: "Now the veiled ground. The sharp page there is not loaded.", quiz: { q: "What does the table entry say for a page that is not loaded?", options: [
+        { t: "Nothing, so the pixel stays blank until the page arrives", why: "An entry is never left empty. It is filled in ahead of time with something that is loaded. Hover the veil and see what." },
+        { t: "It points at the nearest blurrier page that is loaded", ok: true, why: "The dashed outlines climb through bigger and bigger parent pages until one is loaded, and the entry already holds that answer. The pixel gets a blurry colour instead of a blank." },
+        { t: "It tells the GPU to search the cache for something nearby", why: "The GPU never searches. One read of the table must give a usable answer, so the answer is written into the table in advance." } ] },
+      todo: "now hover the veiled ground to check", goal: () => d2.stats && d2.stats.user && d2.stats.fell >= 1 && d2.stats.mip === 0, try: () => { const h = pageIn2(false); if (h) { d2.hover = h; draw2(); } },
+      done: "The caption says how many levels it fell back, and the inset's <b>got</b> swatch shows flat blocks: a blurry page's colours stretched over 4 m of ground. That is what a blurry patch in a game is." },
+    { say: "Pixels far from the camera do not ask for the sharpest copy in the first place. <b>Ask for mip 4</b>, a copy 16 times narrower than full size, so one page covers 64 m of ground.", todo: "choose mip 4 below", goal: () => d2.mip === 4, try: () => $("c2mip").querySelector('[data-v="4"]').click(), enter: () => { d2.mip = 0; segOn("c2mip", 0); draw2(); },
+      done: "The outline is 16 pages wide now, and most of the window answers in one hop, because fewer levels stand between what was asked for and a page that is loaded." },
+    { say: "Every pixel does the same two reads: the table entry for the page it wants, then the cache slot the entry names. The entry is always filled, sometimes with a blurrier stand-in. The arithmetic that places the sample inside the slot is under the hood." } ] });
+
+  L3 = lesson("feedback", { next: { id: "eviction", title: "When the cache runs out of room" }, steps: [
+    { say: "This is what the player sees: the painted ground in perspective, hills and sky. The camera is walking on its own. Sharp ground is drawn from a loaded page. Dim, blocky patches are pixels on a blurry stand-in while their own page is on its way. The inset at the top right is the GPU's shopping list: a small 240×135 picture where each pixel holds the number of the page it wants, amber for near pages and blue for far ones.", enter: () => set3({ auto: true, budget: 8 }) },
+    { say: "<b>Drag the view sideways</b>, quickly.", todo: "drag the view sideways", goal: () => d3.dragged, try: () => { d3.dragged = true; d3.auto = false; $("c3auto").checked = false; d3.cam.yaw += 1.2; step3(); },
+      done: "Dim blocks flooded in on the side you turned toward, then sharpened over a few frames. Those frames are the wait: the GPU lists the missing pages, the CPU reads the list, then loads each page from disk and hands it to the graphics card. That wait is the texture pop-in you see when you spin the camera in a game." },
+    { say: "The strip under the picture is the last 160 frames. Amber bars are pages still missing that frame; blue ticks are pages that arrived. The CPU may load only so many pages per frame, 8 right now.", quiz: { q: "If you drop that to 1 page per frame, what happens?", options: [
+        { t: "Nothing changes, the pages arrive in a different order", why: "With 8 pages missing and one loaded per frame, the last one waits 8 frames. Missing pages pile up." },
+        { t: "Missing pages pile up and the average wait grows", ok: true, why: "The amber bars stay tall and the average wait in the caption climbs. Every page waits its turn in a queue." },
+        { t: "The picture goes black where pages are missing", why: "Nothing ever goes black. Every pixel already has a blurry stand-in from the last stage's table, so it just stays blurry longer." } ] },
+      todo: "drag Pages loaded per frame down to 1", goal: () => d3.budget <= 2, try: () => { $("c3budget").value = 1; $("c3budget").dispatchEvent(new Event("input")); }, enter: () => set3({ auto: true, budget: 8 }),
+      done: "The amber bars stay tall, the wait in the caption climbs, and most of the ground sits on a blurry stand-in." },
+    { say: "<b>Push it up to 64 pages per frame.</b>", todo: "drag Pages loaded per frame up to 64", goal: () => d3.budget >= 48, try: () => { $("c3budget").value = 64; $("c3budget").dispatchEvent(new Event("input")); },
+      done: "Missing pages clear almost as fast as they appear. Real games cannot afford this every frame: each page is a disk read, a decode and an upload, so they load a handful per frame and hide the rest behind the stand-in." },
+    { say: "The GPU never asks in words. It draws a tiny frame whose colours are page numbers, the CPU reads it back a frame or two later, and a page arrives about three frames after it was first wanted, around 50 ms at 60 frames a second. How a page number packs into 32 bits is under the hood." } ] });
+
+  L4 = lesson("eviction", { next: { id: "borders", title: "Why pages need a border" }, steps: [
+    { say: "The cache again, 256 slots, each showing the piece it holds. Brightness is how recently a slot was used: bright means this frame, dim means many frames ago. A white dot in a corner marks a slot that is never thrown out: one of the 21 blurriest pages, kept so that every pixel always has something to fall back on. On the right is the player's view. The camera stands still at the fields, and the view wants fewer than 256 pages, so everything fits.", enter: () => set4({ bias: 1, budget: 16, pin: true }) },
+    { say: "", quiz: { q: "A new page arrives and every slot is full. Which slot gets overwritten?", options: [
+        { t: "The slot holding the biggest, blurriest page", why: "Blurry pages are the ones every pixel can fall back on. They are the last thing to throw out." },
+        { t: "The slot that has gone longest without being used", ok: true, why: "The dimmest slot. If no pixel has wanted it for a long time, it is the least likely to be wanted next." },
+        { t: "Any slot at random", why: "Random would sometimes throw out a page that a pixel is using right now, and it would have to be loaded straight back." } ] } },
+    { say: "Now the ultra setting. <b>Texture detail</b> shifts which copy every pixel asks for: each step down asks for a copy with twice the width, four times the texels. <b>Drag it down to −3.</b>", todo: "drag Texture detail to −3", goal: () => d4.bias <= -2.5 && d4.cache.st.req > 256, try: () => { $("c4bias").value = -3; $("c4bias").dispatchEvent(new Event("input")); step4(); }, enter: () => set4({ bias: 1, budget: 16, pin: true }),
+      done: "The view now wants far more than 256 pages. Red outlines mark slots thrown out while a pixel this frame still needed them. Every slot was used this frame, so each new page kicks out one that is wanted again next frame, and it never settles. That is called <b>thrashing</b>, and the share of wanted pages already loaded, in the first tile, fell." },
+    { say: "", quiz: { q: "Will loading 64 pages per frame instead of 16 fix it?", options: [
+        { t: "Yes, faster loading fills the gaps before they show", why: "Pages arrive faster, but the cache still has 256 slots for more than 256 wanted pages. Something needed is always missing." },
+        { t: "No: there are more wanted pages than slots, so something needed is always missing", ok: true, why: "The loaded share is capped at slots divided by demand, whatever the loading speed. Loads per frame goes up, the first tile does not." },
+        { t: "Only if the blurry pages are unpinned first", why: "Unpinning frees 21 slots, which does not close a gap of hundreds of pages. Try it in the next step." } ] },
+      todo: "drag Pages loaded per frame up to 64 and watch the first tile", goal: () => d4.budget >= 48 && d4.bias <= -2.5, try: () => { $("c4budget").value = 64; $("c4budget").dispatchEvent(new Event("input")); step4(); }, enter: () => set4({ bias: -3, budget: 16, pin: true }),
+      done: "Loads per frame went to 64 and the loaded share stayed put. When a view wants more pages than there are slots, no loading speed and no throwing-out rule can help." },
+    { say: "<b>Untick the box</b> that keeps the 21 blurriest pages loaded.", todo: "untick the keep-loaded box", goal: () => d4.cache.pinned.size === 0, try: () => { $("c4pin").click(); step4(); }, enter: () => set4({ bias: -3, budget: 64, pin: true }),
+      done: "Over the next second those pages get thrown out too, and pixels start having nothing at all to fall back on: the caption's last figure turns red. Keeping the blurriest pages costs 21 slots and guarantees that never happens." },
+    { say: "<b>Tick the box again</b>, and <b>drag Texture detail back up to +1</b>.", todo: "tick the box and drag Texture detail to +1", goal: () => d4.cache.pinned.size > 0 && d4.bias >= 1, try: () => { if (!$("c4pin").checked) $("c4pin").click(); $("c4bias").value = 1; $("c4bias").dispatchEvent(new Event("input")); step4(); }, enter: () => set4({ bias: -3, budget: 64, pin: false }),
+      done: "The view wants fewer than 256 pages again. Over the next second the red outlines stop, loads drop to zero and every wanted page is loaded. The oldest-slot rule works when there is room." },
+    { say: "Throw out the slot that has gone unused the longest. That works until a view wants more pages than there are slots; after that the only fixes are a bigger cache or less detail. The cap on the loaded share and the per-frame loop are under the hood." } ] });
+
+  L5 = lesson("borders", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "Left: 32×32 texels of the cache, magnified, around the edge between two slots, the solid white line. Left of the line is the village square's cobblestone page; right of it, a forest page that happens to be next door in the cache. Right: the cobbles as the player sees them, across the boundary between page (5,7) and page (6,7), which are neighbours on the painting. The GPU never reads one texel to colour a pixel; it blends a few around the sample point. The white dots are those reads, called <b>taps</b>, and each small box is a texel a tap blends in.", enter: () => set5({ b: 2, p: 128, taps: 8, src: "stream", sx: -1, sy: 0 }) },
+    { say: "<b>Set the border to 0.</b>", todo: "drag Border to 0", goal: () => d5.b === 0, try: () => { $("c5b").value = 0; $("c5b").dispatchEvent(new Event("input")); },
+      done: "The boxes on the left turned red: taps reading forest texels. On the right a green streak runs down the page boundary, and the seam tile went red. The forest is leaking into the village square, because the GPU has no idea where one page ends and a stranger begins." },
+    { say: "", quiz: { q: "How can the seam be avoided?", options: [
+        { t: "Put neighbouring pages into neighbouring slots", why: "Slots are handed out as pages arrive, and a page has eight neighbours on the painting. They almost never land side by side." },
+        { t: "Store each page with a few extra texels copied from its neighbours on the painting", ok: true, why: "That ring of copies is the border. Taps that reach past the page's own texels read the copies, which are the right colours." },
+        { t: "Tell the GPU not to blend near slot edges", why: "The blending is built into the hardware and runs everywhere. It cannot be told where a slot edge is." } ] },
+      todo: "now drag Border up to 4", goal: () => d5.b >= 4, try: () => { $("c5b").value = 4; $("c5b").dispatchEvent(new Event("input")); }, enter: () => set5({ b: 0, taps: 8, src: "stream" }),
+      done: "The taps stay inside the slot, the seam tile goes green, and the first tile reads 12.1 %: a 4-texel ring around a 128×128 page is 12 % of its texels spent on copies. That is cache lost to borders." },
+    { say: "Anisotropic filtering, the far ground sharpness from the first stage, blends more taps along the ground's thin sliver. <b>Switch it to 16×.</b>", todo: "switch the blend to aniso 16×", goal: () => d5.taps === 16, try: () => $("c5f").querySelector('[data-v="16"]').click(), enter: () => set5({ b: 4, taps: 8, src: "stream" }),
+      done: "The taps reach twice as far and cross the edge again. The border would have to grow to 8 texels, and every extra texel of border is cache lost. This is why engines cap anisotropic filtering near 8× on virtual textures." },
+    { say: "One more way to fill a page. <b>Switch where pages come from to drawn on the spot.</b>", todo: "switch to drawn on the spot", goal: () => d5.src === "rvt", try: () => $("c5src").querySelector('[data-v="rvt"]').click(), enter: () => set5({ b: 4, taps: 8, src: "stream" }),
+      done: "The page is now drawn into its slot from layers, the ground plus a chalk ring decal, instead of loaded from disk. The border comes free: the drawing is made a few texels wider. There is no copy of this texture on disk at all, so the install does not grow with it." },
+    { say: "Neighbouring pages are strangers in the cache, so every page carries a copied border, and the border has to cover how far the taps reach. The lost-space formula and the page-fill code are under the hood." } ] });
 })();
 </script>

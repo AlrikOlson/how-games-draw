@@ -219,6 +219,7 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
 
 /* page-specific */
+section.stage .vp .cap { width: 0; min-width: 100%; }
 .vp canvas { aspect-ratio: 1; }
 .tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 480px) { .tiles.four { grid-template-columns: 1fr 1fr; } }
@@ -231,54 +232,45 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">13.5 m lakeside · player's eye 5.5 m above the water · 70° view · one 160-pixel screen column · hover or drag along the lake</p>
+    <p class="eyebrow">a still lake below a bluff · five guided demos · nothing to install</p>
     <h1>Screen-Space Reflections</h1>
-    <p class="lead">A screen-space reflection, SSR for short, builds a mirror image out of pixels you already drew this frame. On this page the mirror is a still lake, and the things it reflects are a boat, a balloon and a house on the far shore. That makes SSR close to free next to rendering the scene a second time, and anything that moves reflects for nothing because it is already in the picture. The catch is that SSR can only reflect what the camera can see, so undersides, things behind the camera, and anything hidden by a nearer object come out missing. <b>The thing people get wrong</b> is treating SSR as a cheap ray tracer. It traces the picture, not the scene.</p>
+    <p class="lead">A game draws its picture, then wants a mirror in it: a puddle, a wet street, a lake. Drawing the whole scene a second time as seen in the mirror is expensive. Screen-space reflections, SSR for short, take a shortcut: they build the mirror image out of pixels already in this frame's picture, by bouncing the player's line of sight off the surface and walking along it across the picture until it runs into something. Anything in the picture reflects for free, moving or not. <b>The thing people get wrong:</b> SSR is not a cheap ray tracer. It only knows the picture, so anything the camera cannot see, the underside of a balloon or a thing behind the player, comes out missing.</p>
     <div class="key">
-      <span style="--sw:#f2a341">bounced ray, and where SSR found the reflection</span>
+      <span style="--sw:#f2a341">the bounced line, and where SSR found the reflection</span>
       <span style="--sw:#ffffff">the player's line of sight, drag handles</span>
       <span style="--sw:#4aa3ff">backup color from the probe or the sky</span>
       <span style="--sw:#5ad48a">matches the true reflection</span>
-      <span style="--sw:#ef5d5d">wrong hit, or ray passed behind something</span>
+      <span style="--sw:#ef5d5d">wrong hit, or the line passed behind something</span>
       <span style="--sw:#1a1f27">miss: a dark hole in the lake</span>
     </div>
     <dl class="terms">
-      <dt>screen column</dt><dd>one vertical line of pixels, sky at the top and near water at the bottom; the side view on this page can only show that one column</dd>
+      <dt>screen column</dt><dd>one vertical line of pixels down the screen, sky at the top and near water at the bottom; the side view on this page can only show that one column</dd>
       <dt>color buffer</dt><dd>the finished picture, one color per pixel</dd>
-      <dt>depth buffer</dt><dd>for every pixel, how far away the thing drawn in it is</dd>
-      <dt>reflected ray</dt><dd>the camera's line of sight bounced off the mirror surface</dd>
-      <dt>march</dt><dd>walking along that bounced ray a few pixels at a time, checking the depth buffer at each stop</dd>
-      <dt>thickness</dt><dd>how far behind a stored surface the ray may go and still count as touching it</dd>
-      <dt>Hi-Z</dt><dd>a stack of shrunken depth buffers, each cell keeping the nearest depth of the pixels it covers</dd>
-      <dt>reflection probe</dt><dd>a snapshot of the scene in every direction, taken once from one spot</dd>
+      <dt>depth buffer</dt><dd>a second picture that stores, for every pixel, how far away the thing drawn in it is</dd>
+      <dt>bounced line</dt><dd>the player's line of sight bounced off the mirror surface; the reflected ray</dd>
+      <dt>walk</dt><dd>moving along that bounced line a few pixels at a time and checking the depth buffer at each stop; also called a march</dd>
+      <dt>allowance</dt><dd>how far behind a stored surface the line may be and still count as touching it; also called thickness</dd>
+      <dt>Hi-Z</dt><dd>a stack of shrunken copies of the depth buffer, each cell keeping the nearest depth of the pixels it covers</dd>
+      <dt>reflection probe</dt><dd>a snapshot of the scene in every direction, taken once from one spot, kept as a backup</dd>
       <dt>roughness</dt><dd>how blurry a surface's reflection is; 0 is a perfect mirror</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#idea"><span class="n">01</span>One pixel, one march</a></li><li><a href="#march"><span class="n">02</span>Fixed steps or smart jumps</a></li><li><a href="#failures"><span class="n">03</span>When the reflection isn't on screen</a></li><li><a href="#rough"><span class="n">04</span>Rippled water</a></li><li><a href="#thickness"><span class="n">05</span>How far behind still counts</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#idea"><span class="n">01</span>One lake pixel, one walk</a></li><li><a href="#march"><span class="n">02</span>Fixed steps or big jumps</a></li><li><a href="#failures"><span class="n">03</span>When the reflection is not in the picture</a></li><li><a href="#rough"><span class="n">04</span>Rippled water</a></li><li><a href="#thickness"><span class="n">05</span>How far behind still counts</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="idea">
-    <h2>One pixel, one march</h2>
-    <p class="sub">A player stands on a bluff above a still lake. Hover or drag along the water to pick one lake pixel and watch its reflection get found in the depth buffer.</p>
+  <section id="idea" class="stage">
+    <h2>One lake pixel, one walk</h2>
+    <p class="sub">A player on a bluff looks down at a still lake. Pick one pixel of the lake and watch SSR find its reflection inside the picture the game already drew.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c1" width="512" height="512" class="grab" aria-label="Side view of a player on a bluff looking down at a lake with a boat, a balloon and a house with a villager on the far shore; a bounced ray from one lake pixel is marched across the depth buffer of one screen column, with the player's view shown in an inset"></canvas>
-        <div class="cap"><span id="c1-read">hover the floor</span><span id="c1-cap"></span></div>
+        <canvas id="c1" width="512" height="512" class="grab sq" aria-label="Side view of a player on a bluff looking down at a lake with a boat, a balloon and a house with a villager on the far shore; a bounced line from one lake pixel is walked across the depth buffer of one screen column, with the player's view shown in an inset"></canvas>
+        <div class="cap"><span id="c1-read">hover the lake</span><span id="c1-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Pick one pixel of the lake. To find its reflection, SSR <b>bounces the player's line of sight off the water</b>, then <b>walks along that bounced line a few screen pixels at a time</b>. At each stop it checks the depth buffer, the per-pixel record of how far away things are, to see whether the line has gone behind whatever the camera drew there. <b>The first pixel where it dips behind a surface is the hit</b>, and the color already stored at that pixel is the reflection.</p>
+      <div class="lesson" data-lesson="idea"></div>
+    </div>
+    <div class="foot">
+    <p class="tldr">SSR walks the bounced line across the picture and takes the color at the first stop that dips behind something; it never looks at the 3D objects.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>What you're seeing</h3>
-        <p>The big picture is the scene from the side: the player on the bluff at the left (the eye is the camera), the lake that acts as the mirror, a rowing boat, a hot-air balloon, and a house with a villager on the far shore. The dashed white line is the player's line of sight to your chosen lake pixel. The amber line is the bounced ray, with a dot at every pixel it checked: white dots are still in front of everything, red dots went too far behind something, and the amber ring is the hit. The band just under the water line shows what every lake pixel ends up reflecting, and the "player sees" inset is the same screen column as it appears on screen, sky at the top, near water at the bottom.</p>
-        <p>The strip at the top is that 160-pixel screen column laid flat: the color buffer, then the depth buffer as grey (bright is near), then a graph of depth per pixel. On the graph the white line is the stored depth, the amber curve is the ray's depth, and the faint amber band is the thickness allowance. Where the amber curve enters the band, the march stops.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover the water just in front of the boat. The bounced ray climbs past everything and off the top of the screen: a miss, because nothing was drawn up there, and that lake pixel becomes a dark hole.</li>
-          <li>Hover between the boat and the balloon and watch the readout. Some pixels catch the balloon's edge, others pass behind it (red dots) and land on the house.</li>
-          <li>Watch the graph while you move. The hit is always where the amber curve first crosses into the white line's band.</li>
-        </ul>
-
-        <h3>The real version</h3>
         <p>The camera sees the lake at pixel <code>u</code>. Its view ray <code>d</code> lands on water point <code>p</code> with normal <code>n</code> (the direction the surface faces, straight up for still water), and the mirror direction is <code>r = d − 2(n·d)n</code>. SSR does not trace <code>r</code> through the scene. It projects a segment of <code>r</code> back onto the screen, so the start and end become two pixel positions with a depth each, and visits the pixels between them in order.</p>
         <p>At each visited pixel the ray has a depth <code>z_ray</code> and the buffer has <code>z_buf</code>, the depth of whatever the camera saw there. While <code>z_ray &lt; z_buf</code> the ray is still in front of everything. The first pixel where it goes behind is the hit, provided it went behind by less than a thickness <code>t</code>. Fetch the color at that pixel and that is the reflection.</p>
         <p>Depth is not linear along the screen, but <code>1/z</code> is, so the ray is interpolated in <code>1/z</code> between its projected endpoints. Interpolating <code>z</code> directly bends the ray off its true path, which shows up as reflections that slide when the camera moves.</p>
@@ -306,46 +298,35 @@ vec2 s1 = (c1.xy / c1.w * 0.5 + 0.5) * uRes;
     <span class="k">return</span> texelFetch(uColor, ivec2(px), 0).rgb;
 }
 <span class="k">return</span> vec3(0.0);                                    <span class="c">// miss: hand over to the fallback</span></pre>
-
-        <p class="tldr">SSR walks the bounced ray across the depth buffer and returns the color at the first pixel it dips behind; it never touches the actual geometry.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="march">
-    <h2>Fixed steps or smart jumps</h2>
-    <p class="sub">Same lake, same player. Pick a lake pixel, then switch between walking the bounced ray every few pixels and jumping over empty stretches of sky and water.</p>
+  <section id="march" class="stage">
+    <h2>Fixed steps or big jumps</h2>
+    <p class="sub">Same lake. Walking the bounced line every few pixels is simple but slow; jumping over empty sky in big blocks is faster, most of the time.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" width="512" height="512" class="grab" aria-label="The same lakeside scene with a min-depth pyramid of the screen column at the top; the bounced ray from one lake pixel is marched with fixed steps or with Hi-Z jumps"></canvas>
+        <canvas id="c2" width="512" height="512" class="grab sq" aria-label="The same lakeside scene with shrunken copies of the screen column's depth buffer at the top; the bounced line from one lake pixel is walked with fixed steps or with Hi-Z jumps"></canvas>
         <div class="cap"><span id="c2-read"></span><span id="c2-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Walking the ray one pixel at a time is exact but slow. <b>Bigger fixed steps are faster but can step right over a thin object.</b> Hi-Z is the other approach: keep a stack of shrunken copies of the depth buffer, each cell storing the nearest depth of the pixels it covers, and <b>jump over a whole block of screen whenever the ray stays in front of everything in it</b>. <b>Empty screen then costs one check per block instead of one per pixel.</b></p>
-
-        <h3>What you're seeing</h3>
-        <p>The pyramid at the top is the depth buffer of the screen column shrunk five times, each level keeping the nearer of two cells below it (bright is near). In linear mode, the ticks on the bottom row are the pixels the march sampled: white in front, red behind, amber the hit. In Hi-Z mode, a white box is a cell the ray jumped over, an amber box is a cell it had to zoom into, and the filled cell on the bottom row is the hit.</p>
-        <p>The band under the water line and the "player sees" inset show what the lake reflects with the method you picked. The tiles count how many depth reads each method spent on this pixel, and how far the linear hit is from the exact crossing point.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Set the linear step to 16 px. The fetch count drops, the hit error climbs, and on some pixels the ray steps clean past the balloon or the house, which shows as holes in the lake band.</li>
-          <li>Turn binary refine up to 6. The error shrinks to a fraction of a pixel for six extra reads.</li>
-          <li>Switch to Hi-Z. Where the ray crosses empty sky the count falls; where it runs behind the balloon, it does not.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><span class="lab">March</span><div class="seg" id="seg2" role="group" aria-label="March mode"><button data-v="linear" aria-pressed="true">linear</button><button data-v="hiz">Hi-Z</button></div></div>
-          <div class="ctl"><label for="step2">Linear step <span class="val" id="step2v">4 px</span></label><input type="range" id="step2" min="1" max="16" step="1" value="4"></div>
-          <div class="ctl"><label for="ref2">Binary refine <span class="val" id="ref2v">0 iterations</span></label><input type="range" id="ref2" min="0" max="6" step="1" value="0"></div>
+      <div class="lesson" data-lesson="march">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">How the line is walked</span><div class="seg" id="seg2" role="group" aria-label="March mode"><button data-v="linear" aria-pressed="true">fixed steps</button><button data-v="hiz">Hi-Z jumps</button></div></div>
+          <div class="ctl"><label for="step2">Step size <span class="val" id="step2v">4 px</span></label><input type="range" id="step2" min="1" max="16" step="1" value="4"></div>
+          <div class="ctl"><label for="ref2">Look back after the first stop behind <span class="val" id="ref2v">0 halvings</span></label><input type="range" id="ref2" min="0" max="6" step="1" value="0"></div>
         </div>
-        <div class="tiles">
-          <div class="tile" id="t2-lin"><div class="n">–</div><div class="l">linear fetches</div></div>
-          <div class="tile" id="t2-hiz"><div class="n">–</div><div class="l">Hi-Z fetches</div></div>
-          <div class="tile" id="t2-err"><div class="n">–</div><div class="l">linear hit error</div></div>
+        <div class="tiles" data-step-min="2">
+          <div class="tile" id="t2-lin"><div class="n">–</div><div class="l">depth reads, fixed steps</div></div>
+          <div class="tile" id="t2-hiz"><div class="n">–</div><div class="l">depth reads, Hi-Z jumps</div></div>
+          <div class="tile" id="t2-err"><div class="n">–</div><div class="l">fixed steps: pixels off the exact spot</div></div>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Fixed steps trade accuracy for speed; Hi-Z jumps over empty screen in big blocks and only slows down next to a surface.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>A fixed step of <code>s</code> pixels costs distance/<code>s</code> fetches and only locates the hit to within <code>s</code> pixels. Small steps are accurate and slow; big steps walk straight over thin objects.</p>
         <p>A binary search between the last pixel in front and the first pixel behind (halve the gap, check which side, repeat) recovers sub-pixel accuracy for <code>log2(s)</code> extra fetches. That is why most linear marchers step coarse and then refine.</p>
         <p>Hi-Z tracing replaces the fixed step with a test. In the coarsest level whose cell the ray is in, it checks whether the ray stays in front of the cell's minimum depth all the way to the cell's edge. If yes, jump to that edge and go one level coarser. If no, go one level finer without leaving the cell.</p>
@@ -368,44 +349,33 @@ vec2  edge     = (cell + step(0.0, dir)) * cellSize;     <span class="c">// exit
 <span class="k">float</span> tPlane   = (1.0 / zMin - k) / dk;                    <span class="c">// where 1/z hits the cell's min plane</span>
 <span class="k">if</span> (tPlane &gt; tEdge) { px += dir * (tEdge + 0.01); level = min(level + 1, uMaxLevel); }
 <span class="k">else</span>                { px += dir * max(tPlane, 0.0);  level -= 1; }  <span class="c">// -1 at level 0 means hit</span></pre>
-
-        <p class="tldr">Fixed steps trade accuracy for speed; Hi-Z jumps over empty screen in big blocks and only slows down next to a surface.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="failures">
-    <h2>When the reflection isn't on screen</h2>
-    <p class="sub">Drag the balloon up out of the frame, or fly the gull across the player's view, and watch what fills the hole SSR leaves in the lake.</p>
+  <section id="failures" class="stage">
+    <h2>When the reflection is not in the picture</h2>
+    <p class="sub">Drag the balloon up out of the player's view and see what fills the hole SSR leaves in the lake.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c3" width="512" height="512" class="grab" aria-label="The lakeside scene with a draggable hot-air balloon and a gull near the player, a reflection probe ring floating over the lake, and strips comparing the true reflection, the SSR result, the probe or sky fallback and the blend"></canvas>
-        <div class="cap"><span id="c3-read">hover the floor</span><span id="c3-cap"></span></div>
+        <canvas id="c3" width="512" height="512" class="grab sq" aria-label="The lakeside scene with a draggable hot-air balloon and a gull near the player, a reflection probe ring floating over the lake, and strips comparing the true reflection, the SSR result, the probe or sky backup and the blend"></canvas>
+        <div class="cap"><span id="c3-read">hover the lake</span><span id="c3-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">SSR can only reflect what was drawn. <b>If the thing you'd see in the mirror is off screen, hidden behind something, or facing away from the camera, there is nothing to look up.</b> Every engine keeps a backup for that: <b>a reflection probe, a snapshot of the scene taken in every direction from one spot</b>, and past that, the sky. <b>Each pixel blends between SSR and the backup by how much it trusts the SSR hit.</b></p>
-
-        <h3>What you're seeing</h3>
-        <p>Four strips at the top: the true reflection each lake pixel should show, what SSR found on its own, what the probe (the blue ring floating over the lake) or the sky would give instead, and the blend the pixel gets. The thin bar under them is green where SSR won and blue where the backup took over. Pixels that are not lake just show the color buffer.</p>
-        <p>In the scene, the green dashed line is the true reflection ray for your chosen pixel, the amber line is the SSR march, and the blue dashed line from the ring is the probe's guess for the same direction. The lake band and the "player sees" inset show the final blend. The tiles count how many lake pixels ended up using each source.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the balloon up until the caption says off screen. Its reflection vanishes from the SSR strip and the probe fills in, at slightly the wrong place.</li>
-          <li>Drag the gull so it flies between the player's eye and the house. Lake pixels whose ray passes behind it lose their hit and turn blue in the bar.</li>
-          <li>Widen the edge fade. Pixels whose hit lands near the top of the screen shift toward the backup before they would pop.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="fade3">Edge fade width <span class="val" id="fade3v">0.10 of screen</span></label><input type="range" id="fade3" min="0" max="0.3" step="0.01" value="0.10"></div>
+      <div class="lesson" data-lesson="failures">
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><label for="fade3">Fade near the screen edge <span class="val" id="fade3v">0.10 of the screen</span></label><input type="range" id="fade3" min="0" max="0.3" step="0.01" value="0.10"></div>
         </div>
-        <div class="tiles">
-          <div class="tile" id="t3-ssr"><div class="n">–</div><div class="l">lake px from SSR</div></div>
-          <div class="tile" id="t3-probe"><div class="n">–</div><div class="l">from the probe</div></div>
-          <div class="tile" id="t3-sky"><div class="n">–</div><div class="l">from the sky</div></div>
+        <div class="tiles" data-step-min="2">
+          <div class="tile" id="t3-ssr"><div class="n">–</div><div class="l">lake pixels using SSR</div></div>
+          <div class="tile" id="t3-probe"><div class="n">–</div><div class="l">using the probe</div></div>
+          <div class="tile" id="t3-sky"><div class="n">–</div><div class="l">using the sky</div></div>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Every SSR miss is the same miss, the target was never drawn, and a probe or the sky fills the hole, faded in near the screen edge.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>SSR has one failure with three faces. The reflected object is off screen: nothing was stored, so nothing can be found. The object is on screen but its reflected side is not: the ray passes behind the balloon, keeps going, and lands on the house, so the balloon's reflection is a patch of house wall. Something in the foreground covers the target: the gull's depth is nearer than the ray at those pixels, so the ray counts as behind it and walks on into nothing.</p>
         <p>A reflection probe is a cubemap, six square images covering every direction, captured from one point (the ring over the lake, 128 directions here). Sampling it with <code>r</code> gives a plausible color at the wrong parallax, meaning the reflection sits in slightly the wrong place because the probe was not captured from where the lake pixel is. Beyond the probe, the sky.</p>
         <p>The blend weight is the SSR confidence: zero on a miss, and faded toward zero near the screen edge so the hole does not pop into view when the camera turns.</p>
@@ -424,45 +394,34 @@ vec3  rP   = parallaxCorrect(r, posWS, uProbeBox);       <span class="c">// box-
 vec4  pr   = textureLod(uProbe, rP, roughness * uMips);
 vec3  fb   = mix(sky(r), pr.rgb, pr.a);                  <span class="c">// alpha 0 where the probe saw sky</span>
 <span class="k">return</span> mix(fb, ssr, w);</pre>
-
-        <p class="tldr">Every SSR miss is the same miss, the target was never drawn, and a probe or the sky fills the hole with a weight that fades out near the screen edge.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="rough">
+  <section id="rough" class="stage">
     <h2>Rippled water: scatter the rays</h2>
-    <p class="sub">Wind ripples the lake. Turn up roughness and rays per pixel, and watch the speckled reflection get averaged away over frames.</p>
+    <p class="sub">Wind ripples the lake, so its reflection is blurry. Rays go out in random directions inside a cone, and the speckle is averaged away over frames.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" width="512" height="512" class="grab" aria-label="The lakeside scene with a cone of scattered bounce directions from one lake pixel, random rays fired inside it, and strips showing this frame's noisy reflection, the running average over frames and a blur"></canvas>
-        <div class="cap"><span id="c4-read">hover the floor</span><span id="c4-cap"></span></div>
+        <canvas id="c4" width="512" height="512" class="grab sq" aria-label="The lakeside scene with a cone of scattered bounce directions from one lake pixel, random rays fired inside it, and strips showing this frame's speckled reflection, the running average over frames and a blur"></canvas>
+        <div class="cap"><span id="c4-read">hover the lake</span><span id="c4-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Still water bounces light in one direction. A rough surface, like a rippled lake, a wet road or brushed metal, <b>scatters it into a cone</b>, so its reflection is blurry. To render that, SSR <b>fires rays in random directions inside the cone</b> and averages what they find. One ray per pixel gives <b>the right answer on average and speckled noise everywhere</b>, so engines <b>average across frames and blur across neighbours</b> to hide it.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Three strips: what this frame's rays returned, the running average over up to 48 frames, and a blur of this frame alone. The amber bars under them are the blur radius per pixel. The amber fan on the lake is the cone of likely ray directions for your chosen pixel, and the thin amber lines are the rays fired this frame. The lake band and the "player sees" inset show the running average, so you can watch the boat and the house settle out of the speckle.</p>
-        <p>The tiles count rays and depth reads, and estimate the cost at 1080p if every pixel on screen did the same.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Set roughness to 0. The fan collapses to a single line and all three strips agree.</li>
-          <li>Set roughness to 0.6 with 1 ray per pixel. The top strip is speckle; watch the temporal strip settle over a second or two.</li>
-          <li>Switch to 8 rays per pixel. The top strip cleans up in one frame and the estimated milliseconds climb with it.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
+      <div class="lesson" data-lesson="rough">
+        <div class="controls" data-step-min="2">
           <div class="ctl"><label for="rough4">Roughness <span class="val" id="rough4v">0.30</span></label><input type="range" id="rough4" min="0" max="0.7" step="0.01" value="0.30"></div>
           <div class="ctl"><span class="lab">Rays per pixel</span><div class="seg" id="seg4" role="group" aria-label="Rays per pixel"><button data-v="1" aria-pressed="true">1</button><button data-v="2">2</button><button data-v="4">4</button><button data-v="8">8</button></div></div>
         </div>
-        <div class="tiles">
+        <div class="tiles" data-step-min="2">
           <div class="tile" id="t4-rays"><div class="n">–</div><div class="l">rays this frame</div></div>
-          <div class="tile" id="t4-steps"><div class="n">–</div><div class="l">fetches per ray, avg</div></div>
-          <div class="tile" id="t4-ms"><div class="n">–</div><div class="l">est. ms at 1080p</div></div>
+          <div class="tile" id="t4-steps"><div class="n">–</div><div class="l">depth reads per ray, average</div></div>
+          <div class="tile" id="t4-ms"><div class="n">–</div><div class="l">estimated ms per frame at 1080p</div></div>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Rough surfaces need many random rays; one per pixel is right on average but speckled, so average over frames and blur by roughness times distance.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>A mirror needs one ray. A rough surface reflects a cone of directions weighted by the GGX lobe, the standard curve for how much light a rough surface sends each way. The correct way to render that is to sample it: draw a half vector <code>h</code> (the direction halfway between the incoming and outgoing rays) from the distribution, reflect <code>d</code> about it, march. One ray per pixel gives the right answer on average and noise everywhere.</p>
         <p>Two things hide the noise. Temporal accumulation averages each frame into a history buffer, which is last frame's result shifted to line up with this frame's camera. After a few dozen frames the estimate converges; move the camera and it starts over.</p>
         <p>A spatial blur whose radius grows with roughness and with the distance to the hit does it in one frame, at the cost of smearing detail. Production SSR does both and reuses each ray's hit for several neighbouring pixels (Frostbite's stochastic SSR, 2015).</p>
@@ -487,55 +446,44 @@ vec3  r     = reflect(viewDir, h);
 vec4  hit   = marchSSR(posVS, r);                        <span class="c">// as in section 1</span>
 <span class="k">float</span> w     = 1.0 / max(pdfGGX(h, a), 1e-4);            <span class="c">// weight for the resolve pass</span>
 hist = mix(hist, hit, 1.0 / min(frameCount, 48.0));      <span class="c">// after reprojection</span></pre>
-
-        <p class="tldr">Rough surfaces need many random rays; one per pixel is right on average but noisy, so average over frames and blur by roughness times hit distance.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="thickness">
+  <section id="thickness" class="stage">
     <h2>How far behind still counts</h2>
-    <p class="sub">A gull glides low over the lake. Change the thickness allowance and the step size, and see which lake pixels get the right reflection of the boat, the gull, the balloon and the house.</p>
+    <p class="sub">A gull glides low over the lake. The allowance for how far behind a surface the line may go decides whether the gull wrongly stops it, or real surfaces get stepped past.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="512" height="512" class="grab" aria-label="The lakeside scene with a gull gliding low over the water; strips compare the true reflection with SSR using a fixed thickness, a thickness from the ray's depth change, and a thickness from the depth buffer's slope, with pass and fail marks per lake pixel"></canvas>
-        <div class="cap"><span id="c5-read">hover the floor</span><span id="c5-cap"></span></div>
+        <canvas id="c5" width="512" height="512" class="grab sq" aria-label="The lakeside scene with a gull gliding low over the water; strips compare the true reflection with SSR using a fixed allowance, an allowance from the line's depth change, and an allowance from the depth buffer's slope, with pass and fail marks per lake pixel"></canvas>
+        <div class="cap"><span id="c5-read">hover the lake</span><span id="c5-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The march samples the ray every few pixels, so it never lands exactly on a surface. <b>Thickness is the allowance</b>: how far behind a stored surface the ray may be and still count as touching it. <b>Too thin, and rays step past real surfaces</b> and leave holes. <b>Too thick, and rays get stopped by things they should pass under</b>, like the gull gliding over the water here. The fix is to <b>set the allowance per pixel from how steeply the depth changes</b> there.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Four strips: the true reflection, then SSR with a fixed thickness, with a thickness taken from how much the ray's own depth changes per step, and with a thickness taken from the depth buffer's slope. Under each SSR strip a bar marks every lake pixel: green if the hit is within 0.25 m of the true one, red for a wrong hit, dim for a miss. The table counts them.</p>
-        <p>In the scene, the amber ray is the fixed-thickness march for your chosen pixel and the green ring is where the reflection should land. The lake band and the "player sees" inset show the fixed-thickness result. The tiles show the ray's depth change per pixel at that spot and the thickness the slope rule would pick.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Set fixed thickness to 0.02 m. Holes open in the reflection of the boat and the house as rays step past them.</li>
-          <li>Push it to 2 m. The gull starts catching rays that should pass under it, and the red count climbs.</li>
-          <li>Set the step to 12 px and compare the three rows of the table. Only the fixed rule ignores the bigger step.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="th5">Fixed thickness <span class="val" id="th5v">0.05 m</span></label><input type="range" id="th5" min="0.02" max="2" step="0.01" value="0.05"></div>
-          <div class="ctl"><label for="step5">Step <span class="val" id="step5v">6 px</span></label><input type="range" id="step5" min="1" max="12" step="1" value="6"></div>
+      <div class="lesson" data-lesson="thickness">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="th5">Fixed allowance <span class="val" id="th5v">0.05 m</span></label><input type="range" id="th5" min="0.02" max="2" step="0.01" value="0.05"></div>
+          <div class="ctl"><label for="step5">Step size <span class="val" id="step5v">6 px</span></label><input type="range" id="step5" min="1" max="12" step="1" value="6"></div>
         </div>
-        <div class="tiles">
-          <div class="tile" id="t5-dz"><div class="n">–</div><div class="l">ray depth per px at hover</div></div>
-          <div class="tile" id="t5-th"><div class="n">–</div><div class="l">derived t at hover</div></div>
-          <div class="tile" id="t5-steps"><div class="n">–</div><div class="l">fetches, fixed t</div></div>
-        </div>
-        <div class="tbl-wrap">
+        <div class="tbl-wrap" data-step-min="2">
         <table class="stats" id="stats5">
-          <thead><tr><th id="s5-n">lake pixels</th><th>Correct</th><th>False hit</th><th>Miss</th><th>Mean hit error</th></tr></thead>
+          <thead><tr><th id="s5-n">lake pixels</th><th>Right</th><th>Wrong hit</th><th>Miss</th><th>Average error, right hits</th></tr></thead>
           <tbody>
-            <tr><td>Fixed t</td><td id="s5-f-ok" class="ok"></td><td id="s5-f-bad" class="bad"></td><td id="s5-f-miss"></td><td id="s5-f-err"></td></tr>
-            <tr><td>Ray Δz per step</td><td id="s5-r-ok" class="ok"></td><td id="s5-r-bad" class="bad"></td><td id="s5-r-miss"></td><td id="s5-r-err"></td></tr>
-            <tr><td>Depth derivative</td><td id="s5-d-ok" class="ok"></td><td id="s5-d-bad" class="bad"></td><td id="s5-d-miss"></td><td id="s5-d-err"></td></tr>
+            <tr><td>Fixed allowance</td><td id="s5-f-ok" class="ok"></td><td id="s5-f-bad" class="bad"></td><td id="s5-f-miss"></td><td id="s5-f-err"></td></tr>
+            <tr><td>From the line's depth change</td><td id="s5-r-ok" class="ok"></td><td id="s5-r-bad" class="bad"></td><td id="s5-r-miss"></td><td id="s5-r-err"></td></tr>
+            <tr><td>From the depth buffer's slope</td><td id="s5-d-ok" class="ok"></td><td id="s5-d-bad" class="bad"></td><td id="s5-d-miss"></td><td id="s5-d-err"></td></tr>
           </tbody>
         </table>
         </div>
+        <div class="tiles" data-step-min="6">
+          <div class="tile" id="t5-dz"><div class="n">–</div><div class="l">line's depth change per pixel here</div></div>
+          <div class="tile" id="t5-th"><div class="n">–</div><div class="l">allowance the slope rule picks here</div></div>
+          <div class="tile" id="t5-steps"><div class="n">–</div><div class="l">depth reads, fixed allowance</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">The allowance is how far behind a surface the line may go and still count; one fixed number is always wrong somewhere, so size it per pixel from the depth slope.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>The thickness <code>t</code> says how far behind a stored surface the ray may be and still count as a hit. Too small, and the first sample past a surface lands beyond it by more than <code>t</code>, so the march reports "passed behind" and walks on into nothing: holes in the reflection of the boat and the house. Too large, and a ray that really did pass under and behind the gull is stopped by it, painting the gull into reflections of the house.</p>
         <p>The right <code>t</code> is not a constant. One screen pixel of a surface seen at a grazing angle (nearly edge-on) covers a long range of depth. That is where the smearing near the horizon comes from: the ray moves a fraction of a pixel per metre of depth and either misses the surface or hits a long streak of the same color.</p>
         <p>Deriving <code>t</code> per pixel from the depth buffer's own slope, or from the ray's depth change per step, gives a thickness that fits the surface it is testing.</p>
@@ -553,9 +501,7 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
 <span class="k">float</span> slope = min(abs(zR - z0), abs(z0 - zL));         <span class="c">// smaller side: an edge has one steep side</span>
 <span class="k">float</span> t = uThicknessMin + slope * uStepPx;
 <span class="k">bool</span>  hit = zRay &gt; z0 &amp;&amp; zRay &lt; z0 + t;</pre>
-
-        <p class="tldr">Thickness is how far behind a surface the ray may go and still count; one fixed number is always wrong somewhere, so size it per pixel from the depth slope.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
@@ -569,9 +515,9 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
       <tbody>
         <tr><td>Screen-space reflections</td><td>0.5–2 ms, grows with rays × steps</td><td>Only what the camera already sees; no undersides, nothing behind the camera</td><td>Free, they are already in the frame</td><td>Yes, with random rays and a denoiser</td><td>None beyond the frame; Hi-Z adds a third of the depth buffer</td></tr>
         <tr><td>Planar reflections</td><td>One extra scene render per plane, 2–8 ms</td><td>Everything, but for one flat surface at a time</td><td>Yes</td><td>Mirror only; blur afterwards</td><td>A second color and depth target per plane</td></tr>
-        <tr><td>Reflection probes</td><td>Under 0.1 ms, one cubemap fetch</td><td>The scene as it was when the snapshot was taken, from slightly the wrong spot</td><td>Only if re-captured, which costs six renders</td><td>Yes, pre-blurred copies per roughness level</td><td>6 × 128² RGBA16F ≈ 0.75 MB per probe, hundreds per level</td></tr>
-        <tr><td>SDF-traced (Lumen software)</td><td>2–5 ms, shared with GI</td><td>Rough shapes through distance fields and a surface cache; fills SSR holes</td><td>Yes, with a frame or two of lag</td><td>Yes</td><td>Global distance field plus surface cache, tens of MB</td></tr>
-        <tr><td>Hardware ray tracing</td><td>1–5 ms plus a denoiser</td><td>Everything, including off-screen</td><td>Yes, BVH refit per frame</td><td>Yes, needs a denoiser</td><td>BVH, tens to hundreds of MB</td></tr>
+        <tr><td>Reflection probes</td><td>Under 0.1 ms, one lookup in the snapshot</td><td>The scene as it was when the snapshot was taken, from slightly the wrong spot</td><td>Only if re-captured, which costs six renders</td><td>Yes, pre-blurred copies per roughness level</td><td>Six 128×128 images at 8 bytes a pixel, about 0.75 MB per probe, hundreds per level</td></tr>
+        <tr><td>Distance-field traced (Lumen software)</td><td>2–5 ms, shared with GI</td><td>Rough shapes, traced through a coarse 3D copy of the scene; fills SSR holes</td><td>Yes, with a frame or two of lag</td><td>Yes</td><td>The coarse 3D copy plus a cache of surface colors, tens of MB</td></tr>
+        <tr><td>Hardware ray tracing</td><td>1–5 ms plus a pass that cleans up the noise</td><td>Everything, including off-screen</td><td>Yes, the scene's search structure is updated each frame</td><td>Yes, with noise cleanup</td><td>A search structure over every triangle (a BVH), tens to hundreds of MB</td></tr>
       </tbody>
     </table>
     </div>
@@ -586,11 +532,11 @@ derivative:  t = t_min + min(|∂z_buf/∂u|₊, |∂z_buf/∂u|₋) · Δu   <s
     <table class="uses">
       <thead><tr><th>Use</th><th>What gets asked</th><th>What it reads</th><th>Seen in</th></tr></thead>
       <tbody>
-        <tr><td>Wet streets, polished floors</td><td>One mirror ray per pixel, walked across the screen with a coarse step and then refined.</td><td>Depth and color of the current frame</td><td>Crysis 2 (Crytek, 2011), Killzone Shadow Fall (Valient, GDC 2014)</td></tr>
-        <tr><td>Hierarchical march</td><td>Walk a stack of shrunken depth buffers, skipping whole cells the ray stays in front of.</td><td>Depth pyramid built each frame</td><td>Uludag, GPU Pro 5 (2014); many engines</td></tr>
-        <tr><td>Glossy surfaces</td><td>Random rays inside the GGX cone, then a pass that reuses neighbours' hits and a blend with last frame.</td><td>Depth, color, normal and roughness buffers, history and motion vectors</td><td>Frostbite (Stachowiak, SIGGRAPH 2015), Unreal Engine SSR at high quality</td></tr>
-        <tr><td>Filling the holes</td><td>Blend toward a position-corrected probe, or trace a distance field where SSR missed.</td><td>Baked pre-blurred cubemaps; global SDF and surface cache</td><td>Reflection probes in most engines; Unreal Engine 5 Lumen reflections</td></tr>
-        <tr><td>Replacing the march</td><td>A hardware ray per pixel against the BVH, denoised, often still with SSR for the cheap cases.</td><td>Acceleration structure, materials for hit shading</td><td>Battlefield V (2018), Cyberpunk 2077 (2020)</td></tr>
+        <tr><td>Wet streets, polished floors</td><td>One bounced line per pixel, walked across the screen with a big step and then refined.</td><td>Depth and color of the current frame</td><td>Crysis 2 (Crytek, 2011), Killzone Shadow Fall (Valient, GDC 2014)</td></tr>
+        <tr><td>Hierarchical march</td><td>Walk a stack of shrunken depth buffers, skipping whole cells the ray stays in front of.</td><td>The stack of shrunken depth buffers, built each frame</td><td>Uludag, GPU Pro 5 (2014); many engines</td></tr>
+        <tr><td>Glossy surfaces</td><td>Random rays inside the roughness cone, then a pass that reuses neighbours' hits and a blend with last frame.</td><td>Depth, color, surface direction and roughness per pixel, last frame's result, and how far each pixel moved since</td><td>Frostbite (Stachowiak, SIGGRAPH 2015), Unreal Engine SSR at high quality</td></tr>
+        <tr><td>Filling the holes</td><td>Blend toward a position-corrected probe, or trace a distance field where SSR missed.</td><td>Pre-blurred probe snapshots; the coarse 3D copy of the scene</td><td>Reflection probes in most engines; Unreal Engine 5 Lumen reflections</td></tr>
+        <tr><td>Replacing the march</td><td>A hardware-traced ray per pixel against the whole scene, noise cleaned up, often still with SSR for the cheap cases.</td><td>The scene's search structure, plus materials to color the hit</td><td>Battlefield V (2018), Cyberpunk 2077 (2020)</td></tr>
       </tbody>
     </table>
     </div>
