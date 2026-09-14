@@ -37,6 +37,14 @@ PLAYWRIGHT=/path/to/node_modules/playwright node shared/walk.cjs pages/x.html   
 PLAYWRIGHT=... node shared/stages.cjs pages/x.html                               # does each stage fit one viewport?
 ```
 
+## The dashboard shell
+
+`shared/shell.js` (pasted after the kit by `apply-kit.js`) rebuilds each page at load into a fixed,
+edge-to-edge app: top bar with the topic list and stage position, a rail of stages on the left, the
+picture filling the middle, the step panel on the right. One stage shows at a time; `#stage-id`
+deep links, the arrow keys and the rail all switch stages, and the rail ticks stages the reader
+finished. `shared/stages.cjs` is the fit gate for this layout.
+
 ## Working on it
 
 Pages open directly from disk. Edit `pages/<slug>.html`; keep the theme block at the top of

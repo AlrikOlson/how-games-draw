@@ -15,6 +15,7 @@ const path = require('path');
   if (!ids.length) { console.log('no lessons on this page'); process.exit(1); }
   let blocked = 0; const lines = [];
   for (const id of ids) {
+    await p.evaluate(id => { if (window.RLShell) RLShell.show(id); }, id); await p.waitForTimeout(60);
     const n = await p.evaluate(id => RL.lessons[id].spec.steps.length, id);
     await p.evaluate(id => RL.lessons[id].go(0), id);
     for (let i = 0; i < n; i++) {

@@ -16,7 +16,7 @@ function lesson(id, spec) {
   const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
   let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
   try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
-  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} document.dispatchEvent(new CustomEvent('rl:progress', { detail: { id, finished } })); };
   const top = root.querySelector('.lesson-top');
   (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
     '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
@@ -50,7 +50,7 @@ function lesson(id, spec) {
     }
     const gate = s.quiz && !answered[i];
     if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
-    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' →</a>' : '');
     else status.innerHTML = '';
     next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
     next.textContent = i < n - 1 ? 'Continue' : 'Finish';

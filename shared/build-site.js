@@ -20,7 +20,8 @@ if (order.length !== 22) throw new Error('expected 22 hub entries, found ' + ord
 fs.rmSync('dist', { recursive: true, force: true });
 fs.mkdirSync('dist/pages', { recursive: true });
 
-fs.writeFileSync('dist/index.html', hub.replace(/href="pages\//g, 'href="' + base + '/pages/'));
+const pagesTag = '<script>window.RL_PAGES=' + JSON.stringify(order.map((p, i) => ({ n: i + 1, slug: p.slug, title: p.title.replace(/&amp;/g, '&') }))) + ';window.RL_BASE=' + JSON.stringify(base) + ';</script>';
+fs.writeFileSync('dist/index.html', hub.replace(/href="pages\//g, 'href="' + base + '/pages/').replace('</head>', pagesTag + '\n</head>'));
 
 const esc = s => s.replace(/&(?!amp;|lt;|gt;|quot;|#)/g, '&amp;');
 order.forEach((page, i) => {
@@ -29,6 +30,7 @@ order.forEach((page, i) => {
   if (cut < 0) throw new Error(page.slug + ': no </style>');
   let head = src.slice(0, cut + '</style>'.length).replace(/<title>(.*?)<\/title>/, (m, t) => '<title>' + esc(t) + ' · Rendering Library</title>');
   head += '\n<meta name="description" content="' + page.blurb.replace(/"/g, '&quot;') + '">';
+  head += '\n' + pagesTag;
   let body = src.slice(cut + '</style>'.length).replace(/href="\.\.\/index\.html"/g, 'href="' + base + '"');
 
   const prev = order[i - 1], next = order[i + 1];
