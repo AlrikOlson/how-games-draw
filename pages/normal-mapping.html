@@ -233,66 +233,65 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 .stats.notes th:last-child, .stats.notes td:last-child { text-align: left; white-space: normal; font-family: var(--font-display); font-size: 14px; min-width: 22ch; }
 .uses td:first-child { white-space: normal; min-width: 12ch; }
 .tile .n small { font-size: 13px; color: var(--muted); font-weight: 400; }
+.tile .n.small { font-size: 13px; line-height: 1.45; font-weight: 400; overflow-wrap: anywhere; }
+.tiles.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* three small pictures beside the steps: one interaction drives all three */
+section.stage .cols.trio { grid-template-columns: minmax(0, 1.55fr) minmax(340px, 1fr); gap: clamp(20px, 2.5vw, 40px); }
+section.stage .cols.trio .tri { gap: 10px; }
+section.stage .cols.trio .tri .vp canvas.sq { width: 100%; }
+section.stage .cols.trio .tri .cap { flex-direction: column; gap: 2px; }
+@media (max-width: 1100px) { section.stage .cols.trio { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 820px) { section.stage .cols.trio .tri { grid-template-columns: minmax(0, 1fr); } section.stage .cols.trio .tri .vp canvas.sq { width: min(100%, var(--stage-free)); } }
+.hood .math.live { margin-bottom: 14px; }
+.hood .tbl-wrap { margin-bottom: 14px; }
 </style>
 
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a castle corridor · one 1 m brick wall · 64×64 height texels · mortar 30 mm deep · drag the torch and the player</p>
+    <p class="eyebrow">a castle corridor · one metre of brick wall · seven guided demos · nothing to install</p>
     <h1>Normal Mapping &amp; Parallax</h1>
-    <p class="lead">A normal map is a texture that stores, for every tiny square of a surface, which way that spot faces. The lighting code uses that stored direction instead of the flat triangle's own, so a flat wall shades as if it had bricks and grooves, for the price of one extra texture read. <b>The thing people get wrong:</b> the stored directions are relative to the surface and its texture layout, so the map only means something together with the mesh's tangent data. The bumps live in the lighting alone: edges, depth and shadows stay flat, and parallax tricks fake depth by shifting where the texture is read, not by moving the surface.</p>
+    <p class="lead">A game wall is one flat rectangle, yet the player sees bricks with torchlight catching their edges. The trick is a normal map: a texture that stores, for every tiny square of the surface, which way that spot faces. The lighting uses the stored direction instead of the flat wall's own, so the bricks appear in the shading for the price of one extra texture read. <b>The thing people get wrong:</b> the bricks exist only in the lighting. The wall's outline, its distance from the camera and its shadow all stay flat, and the parallax tricks near the end fake depth by shifting where the texture is read, not by moving anything.</p>
     <div class="key">
-      <span style="--sw:#f2a341">which way the map says the brick faces · texture's right (T) · POM hit · error</span>
-      <span style="--sw:#4aa3ff">which way the flat wall faces · texture's down (B) · parallax guess</span>
-      <span style="--sw:#ffffff">torch, eye and pixel handles · view rays · plain lookup</span>
+      <span style="--sw:#f2a341">which way the map says a spot faces · the texture's right · the marched hit</span>
+      <span style="--sw:#4aa3ff">which way the flat wall faces · the texture's down · the one-step guess</span>
+      <span style="--sw:#ffffff">torch, eye and drag handles · the line of sight · the plain lookup</span>
     </div>
     <dl class="terms">
-      <dt>texel</dt><dd>one pixel of a texture; here each one covers 15.6 mm of the 1 m wall</dd>
+      <dt>texel</dt><dd>one square of a texture; here each one covers 15.6 mm of the 1 m wall</dd>
       <dt>normal</dt><dd>the direction a surface faces at a point, as an arrow of length one</dd>
-      <dt>height map</dt><dd>a grayscale texture where brighter means higher</dd>
-      <dt>tangent space</dt><dd>three directions attached to the surface: along the texture's u, along its v, and straight out</dd>
+      <dt>height map</dt><dd>a grey picture of a surface where brighter means higher</dd>
+      <dt>tangent space</dt><dd>three arrows attached to the surface: the texture's right, the texture's down, and straight out</dd>
       <dt>fragment shader</dt><dd>the small program the GPU runs once per pixel to pick its colour</dd>
       <dt>parallax</dt><dd>near things sliding past far things as your eye moves</dd>
-      <dt>BC5</dt><dd>a GPU texture format that packs two channels into one byte per texel</dd>
+      <dt>BC5</dt><dd>a way of packing a texture that keeps two numbers per texel in one byte</dd>
       <dt>mip</dt><dd>a half-size copy of a texture, used when the surface is far away</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#height"><span class="n">01</span>From bumps to directions</a></li><li><a href="#lit"><span class="n">02</span>Lighting a flat wall with fake bricks</a></li><li><a href="#tangent"><span class="n">03</span>Turning the map with the mesh</a></li><li><a href="#pom"><span class="n">04</span>Faking depth by shifting the lookup</a></li><li><a href="#encoding"><span class="n">05</span>Storing the map small</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#height"><span class="n">01</span>From bumps to directions</a></li><li><a href="#lit"><span class="n">02</span>Lighting a flat wall with fake bricks</a></li><li><a href="#torch"><span class="n">03</span>The wall the player sees</a></li><li><a href="#tangent"><span class="n">04</span>Turning the map with the mesh</a></li><li><a href="#pom"><span class="n">05</span>Where the line of sight really lands</a></li><li><a href="#pomlook"><span class="n">06</span>What each method shows the player</a></li><li><a href="#encoding"><span class="n">07</span>Storing the map small</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="height">
+  <section id="height" class="stage">
     <h2>From bumps to directions</h2>
-    <p class="sub">The brick wall's bump recipe. Hover either picture to watch one texel's height turn into a direction; the inset shows the wall the player gets.</p>
-    <div class="cols wide">
-      <div class="prose intro">
-        <p class="plain">A <b>height map</b> is a grayscale picture of the wall where brighter means higher: brick faces are bright, mortar grooves are dark. A normal map holds the same bricks stored differently: each texel says <b>which way that spot faces</b> instead of how high it is. The GPU wants directions, not heights, because lighting depends on which way a surface points. <b>Steeper slope, more tilted arrow.</b></p>
-        <h3>What you're seeing</h3>
-        <p>Left is the height map of one metre of castle wall: 64 by 64 texels, each 15.6 mm wide, bright on the brick faces, dark in the mortar grooves, with one chipped brick. The inset in its corner is that same wall lit by a torch, which is all the player ever sees. Right is the normal map made from the height map. It is mostly blue because the brick faces point straight out, and straight out is stored as blue; the brick edges are where the colour changes.</p>
-        <p>Hover either picture. The white box is one texel, the faint box around it is the 3 by 3 neighbourhood used to work out its slope, and the amber arrow on the left shows which way that texel tilts.</p>
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover across a mortar line on the left. The arrow flips from one side of the groove to the other, and the normal map changes tint across it.</li>
-          <li>Push bump strength to 8. The normal map gets more colourful and less blue: the same bricks now claim to be much steeper, and the wall in the inset looks carved.</li>
-          <li>Set it near 1.92. That is the slope the real 30 mm of mortar depth would have; anything higher is exaggeration.</li>
-        </ul>
-      </div>
-    </div>
-    <div class="cols two">
+    <p class="sub">One metre of castle wall as the artist made it, and the same wall turned into directions for the lighting. Hover either picture.</p>
+    <div class="cols three">
       <div class="vp">
         <canvas id="c1h" class="sq" width="512" height="512" aria-label="Height map of a brick wall: bright brick faces, dark mortar grooves, one chipped brick, with a hovered texel, its slope arrow, and an inset of the wall lit by a torch"></canvas>
-        <div class="cap"><span id="c1h-cap">texel …</span><span>dashed line: row 20, used below</span></div>
+        <div class="cap"><span id="c1h-cap">texel …</span></div>
       </div>
       <div class="vp">
         <canvas id="c1n" class="sq" width="512" height="512" aria-label="Normal map derived from the brick wall's height map, blue on the flat brick faces and coloured on the brick edges"></canvas>
-        <div class="cap"><span id="c1n-cap">n = …</span><span>rgb = n · 0.5 + 0.5</span></div>
+        <div class="cap"><span id="c1n-cap">…</span></div>
+      </div>
+      <div class="lesson" data-lesson="height">
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><label for="str">Bump strength <span class="val" id="strv">2.0</span></label><input type="range" id="str" min="0.25" max="8" step="0.25" value="2"></div>
+          <div class="ctl"><span class="lab">Honest strength for 30 mm of mortar depth</span><span class="val">30 / 15.6 = 1.92</span></div>
+        </div>
       </div>
     </div>
-    <div class="controls">
-      <div class="ctl"><label for="str">Bump strength s <span class="val" id="strv">2.0</span></label><input type="range" id="str" min="0.25" max="8" step="0.25" value="2"></div>
-      <div class="ctl"><span class="lab">Real-world s for 30 mm relief</span><span class="val">30 / 15.6 = 1.92</span></div>
-    </div>
-    <div class="cols wide">
-      <div class="prose">
-        <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">A normal map is the height map's slopes stored as directions, one per texel, and it only matches the real wall at the honest strength.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Each texel of the height map is one number. To get a slope, take the height of the texel on the right minus the height of the texel on the left, and halve it. That is a central difference, a slope estimate from the two neighbours, and it is done on both axes. Because it spans three texels, the normal map is one texel blurrier than the height map.</p>
         <p>The slope becomes a normal, the arrow of length exactly one that says which way the surface faces. Its z part is always positive: a height map cannot overhang, so the surface can never face downward. That is why the map is blue. Stored z sits near 255 while x and y sit near 128, which is how zero is stored.</p>
         <p>The strength s is the real height range divided by the texel size. For this wall, 30 mm of mortar depth over 15.6 mm gives s = 1.92 as the physically correct slope. Artists push s higher for punchier lighting. That is harmless for shading and wrong for parallax, where the height and the normal must describe the same surface.</p>
@@ -308,44 +307,49 @@ rgb8 = round( (n · 0.5 + 0.5) · 255 )                          <span class="c"
 <span class="k">float2</span> grad = <span class="k">float2</span>(hR - hL, hU - hD) * 0.5;      <span class="c">// slope from the two neighbours on each axis</span>
 <span class="k">float3</span> n = normalize(<span class="k">float3</span>(-grad * strength, 1.0));  <span class="c">// z &gt; 0 always: a height field never overhangs</span>
 normalMap[id] = <span class="k">float4</span>(n * 0.5 + 0.5, 1.0);            <span class="c">// or store n.xy only, see the storage section</span></pre>
-        <p class="tldr">A normal map is a height map's slopes stored as directions, and it only matches the real surface if the strength is the physical one.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="lit">
+  <section id="lit" class="stage">
     <h2>Lighting a flat wall with fake bricks</h2>
-    <p class="sub">A player stands in the corridor with a torch, facing the wall. Drag the torch and the player, and hover along the wall to pick a spot.</p>
-    <div class="cols wide">
-      <div class="prose intro">
-        <p class="plain">The GPU draws the wall as one <b>flat rectangle</b>. When it colours each pixel it needs to know which way that spot faces, and normally the answer is straight out of the wall. With a normal map it <b>reads the answer from the texture</b> instead, so the torchlight lands as if the bricks were there. <b>Only the lighting changes.</b> The wall is still flat to its edges, to the depth buffer and to the shadows.</p>
-        <h3>What you're seeing</h3>
-        <p>Left is the corridor seen from above, sliced through row 20 of the wall texture. The solid white line is the wall face the GPU draws. The dashed amber outline is the brick profile the map describes, drawn 8 times deeper. At the chosen spot the blue arrow is what the geometry says (straight out of the wall) and the amber arrow is what the map says.</p>
-        <p>Right is what the player sees: the metre of wall lit by the torch. The flame is the torch; drag it.</p>
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover along the wall on the left and watch the two N·L numbers in the caption. The flat one only changes with the torch's position; the map one also changes with the slope.</li>
-          <li>Drag the torch close to the wall and past a brick edge. The far side of the brick goes dark, as a real brick's would.</li>
-          <li>Drag the player down next to the wall. The bricks do not change shape at all, which is the giveaway that they are not there.</li>
-        </ul>
-      </div>
-    </div>
-    <div class="cols two">
+    <p class="sub">A player stands in the corridor with a torch, facing the wall. Seen from above, the wall is a straight line, and the bricks are only a drawing.</p>
+    <div class="cols">
       <div class="vp">
         <canvas id="c2x" class="sq grab" width="512" height="512" aria-label="Top-down view of a castle corridor: a player with a torch faces a flat wall whose brick profile is drawn as a dashed amber outline; at the chosen spot the blue arrow is the flat wall's normal and the amber arrow is the normal from the map"></canvas>
-        <div class="cap"><span id="c2x-cap"></span><span id="c2x-cap2">profile drawn ×8 · never rasterized</span></div>
+        <div class="cap"><span id="c2x-cap"></span></div>
+        <div class="cap"><span id="c2x-cap2">brick shape drawn 8 times deeper · the GPU never draws it</span></div>
       </div>
+      <div class="lesson" data-lesson="lit"></div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Normal mapping changes which way each pixel thinks it faces, and nothing else.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+        <p>The rasterizer, the part of the GPU that turns triangles into pixels, only ever sees the flat wall. The fragment shader, the program that runs once per pixel to pick its colour, reads the normal from the map and uses it in every lighting dot product. A dot product of two length-one arrows is 1 when they point the same way and 0 when they are at right angles, so N·L (normal dot light direction) says how squarely the light hits.</p>
+        <p>What does not happen matters more. The profile is dashed because it never exists in the pipeline. The wall's edge is straight from any angle, the depth buffer (the per-pixel record of how far away things are) holds the flat depth, and a shadow map, the depth picture rendered from the light, sees a flat caster. That is why the parallax section exists.</p>
+        <p class="words">In words: the flat wall goes through the whole pipeline unchanged; only the direction fed into the lighting is swapped for the one in the map.</p>
+    </div></details>
+    </div>
+  </section>
+
+  <section id="torch" class="stage">
+    <h2>The wall the player sees</h2>
+    <p class="sub">The same metre of wall, head on, lit by a torch you can drag. Every pixel comes from the flat rectangle plus the map's direction.</p>
+    <div class="cols">
       <div class="vp">
         <canvas id="c2r" class="sq grab" width="512" height="512" aria-label="What the player sees: one metre of brick wall lit by a draggable torch, rendered from the flat wall and its normal map with Lambert plus Blinn-Phong"></canvas>
-        <div class="cap"><span id="c2r-cap"></span><span>256×256 px · 1 m of wall</span></div>
+        <div class="cap"><span id="c2r-cap"></span></div>
+      </div>
+      <div class="lesson" data-lesson="torch">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><span class="lab">Directions come from</span><label class="chk"><input type="checkbox" id="nmOn" checked> the normal map (untick: the flat wall)</label></div>
+        </div>
       </div>
     </div>
-    <div class="cols wide">
-      <div class="prose">
-        <h3>The real version</h3>
-        <p>The rasterizer, the part of the GPU that turns triangles into pixels, only ever sees the flat wall. The fragment shader, the program that runs once per pixel to pick its colour, reads the normal from the map and uses it in every lighting dot product. A dot product of two length-one arrows is 1 when they point the same way and 0 when they are at right angles, so N·L (normal dot light direction) says how squarely the light hits.</p>
+    <div class="foot">
+    <p class="tldr">One extra texture read per pixel, and a flat rectangle shades like brickwork.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Diffuse light, the soft matte part, is N·L. Specular light, the shiny highlight, uses N·H, where H is the direction halfway between the light and the eye. That pair is Lambert plus Blinn-Phong, the classic lighting model, and the exponent p = 64 sets how tight the highlight is.</p>
-        <p>What does not happen matters more. The profile is dashed because it never exists in the pipeline. The wall's edge is straight from any angle, the depth buffer (the per-pixel record of how far away things are) holds the flat depth, and a shadow map, the depth picture rendered from the light, sees a flat caster. That is why the parallax section exists.</p>
         <p class="words">In words: turn the stored colour back into a direction, then use that direction in the same two lighting terms as always.</p>
         <div class="math">n = normalize( tex(normalMap, uv).rgb · 2 − 1 )         <span class="c">// still in tangent space here</span>
 diffuse  = max(0, n·l)
@@ -360,37 +364,35 @@ specular = max(0, n·h)^p,   h = normalize(l + v)          <span class="c">// Bl
 <span class="k">float</span> NdotL = saturate(dot(N, L));
 <span class="k">float</span> spec  = pow(saturate(dot(N, H)), 64.0);
 color = albedo * NdotL * atten + spec * atten;         <span class="c">// depth, stencil, shadow casting: untouched</span></pre>
-        <p class="tldr">Normal mapping changes which way each pixel thinks it faces, and nothing else.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="tangent">
+  <section id="tangent" class="stage">
     <h2>Turning the map with the mesh</h2>
-    <p class="sub">The same brick texture laid as a floor tile and turned by θ. The player walks around it with a torch; the map's directions have to turn with the tile.</p>
+    <p class="sub">The same brick texture laid as a floor tile and turned. A player walks around it with a torch, and the map's directions have to turn with the tile.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c3" class="sq grab" width="512" height="512" aria-label="Top-down view of a castle room: a brick floor tile rotated by theta, a player carrying a torch, and at a draggable pixel the tangent (amber) and bitangent (blue) arrows"></canvas>
-        <div class="cap"><span id="c3-cap"></span><span id="c3-cap2"></span></div>
+        <div class="cap"><span id="c3-cap"></span></div>
+        <div class="cap"><span id="c3-cap2"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The directions in a normal map are <b>relative to the surface</b>: "tilted a bit toward the right edge of the texture". When the tile is turned, the right edge of the texture goes somewhere else, so the <b>stored direction has to be turned to match</b>. That is the job of the tangent basis. <b>Skip it and the bricks light from a direction that spins with the tile.</b></p>
-        <h3>What you're seeing</h3>
-        <p>You are looking down at a castle room. The brick tile is turned in the floor by θ; the texture and the torch are not. At the sample pixel, the amber arrow is T, the world direction in which the texture's u coordinate increases, and the blue arrow is B, the same for v. The normal N points up out of the floor, toward you.</p>
-        <p>The box under the controls shows the numbers: the stored normal, the turned normal, and the N·L each one gives.</p>
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the rotation slider from -180 to 180. The bricks stay lit from the torch's side the whole way, because T and B turn with the tile.</li>
-          <li>Tick the bug box and drag the slider again. Now the lighting swings around with the tile. At θ = 0 it looks fine, which is how this bug ships.</li>
-          <li>Drag the sample pixel onto the edge of a brick and compare N·L correct with N·L bug in the readout.</li>
-        </ul>
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><label for="rot">UV rotation θ <span class="val" id="rotv">50°</span></label><input type="range" id="rot" min="-180" max="180" step="1" value="50"></div>
-          <div class="ctl"><label class="chk"><input type="checkbox" id="bug"> bug: use the stored normal as the world normal</label></div>
+      <div class="lesson" data-lesson="tangent">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="rot">Tile turned by <span class="val" id="rotv">50°</span></label><input type="range" id="rot" min="-180" max="180" step="1" value="50"></div>
+          <div class="ctl"><label class="chk"><input type="checkbox" id="bug"> bug: skip the turning step</label></div>
         </div>
+        <div class="tiles two" data-step-min="4">
+          <div class="tile" id="t3-ok"><div class="n">0.00</div><div class="l">how squarely the torch hits, done right</div></div>
+          <div class="tile" id="t3-bug"><div class="n">0.00</div><div class="l">the same, with the bug</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">A normal map only means something with its tangent basis, which translates "relative to the texture" into "in the world".</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p class="words">Live numbers for the pixel you dragged: T, B, the stored normal, the turned normal and both N·L values.</p>
         <div class="math live" id="c3-tbn"></div>
-        <h3>The real version</h3>
         <p>Texture coordinates, called UVs, are the two numbers that say where on the texture each vertex lands: u across, v down. Tangent space is the set of three directions attached to the surface at a point: T along increasing u, B (the bitangent) along increasing v, and N straight out. A stored normal's x, y and z are amounts of T, B and N.</p>
         <p>Put those three world-space arrows side by side as the columns of a matrix and you have TBN. Multiplying the stored normal by it gives the world-space normal. T and B come from one triangle: two of its edges and their UV differences form a small linear system, and solving it gives how position changes per unit of u and per unit of v.</p>
         <p>Two classic bugs. Using the stored normal as if it were already in world space lights the bumps from a direction that turns with the mesh; it looks right at θ = 0 on a floor, which is how it ships. And T, B and N are interpolated across each triangle, so they drift out of being at right angles; either re-square them in the fragment shader or accept the small error, as most engines do.</p>
@@ -413,58 +415,26 @@ vout.TBN = <span class="k">float3x3</span>(T, B, N);                            
 <span class="c">// fragment shader</span>
 <span class="k">float3</span> nTs = normalMap.Sample(s, uv).xyz * 2.0 - 1.0;
 <span class="k">float3</span> N = normalize(mul(nTs, vin.TBN));                 <span class="c">// bug: using nTs here directly</span></pre>
-        <p class="tldr">A normal map only means something with its tangent basis; TBN translates "relative to the texture" into "in the world".</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="pom">
-    <h2>Faking depth by shifting the lookup</h2>
-    <p class="sub">The player looks along the wall at a slant. Drag the player's eye and the entry point, and watch where each method reads the brick texture.</p>
-    <div class="cols wide">
-      <div class="prose intro">
-        <p class="plain">Normal mapping reads the texture where your line of sight hits the <b>flat</b> wall. If the bricks were real, your line of sight would hit them <b>somewhere else</b>: sooner on a brick face, deeper in a mortar groove. Parallax methods <b>shift where the texture is read</b> to that spot. Nothing moves; only the lookup does. Done well, bricks slide past the grooves as the camera moves, the way real depth does.</p>
-        <h3>What you're seeing</h3>
-        <p>The wide picture is the corridor from above, showing 36 texels of row 20 of the wall: the bricks are the filled steps behind the flat face, the mortar grooves are the deeper gaps. The white line from the player's eye is the view ray. The faint horizontal lines are the depth layers POM steps through, the white dots are where it read the height, and the amber dot is where it decided the ray hits.</p>
-        <p>Three ticks along the bottom say which texel each method ends up reading: white for the plain lookup, blue for the one-step parallax guess, amber for POM. The three squares below render the whole metre of wall with each method; watch the mortar lines shift.</p>
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the eye low, toward the wall, for a grazing view. The three ticks spread apart and the parallax render starts to look wrong: blue guessed, amber marched.</li>
-          <li>Drag the layers slider down to 8. Stair-steps appear along the mortar lines in the POM render; push it to 64 and they go away, at a higher reads-per-pixel number in the caption.</li>
-          <li>Raise the height scale to 110 mm. The dark band on the far edge of the parallax and POM renders grows: rays that walk off the texture have nothing to hit.</li>
-        </ul>
-      </div>
-    </div>
-    <div class="cols wide">
+  <section id="pom" class="stage">
+    <h2>Where the line of sight really lands</h2>
+    <p class="sub">The player looks along the wall at a slant. If the bricks were real, the line of sight would hit them somewhere other than the flat face.</p>
+    <div class="cols">
       <div class="vp">
         <canvas id="c4x" class="r169 grab" width="640" height="360" aria-label="Top-down view of the corridor wall: a player's eye looks at a slant along 36 texels of the brick profile, and the view ray is marched down through depth layers until it hits a brick"></canvas>
-        <div class="cap"><span id="c4x-cap"></span><span id="c4x-cap2"></span></div>
+        <div class="cap"><span id="c4x-cap"></span></div>
+        <div class="cap"><span id="c4x-cap2"></span></div>
       </div>
+      <div class="lesson" data-lesson="pom"></div>
     </div>
-    <div class="controls">
-      <div class="ctl"><label for="layers">Layers <span class="val" id="layersv">16</span></label><input type="range" id="layers" min="8" max="64" step="1" value="16"></div>
-      <div class="ctl"><label for="hs">Height scale <span class="val" id="hsv">60 mm</span></label><input type="range" id="hs" min="20" max="110" step="5" value="60"></div>
-    </div>
-    <div class="tri below">
-      <div class="vp">
-        <canvas id="c4a" class="sq" width="512" height="512" aria-label="The brick wall rendered with normal mapping only"></canvas>
-        <div class="cap"><strong>Normal map only</strong><span id="c4a-cap"></span></div>
-      </div>
-      <div class="vp">
-        <canvas id="c4b" class="sq" width="512" height="512" aria-label="The brick wall rendered with single-step parallax offset"></canvas>
-        <div class="cap"><strong>Parallax offset</strong><span id="c4b-cap"></span></div>
-      </div>
-      <div class="vp">
-        <canvas id="c4c" class="sq" width="512" height="512" aria-label="The brick wall rendered with parallax occlusion mapping"></canvas>
-        <div class="cap"><strong>POM</strong><span id="c4c-cap"></span></div>
-      </div>
-    </div>
-    <div class="cols wide">
-      <div class="prose">
-        <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">Parallax never moves the surface; it moves where the texture is read, and the marching version walks the line of sight to find the right spot.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Parallax mapping guesses once. Read the height at the flat spot, then shift the lookup sideways in proportion to that depth and to how slanted the view is, and hope the height at the new spot is similar. It costs one extra read. It swims at grazing angles, where the eye is nearly level with the surface, because the guess is worst exactly where the shift is largest.</p>
         <p>Parallax occlusion mapping, POM, stops guessing and marches. It steps the view ray down through the height field in fixed depth layers, reading the height once per layer, until the ray is below the surface. The last two readings are blended to place the hit. More layers means fewer stair-steps and more reads, so engines scale the count with the view angle: 8 head-on, 32 to 64 at grazing angles.</p>
-        <p>The three renders share one view direction, taken from the eye in the top-down view, and use an orthographic projection, meaning no perspective and every pixel looking the same way. Rays that leave the texture at the wall's edge have nothing to hit. That is the dark band on the edge away from the eye in the parallax and POM renders, and the reason POM silhouettes are still flat.</p>
         <p class="words">In words: walk down the ray one layer at a time until it is under the surface, then blend the last two steps to find the crossing.</p>
         <div class="math">v = viewDir in tangent space, pointing at the eye, v.z &gt; 0
 uv(d) = uv0 − (v.xy / v.z) · d · heightScale            <span class="c">// where the ray is at depth d, in uv units</span>
@@ -472,6 +442,39 @@ parallax:  d0 = 1 − h(uv0),   uv' = uv(d0)               <span class="c">// on
 POM:       for k = 1..L:  d_k = k / L,  if d_k ≥ 1 − h(uv(d_k)) → hit between k−1 and k
            t = (d_{k−1} − depth_{k−1}) / ((d_{k−1} − depth_{k−1}) − (d_k − depth_k)),  uv' = lerp(uv_{k−1}, uv_k, t)</div>
         <p>v is the view direction in tangent space, uv0 is the flat lookup, d is depth as a fraction of heightScale, h is the height read from the map, L is the layer count and t is the blend between the last two steps.</p>
+    </div></details>
+    </div>
+  </section>
+
+  <section id="pomlook" class="stage">
+    <h2>What each method shows the player</h2>
+    <p class="sub">The whole metre of wall three times, seen from the eye position in the stage above. Watch the mortar lines.</p>
+    <div class="cols trio">
+      <div class="tri">
+        <div class="vp">
+          <canvas id="c4a" class="sq" width="512" height="512" aria-label="The brick wall rendered with normal mapping only"></canvas>
+          <div class="cap"><strong>normal map only</strong><span id="c4a-cap"></span></div>
+        </div>
+        <div class="vp">
+          <canvas id="c4b" class="sq" width="512" height="512" aria-label="The brick wall rendered with single-step parallax offset"></canvas>
+          <div class="cap"><strong>one-step guess</strong><span id="c4b-cap"></span></div>
+        </div>
+        <div class="vp">
+          <canvas id="c4c" class="sq" width="512" height="512" aria-label="The brick wall rendered with parallax occlusion mapping"></canvas>
+          <div class="cap"><strong>marched (POM)</strong><span id="c4c-cap"></span></div>
+        </div>
+      </div>
+      <div class="lesson" data-lesson="pomlook">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="layers">Layers the march steps through <span class="val" id="layersv">16</span></label><input type="range" id="layers" min="8" max="64" step="1" value="16"></div>
+          <div class="ctl"><label for="hs">How deep the bricks pretend to be <span class="val" id="hsv">60 mm</span></label><input type="range" id="hs" min="20" max="110" step="5" value="60"></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">More layers buys smoother bricks for more texture reads, and deeper relief buys drama until the edges give it away.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+        <p>The three renders share one view direction, taken from the eye in the top-down view, and use an orthographic projection, meaning no perspective and every pixel looking the same way. Rays that leave the texture at the wall's edge have nothing to hit. That is the dark band on the edge away from the eye in the parallax and POM renders, and the reason POM silhouettes are still flat.</p>
         <p class="words">What this code does: picks a layer count from the view angle, steps until the ray is under the surface, then interpolates the crossing. Every other texture is read at uvHit too.</p>
 <pre class="code"><span class="c">// POM loop, fragment shader, tangent-space viewDir v (v.z &gt; 0)</span>
 <span class="k">float</span> layers = lerp(64.0, 8.0, abs(v.z));               <span class="c">// more steps at grazing angles</span>
@@ -487,49 +490,42 @@ POM:       for k = 1..L:  d_k = k / L,  if d_k ≥ 1 − h(uv(d_k)) → hit betw
 <span class="k">float</span> before = (1.0 - heightMap.Sample(s, uvPrev).r) - (d - dStep);
 <span class="k">float2</span> uvHit = lerp(uvc, uvPrev, after / (after - before));
 <span class="k">float3</span> nTs = normalMap.Sample(s, uvHit).xyz * 2.0 - 1.0; <span class="c">// everything else samples at uvHit too</span></pre>
-        <p class="tldr">Parallax never moves the surface; it moves where you read the texture, and POM marches to find the right spot.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="encoding">
+  <section id="encoding" class="stage">
     <h2>Storing the map small</h2>
-    <p class="sub">The wall's normal map stored three ways. Hover a texel to see what compression costs it, and compare the two insets of the lit wall.</p>
-    <div class="cols wide">
-      <div class="prose intro">
-        <p class="plain">A normal is three numbers, but an arrow of length one that points outward is <b>fully described by two</b>: the third can be rebuilt. GPUs use that to <b>store normals in one byte per texel</b> with a format called BC5. Shrinking the map for distance is a separate problem: <b>averaging bumps loses the roughness</b> they stood for, and there is a trick to keep it.</p>
-        <h3>What you're seeing</h3>
-        <p>Left is the wall's map as plain RGB, three bytes per texel. Middle is the same map through BC5, one byte per texel, with z rebuilt. The inset on each is the wall lit by the torch using that map; the player cannot tell them apart. Right is the angle, per texel, between the true normal and the decoded one: dark is 0°, amber is the maximum shown in the caption, and the bright lines are the brick edges. Hover to see one texel's numbers and its 4 by 4 block.</p>
-        <p>The two tables further down give the memory for a 2048 by 2048 map in each format, and what happens to the average normal at each mip level.</p>
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover the edge of a brick on the error map. Error is worst on steep slopes, where x or y covers a wide range inside one 4 by 4 block, and near zero on the flat brick faces.</li>
-          <li>Click RGB8 in the error selector. The error is far smaller and spread evenly: that is plain 8-bit rounding.</li>
-          <li>Push bump strength at the top of the page to 8 and read the mip table. The average length drops faster, so the highlight exponent falls further at each level.</li>
-        </ul>
+    <p class="sub">The wall's normal map stored two ways, and a picture of what the smaller one gets wrong. Hover a texel on any of the three.</p>
+    <div class="cols trio">
+      <div class="tri">
+        <div class="vp">
+          <canvas id="c5a" class="sq" width="512" height="512" aria-label="The brick wall's normal map stored as RGB8, with an inset of the wall lit using it"></canvas>
+          <div class="cap"><strong>3 bytes per texel</strong><span id="c5a-cap"></span></div>
+        </div>
+        <div class="vp">
+          <canvas id="c5b" class="sq" width="512" height="512" aria-label="The brick wall's normal map stored as BC5 with z reconstructed, with an inset of the wall lit using it"></canvas>
+          <div class="cap"><strong>1 byte per texel (BC5)</strong><span id="c5b-cap"></span></div>
+        </div>
+        <div class="vp">
+          <canvas id="c5c" class="sq" width="512" height="512" aria-label="Per-texel angular error of the compressed normal map, brightest along the brick edges"></canvas>
+          <div class="cap"><strong id="c5c-lab">how far off, 1-byte version</strong><span id="c5c-cap"></span></div>
+        </div>
+      </div>
+      <div class="lesson" data-lesson="encoding">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><span class="lab">The error picture shows</span><div class="seg" id="segErr" role="group" aria-label="Error source"><button data-v="rgb8">3 bytes per texel</button><button data-v="bc5" aria-pressed="true">1 byte per texel (BC5)</button></div></div>
+        </div>
+        <div class="tiles">
+          <div class="tile" id="t5-bc"><div class="n">0.00°</div><div class="l">hovered texel, off by, 1-byte version</div></div>
+          <div class="tile" id="t5-rgb"><div class="n">0.00°</div><div class="l">hovered texel, off by, 3-byte version</div></div>
+          <div class="tile"><div class="n small" id="c5-hov">…</div><div class="l">what is stored for it</div></div>
+        </div>
       </div>
     </div>
-    <div class="tri">
-      <div class="vp">
-        <canvas id="c5a" class="sq" width="512" height="512" aria-label="The brick wall's normal map stored as RGB8, with an inset of the wall lit using it"></canvas>
-        <div class="cap"><strong>RGB8</strong><span id="c5a-cap"></span></div>
-      </div>
-      <div class="vp">
-        <canvas id="c5b" class="sq" width="512" height="512" aria-label="The brick wall's normal map stored as BC5 with z reconstructed, with an inset of the wall lit using it"></canvas>
-        <div class="cap"><strong>BC5, z rebuilt</strong><span id="c5b-cap"></span></div>
-      </div>
-      <div class="vp">
-        <canvas id="c5c" class="sq" width="512" height="512" aria-label="Per-texel angular error of the compressed normal map, brightest along the brick edges"></canvas>
-        <div class="cap"><strong id="c5c-lab">Error, BC5</strong><span id="c5c-cap"></span></div>
-      </div>
-    </div>
-    <div class="controls">
-      <div class="ctl"><span class="lab">Error map shows</span><div class="seg" id="segErr" role="group" aria-label="Error source"><button data-v="rgb8">RGB8</button><button data-v="bc5" aria-pressed="true">BC5</button></div></div>
-      <div class="ctl"><span class="lab">Hover a texel</span><span class="val" id="c5-hov">—</span></div>
-    </div>
-    <div class="cols wide">
-      <div class="prose">
-        <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">Store two numbers and rebuild the third, and when you shrink a normal map, the length it loses is roughness you should keep.</p>
+    <details class="hood"><summary>Under the hood: the math, the code and the tables</summary><div>
         <p>Three bytes per texel wastes one. BC5 is a block-compressed format: each 4 by 4 block of texels stores two 8-bit endpoints and sixteen 3-bit indices per channel, and it does that for two channels independently, one byte per texel in total. The shader rebuilds z. The error map shows what that block rounding costs: worst on steep slopes, where x or y covers a wide range inside a single block, near zero on the flat areas.</p>
         <p>BC7 spends the same byte per texel on three or four channels with eight encoder modes. It is the usual choice for colour textures and the fallback for normals only when a format needs all the channels.</p>
         <p>Mips are the half-size copies of a texture used when it is far away, and they lose something else. Averaging four length-one normals gives an arrow shorter than one, and normalizing it, stretching it back to length one, throws away the fact that the surface was rough at that scale. Toksvig's method keeps it: the length of the averaged normal says how spread out the originals were, and that spread widens the highlight.</p>
@@ -547,9 +543,6 @@ Toksvig: |n̄| = length of the box-filtered, un-normalized normal
 <span class="k">float</span> ft = len / (len + specPower * (1.0 - len));
 <span class="k">float</span> p = specPower * ft;                             <span class="c">// wider highlight where the mip averaged bumps away</span>
 <span class="k">float</span> spec = pow(saturate(dot(n, H)), p) * (1.0 + ft * specPower) / (1.0 + specPower);</pre>
-        <p class="tldr">Store two channels and rebuild the third; and when you shrink a normal map, the length it loses is roughness you should keep.</p>
-      </div>
-    </div>
     <p class="note" style="margin-top:28px">How to read the first table: each row is one way to store a 2048 by 2048 normal map, and the two size columns are with and without the chain of smaller mip copies. You are choosing between bytes on the GPU and error in the decoded direction.</p>
     <div class="tbl-wrap">
     <table class="stats notes" id="mem">
@@ -569,20 +562,22 @@ Toksvig: |n̄| = length of the box-filtered, un-normalized normal
       <tbody id="mips-body"></tbody>
     </table>
     </div>
-    <p class="note">The mip rows use a 2×2 box filter on the un-normalized float normals, the same thing a texture tool does. The bump strength slider at the top changes them live: stronger bumps mean more spread and a shorter average.</p>
+    <p class="note">The mip rows use a 2×2 box filter on the un-normalized float normals, the same thing a texture tool does. The bump strength slider in the first stage changes them live: stronger bumps mean more spread and a shorter average.</p>
+    </div></details>
+    </div>
   </section>
 
   <section id="tradeoffs">
     <h2>Tradeoffs: how much surface to fake</h2>
-    <p class="sub">Every row costs extra texture reads per pixel, and the first three are still flat in the depth buffer and in shadow maps.</p>
+    <p class="sub">Every row costs extra texture reads per pixel, and the first three are still flat to the outline, to the distance the camera stores, and to the shadows.</p>
     <p class="note" style="margin-top:0">Read the rows top to bottom as more convincing and more expensive. You are choosing how many texture reads per pixel to pay, on top of the material's own textures, and whether the outline and the shadows need to change too.</p>
     <div class="tbl-wrap">
     <table class="uses">
       <thead><tr><th>Method</th><th>Extra reads per pixel</th><th>Outline and self-shadow</th><th>How it fails, and when to use it</th></tr></thead>
       <tbody>
         <tr><td>Normal map only</td><td>1 normal</td><td>flat, none</td><td>Looks flat at grazing angles; near and far texels never slide past each other. The base layer of every material anyway.</td></tr>
-        <tr><td>Parallax offset</td><td>1 height + 1 normal</td><td>flat, none</td><td>Swims as the camera moves, and the shift overshoots on steep heights. Fine for shallow relief: tiles, panels, fabric weave.</td></tr>
-        <tr><td>Parallax occlusion</td><td>8 to 64 height + 1 normal</td><td>flat; self-shadow if you march a second time toward the light</td><td>Stair-steps at low layer counts, holes or wrap-around at mesh edges, cost rises at grazing angles. Deep relief on flat or gently curved surfaces: cobbles, bricks, rock walls.</td></tr>
+        <tr><td>Parallax offset (one guess)</td><td>1 height + 1 normal</td><td>flat, none</td><td>Swims as the camera moves, and the shift overshoots on steep heights. Fine for shallow relief: tiles, panels, fabric weave.</td></tr>
+        <tr><td>Parallax occlusion (the march)</td><td>8 to 64 height + 1 normal</td><td>flat; self-shadow if you march a second time toward the light</td><td>Stair-steps at low layer counts, holes or wrap-around at mesh edges, cost rises at grazing angles. Deep relief on flat or gently curved surfaces: cobbles, bricks, rock walls.</td></tr>
         <tr><td>Displacement (tessellation or dense mesh)</td><td>1 height per vertex, none per pixel</td><td>real; real in the shadow map too</td><td>Cracks between patches, cost in vertices instead of pixels, popping between detail levels. Hero terrain and close-up rock, anything where the outline must change.</td></tr>
       </tbody>
     </table>
@@ -727,11 +722,79 @@ function kitInset(ctx, x, y, w, h, title) {
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
 
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   // ---------- the height field: one metre of castle brick wall, 64×64 texels, 30 mm of mortar depth ----------
   const N = 64, W = 512, TEXEL_MM = 1000 / N, HEIGHT_MM = 30, ROW = 20;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const $ = id => document.getElementById(id);
+  let L1, L2, L2b, L3, L4x, L4b, L5; // the guided lessons, one per stage, defined at the end
   // bricks 16×8 texels, courses offset by half a brick, 2-texel mortar grooves, rounded brick edges, one chipped brick
   const BW = 16, BH = 8, MORTAR = 1.0, BEVEL = 1.5, CHIP = [48, 28, 4.5];
   const hash = (i, j) => { const s = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return s - Math.floor(s); };
@@ -805,6 +868,8 @@ function kitInset(ctx, x, y, w, h, title) {
     ctx.strokeStyle = WHITE; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.stroke();
   }
   // callout beside a handle: sits to the right, or to the left when the handle is in the right half of the canvas
+  // label at double size for the small side-by-side pictures; x, y in canvas pixels
+  function bigLabel(ctx, text, x, y, anchor, col) { ctx.save(); ctx.scale(2, 2); kitLabel(ctx, text, x / 2, y / 2, anchor, col); ctx.restore(); }
   function sideLabel(ctx, text, x, y, col) { const right = x > ctx.canvas.width / 2; kitLabel(ctx, text, x + (right ? -16 : 16), y - 16, right ? "right" : "left", col); }
   const f2 = v => (v < 0 ? "−" : "+") + Math.abs(v).toFixed(2), f3 = v => (v < 0 ? "−" : " ") + Math.abs(v).toFixed(3);
   function fmtMB(b) { return (b / 1e6).toFixed(2) + " MB"; }
@@ -812,14 +877,14 @@ function kitInset(ctx, x, y, w, h, title) {
   // pointer → canvas pixel coords
   function canvasXY(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width * canvas.width, (ev.clientY - r.top) / r.height * canvas.height]; }
   function drag(canvas, getHandles, onMove, onHover) {
-    let active = -1;
+    let active = -1, last = null;
     canvas.addEventListener("pointerdown", ev => {
       const [x, y] = canvasXY(canvas, ev); const hs = getHandles(); let best = -1, bd = 22;
       hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
       if (best >= 0) { active = best; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); } else if (onHover) onHover(x, y);
     });
-    canvas.addEventListener("pointermove", ev => { const [x, y] = canvasXY(canvas, ev); if (active >= 0) onMove(active, clamp(x, 4, canvas.width - 4), clamp(y, 4, canvas.height - 4)); else if (onHover) onHover(x, y); });
-    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    canvas.addEventListener("pointermove", ev => { const [x, y] = canvasXY(canvas, ev); if (active >= 0) { last = [clamp(x, 4, canvas.width - 4), clamp(y, 4, canvas.height - 4)]; onMove(active, last[0], last[1]); } else if (onHover) onHover(x, y); });
+    const end = ev => { if (active >= 0) { if (last) onMove(active, last[0], last[1]); last = null; active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
     canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
   }
   function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
@@ -872,17 +937,19 @@ function kitInset(ctx, x, y, w, h, title) {
     kitLabel(x1h, "brick face: high, bright", 128, 96, "center");
     kitLabel(x1h, "mortar groove: low, dark", 150, 226, "center"); kitArrow(x1h, 150, 236, 150, 252, WHITE);
     kitLabel(x1h, "chipped brick", 388, 264, "center"); kitArrow(x1h, 388, 254, 388, 240, WHITE);
-    kitLabel(x1h, "row " + ROW + ", used below", 6, (ROW + 0.5) * T - 16, "left", AMBER);
+    kitLabel(x1h, "row " + ROW + ": the slice the next stages use", 6, (ROW + 0.5) * T - 16, "left", AMBER);
     kitLabel(x1n, "flat brick face: straight out = blue", 128, 96, "center");
-    kitLabel(x1n, "brick edge: tilted = coloured", 300, 150, "left"); kitArrow(x1n, 298, 150, 262, 150, WHITE);
+    kitLabel(x1n, "edge: tilted = coloured", 300, 150, "left"); kitArrow(x1n, 298, 150, 262, 150, WHITE);
     // the perturbed normal drawn on the height map as a 2D projection of (nx, ny)
     const cx = (i + 0.5) * T, cy = (j + 0.5) * T;
     const gl = Math.hypot(NX[k], NY[k]) || 1e-6, al = 24 + 90 * gl; arrow(x1h, cx, cy, cx + NX[k] / gl * al, cy + NY[k] / gl * al, AMBER);
     kitLabel(x1h, "which way this texel faces", clamp(cx, 100, W - 100), cy > 300 ? cy - 40 : cy + 40, "center", AMBER);
     // what the player sees: the wall lit by a torch
     renderTexels(img1, NX, NY, NZ); insetWall(x1h, img1, W - 160, W - 188, "what the player sees");
-    $("c1h-cap").innerHTML = `texel (${i}, ${j}) · h = <strong>${H[k].toFixed(3)}</strong> · dh/dx = ${f3(DX[k])} · dh/dy = ${f3(DY[k])}`;
-    $("c1n-cap").innerHTML = `n = (<strong>${f3(NX[k])}, ${f3(NY[k])}, ${NZ[k].toFixed(3)}</strong>) · rgb8 = (${R8[k * 3]}, ${R8[k * 3 + 1]}, ${R8[k * 3 + 2]})`;
+    $("c1h-cap").innerHTML = `texel (${i}, ${j}) of 64×64 · height <strong>${H[k].toFixed(2)}</strong> (0 = groove floor, 1 = top) · slope across ${f3(DX[k])}, down ${f3(DY[k])}`;
+    $("c1n-cap").innerHTML = `faces (across, down, out) = (<strong>${f3(NX[k])}, ${f3(NY[k])}, ${NZ[k].toFixed(3)}</strong>) · stored as colour (${R8[k * 3]}, ${R8[k * 3 + 1]}, ${R8[k * 3 + 2]})`;
+    hov1.stats = { h: H[k], tilt: Math.hypot(NX[k], NY[k]) };
+    L1 && L1.check();
   }
   const hover1 = (x, y) => { hov1[0] = clamp(Math.floor(x / W * N), 0, N - 1); hov1[1] = clamp(Math.floor(y / W * N), 0, N - 1); draw1(); };
   drag(c1h, () => [], () => {}, hover1); drag(c1n, () => [], () => {}, hover1);
@@ -910,9 +977,9 @@ function kitInset(ctx, x, y, w, h, title) {
     // the flat wall face, what the rasterizer draws
     x2x.strokeStyle = WHITE; x2x.lineWidth = 3; x2x.beginPath(); x2x.moveTo(X0, SY); x2x.lineTo(X1, SY); x2x.stroke();
     for (let i = 0; i <= N; i += 8) { const px = tx(i); x2x.strokeStyle = GRID; x2x.lineWidth = 1; x2x.beginPath(); x2x.moveTo(px, SY); x2x.lineTo(px, SY + 8); x2x.stroke(); }
-    kitLabel(x2x, "flat wall face: the outline, the depth, the shadow caster", X0, SY + 24, "left");
+    kitLabel(x2x, "flat wall face: what the GPU really draws", X0, SY + 24, "left");
     kitLabel(x2x, "1 m of wall texture, row " + ROW, X0, SY + 46, "left", "#c7cdd8");
-    kitLabel(x2x, "brick profile ×8: only in the texture", X1, SY - VS * 0.95 - 16, "right", AMBER);
+    kitLabel(x2x, "brick shape, 8× deeper: only in the texture", X1, SY - VS * 0.95 - 16, "right", AMBER);
     // point on the wall
     const i = sec.tx, k = ROW * N + i, px = tx(i + 0.5), py = SY;
     let nx = -DX[k] * strength, nz = 1; const nl = Math.hypot(nx, nz); nx /= nl; nz /= nl;
@@ -928,27 +995,32 @@ function kitInset(ctx, x, y, w, h, title) {
     torch(x2x, sec.L[0], sec.L[1], 70); sideLabel(x2x, "torch · drag", sec.L[0], sec.L[1]);
     kitPlayerTop(x2x, sec.E[0], sec.E[1], 14, Math.atan2(py - sec.E[1], px - sec.E[0]));
     handle(x2x, sec.E[0], sec.E[1], 4); sideLabel(x2x, "player's eye · drag", sec.E[0], sec.E[1]);
-    $("c2x-cap").innerHTML = `texel ${i} · N·L flat = ${ndlFlat.toFixed(2)} · N·L from map = <strong>${ndlBump.toFixed(2)}</strong>`;
+    $("c2x-cap").innerHTML = `spot: texel ${i} · torchlight hitting the flat wall ${ndlFlat.toFixed(2)} · hitting what the map says <strong>${ndlBump.toFixed(2)}</strong> (1 = square on, 0 = none)`;
+    sec.stats = { ndlFlat, ndlBump, nx };
+    L2 && L2.check();
   }
   drag(c2x, () => [sec.L, sec.E], (h, x, y) => { const t = h === 0 ? sec.L : sec.E; t[0] = x; t[1] = Math.min(y, SY - 12); draw2x(); },
     (x, y) => { if (y > SY - 120) { sec.tx = clamp(Math.floor((x - X0) / (X1 - X0) * N), 0, N - 1); draw2x(); } });
 
-  const lit = { L: [0.62, 0.30], z: 0.22 }, EYE2 = [0.5, 0.5, 1.2], R2 = 256, img2 = new ImageData(R2, R2);
+  const lit = { L: [0.62, 0.30], z: 0.22, on: true }, EYE2 = [0.5, 0.5, 1.2], R2 = 256, img2 = new ImageData(R2, R2);
   const nrm = [0, 0, 1];
   function draw2r() {
     const p = img2.data, Lp = [lit.L[0], lit.L[1], lit.z];
     for (let y = 0; y < R2; y++) for (let x = 0; x < R2; x++) {
       const u = (x + 0.5) / R2, v = (y + 0.5) / R2;
-      normalBilinear(u, v, nrm); shade(nrm, [u, v, 0], Lp, EYE2, 64, col, texelOf(u, v));
+      if (lit.on) normalBilinear(u, v, nrm); else { nrm[0] = 0; nrm[1] = 0; nrm[2] = 1; }
+      shade(nrm, [u, v, 0], Lp, EYE2, 64, col, texelOf(u, v));
       const o = (y * R2 + x) * 4; p[o] = col[0]; p[o + 1] = col[1]; p[o + 2] = col[2]; p[o + 3] = 255;
     }
     blit(x2r, img2, 0, 0, W, W);
-    kitLabel(x2r, "what the player sees: 1 m of wall, flat", 6, 14, "left", "#c7cdd8");
+    kitLabel(x2r, lit.on ? "what the player sees: 1 m of flat wall, directions from the map" : "what the player sees: 1 m of flat wall, no map", 6, 14, "left", "#c7cdd8");
     torch(x2r, lit.L[0] * W, lit.L[1] * W, 40); sideLabel(x2r, "torch · drag", lit.L[0] * W, lit.L[1] * W);
-    $("c2r-cap").innerHTML = `torch at (<strong>${lit.L[0].toFixed(2)}, ${lit.L[1].toFixed(2)}, ${lit.z.toFixed(2)}</strong>) m · Blinn-Phong p = 64`;
+    $("c2r-cap").innerHTML = `torch <strong>${lit.L[0].toFixed(2)} m</strong> from the left edge, <strong>${lit.L[1].toFixed(2)} m</strong> from the top, ${lit.z.toFixed(2)} m out from the wall · 256×256 pixels`;
+    L2b && L2b.check();
   }
   const req2r = throttle(draw2r);
   drag(c2r, () => [[lit.L[0] * W, lit.L[1] * W]], (h, x, y) => { lit.L[0] = x / W; lit.L[1] = y / W; req2r(); });
+  $("nmOn").addEventListener("change", () => { lit.on = $("nmOn").checked; req2r(); });
 
   // ---------- 3. tangent space: the brick tile on a room floor ----------
   const c3 = $("c3"), x3 = c3.getContext("2d"), R3 = 256, img3 = new ImageData(R3, R3), PXM = 330; // canvas px per metre
@@ -1011,8 +1083,11 @@ function kitInset(ctx, x, y, w, h, title) {
       `n_ts     = (${f2(nts[0])}, ${f2(nts[1])}, ${f2(nts[2])})\n` +
       `TBN·n_ts = (${f2(nw[0])}, ${f2(nw[1])}, ${f2(nw[2])})\n` +
       `N·L correct = ${ndlOk.toFixed(2)}   N·L bug = ${ndlBug.toFixed(2)}`;
-    $("c3-cap").innerHTML = `${ts.bug ? "<strong>bug on</strong>: n_ts used as world normal" : "TBN · n_ts"} · θ = <strong>${deg}°</strong>`;
-    $("c3-cap2").textContent = `N·L at the pixel: ${(ts.bug ? ndlBug : ndlOk).toFixed(2)} · torch 0.30 m above the floor`;
+    $("c3-cap").innerHTML = `${ts.bug ? "<strong>bug on</strong>: the map's arrow used as it is" : "the map's arrow turned with the tile"} · tile turned <strong>${deg}°</strong>`;
+    $("c3-cap2").textContent = `torchlight hitting the marked pixel: ${(ts.bug ? ndlBug : ndlOk).toFixed(2)} (1 = square on) · torch 0.30 m above the floor`;
+    $("t3-ok").querySelector(".n").textContent = ndlOk.toFixed(2); $("t3-bug").querySelector(".n").textContent = ndlBug.toFixed(2);
+    ts.stats = { ndlOk, ndlBug };
+    L3 && L3.check();
   }
   const req3 = throttle(draw3);
   drag(c3, () => { const ct = Math.cos(ts.theta), st = Math.sin(ts.theta); const Pw = [ct * (ts.P[0] - 0.5) - st * (ts.P[1] - 0.5), st * (ts.P[0] - 0.5) + ct * (ts.P[1] - 0.5)]; return [w2c(ts.L[0], ts.L[1]), w2c(Pw[0], Pw[1])]; },
@@ -1074,9 +1149,9 @@ function kitInset(ctx, x, y, w, h, title) {
     for (let i = I0; i <= I1; i += 4) label(x4x, String(i), ux(i / N), dy(1) + 12, "rgba(255,255,255,0.5)", "center");
     // the flat wall face
     x4x.strokeStyle = WHITE; x4x.lineWidth = 2; x4x.beginPath(); x4x.moveTo(X40, TY); x4x.lineTo(X41, TY); x4x.stroke();
-    kitLabel(x4x, "flat wall face, depth 0", X40, TY - 12, "left");
-    kitLabel(x4x, `depth 1 = ${pom.hs} mm · texels ${I0} to ${I1} of row ${ROW}`, X41, dy(1) + 28, "right", "#c7cdd8");
-    kitLabel(x4x, `${L} layers`, X41, TY - 12, "right", "#c7cdd8");
+    kitLabel(x4x, "flat wall face: what the GPU draws", X40, TY - 12, "left");
+    kitLabel(x4x, `deepest groove = ${pom.hs} mm · texels ${I0} to ${I1} of row ${ROW}`, X41, dy(1) + 28, "right", "#c7cdd8");
+    kitLabel(x4x, `${L} layers to step through`, X41, TY - 12, "right", "#c7cdd8");
     kitLabel(x4x, "brick", ux(40.5 / N), dy(0.62), "center", "#c7cdd8");
     kitLabel(x4x, "mortar groove", ux(32 / N), dy(1) - 8, "center", "#c7cdd8");
     // ray and march
@@ -1095,14 +1170,16 @@ function kitInset(ctx, x, y, w, h, title) {
       x4x.strokeStyle = color; x4x.lineWidth = 2; x4x.beginPath(); x4x.moveTo(x, y - 14); x4x.lineTo(x, y + 14); x4x.stroke();
       label(x4x, txt, x, dy(1) + 44 + row * 15, color, "center");
     };
-    tick(u0, WHITE, `plain ${Math.floor(u0 * N)}`, 0);
-    tick(uPar, BLUE, `parallax ${uPar >= 0 && uPar < 1 ? Math.floor(uPar * N) : "out"}`, 1);
-    if (!res.out) tick(res.u, AMBER, `POM ${Math.floor(res.u * N)}`, 2);
-    handle(x4x, ux(u0), TY, 6); kitLabel(x4x, "where the ray meets the flat wall · drag", clamp(ux(u0), 150, W4 - 150), TY + 16, "center");
+    tick(u0, WHITE, `plain lookup ${Math.floor(u0 * N)}`, 0);
+    tick(uPar, BLUE, `one guess ${uPar >= 0 && uPar < 1 ? Math.floor(uPar * N) : "out"}`, 1);
+    if (!res.out) tick(res.u, AMBER, `marched ${Math.floor(res.u * N)}`, 2);
+    handle(x4x, ux(u0), TY, 6); kitLabel(x4x, "where the line of sight meets the flat wall · drag", clamp(ux(u0), 170, W4 - 170), TY + 16, "center");
     kitPlayerTop(x4x, ex, ey, 12, Math.atan2(TY - ey, ux(u0) - ex));
     handle(x4x, ex, ey, 4); sideLabel(x4x, "player's eye · drag", ex, ey);
-    $("c4x-cap").innerHTML = `plain texel ${Math.floor(u0 * N)} · parallax ${uPar >= 0 && uPar < 1 ? Math.floor(uPar * N) : "outside"} · POM <strong>${res.out ? "left the texture" : Math.floor(res.u * N) + " after " + res.steps + " of " + L + " steps"}</strong>`;
-    $("c4x-cap2").textContent = `elevation ${elev.toFixed(1)}° · v.x / v.z = ${Math.abs(ratio).toFixed(2)} · max offset ${(Math.abs(ratio) * pom.hs).toFixed(0)} mm`;
+    $("c4x-cap").innerHTML = `plain lookup reads texel ${Math.floor(u0 * N)} · one guess reads ${uPar >= 0 && uPar < 1 ? Math.floor(uPar * N) : "outside the texture"} · the march reads <strong>${res.out ? "nothing, it left the texture" : Math.floor(res.u * N) + " after " + res.steps + " of " + L + " steps"}</strong>`;
+    $("c4x-cap2").textContent = `line of sight ${elev.toFixed(1)}° above the wall · slides ${Math.abs(ratio).toFixed(2)} texels sideways per texel of depth · farthest shift ${(Math.abs(ratio) * pom.hs).toFixed(0)} mm`;
+    pom.stats = { elev, plainH: hRow(u0), plainTexel: Math.floor(u0 * N), pomTexel: res.out ? -1 : Math.floor(res.u * N), out: res.out };
+    L4x && L4x.check();
   }
   drag(c4x, () => [pom.E, [X40 + (pom.ex / N - U0) * PXM4, TY]], (h, x, y) => {
     if (h === 0) { pom.E[0] = clamp(x, X40, X41); pom.E[1] = clamp(y, 10, TY - 24); }
@@ -1145,11 +1222,12 @@ function kitInset(ctx, x, y, w, h, title) {
       p[o + 3] = 255;
     }
     const ctx = $(canvasId).getContext("2d"); blit(ctx, img4, 0, 0, W, W);
-    kitLabel(ctx, ["mortar lines never move", "mortar lines shift, one guess", "mortar lines shift, marched"][mode], 6, 14, "left", "#c7cdd8");
+    bigLabel(ctx, ["mortar lines never move", "mortar lines shift, one guess", "mortar lines shift, marched"][mode], 8, 22, "left", "#c7cdd8");
     const n = R4 * R4;
-    $(capId).textContent = mode === 2 ? `${(stepsTotal / n).toFixed(1)} height reads/px · ${(100 * holes / n).toFixed(1)} % holes` : mode === 1 ? `2 reads/px · ${(100 * holes / n).toFixed(1)} % holes` : "1 read/px";
+    $(capId).textContent = mode === 2 ? `${(stepsTotal / n).toFixed(1)} texture reads per pixel · ${(100 * holes / n).toFixed(1)} % holes` : mode === 1 ? `2 texture reads per pixel · ${(100 * holes / n).toFixed(1)} % holes` : "1 texture read per pixel";
+    return { reads: stepsTotal / n, holes: 100 * holes / n };
   }
-  function draw4r() { render4("c4a", "c4a-cap", 0); render4("c4b", "c4b-cap", 1); render4("c4c", "c4c-cap", 2); }
+  function draw4r() { render4("c4a", "c4a-cap", 0); const b = render4("c4b", "c4b-cap", 1); const c = render4("c4c", "c4c-cap", 2); pom.rstats = { parHoles: b.holes, pomHoles: c.holes, pomReads: c.reads }; L4b && L4b.check(); }
   const req4r = throttle(draw4r);
   const req4all = () => { draw4x(); req4r(); };
 
@@ -1202,19 +1280,23 @@ function kitInset(ctx, x, y, w, h, title) {
       ctx.strokeStyle = WHITE; ctx.lineWidth = 2; ctx.strokeRect(i * T + 1, j * T + 1, T - 2, T - 2);
     }
     // what the player sees with each stored map
-    renderTexels(img5i, QX, QY, QZ); insetWall(x5a, img5i, 6, W - 188, "on screen with RGB8");
-    renderTexels(img5i, BX, BY, BZ); insetWall(x5b, img5i, 6, W - 188, "on screen with BC5");
-    kitLabel(x5a, "the wall's normal map · 3 bytes per texel", 6, 14, "left", "#c7cdd8");
-    kitLabel(x5b, "same map · 1 byte per texel", 6, 14, "left", "#c7cdd8");
-    kitLabel(x5c, "brick edges: worst", 300, 150, "left", AMBER); kitArrow(x5c, 298, 150, 262, 150, AMBER);
-    kitLabel(x5c, "flat brick face: near 0°", 128, 96, "center");
+    const IS = 1.5; // the lit-wall insets, enlarged so they read at the small picture size
+    renderTexels(img5i, QX, QY, QZ); x5a.save(); x5a.scale(IS, IS); insetWall(x5a, img5i, 6 / IS, (W - 6) / IS - 182, "the lit wall, 3-byte map"); x5a.restore();
+    renderTexels(img5i, BX, BY, BZ); x5b.save(); x5b.scale(IS, IS); insetWall(x5b, img5i, 6 / IS, (W - 6) / IS - 182, "the lit wall, 1-byte map"); x5b.restore();
+    bigLabel(x5a, "normal map · 3 bytes per texel", 8, 22, "left", "#c7cdd8");
+    bigLabel(x5b, "squeezed · 1 byte per texel", 8, 22, "left", "#c7cdd8");
+    bigLabel(x5c, "bright = brick edges: worst", W / 2, 24, "center", AMBER);
+    bigLabel(x5c, "dark = flat faces: near 0°", W / 2, W - 24, "center");
     const [mxR, mnR] = stats(errRGB), [mxB, mnB] = stats(errBC);
-    $("c5a-cap").textContent = `3 B/texel · max err ${mxR.toFixed(2)}° · mean ${mnR.toFixed(2)}°`;
-    $("c5b-cap").textContent = `1 B/texel · max err ${mxB.toFixed(2)}° · mean ${mnB.toFixed(2)}°`;
-    $("c5c-lab").textContent = enc.show === "bc5" ? "Error, BC5" : "Error, RGB8";
-    $("c5c-cap").textContent = `dark 0° → amber ${ERRMAX}° · 4×4 block outlined`;
-    $("c5-hov").textContent = `(${i}, ${j}): rgb8 (${R8[k * 3]}, ${R8[k * 3 + 1]}, ${R8[k * 3 + 2]}) err ${errRGB[k].toFixed(2)}° · bc5 (${BCX[k]}, ${BCY[k]}, z rebuilt) err ${errBC[k].toFixed(2)}°`;
+    $("c5a-cap").textContent = `worst texel off by ${mxR.toFixed(2)}° · average ${mnR.toFixed(2)}°`;
+    $("c5b-cap").textContent = `worst texel off by ${mxB.toFixed(2)}° · average ${mnB.toFixed(2)}°`;
+    $("c5c-lab").textContent = enc.show === "bc5" ? "how far off, 1-byte version" : "how far off, 3-byte version";
+    $("c5c-cap").textContent = `dark = exact, amber = ${ERRMAX}° off · the 4×4 block outlined`;
+    $("t5-bc").querySelector(".n").textContent = errBC[k].toFixed(2) + "°"; $("t5-rgb").querySelector(".n").textContent = errRGB[k].toFixed(2) + "°";
+    $("c5-hov").textContent = `texel (${i}, ${j}) · 3 bytes: ${R8[k * 3]}, ${R8[k * 3 + 1]}, ${R8[k * 3 + 2]} · 1 byte: ${BCX[k]}, ${BCY[k]}, third rebuilt`;
     mipTable();
+    enc.stats = { hovBC: errBC[k], hovRGB: errRGB[k], maxBC: mxB, maxRGB: mxR, meanBC: mnB, meanRGB: mnR };
+    L5 && L5.check();
   }
   function mipTable() {
     let ax = Float32Array.from(NX), ay = Float32Array.from(NY), az = Float32Array.from(NZ), size = N;
@@ -1250,5 +1332,109 @@ function kitInset(ctx, x, y, w, h, title) {
 
   // ---------- first paint ----------
   draw1(); draw2x(); draw2r(); draw3(); draw4x(); draw4r(); draw5();
+
+  // ---------- guided steps ----------
+  const setStr = s => { $("str").value = s; $("str").dispatchEvent(new Event("input")); };
+  const hoverTexel = (i, j) => hover1((i + 0.5) / N * W, (j + 0.5) / N * W);
+  L1 = lesson("height", { next: { id: "lit", title: "Lighting a flat wall with fake bricks" }, steps: [
+    { say: "On the left is one metre of castle wall as a grey picture, 64 squares by 64. Each square is a <b>texel</b>, one tiny cell of a texture, the image a game wraps onto a surface. Brighter means higher: the brick faces are bright, the mortar grooves between them are dark. This is a <b>height map</b>. The inset in the corner is the wall the player gets, lit by a torch.", enter: () => { if (strength !== 2) setStr(2); } },
+    { say: "<b>Hover a mortar groove</b> on the left picture, one of the dark lines between bricks.", todo: "hover a dark groove on the left picture", goal: () => hov1.stats && hov1.stats.h < 0.35, try: () => hoverTexel(10, 24),
+      done: "The white box is the texel under your pointer and the faint box is its eight neighbours. The height under the picture drops to about 0.18, the groove floor. Brick faces sit around 0.75." },
+    { say: "Lighting does not want heights. It wants to know which way each spot faces, so a tool compares each texel with its neighbours to find the slope, and turns that slope into an arrow. Steeper slope, more tilted arrow. <b>Hover the edge of a brick</b>, where a face meets a groove, and watch the amber arrow.", todo: "hover a brick edge on the left picture", goal: () => hov1.stats && hov1.stats.tilt > 0.35, try: () => hoverTexel(17, 20),
+      done: "The arrow swings to point from the brick face down into the groove. An arrow like this, length one, saying which way a spot faces, is called a <b>normal</b>. The right-hand picture is the normal map: every texel's arrow stored as a colour." },
+    { say: "Look at the right-hand picture.", quiz: { q: "Why is the normal map mostly blue?", options: [
+        { t: "Blue is the colour of bricks in the dark", why: "The colours are not what the wall looks like. Each one is a direction written as red, green and blue amounts." },
+        { t: "Most texels face straight out of the wall, and straight out is stored as blue", ok: true, why: "The flat brick faces and the groove floors all point straight out. Only the sloped brick edges tilt, and those show up as other tints." },
+        { t: "The mortar grooves are blue", why: "The groove floors are flat too, so they are blue as well. The coloured lines are the slopes between floor and face." } ] } },
+    { say: "The slider below sets how steep the tool pretends the wall is. <b>Push the bump strength up to 8.</b>", todo: "drag the bump strength to 8", goal: () => strength >= 7, try: () => setStr(8),
+      done: "The map gets more colourful and less blue: the same bricks now claim to be much steeper, and the wall in the inset looks carved. The honest setting for 30 mm of mortar depth is 1.92. Anything higher is exaggeration, which is fine for lighting and a problem for the depth tricks later." },
+    { say: "A normal map is a height map's slopes, stored as one direction per texel. The lighting reads those directions instead of the flat wall's own. The slope formula and the tool's code are under the hood below." } ] });
+
+  const set2 = () => { sec.L = [120, 196]; sec.E = [400, 96]; sec.tx = 33; draw2x(); };
+  L2 = lesson("lit", { next: { id: "torch", title: "The wall the player sees" }, steps: [
+    { say: "The corridor from above. The solid white line is the wall as the GPU draws it: one flat rectangle, seen edge on. The dashed amber outline is the brick shape the map describes, drawn eight times deeper so you can see it. It exists only in the texture. At the chosen spot, the blue arrow is which way the flat wall faces and the amber arrow is which way the map says that spot faces.", enter: set2 },
+    { say: "Brightness follows one rule: a spot is bright when it faces the torch and dark when it faces away. The numbers under the picture, from 0 to 1, say how squarely the torchlight hits. <b>Drag the torch</b> to the far left of the corridor, down close to the wall.", todo: "drag the torch to the bottom left", goal: () => sec.L[0] < 110 && sec.L[1] > 250, try: () => { sec.L = [60, 290]; draw2x(); },
+      done: "Now the torch grazes along the wall, and the flat wall's number is low everywhere: the light only skims it." },
+    { say: "<b>Hover along the wall</b> until the spot sits on the sloped side of a brick, where the two arrows disagree most.", todo: "hover the wall until the amber arrow leans", goal: () => sec.stats && Math.abs(sec.stats.nx) > 0.3, try: () => { sec.tx = 34; draw2x(); }, enter: () => { sec.L = [60, 290]; draw2x(); },
+      done: "On the slope facing the torch the map's number jumps well above the flat wall's; on the slope facing away it drops toward zero. The flat wall's number depends only on where the torch is. The map's depends on the slope too, and that is the whole trick." },
+    { say: "Now the player.", quiz: { q: "If the player walks right up to the wall and looks along it, what happens to the brick outline?", options: [
+        { t: "The bricks stick out past the wall face", why: "The GPU only ever draws the flat white line. Nothing sticks out, from any angle." },
+        { t: "Nothing: the wall stays a flat rectangle", ok: true, why: "The bricks live only in the lighting. The outline, the distance stored for each pixel and the shadows all come from the flat wall." },
+        { t: "The bricks flatten out", why: "They were never raised. Only the shading changes with the view." } ] },
+      todo: "drag the player's eye down next to the wall to check", goal: () => sec.E[1] > 260, try: () => { sec.E = [420, 300]; draw2x(); },
+      done: "The line of sight changes, but the wall face it meets is the same straight line, and the dashed profile is still only a drawing." },
+    { say: "Normal mapping changes one thing: which way each pixel thinks it faces. What the GPU does and does not do with that is under the hood." } ] });
+
+  const set2r = (x, y, on) => { lit.L = [x, y]; lit.on = on; $("nmOn").checked = on; draw2r(); };
+  L2b = lesson("torch", { next: { id: "tangent", title: "Turning the map with the mesh" }, steps: [
+    { say: "This is the metre of wall the player sees, head on, lit by the torch. Every pixel of it is the flat rectangle with the map's direction fed into the lighting. The bricks look raised, the grooves look sunken.", enter: () => set2r(0.62, 0.30, true) },
+    { say: "<b>Drag the torch to the left edge</b> of the wall.", todo: "drag the torch to the left edge", goal: () => lit.L[0] < 0.2, try: () => set2r(0.1, 0.4, true),
+      done: "The right-hand side of every brick goes dark and the left-hand sides catch the light, because the map says those sides tilt toward the torch. Nothing on the wall moved." },
+    { say: "The box below switches the map off, so every pixel uses the flat wall's direction instead.", quiz: { q: "With the map off, what does the same torch show?", options: [
+        { t: "The same bricks, a little dimmer", why: "With no map every pixel faces straight out, so there is no brick shape left for the light to catch." },
+        { t: "A flat wall: a patch of colour with a soft glow and no relief", ok: true, why: "The brick colours are still painted on, but every bit of raised or sunken look came from the map's directions." },
+        { t: "Nothing, the wall goes black", why: "It still faces the torch, so it is still lit, just evenly." } ] },
+      todo: "untick the box below to check", goal: () => !lit.on, try: () => $("nmOn").click(),
+      done: "Flat. The red and grey pattern is still there, because that is painted colour, but the shading that made it look carved is gone." },
+    { say: "<b>Tick the box again</b> and <b>drag the torch to the bottom right</b> corner.", todo: "tick the box and drag the torch to the bottom right", goal: () => lit.on && lit.L[0] > 0.8 && lit.L[1] > 0.7, try: () => set2r(0.9, 0.85, true),
+      done: "The lit sides swap over. The torch's position and each texel's stored direction are the only two inputs. There are no bumps to move." },
+    { say: "One extra texture read per pixel, and a flat rectangle shades like brickwork. The two lighting terms and the pixel program are under the hood." } ] });
+
+  const set3 = o => { Object.assign(ts, o); $("rot").value = Math.round(ts.theta * 180 / Math.PI); $("rotv").textContent = $("rot").value + "°"; $("bug").checked = ts.bug; draw3(); };
+  const deg3 = () => ts.theta * 180 / Math.PI;
+  L3 = lesson("tangent", { next: { id: "pom", title: "Where the line of sight really lands" }, steps: [
+    { say: "Looking down into a castle room. The same brick texture is now a floor tile, turned 50 degrees, and a player walks around it with a torch. At the marked pixel the amber arrow points along the texture's right and the blue arrow along the texture's down. Both turned with the tile.", enter: () => set3({ theta: 50 * Math.PI / 180, L: [0.42, -0.40], P: [0.60, 0.36], bug: false }) },
+    { say: "<b>Drag the rotation slider</b> all the way to one end, −180°.", todo: "drag the slider to −180°", goal: () => deg3() <= -150, try: () => set3({ theta: -Math.PI }),
+      done: "The tile spun half a turn and the bricks stayed lit from the torch's side the whole way. The map's directions are relative to the texture, tilted a little toward its right edge, say. When the tile turns, the game turns each stored direction by the same amount before lighting, using those two arrows." },
+    { say: "The box below makes the game skip that turning step.", quiz: { q: "If the stored directions are used as they are, without turning them with the tile, what goes wrong?", options: [
+        { t: "The bricks disappear", why: "The map is still read and the bricks still shade. Only the meaning of each direction is off." },
+        { t: "The bricks look lit from a direction that spins with the tile", ok: true, why: "The texture's right is taken to be the room's right. Turn the tile and the light appears to come from the wrong side." },
+        { t: "Nothing, the torch has not moved", why: "The torch is where it was, but the directions the shading uses no longer point at it." } ] },
+      todo: "tick the bug box and drag the rotation slider", goal: () => ts.bug && Math.abs(deg3()) >= 120, try: () => set3({ bug: true, theta: Math.PI }), enter: () => set3({ theta: 50 * Math.PI / 180, bug: false }),
+      done: "Now the lighting swings round with the tile. At 0° the bug is invisible, which is how it ships in real games: a floor that looks right until someone turns a tile." },
+    { say: "Keep the bug on. <b>Drag the marked pixel onto a brick edge</b> and compare the two numbers below.", todo: "drag the marked pixel onto a brick edge", goal: () => ts.bug && ts.stats && Math.abs(ts.stats.ndlOk - ts.stats.ndlBug) > 0.15, try: () => { ts.P = [17.5 / N, 20.5 / N]; draw3(); }, enter: () => set3({ theta: Math.PI, bug: true, L: [0.42, -0.40] }),
+      done: "Same pixel, same torch, two different answers for how bright it is. The right one comes from turning the map's arrow by the tile's two arrows first." },
+    { say: "A normal map only means something together with three arrows the mesh carries: the texture's right, the texture's down and straight out, called the tangent basis. The matrix that does the turning, the live numbers and the vertex program are under the hood." } ] });
+
+  const set4 = () => { pom.E = [120, 40]; pom.ex = 44.5; draw4x(); draw4r(); };
+  L4x = lesson("pom", { next: { id: "pomlook", title: "What each method shows the player" }, steps: [
+    { say: "The same wall from above, zoomed in on 36 texels of row 20. This time the bricks are drawn as if they were real: solid steps, with the mortar grooves as gaps. The white line is the flat face the GPU draws. The player looks at it from a slant, and the white line from the eye is the line of sight.", enter: set4 },
+    { say: "Normal mapping reads the texture where the line of sight crosses the flat face: the white tick. If the bricks were real the line would keep going and hit a brick somewhere else: the amber dot. <b>Drag the player's eye down</b>, close to the wall, for a grazing view.", todo: "drag the eye down close to the wall", goal: () => pom.stats && pom.stats.elev < 9, try: () => { pom.E = [140, 120]; draw4x(); draw4r(); },
+      done: "The ticks spread apart. At a grazing view the true hit is many texels from the plain lookup, so this is where a normal map alone looks flattest and where shifting the lookup matters most." },
+    { say: "Two ways to find that hit. The blue tick is one guess: read the depth under the white tick and slide sideways by that much. The amber dot is a march: step down the line of sight one layer at a time, reading the depth each time, until the line is inside a brick.", quiz: { q: "Why can the one-step guess land on the wrong texel?", options: [
+        { t: "It slides in the wrong direction", why: "It slides along the line of sight, which is the right direction. The distance is the guess." },
+        { t: "It uses the depth at the plain lookup, not the depth where the line really lands", ok: true, why: "It assumes the surface under the true hit is as deep as the surface under the flat spot. That is false whenever the line crosses a brick edge, which is most of the time." },
+        { t: "It rounds to whole texels", why: "Both methods read between texels. Rounding is not the problem." } ] } },
+    { say: "<b>Drag the white handle</b> on the flat face so the line of sight starts over a mortar groove.", todo: "drag the handle over a groove", goal: () => pom.stats && pom.stats.plainH < 0.35 && !pom.stats.out, try: () => { pom.ex = 48.5; draw4x(); draw4r(); }, enter: () => { pom.E = [120, 40]; draw4x(); draw4r(); },
+      done: "The plain lookup reads the groove floor. The march walks down the line and stops inside the first brick it meets, a few texels along. The one-step guess slid by the full depth of the groove and lands further still, on a spot the line never reaches." },
+    { say: "Parallax never moves the surface. It moves where the texture is read, and the marching version, called parallax occlusion mapping, finds the right spot by walking the line of sight down through the height map a layer at a time. The formulas are under the hood; what it does to the picture is next." } ] });
+
+  const set4r = (layers, hs) => { pom.layers = layers; pom.hs = hs; $("layers").value = layers; $("layersv").textContent = layers; $("hs").value = hs; $("hsv").textContent = hs + " mm"; draw4x(); draw4r(); };
+  L4b = lesson("pomlook", { next: { id: "encoding", title: "Storing the map small" }, steps: [
+    { say: "The whole metre of wall three times, seen along the line of sight from the stage above. Left: the texture read where the line meets the flat face. Middle: the one-step guess. Right: the march. Look at the mortar lines: in the middle and right pictures they have shifted sideways, the way the grooves of a real wall would when you look along it.", enter: () => { pom.E = [120, 40]; pom.ex = 44.5; set4r(16, 60); } },
+    { say: "<b>Drag the layers slider down to 8.</b>", todo: "drag the layers slider to 8", goal: () => pom.layers <= 9, try: () => set4r(8, pom.hs),
+      done: "Stair-steps appear along the mortar lines in the right picture. With only 8 layers the march takes big steps, so it finds the hit only roughly. The reads-per-pixel number under the picture fell too: fewer steps, cheaper." },
+    { say: "Now the other way.", quiz: { q: "What does going to 64 layers cost?", options: [
+        { t: "Nothing, the map is the same size", why: "The map is the same, but the march reads it once per layer, for every pixel of the wall, every frame." },
+        { t: "Up to 64 texture reads for every pixel of the wall, every frame", ok: true, why: "The reads-per-pixel number is the price. Engines use few layers when looking straight at a surface and many at grazing angles." },
+        { t: "More memory", why: "No extra memory: the same texture is read more times. The cost is time." } ] },
+      todo: "drag the layers slider to 64", goal: () => pom.layers >= 60, try: () => set4r(64, pom.hs),
+      done: "The stair-steps are gone and the reads-per-pixel number is up. Smoothness for reads: that trade is why engines pick the layer count from the viewing angle." },
+    { say: "<b>Raise the pretend depth to 110 mm.</b>", todo: "drag the depth slider to 110 mm", goal: () => pom.hs >= 100, try: () => set4r(pom.layers, 110),
+      done: "A dark band grows along one edge of the middle and right pictures, the holes in the caption. Lines of sight that slide off the edge of the texture have nothing to hit. The wall's outline is still flat, so the deeper the bricks pretend to be, the more the edges give the trick away." },
+    { say: "Deeper relief looks better up to the point where the edges and the read count give it away. The tradeoffs table at the end weighs the ways of faking or building surface detail." } ] });
+
+  const hover5Texel = (i, j) => hover5((i + 0.5) / N * W, (j + 0.5) / N * W);
+  L5 = lesson("encoding", { next: { id: "tradeoffs", title: "Tradeoffs: how much surface to fake" }, steps: [
+    { say: "Left: the wall's normal map stored plainly, three numbers per texel, one byte each. Middle: the same map squeezed into one byte per texel with a format called BC5, which keeps two of the three numbers and rebuilds the third. The inset on each is the lit wall from that map; the player cannot tell them apart. Right: how far off each texel's rebuilt arrow is, in degrees. Dark is exact, amber is the worst on the map.", enter: () => { enc.show = "bc5"; segOn($("segErr"), "bc5"); hover5Texel(31, ROW); } },
+    { say: "", quiz: { q: "How can two numbers stand in for three?", options: [
+        { t: "The third number is always the same", why: "It varies from texel to texel, but never in a way that needs storing." },
+        { t: "The arrow always has length one and never points into the wall, so the third number follows from the other two", ok: true, why: "Length one pins the third number down to a plus or minus choice, and a height map can never face inward, so it is always plus." },
+        { t: "The GPU guesses it from the neighbours", why: "It is worked out exactly from the two stored numbers, no neighbours needed." } ] } },
+    { say: "<b>Hover a brick edge</b> on the right-hand picture, one of the bright lines.", todo: "hover a bright line on the right picture", goal: () => enc.stats && enc.stats.hovBC >= 1, try: () => hover5Texel(45, 42),
+      done: "Steep slopes are where the squeeze hurts. BC5 stores each 4 by 4 block of texels as two end values and a 3-bit pick between them, so a block with a wide range of slopes rounds harder. Flat brick faces cost almost nothing." },
+    { say: "<b>Switch the error picture to the three-byte version.</b>", todo: "switch the error picture below", goal: () => enc.show === "rgb8", try: () => $("segErr").querySelector('[data-v="rgb8"]').click(),
+      done: "Far smaller and spread evenly: that is plain rounding to one of 256 steps, the same everywhere. Under half a degree at worst, against nearly 3 degrees for the 1-byte version on the brick edges, which takes a third of the memory." },
+    { say: "Store two numbers, rebuild the third, and accept a small error on steep slopes. Under the hood: the decode, the memory for a 2048 by 2048 map in each format, and a second trick for the half-size copies used at a distance." } ] });
 })();
 </script>
