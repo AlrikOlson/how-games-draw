@@ -220,6 +220,7 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 
 /* page-specific */
 .vp canvas { aspect-ratio: 1; }
+section.stage .cols > .vp:first-child { max-width: var(--stage-free); }
 .stackview { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; min-height: 30px; font-family: var(--font-mono); font-size: 12px; }
 .stackview .lbl { color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; font-size: 11px; margin-right: 4px; }
 .stackview .chip { border: 1px solid var(--line); border-radius: 3px; padding: 3px 8px; background: var(--chip); color: var(--ink); }
@@ -236,63 +237,54 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a village at night, 10 m × 10 m from above · 300 segments in 8 props · drag the player and the aim point</p>
+    <p class="eyebrow">a village at night, seen from above · five guided demos · nothing to install</p>
     <h1>Ray Tracing &amp; the BVH</h1>
-    <p class="lead">Ray tracing asks one question per pixel: <b>which surface does this line hit first</b>. Checking every triangle to answer it is far too slow, so the scene gets wrapped in a <b>tree of boxes</b> called a bounding volume hierarchy, and a ray only opens the boxes it touches. That turns millions of tests into a few dozen. <b>The part people get wrong</b>: the ray tracing hardware in a GPU only walks the tree, and building it, then keeping it current as things move, is still your frame time.</p>
+    <p class="lead">Ray tracing draws a picture by asking one question for every pixel on the screen: <b>what is the first thing in this direction</b>. That imaginary line is a ray. Checking it against every wall, crate and leaf in a scene would take far too long, so the scene is wrapped in a tree of boxes inside boxes, and a ray only opens the boxes it actually touches. A few dozen box checks replace millions of edge checks. <b>The thing people get wrong:</b> the ray tracing hardware in a graphics card only walks that tree. Building the tree, and keeping it current as things move and bend, is still work your game pays for every frame.</p>
     <div class="key">
-      <span style="--sw:#9aa3b2">walls, canopies, crate sides and leaves: the segments a ray can hit</span>
-      <span style="--sw:#4aa3ff">box the ray opened</span>
-      <span style="--sw:#f2a341">box whose segments were tested, and the first thing the player sees</span>
+      <span style="--sw:#9aa3b2">walls, tree tops, crate sides and leaves: the edges a ray can hit</span>
+      <span style="--sw:#4aa3ff">a box the ray opened</span>
+      <span style="--sw:#f2a341">a box whose edges were checked, and the first thing the player sees</span>
       <span style="--sw:#ffffff">the player's line of sight and its aim handle</span>
-      <span style="--sw:#5ad48a">box test passed</span>
-      <span style="--sw:#ef5d5d">box test failed, or skipped as behind the hit</span>
+      <span style="--sw:#5ad48a">box check passed</span>
+      <span style="--sw:#ef5d5d">box check failed, or skipped because it starts beyond the hit</span>
     </div>
     <dl class="terms">
-      <dt>ray</dt><dd>a line fired from a point in one direction; we want the first thing it hits</dd>
-      <dt>segment</dt><dd>one straight piece of a wall, a crate side or a leaf edge; this 2D demo's stand-in for a triangle</dd>
-      <dt>bounding box</dt><dd>the smallest upright rectangle around some geometry; cheap to test</dd>
-      <dt>BVH</dt><dd>bounding volume hierarchy: boxes inside boxes, with a few segments in each bottom box</dd>
-      <dt>node, leaf</dt><dd>one box in the tree; a leaf is a bottom box that holds segments instead of children</dd>
+      <dt>ray</dt><dd>a straight line fired from a point in one direction; we want the first thing it hits</dd>
+      <dt>segment</dt><dd>one straight edge of a wall, a crate side or a leaf; this flat demo's stand-in for a triangle</dd>
+      <dt>bounding box</dt><dd>the smallest upright rectangle around some geometry; quick to check a ray against</dd>
+      <dt>BVH</dt><dd>bounding volume hierarchy: the tree of boxes inside boxes, with a few edges in each bottom box</dd>
+      <dt>node, leaf</dt><dd>one box in the tree; a leaf is a finished bottom box that holds edges instead of smaller boxes</dd>
       <dt>t</dt><dd>how far along the ray a hit is; the smallest t is the closest hit</dd>
       <dt>SAH</dt><dd>surface area heuristic: the rule for choosing where to cut a box in two</dd>
-      <dt>TLAS, BLAS</dt><dd>the small top tree over placed objects, and the bottom tree inside each mesh</dd>
+      <dt>TLAS, BLAS</dt><dd>the small top tree over placed copies of shapes, and the tree inside each shape</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#brute"><span class="n">01</span>One ray, with and without the tree</a></li><li><a href="#build"><span class="n">02</span>How the tree gets built</a></li><li><a href="#traverse"><span class="n">03</span>Walking the tree, one step at a time</a></li><li><a href="#twolevel"><span class="n">04</span>Two trees</a></li><li><a href="#budget"><span class="n">05</span>The ray budget</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#brute"><span class="n">01</span>What one ray hits, two ways</a></li><li><a href="#build"><span class="n">02</span>How the tree of boxes is built</a></li><li><a href="#traverse"><span class="n">03</span>Walking the tree, one box at a time</a></li><li><a href="#twolevel"><span class="n">04</span>Moving props without rebuilding everything</a></li><li><a href="#budget"><span class="n">05</span>How many rays a frame can afford</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="brute">
-    <h2>One ray, with and without the tree</h2>
-    <p class="sub">A player stands at the edge of a village at night and looks across it. Drag the player or the aim point and watch how much work it takes to find the first wall, tree or crate in their line of sight, with and without the tree of boxes.</p>
+  <section id="brute" class="stage">
+    <h2>What one ray hits, two ways</h2>
+    <p class="sub">A player at the edge of a village at night looks across it. Find the first wall, tree or crate in their line of sight, the slow way and the quick way.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c1" width="512" height="512" class="grab" aria-label="Top-down village at night: a player's line of sight traced to the first house wall, tree or crate it hits, with the BVH boxes it opened drawn on top and a small first-person view of the village in the corner"></canvas>
-        <div class="cap"><span id="c1-left">brute force</span><span id="c1-right">BVH</span></div>
-        <div class="cap"><span id="c1-build"></span><span>leaf size 4 · binned SAH</span></div>
+        <canvas id="c1" width="512" height="512" class="grab sq" aria-label="Top-down village at night: a player's line of sight traced to the first house wall, tree or crate it hits, with the boxes it opened drawn on top and a small first-person view of the village in the corner"></canvas>
+        <div class="cap"><span id="c1-left">checking every edge</span><span id="c1-right">with the tree</span></div>
+        <div class="cap"><span id="c1-build"></span><span>4 edges per finished box · cut by cost</span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The slow way to find what a ray hits is to <b>test every segment in the scene</b>. The BVH wraps the scene in <b>boxes inside boxes</b>, and a ray that misses a box never looks inside it. Same ray, same answer, but <b>a few dozen box tests instead of hundreds of segment tests</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>You are looking down on a village: a house, two oaks, a well, two crates, a fence, a hedge and a lamp. The small figure is the player and the white line is their line of sight, running toward the aim handle. The pale lines along each prop's edge are the segments a ray can hit. Blue boxes are the ones the ray opened, amber boxes are the bottom boxes whose segments were tested, and red boxes were tested and thrown out. The amber dot is the first thing the player sees.</p>
-        <p>The inset in the corner is the player's own view of the village from where they stand, drawn by firing one ray per column through the same tree. The three tiles count the work for the one white ray: segment tests without the tree, boxes visited with it, and segment tests with it.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Push the Segments slider to 5,000. Every prop gets more detail, the brute-force number follows it, and the two BVH numbers barely move.</li>
-          <li>Drag the aim point so the line of sight crosses the well and then an oak. The hit stays on the well, and the oak's boxes are thrown out without being opened.</li>
-          <li>Aim between the fence and the hedge so the player sees only sky. Brute force still tests every segment; the tree only opens the boxes along the line.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><label for="nseg">Segments <span class="val" id="nsegv">300</span></label><input type="range" id="nseg" min="50" max="5000" step="50" value="300"></div>
+      <div class="lesson" data-lesson="brute">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="nseg">Edges in the village <span class="val" id="nsegv">300</span></label><input type="range" id="nseg" min="50" max="5000" step="50" value="300"></div>
         </div>
         <div class="tiles">
-          <div class="tile"><div class="n" id="t1-brute">—</div><div class="l">segment tests, brute force</div></div>
-          <div class="tile on"><div class="n" id="t1-nodes">—</div><div class="l">nodes visited, BVH</div></div>
-          <div class="tile on"><div class="n" id="t1-tests">—</div><div class="l">segment tests, BVH</div></div>
+          <div class="tile"><div class="n" id="t1-brute">—</div><div class="l">edge checks, checking every edge</div></div>
+          <div class="tile on"><div class="n" id="t1-nodes">—</div><div class="l">boxes looked at, with the tree</div></div>
+          <div class="tile on"><div class="n" id="t1-tests">—</div><div class="l">edge checks, with the tree</div></div>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">A ray that misses a box never looks inside it, so the work grows with the depth of the tree, not the size of the village.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>A ray is a start point <code>o</code> plus a direction <code>d</code>, and every point on it is <code>o + t·d</code>, where <code>t</code> is the distance travelled. The closest hit is the smallest positive <code>t</code> over every surface. Brute force computes <code>t</code> for all N segments, so cost grows in step with N.</p>
         <p>The BVH is a tree of axis-aligned boxes, meaning boxes whose sides line up with the x and y axes. Each interior node stores the box around both of its children; each leaf stores a few segments. Testing a ray against a box is the slab test, which treats each pair of opposite walls as a slab and asks where the ray is between them.</p>
         <p class="words">In words: for each axis, find where the ray enters and leaves the two walls; keep the latest entry and the earliest exit. The ray hits the box if entry comes before exit.</p>
@@ -313,49 +305,39 @@ expected nodes visited per ray ≈ O(log N)   (SAH-built tree, ~1.5–2 × log�
   <span class="k">return</span> tNear &lt;= tFar;      <span class="c">// 6 mul, 6 min/max, 1 compare per box</span>
 }</pre>
 
-        <p class="tldr">A ray that misses a box never looks inside it, so cost grows with the depth of the tree instead of the size of the scene.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="build">
-    <h2>How the tree gets built</h2>
-    <p class="sub">The same village, boxed up. Step through the tree one level at a time and hover a box to see how good each possible cut of it would be.</p>
+  <section id="build" class="stage">
+    <h2>How the tree of boxes is built</h2>
+    <p class="sub">The same village, boxed up. Step through the tree one level at a time and see why cutting a box down the middle is not the best cut.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" width="512" height="512" aria-label="The village from above with one level of the BVH boxes drawn over the house, oaks, crates and hedge, and below it the SAH cost curve for every possible cut of the hovered box"></canvas>
+        <canvas id="c2" width="512" height="512" class="sq" aria-label="The village from above with one level of the tree's boxes drawn over the house, oaks, crates and hedge, and below it a curve showing the cost of every possible cut of the box under the pointer"></canvas>
         <div class="cap"><span id="c2-left"></span><span id="c2-right"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Building the tree means <b>cutting each box in two, over and over</b>, until each piece holds only a few segments. Where you cut matters. <b>Cutting at the middle</b> gives a tidy, balanced tree whose boxes overlap a lot. <b>Cutting where the geometry is</b> gives lopsided boxes that overlap less, so a ray opens fewer of them.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The boxes over the village are one level of the tree: blue ones will be cut again, dashed amber ones are already leaves. The white box is the one under your pointer, with its cut drawn as a dashed line and a label saying what the box holds, such as the house and the well.</p>
-        <p>The strip at the bottom is the cost of every place that white box could be cut. The amber dot is the cheapest cut, the blue dot is where a plain middle cut would land.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Switch between median and SAH at level 3. Median boxes overlap each other and cut through the house; SAH boxes hug the props.</li>
-          <li>Drop Leaf size to 1, then raise it to 8. Nodes and Tests / ray in the table pull in opposite directions.</li>
-          <li>Compare the Build and Nodes / ray columns for the two rules. You pay build time once to save time on every ray.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><span class="lab">Split rule</span><div class="seg" id="segBuild" role="group" aria-label="Split rule"><button data-v="median">median</button><button data-v="sah" aria-pressed="true">SAH</button></div></div>
-          <div class="ctl"><label for="lvl">Show level <span class="val" id="lvlv">3</span></label><input type="range" id="lvl" min="0" max="12" step="1" value="3"></div>
-          <div class="ctl"><label for="leaf">Leaf size <span class="val" id="leafv">4</span></label><input type="range" id="leaf" min="1" max="8" step="1" value="4"></div>
+      <div class="lesson" data-lesson="build">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="lvl">Level of the tree shown <span class="val" id="lvlv">3</span></label><input type="range" id="lvl" min="0" max="12" step="1" value="3"></div>
+          <div class="ctl" data-step-min="5"><span class="lab">Where to cut each box</span><div class="seg" id="segBuild" role="group" aria-label="Split rule"><button data-v="median">down the middle</button><button data-v="sah" aria-pressed="true">by cost (SAH)</button></div></div>
+          <div class="ctl" data-step-min="6"><label for="leaf">Edges per finished box <span class="val" id="leafv">4</span></label><input type="range" id="leaf" min="1" max="8" step="1" value="4"></div>
         </div>
-        <div class="tbl-wrap">
+        <div class="tbl-wrap" data-step-min="5">
         <table class="stats">
-          <thead><tr><th>300 segments, 100 random rays</th><th>Nodes</th><th>Depth</th><th>Build</th><th>Nodes / ray</th><th>Tests / ray</th></tr></thead>
+          <thead><tr><th>300 edges, 100 random rays</th><th>Boxes</th><th>Levels</th><th>Build time</th><th>Boxes per ray</th><th>Edge checks per ray</th></tr></thead>
           <tbody>
-            <tr><td>Median split</td><td id="s2-m-n"></td><td id="s2-m-d"></td><td id="s2-m-b"></td><td id="s2-m-v"></td><td id="s2-m-t"></td></tr>
-            <tr><td>Binned SAH</td><td id="s2-s-n"></td><td id="s2-s-d"></td><td id="s2-s-b"></td><td id="s2-s-v" class="hi"></td><td id="s2-s-t" class="hi"></td></tr>
+            <tr><td>Cut down the middle</td><td id="s2-m-n"></td><td id="s2-m-d"></td><td id="s2-m-b"></td><td id="s2-m-v"></td><td id="s2-m-t"></td></tr>
+            <tr><td>Cut by cost (SAH)</td><td id="s2-s-n"></td><td id="s2-s-d"></td><td id="s2-s-b"></td><td id="s2-s-v" class="hi"></td><td id="s2-s-t" class="hi"></td></tr>
           </tbody>
         </table>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Cut where the gaps are, not down the middle: you pay once when the tree is built and save on every ray after.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>Two choices define a build: where to split a node, and when to stop and make a leaf. Median split sorts the segments by their centre point along the box's longest axis and halves the list. The tree is balanced, but it ignores where the geometry is, so sibling boxes overlap and a ray often has to enter both.</p>
         <p>The surface area heuristic (SAH) prices each candidate split by how likely a random ray is to enter each child, times the work waiting inside it. That likelihood is proportional to the child's surface area, which in this 2D demo is its perimeter. Production builders do not try every position. They sort segments into 12 to 32 bins per axis and only try the bin edges.</p>
         <p class="words">In words: a split costs one box test, plus each child's share of the rays times the number of segments inside it.</p>
@@ -385,40 +367,31 @@ best.cost = INF;
 <span class="k">if</span> (best.cost &gt;= count * C_i) makeLeaf();      <span class="c">// splitting would cost more than testing everything</span>
 <span class="k">else</span> { partition(prims, best); recurse(left); recurse(right); }</pre>
 
-        <p class="tldr">Cut where the geometry is, not at the middle: you pay once at build time and save on every ray after.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="traverse">
-    <h2>Walking the tree, one step at a time</h2>
-    <p class="sub">One look across the village, one box at a time. Scrub through the ray's walk down the tree and watch the list of boxes still waiting to be checked.</p>
+  <section id="traverse" class="stage">
+    <h2>Walking the tree, one box at a time</h2>
+    <p class="sub">One look across the village, one box at a time. Scrub through the ray's walk down the tree and watch its to-do list of boxes.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c3" width="512" height="512" class="grab" aria-label="The village from above with the player's line of sight walking the BVH one box at a time: green boxes passed, red boxes failed or were skipped, and the closest hit so far is marked"></canvas>
+        <canvas id="c3" width="512" height="512" class="grab sq" aria-label="The village from above with the player's line of sight walking the tree one box at a time: green boxes passed, red boxes failed or were skipped, and the closest hit so far is marked"></canvas>
         <div class="cap"><span id="c3-left"></span><span id="c3-right"></span></div>
-        <div class="stackview" id="stack3"><span class="lbl">stack</span></div>
-        <div class="controls" style="margin-top:12px">
-          <div class="ctl"><label for="step3">Step <span class="val" id="step3v"></span></label><input type="range" id="step3" min="1" max="10" step="1" value="1"></div>
-          <div class="ctl"><span class="lab">&nbsp;</span><div style="display:flex;gap:6px"><button class="btn" id="prev3" aria-label="Previous step">◀</button><button class="btn" id="next3" aria-label="Next step">▶</button></div></div>
-          <div class="ctl"><span class="lab">Ray type</span><div class="seg" id="segRay" role="group" aria-label="Ray type"><button data-v="closest" aria-pressed="true">closest hit</button><button data-v="any">any hit (shadow)</button></div></div>
+        <div class="stackview" id="stack3"><span class="lbl">to-do list</span></div>
+      </div>
+      <div class="lesson" data-lesson="traverse">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="step3">Step of the walk shown <span class="val" id="step3v"></span></label><input type="range" id="step3" min="1" max="10" step="1" value="1"></div>
+          <div class="ctl"><span class="lab">One step at a time</span><div style="display:flex;gap:6px"><button class="btn" id="prev3" aria-label="Previous step">◀ back</button><button class="btn" id="next3" aria-label="Next step">forward ▶</button></div></div>
+          <div class="ctl" data-step-min="4"><span class="lab">What the ray asks</span><div class="seg" id="segRay" role="group" aria-label="Ray type"><button data-v="closest" aria-pressed="true">the nearest thing</button><button data-v="any">anything at all (a shadow ray)</button></div></div>
         </div>
       </div>
-      <div class="prose">
-        <p class="plain">Walking the tree is a loop with a <b>to-do list of boxes</b>. Take the top box off the list, test it, and either <b>throw it away, test its segments, or add its two children</b> to the list. The child nearer the ray goes on top so it is checked first. <b>Once a hit is found, any box that starts beyond it is skipped</b> without being opened.</p>
+    </div>
+    <div class="foot">
+    <p class="tldr">Check the nearer half first, and every box that starts beyond the current hit costs nothing.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>What you're seeing</h3>
-        <p>The player looks across the village toward the aim handle. Each step takes one box off the list. Green boxes passed the box test. Red boxes failed it, or were skipped because they start beyond the hit found so far. The label on the current box says what happened to it, and the amber dot is the closest thing found so far.</p>
-        <p>The chips under the picture are the to-do list, which programmers call the stack. The amber chip is the next box to be checked.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Step forward with ▶ and watch the chips. Each opened box adds two children; each leaf adds none.</li>
-          <li>Switch Ray type to any hit. The walk ends at the first segment it touches, so it takes fewer steps.</li>
-          <li>Drag the aim point so the player looks straight at the well. Boxes farther along turn red as they get skipped.</li>
-        </ul>
-
-        <h3>The real version</h3>
         <p>Traversal is a loop over a small stack of node indices. Pop a node, run the slab test on its box, and either discard it, test its segments if it is a leaf, or push both children. The near child goes on top so it is popped first; near is decided by the sign of the ray direction along the node's split axis, the axis the box was cut along. Finding a hit early shrinks <code>t_max</code>, the distance to the closest hit so far, and every box that starts beyond <code>t_max</code> is then rejected without being opened.</p>
         <p>A shadow ray only needs to know whether anything at all is in the way, not what is closest. In any-hit mode the loop returns on the first segment hit, so it visits fewer nodes and never bothers ordering the rest. DXR, the DirectX ray tracing API, exposes this as <code>RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH</code>.</p>
         <p class="words">In words: find where the ray's line and the segment's line cross, then check that the crossing is ahead of the ray and between the segment's two ends. The 3D triangle version does the same with two edges.</p>
@@ -452,39 +425,29 @@ Möller–Trumbore (3D triangle v0 v1 v2):
   }
 }</pre>
 
-        <p class="tldr">Check the near child first, and every box beyond the current hit costs nothing.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="twolevel">
-    <h2>Two trees: objects and the scene</h2>
-    <p class="sub">Boulders, oaks and crates dropped around the village. Drag one and only the small top tree is rebuilt; switch on the wind and the bending oak's own tree is refit every frame.</p>
+  <section id="twolevel" class="stage">
+    <h2>Moving props without rebuilding everything</h2>
+    <p class="sub">Boulders, oaks and crates dropped around the village. Drag one and only a tiny top tree is rebuilt; switch on the wind and the bending oaks' own tree has to be regrown every frame.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" width="512" height="512" class="grab" aria-label="Top-down village of three boulders, two oaks and two crates, each a placed copy of one mesh, with the player's line of sight entering some of them and an inset showing the ray inside the hit prop's own tree"></canvas>
+        <canvas id="c4" width="512" height="512" class="grab sq" aria-label="Top-down village of three boulders, two oaks and two crates, each a placed copy of one shape, with the player's line of sight entering some of them and an inset showing the ray inside the hit prop's own tree"></canvas>
         <div class="cap"><span id="c4-left"></span><span id="c4-right"></span></div>
         <div class="cap"><span id="c4-op"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">A game scene has <b>one tree per mesh</b>, built once, and <b>one small tree over all the placed copies</b> of those meshes. Moving an object only touches the small tree, which is cheap. <b>Bending or skinning a mesh changes its own tree</b>, and that is where the real cost hides.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Three meshes, seven placed copies: three boulders, two oaks and two crates. Each copy is an instance: the same mesh at a different position, angle and size. The player's line of sight is the white line. Amber outlines are the props the ray entered; the boxes inside them belong to that mesh's own tree.</p>
-        <p>The inset at the lower right shows the ray inside the entered prop's own space, where the mesh tree lives. The caption under the picture says what the last change rebuilt or refit, and how long it took.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag a boulder by its handle. The caption reports a top-level rebuild of a few nodes; the mesh trees are untouched.</li>
-          <li>Switch on Wind. Both oaks bend, because they share one mesh, and that mesh's own tree is refit every frame; the caption adds the refit time.</li>
-          <li>Drag a crate onto a boulder so they overlap. A ray through that spot has to enter both, because the top tree cannot separate them.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><span class="lab">Wind</span><label class="chk"><input type="checkbox" id="deform4"> bend the oak mesh (BLAS refit)</label></div>
+      <div class="lesson" data-lesson="twolevel">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><span class="lab">Wind</span><label class="chk"><input type="checkbox" id="deform4"> bend the oaks, regrowing their tree every frame</label></div>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Moving a prop is a cheap top-tree rebuild; changing a prop's shape means regrowing its own tree, and regrown trees go stale.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>A bottom-level acceleration structure (BLAS) is the BVH built once per mesh, in the mesh's own coordinate space. The top-level acceleration structure (TLAS) is a small BVH over the instances' world-space boxes, and each of its leaves holds a transform and a pointer to a BLAS. A ray that reaches an instance leaf is transformed into that mesh's space and continues down the BLAS there. The direction is not renormalized, so <code>t</code> keeps meaning the same distance in both spaces and the closest hit across instances is a plain comparison.</p>
         <p>This is why moving objects is cheap and deforming them is not. A moved instance changes one TLAS leaf and the TLAS is rebuilt from scratch, a few hundred nodes at most. A skinned or deforming mesh changes vertex positions, so its BLAS is refit: every box is recomputed from the bottom up, but the tree shape is kept. Refit is fast, and the tree gets worse as vertices drift from where it was built, so engines rebuild those BLASes every few frames.</p>
         <p class="words">In words: push the ray through the inverse of the instance's transform and t comes out the same on both sides. Refit walks the tree from the leaves up, regrowing each box around whatever is under it.</p>
@@ -521,56 +484,46 @@ refit: for node in reverse build order
 [shader(<span class="k">"miss"</span>)]
 <span class="k">void</span> Miss(<span class="k">inout</span> Payload p) { p.color = Sky(WorldRayDirection()); }</pre>
 
-        <p class="tldr">Moving an object is a cheap top-tree rebuild; deforming a mesh is a refit of its own tree, and refits go stale.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="budget">
-    <h2>The ray budget</h2>
-    <p class="sub">Twenty-four neighbouring pixels of the player's view travel together across the village; the light bouncing off the wall they hit scatters everywhere. Drag the player or the aim point.</p>
+  <section id="budget" class="stage">
+    <h2>How many rays a frame can afford</h2>
+    <p class="sub">Twenty-four neighbouring pixels of the player's view travel together across the village; the light bouncing off what they hit goes everywhere. Drag the player or the aim point.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="512" height="512" class="grab" aria-label="The village from above: a tight blue fan of 24 camera rays from the player to the house wall, an amber spray of bounce rays leaving the hit point in every direction, and a strip showing those 24 pixels on screen"></canvas>
+        <canvas id="c5" width="512" height="512" class="grab sq" aria-label="The village from above: a tight blue fan of 24 camera rays from the player to the house wall, an amber spray of bounce rays leaving the hit point in every direction, and a strip showing those 24 pixels on screen"></canvas>
         <div class="cap"><span id="c5-left"></span><span id="c5-right"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">A 1080p frame is about <b>two million pixels</b>, so every ray you add per pixel is two million more rays. Rays that <b>travel together</b> through the same boxes are cheap. Rays that <b>scatter in all directions</b> each take a different path through the tree, and the quoted hardware rate assumes the cheap kind.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Blue rays are 24 neighbouring pixels of the player's view, fanned out side by side toward the house. Amber rays start where the middle blue ray lands and bounce off in random directions, the way light leaves a matte wall.</p>
-        <p>Blue boxes are the leaves the player's bundle touched; amber boxes are the leaves the bounce bundle touched. The strip in the corner is those 24 pixels as they appear on screen, coloured by what each ray hit. The table counts the boxes.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Aim the player at one oak. The blue bundle lands in a few leaves; the amber bounce still spreads across the village.</li>
-          <li>Push Shadow, Reflection and GI rays to their maximums. The ms tile climbs, and so does the share of a 16.7 ms frame.</li>
-          <li>Switch Target to 3840×2160. Four times the pixels means four times the rays at the same rate.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><span class="lab">Target</span><div class="seg" id="segRes" role="group" aria-label="Render resolution"><button data-v="1080" aria-pressed="true">1920×1080</button><button data-v="1440">2560×1440</button><button data-v="2160">3840×2160</button></div></div>
-          <div class="ctl"><label for="sh5">Shadow rays / px <span class="val" id="sh5v">1</span></label><input type="range" id="sh5" min="0" max="4" step="1" value="1"></div>
-          <div class="ctl"><label for="rf5">Reflection rays / px <span class="val" id="rf5v">1</span></label><input type="range" id="rf5" min="0" max="2" step="1" value="1"></div>
-          <div class="ctl"><label for="gi5">GI rays / px <span class="val" id="gi5v">2</span></label><input type="range" id="gi5" min="0" max="8" step="1" value="2"></div>
-          <div class="ctl"><label for="rate5">Hardware rate <span class="val" id="rate5v">10 Grays/s</span></label><input type="range" id="rate5" min="1" max="40" step="1" value="10"></div>
+      <div class="lesson" data-lesson="budget">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><label for="sh5">Shadow rays per pixel <span class="val" id="sh5v">1</span></label><input type="range" id="sh5" min="0" max="4" step="1" value="1"></div>
+          <div class="ctl"><label for="rf5">Reflection rays per pixel <span class="val" id="rf5v">1</span></label><input type="range" id="rf5" min="0" max="2" step="1" value="1"></div>
+          <div class="ctl"><label for="gi5">Bounce rays for lighting, per pixel <span class="val" id="gi5v">2</span></label><input type="range" id="gi5" min="0" max="8" step="1" value="2"></div>
+          <div class="ctl" data-step-min="5"><span class="lab">Screen size</span><div class="seg" id="segRes" role="group" aria-label="Render resolution"><button data-v="1080" aria-pressed="true">1920×1080</button><button data-v="1440">2560×1440</button><button data-v="2160">3840×2160</button></div></div>
+          <div class="ctl" data-step-min="5"><label for="rate5">Hardware speed <span class="val" id="rate5v">10 billion rays a second</span></label><input type="range" id="rate5" min="1" max="40" step="1" value="10"></div>
         </div>
-        <div class="tiles">
+        <div class="tiles" data-step-min="4">
           <div class="tile"><div class="n" id="t5-rays">—</div><div class="l">rays per frame</div></div>
-          <div class="tile on"><div class="n" id="t5-ms">—</div><div class="l">ms per frame, tracing only</div></div>
-          <div class="tile"><div class="n" id="t5-share">—</div><div class="l">of a 16.7 ms frame</div></div>
+          <div class="tile on"><div class="n" id="t5-ms">—</div><div class="l">milliseconds per frame, just tracing</div></div>
+          <div class="tile"><div class="n" id="t5-share">—</div><div class="l">of a 16.7 ms frame (60 a second)</div></div>
         </div>
-        <div class="tbl-wrap">
+        <div class="tbl-wrap" id="tbl5">
         <table class="stats">
-          <thead><tr><th>Bundle of 24 rays</th><th>Distinct leaves</th><th>Nodes visited</th><th>Nodes / ray</th></tr></thead>
+          <thead><tr><th>24 rays</th><th>Finished boxes touched</th><th>Boxes looked at</th><th>Boxes per ray</th></tr></thead>
           <tbody>
-            <tr><td>Primary, coherent</td><td id="s5-p-l"></td><td id="s5-p-n"></td><td id="s5-p-r"></td></tr>
-            <tr><td>Diffuse bounce, incoherent</td><td id="s5-g-l" class="hi"></td><td id="s5-g-n" class="hi"></td><td id="s5-g-r"></td></tr>
+            <tr><td>Blue fan, neighbouring pixels</td><td id="s5-p-l"></td><td id="s5-p-n"></td><td id="s5-p-r"></td></tr>
+            <tr><td>Amber spray, bounced light</td><td id="s5-g-l" class="hi"></td><td id="s5-g-n" class="hi"></td><td id="s5-g-r"></td></tr>
           </tbody>
         </table>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Count rays per frame, not rays per pixel, and expect scattered rays to run well below the speed on the box.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>At 1920×1080 one ray per pixel is 2,073,600 rays. A frame at 60 Hz is 16.7 ms, so every ray per pixel you add costs <code>rays / rate</code> of that budget. The quoted hardware rate is a peak for coherent rays, meaning rays that follow near-identical paths through the tree. Incoherent rays run well below it, and denoising, hit shading and the BVH update come on top.</p>
         <p>Coherence is the whole reason. Neighbouring primary rays, the ones fired from the camera, walk the same nodes and land in the same few leaves, so their box tests hit cache and their GPU lanes stay together. Diffuse bounce rays leave one point in every direction and scatter across the tree. Same number of rays, several times the memory traffic.</p>
         <p class="words">In words: rays per frame is pixels times rays per pixel, and milliseconds is rays divided by the hardware rate.</p>
@@ -587,8 +540,7 @@ TraceRay(Scene,
   0xFF, 0, 1, <span class="c">/*shadow miss*/</span>1, r, sp);
 visibility = sp.occluded ? 0.0 : 1.0;           <span class="c">// then a temporal denoiser, because 1 ray is noisy</span></pre>
 
-        <p class="tldr">Count rays per frame, not rays per pixel, and expect scattered rays to run well below the quoted rate.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
@@ -796,10 +748,78 @@ function kitLampTop(ctx, x, y, g) {
   ctx.fillStyle = KIT.metal; ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = KIT.flame; ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   const W = 512, M = 10;
   const COL = { ground: '#0b0e13', amber: '#f2a341', blue: '#4aa3ff', white: '#ffffff', green: '#5ad48a', red: '#ef5d5d', grid: 'rgba(255,255,255,0.12)', geo: 'rgba(214,219,227,0.55)' };
   const FONT = '12px "IBM Plex Mono", Menlo, Consolas, monospace';
+  let L1, L2, L3, L4, L5;
 
   function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
   const fmtN = n => n.toLocaleString('en-US');
@@ -1037,7 +1057,7 @@ function kitLampTop(ctx, x, y, g) {
   }
   function worldOf(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height]; }
   function drag(canvas, getHandles, onMove, onHover) {
-    let active = -1;
+    let active = -1, last = null;
     canvas.addEventListener('pointerdown', ev => {
       const [x, y] = worldOf(canvas, ev); const hs = getHandles(); let best = -1, bd = 0.045;
       hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
@@ -1045,10 +1065,10 @@ function kitLampTop(ctx, x, y, g) {
     });
     canvas.addEventListener('pointermove', ev => {
       const [x, y] = worldOf(canvas, ev);
-      if (active >= 0) onMove(active, Math.max(0.01, Math.min(0.99, x)), Math.max(0.01, Math.min(0.99, y)));
+      if (active >= 0) { last = [Math.max(0.01, Math.min(0.99, x)), Math.max(0.01, Math.min(0.99, y))]; onMove(active, last[0], last[1]); }
       else if (onHover) onHover(x, y);
     });
-    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    const end = ev => { if (active >= 0) { if (last) onMove(active, last[0], last[1]); active = -1; last = null; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
     canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
     canvas.addEventListener('pointerleave', () => { if (onHover) onHover(-1, -1); });
   }
@@ -1082,14 +1102,16 @@ function kitLampTop(ctx, x, y, g) {
     pin(x1, 'aim point', P(s1.a[0]) + 10, P(s1.a[1]) - 12);
     if (hp) pin(x1, `sees this first: the ${objName(s1.segs, st.hit.seg)}`, P(hp[0]) + 10, P(hp[1]) + 12, COL.amber);
     else pin(x1, 'sees nothing: the sky', P(o[0] + d[0] * 0.5) + 10, P(o[1] + d[1] * 0.5) + 12, COL.amber);
-    if (st.failed.length) { const b = s1.bvh.nodes[st.failed[0]].b; pin(x1, 'box the ray misses: never opened', P(b[0]) + 2, P(b[1]) - 10, COL.red); }
+    if (st.failed.length) { const b = s1.bvh.nodes[st.failed[0]].b; pin(x1, 'a box the ray misses: never opened', P(b[0]) + 2, P(b[1]) - 10, COL.red); }
     drawView(x1, W - 184, W - 118, 176, 110, s1.bvh, s1.segs, o, d, 44, Math.PI / 3, 'what the player sees');
     const n = s1.segs.length;
-    $('c1-left').innerHTML = `brute force: <strong>${fmtN(n)} segment tests</strong>`;
-    $('c1-right').innerHTML = `BVH: <strong>${st.visited} nodes · ${st.leaves.length} leaves · ${st.tests} tests</strong>${st.hit ? ` · ${objName(s1.segs, st.hit.seg)} at ${(st.hit.t * M).toFixed(2)} m` : ' · miss'}`;
-    $('c1-build').textContent = `${fmtN(s1.bvh.nodes.length)} nodes, depth ${s1.bvh.maxDepth} · built in ${fmtMs(s1.buildMs)} (JS, this tab)`;
+    $('c1-left').innerHTML = `checking every edge: <strong>${fmtN(n)} edge checks</strong>`;
+    $('c1-right').innerHTML = `with the tree: <strong>${st.visited} boxes looked at · ${st.leaves.length} opened · ${st.tests} edge checks</strong>${st.hit ? ` · the ${objName(s1.segs, st.hit.seg)}, ${(st.hit.t * M).toFixed(2)} m away` : ' · nothing hit'}`;
+    $('c1-build').textContent = `${fmtN(s1.bvh.nodes.length)} boxes in the tree, ${s1.bvh.maxDepth} levels deep · built in ${fmtMs(s1.buildMs)} in this browser tab`;
     $('t1-brute').textContent = fmtN(n); $('t1-nodes').textContent = st.visited; $('t1-tests').textContent = st.tests;
     if (isFinite(bruteT) !== !!st.hit || (st.hit && Math.abs(bruteT - st.hit.t) > 1e-9)) $('c1-right').innerHTML += ' · mismatch';
+    s1.stats = { n, visited: st.visited, tests: st.tests, hit: st.hit ? objName(s1.segs, st.hit.seg) : null };
+    L1 && L1.check();
   }
   rebuild1(); draw1();
   const draw1T = throttle(draw1);
@@ -1100,7 +1122,7 @@ function kitLampTop(ctx, x, y, g) {
   const c2 = $('c2'), x2 = c2.getContext('2d');
   const scene2 = makeScene(300), prims2 = scene2.map(segBounds), bg2 = backdrop(scene2);
   const rays100 = (() => { const R = rng(23), out = []; for (let i = 0; i < 100; i++) { const side = (R() * 4) | 0, u = R(); const o = side === 0 ? [u, 0.001] : side === 1 ? [0.999, u] : side === 2 ? [u, 0.999] : [0.001, u]; out.push(ray(o, [0.2 + 0.6 * R(), 0.2 + 0.6 * R()])); } return out; })();
-  const s2 = { method: 'sah', leaf: 4, level: 3, hover: null, trees: {}, stats: {} };
+  const s2 = { method: 'sah', leaf: 4, level: 3, hover: null, trees: {}, stats: {}, maxSeen: 3, hovered: false, leafLo: false, leafHi: false };
   function rebuild2() {
     for (const m of ['median', 'sah']) {
       const t0 = performance.now(); const bvh = buildBVH(prims2, m, s2.leaf); const ms = performance.now() - t0;
@@ -1132,9 +1154,9 @@ function kitLampTop(ctx, x, y, g) {
     ctx.fillStyle = 'rgba(11,14,19,0.9)'; ctx.fillRect(0, py, W, ph);
     ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, py + 0.5); ctx.lineTo(W, py + 0.5); ctx.stroke();
     const axName = nd.axis ? 'up–down' : 'left–right';
-    label(ctx, 12, py + 8, `box #${nd.id} · ${nd.count} segments · cost of every ${axName} cut`, 'rgba(255,255,255,0.7)');
+    label(ctx, 12, py + 8, `the white box: ${nd.count} edges · cost of each ${axName} cut`, 'rgba(255,255,255,0.7)');
     const sw = sahSweep(bvh, nd, nd.axis);
-    if (!sw) { label(ctx, 12, py + 30, 'leaf with one segment: nothing to split', 'rgba(255,255,255,0.5)'); return; }
+    if (!sw) { label(ctx, 12, py + 30, 'a finished box with one edge: nothing to cut', 'rgba(255,255,255,0.5)'); return; }
     const x0 = 44, x1 = W - 20, y0 = py + 34, y1 = W - 30;
     const lo = nd.b[nd.axis], hi = nd.b[nd.axis + 2];
     let cmin = Infinity, cmax = -Infinity; for (const c of sw.cost) { if (c < cmin) cmin = c; if (c > cmax) cmax = c; }
@@ -1142,7 +1164,7 @@ function kitLampTop(ctx, x, y, g) {
     const X = p => x0 + (p - lo) / (hi - lo || 1) * (x1 - x0), Y = c => y1 - (c - cmin) / (cmax - cmin) * (y1 - y0);
     // leaf cost line
     ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(x0, Y(sw.leaf) + 0.5); ctx.lineTo(x1, Y(sw.leaf) + 0.5); ctx.stroke(); ctx.setLineDash([]);
-    label(ctx, x1, Y(sw.leaf) - 14, `no cut: ${sw.leaf} tests`, 'rgba(255,255,255,0.5)', 'right');
+    label(ctx, x1, Y(sw.leaf) - 14, `no cut: check all ${sw.leaf} edges`, 'rgba(255,255,255,0.5)', 'right');
     // curve
     ctx.strokeStyle = COL.white; ctx.lineWidth = 1.5; ctx.beginPath();
     for (let i = 0; i < sw.pos.length; i++) { const x = X(sw.pos[i]), y = Y(sw.cost[i]); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
@@ -1184,18 +1206,19 @@ function kitLampTop(ctx, x, y, g) {
     // plain-word callouts, drawn unscaled
     if (hv.left >= 0) { const c = hv.axis === 0 ? V2([hv.pos, hv.b[1]]) : V2([hv.b[0], hv.pos]); pin(x2, `cut here: ${contents(bvh, hv)}`, c[0] + 4, c[1] + 10, COL.white); }
     else { const c = V2([hv.b[0], hv.b[1]]); pin(x2, `finished box: ${contents(bvh, hv)}`, c[0] + 2, c[1] - 10, COL.amber); }
-    if (firstLeaf && firstLeaf !== hv) { const c = V2([firstLeaf.b[2], firstLeaf.b[3]]); pin(x2, 'finished: a leaf', c[0] - 2, c[1] + 10, COL.amber); }
+    if (firstLeaf && firstLeaf !== hv) { const c = V2([firstLeaf.b[2], firstLeaf.b[3]]); pin(x2, 'finished box', c[0] - 2, c[1] + 10, COL.amber); }
     if (firstInt && firstInt !== hv) { const c = V2([firstInt.b[0], firstInt.b[3]]); pin(x2, 'will be cut again', c[0] + 2, c[1] + 10, COL.blue); }
     plotSAH(x2, bvh, hv);
-    $('c2-left').innerHTML = `level ${s2.level}: <strong>${shown.length} boxes</strong> (${leaves} already leaves)`;
-    $('c2-right').innerHTML = `${s2.method === 'sah' ? 'SAH' : 'median'} tree · <strong>${bvh.nodes.length} nodes</strong> · depth ${bvh.maxDepth}`;
+    $('c2-left').innerHTML = `level ${s2.level}: <strong>${shown.length} boxes</strong> (${leaves} already finished)`;
+    $('c2-right').innerHTML = `cut ${s2.method === 'sah' ? 'by cost' : 'down the middle'} · <strong>${bvh.nodes.length} boxes</strong> · ${bvh.maxDepth} levels`;
+    L2 && L2.check();
   }
   rebuild2(); draw2();
   const draw2T = throttle(draw2);
-  drag(c2, () => [], () => {}, (x, y) => { s2.hover = x < 0 ? null : pickNode2((x * W - OX2) / (SC2 * W), y / SC2); draw2T(); });
+  drag(c2, () => [], () => {}, (x, y) => { s2.hover = x < 0 ? null : pickNode2((x * W - OX2) / (SC2 * W), y / SC2); if (s2.hover) s2.hovered = true; draw2T(); });
   $('segBuild').addEventListener('click', ev => { const b = ev.target.closest('button'); if (!b) return; s2.method = b.dataset.v; segOn(ev.currentTarget, s2.method); s2.hover = null; draw2(); });
-  $('lvl').addEventListener('input', () => { s2.level = +$('lvl').value; $('lvlv').textContent = s2.level; s2.hover = null; draw2T(); });
-  $('leaf').addEventListener('input', () => { s2.leaf = +$('leaf').value; $('leafv').textContent = s2.leaf; s2.hover = null; rebuild2(); draw2T(); });
+  $('lvl').addEventListener('input', () => { s2.level = +$('lvl').value; $('lvlv').textContent = s2.level; if (s2.level > s2.maxSeen) s2.maxSeen = s2.level; s2.hover = null; draw2T(); });
+  $('leaf').addEventListener('input', () => { s2.leaf = +$('leaf').value; $('leafv').textContent = s2.leaf; if (s2.leaf <= 1) s2.leafLo = true; if (s2.leaf >= 8) s2.leafHi = true; s2.hover = null; rebuild2(); draw2T(); });
 
   // ================= 3. traversal step by step =================
   const c3 = $('c3'), x3 = c3.getContext('2d');
@@ -1221,26 +1244,28 @@ function kitLampTop(ctx, x, y, g) {
     if (ev.pass && !ev.leaf) {
       const nb = bvh3.nodes[ev.near].b, fb = bvh3.nodes[ev.far].b;
       box(x3, nb, COL.blue, null, 1.5); box(x3, fb, 'rgba(74,163,255,0.5)', null, 1.5, [4, 3]);
-      pin(x3, 'near child: checked next', P(nb[0]) + 2, P(nb[1]) + 10, COL.blue); pin(x3, 'far child: waits on the list', P(fb[0]) + 2, P(fb[3]) - 10, 'rgba(74,163,255,0.9)');
+      pin(x3, 'nearer half: checked next', P(nb[0]) + 2, P(nb[1]) + 10, COL.blue); pin(x3, 'farther half: waits on the list', P(fb[0]) + 2, P(fb[3]) - 10, 'rgba(74,163,255,0.9)');
     }
     // ray with t_max
     const tEnd = exitT(o, d), tMax = ev.tMaxAfter;
     drawRay(x3, o, d, isFinite(tMax) ? tMax : null, tEnd);
     if (isFinite(tMax)) { const h = [o[0] + d[0] * tMax, o[1] + d[1] * tMax]; dot(x3, h, 5, COL.amber); pin(x3, `closest hit so far: ${objName(scene2, ev.hit.seg)}, ${(tMax * M).toFixed(2)} m`, P(h[0]) + 8, P(h[1]) + 18, COL.amber); }
     if (ev.tn <= ev.tf) { const p = [o[0] + d[0] * ev.tn, o[1] + d[1] * ev.tn]; dot(x3, p, 3, ev.pass ? COL.green : COL.red); }
-    const what = ev.culled ? 'skipped: starts beyond the hit' : !ev.pass ? 'the ray misses this box' : ev.leaf ? `opened: testing ${contents(bvh3, nd)}` : 'opened: two children go on the list';
+    const what = ev.culled ? 'skipped: starts beyond the hit' : !ev.pass ? 'the ray misses this box' : ev.leaf ? `finished box: checking ${contents(bvh3, nd)}` : 'opened: both halves go on the list';
     pin(x3, what, P(nd.b[0]) + 2, P(nd.b[1]) - 10, ev.pass ? COL.green : COL.red);
     player(x3, o, d); handle(x3, s3.a, 5);
     pin(x3, 'player', P(o[0]) + 12, P(o[1]) + 14);
     // readouts
-    const whatCap = ev.leaf ? `leaf, ${ev.tested.length} segment tests${ev.hitSeg >= 0 ? ', new closest hit' : ''}` : (ev.pass ? 'interior: push far, then near' : 'interior');
-    const slabTxt = ev.culled ? `t_near ${(ev.tn * M).toFixed(2)} m > t_max ${(ev.tMaxBefore * M).toFixed(2)} m: culled` : ev.pass ? `t_near ${(ev.tn * M).toFixed(2)} m: pass` : 'slab miss';
-    $('c3-left').innerHTML = `pop ${k}/${st.trace.length}: <strong>box #${ev.id}</strong> · ${slabTxt} · ${whatCap}`;
-    $('c3-right').innerHTML = `<strong>${ev.visited} nodes · ${ev.tests} tests · stack ${ev.stack.length} (max ${st.maxStack})</strong>`;
-    $('step3v').textContent = `${k} / ${st.trace.length}`;
-    const sv = $('stack3'); sv.innerHTML = '<span class="lbl">stack</span>';
-    if (!ev.stack.length) { const e = document.createElement('span'); e.className = 'empty'; e.textContent = k === st.trace.length ? (s3.anyHit && st.hit ? 'empty (any hit found, stopped early)' : 'empty (done)') : 'empty'; sv.appendChild(e); }
-    ev.stack.forEach((id, i) => { const e = document.createElement('span'); e.className = 'chip' + (i === ev.stack.length - 1 ? ' top' : ''); e.textContent = '#' + id + (i === ev.stack.length - 1 ? ' ← top' : ''); sv.appendChild(e); });
+    const whatCap = ev.leaf ? `finished box, ${ev.tested.length} edge check${ev.tested.length === 1 ? '' : 's'}${ev.hitSeg >= 0 ? ', new closest hit' : ''}` : (ev.pass ? 'both halves go on the list' : 'nothing inside is looked at');
+    const slabTxt = ev.culled ? `starts ${(ev.tn * M).toFixed(2)} m away, beyond the hit at ${(ev.tMaxBefore * M).toFixed(2)} m: skipped` : ev.pass ? `the ray enters it ${(ev.tn * M).toFixed(2)} m away` : 'the ray misses it';
+    $('c3-left').innerHTML = `step ${k} of ${st.trace.length}: <strong>box #${ev.id}</strong> · ${slabTxt} · ${whatCap}`;
+    $('c3-right').innerHTML = `<strong>${ev.visited} boxes looked at · ${ev.tests} edge checks · ${ev.stack.length} waiting (most at once: ${st.maxStack})</strong>`;
+    $('step3v').textContent = `${k} of ${st.trace.length}`;
+    const sv = $('stack3'); sv.innerHTML = '<span class="lbl">to-do list</span>';
+    if (!ev.stack.length) { const e = document.createElement('span'); e.className = 'empty'; e.textContent = k === st.trace.length ? (s3.anyHit && st.hit ? 'empty: something was hit, so the walk stopped early' : 'empty: the walk is done') : 'empty'; sv.appendChild(e); }
+    ev.stack.forEach((id, i) => { const e = document.createElement('span'); e.className = 'chip' + (i === ev.stack.length - 1 ? ' top' : ''); e.textContent = '#' + id + (i === ev.stack.length - 1 ? ' ← next' : ''); sv.appendChild(e); });
+    s3.stats = { k, len: st.trace.length, hit: st.hit ? objName(scene2, st.hit.seg) : null, hitAt: ev.hit ? objName(scene2, ev.hit.seg) : null };
+    L3 && L3.check();
   }
   retrace3(false); draw3();
   const draw3T = throttle(draw3);
@@ -1278,7 +1303,8 @@ function kitLampTop(ctx, x, y, g) {
   function invPoint(inst, p) { const c = Math.cos(inst.rot), s = Math.sin(inst.rot), dx = (p[0] - inst.x) / inst.s, dy = (p[1] - inst.y) / inst.s; return [c * dx + s * dy, -s * dx + c * dy]; }
   function invDir(inst, d) { const c = Math.cos(inst.rot), s = Math.sin(inst.rot), dx = d[0] / inst.s, dy = d[1] / inst.s; return [c * dx + s * dy, -s * dx + c * dy]; }
   function instBox(inst) { const b = MESH[inst.mesh].bvh.nodes[0].b, B = emptyB(); for (const c of [[b[0], b[1]], [b[2], b[1]], [b[0], b[3]], [b[2], b[3]]]) { const w = xfPoint(inst, c); grow(B, [w[0], w[1], w[0], w[1]]); } return B; }
-  const s4 = { o: [0.05, 0.40], a: [0.95, 0.72], tlas: null, tlasMs: 0, op: 'TLAS built', opMs: 0, deform: false, t: 0, refitMs: 0 };
+  const INST0 = INST.map(i => ({ ...i }));
+  const s4 = { o: [0.05, 0.40], a: [0.95, 0.72], tlas: null, tlasMs: 0, op: 'top tree built', opMs: 0, deform: false, t: 0, refitMs: 0, moved: false };
   function rebuildTLAS() { const t0 = performance.now(); s4.tlas = buildBVH(INST.map(instBox), 'sah', 1); s4.tlasMs = performance.now() - t0; }
   function tlasLeaf(nd, st, tlas) {
     st.entered = st.entered || []; st.blasVisited = st.blasVisited || 0; st.segTests = st.segTests || 0;
@@ -1330,12 +1356,12 @@ function kitLampTop(ctx, x, y, g) {
     INST.forEach((inst, i) => { handle(x4, [inst.x, inst.y], 5); const on = entered.some(e => e.i === i); if (on || i < 3) pin(x4, `${inst.mesh} ${i}${on ? ': entered' : ''}`, P(inst.x) + 9, P(inst.y) - 12, on ? COL.amber : 'rgba(255,255,255,0.7)'); });
     player(x4, o, d); handle(x4, s4.a, 5);
     pin(x4, 'player', P(o[0]) + 12, P(o[1]) + 14);
-    if (s4.deform) { const t = INST[1]; pin(x4, 'wind: both oaks share one mesh, its tree is refit', P(t.x) - 20, P(t.y) + P(t.s) + 14, COL.blue); }
+    if (s4.deform) { const t = INST[1]; pin(x4, 'wind: both oaks share one shape, so one tree is regrown', P(t.x) - 20, P(t.y) + P(t.s) + 14, COL.blue); }
     else pin(x4, 'drag any prop: only the small top tree is rebuilt', 8, 12, 'rgba(255,255,255,0.8)');
     // object-space inset for the hit (or first entered) instance
     const focus = st.hit ? entered.find(e => e.i === st.hit.inst) : entered[0];
     const S = 176, ix = W - S - 8, iy = W - S - 8;
-    kitInset(x4, ix, iy, S, S, focus ? `inside ${INST[focus.i].mesh} ${focus.i}'s own tree` : 'no prop entered');
+    kitInset(x4, ix, iy, S, S, focus ? `inside ${INST[focus.i].mesh} ${focus.i}'s own tree` : 'the ray entered no prop');
     if (focus) {
       const inst = INST[focus.i], mesh = MESH[inst.mesh], sc = 52, cx = ix + S / 2, cy = iy + S / 2 + 12;
       const T = p => [cx + p[0] * sc, cy + p[1] * sc];
@@ -1348,17 +1374,20 @@ function kitLampTop(ctx, x, y, g) {
       x4.strokeStyle = COL.white; x4.lineWidth = 1.5; x4.beginPath(); x4.moveTo(a[0], a[1]); x4.lineTo(b[0], b[1]); x4.stroke();
       if (focus.sub.hit) { x4.beginPath(); x4.arc(b[0], b[1], 4, 0, Math.PI * 2); x4.fillStyle = COL.amber; x4.fill(); }
       x4.restore();
-      label(x4, ix + 8, iy + S - 18, `|d'| = ${Math.hypot(d2[0], d2[1]).toFixed(1)} = 1/scale`, 'rgba(255,255,255,0.55)');
+      label(x4, ix + 8, iy + S - 18, `the ray is scaled ${Math.hypot(d2[0], d2[1]).toFixed(1)}× to fit this shape's own space`, 'rgba(255,255,255,0.55)');
     }
-    $('c4-left').innerHTML = `TLAS: <strong>${st.visited} nodes</strong> · <strong>${entered.length} prop${entered.length === 1 ? '' : 's'} entered</strong>`;
-    $('c4-right').innerHTML = `BLAS: <strong>${st.blasVisited || 0} nodes · ${st.segTests || 0} tests</strong>${st.hit ? ` · hit ${INST[st.hit.inst].mesh} ${st.hit.inst} at ${(st.hit.t * M).toFixed(2)} m` : ' · miss'}`;
-    $('c4-op').innerHTML = `last update: <strong>${s4.op}</strong> · TLAS ${s4.tlas.nodes.length} nodes rebuilt in ${fmtMs(s4.tlasMs)}${s4.deform ? ` · oak BLAS ${MESH.oak.bvh.nodes.length} nodes refit in ${fmtMs(s4.refitMs)}` : ''} (JS, this tab)`;
+    $('c4-left').innerHTML = `top tree: <strong>${st.visited} boxes looked at</strong> · <strong>${entered.length} prop${entered.length === 1 ? '' : 's'} entered</strong>`;
+    $('c4-right').innerHTML = `inside the props: <strong>${st.blasVisited || 0} boxes · ${st.segTests || 0} edge checks</strong>${st.hit ? ` · hit ${INST[st.hit.inst].mesh} ${st.hit.inst}, ${(st.hit.t * M).toFixed(2)} m away` : ' · nothing hit'}`;
+    $('c4-op').innerHTML = `last change: <strong>${s4.op}</strong> · top tree, ${s4.tlas.nodes.length} boxes, rebuilt in ${fmtMs(s4.tlasMs)}${s4.deform ? ` · the oak's tree, ${MESH.oak.bvh.nodes.length} boxes, regrown in ${fmtMs(s4.refitMs)}` : ''} (in this browser tab)`;
+    s4.stats = { entered: entered.length, hit: st.hit ? INST[st.hit.inst].mesh : null };
+    L4 && L4.check();
   }
   rebuildTLAS(); draw4();
   const draw4T = throttle(draw4);
+  function moveInst(k, x, y) { const inst = INST[k]; inst.x = x; inst.y = y; rebuildTLAS(); s4.op = `moved ${inst.mesh} ${k}: only the top tree was rebuilt`; s4.moved = true; }
   drag(c4, () => [s4.o, s4.a, ...INST.map(i => [i.x, i.y])], (i, x, y) => {
     if (i === 0) { s4.o = [x, y]; } else if (i === 1) { s4.a = [x, y]; }
-    else { const inst = INST[i - 2]; inst.x = x; inst.y = y; rebuildTLAS(); s4.op = `moved ${inst.mesh} ${i - 2}, TLAS rebuild only`; }
+    else moveInst(i - 2, x, y);
     draw4T();
   });
   function poseOak(k) {
@@ -1372,10 +1401,10 @@ function kitLampTop(ctx, x, y, g) {
     const t0 = performance.now();
     poseOak(i => 1 + 0.16 * Math.sin(3 * s4.t + i * 0.45));
     refit(MESH.oak.bvh); s4.refitMs = performance.now() - t0;
-    rebuildTLAS(); s4.op = 'wind bent the oak: BLAS refit, then TLAS rebuild';
+    rebuildTLAS(); s4.op = 'the wind bent the oaks: their tree regrown, then the top tree rebuilt';
     draw4(); requestAnimationFrame(deformFrame);
   }
-  $('deform4').addEventListener('change', () => { s4.deform = $('deform4').checked; if (s4.deform) requestAnimationFrame(deformFrame); else { poseOak(() => 1); refit(MESH.oak.bvh); rebuildTLAS(); s4.op = 'wind off: BLAS refit back to rest pose'; draw4(); } });
+  $('deform4').addEventListener('change', () => { s4.deform = $('deform4').checked; if (s4.deform) requestAnimationFrame(deformFrame); else { poseOak(() => 1); refit(MESH.oak.bvh); rebuildTLAS(); s4.op = 'wind off: the oaks\' tree regrown around the still shape'; draw4(); } });
 
   // ================= 5. ray budget =================
   const c5 = $('c5'), x5 = c5.getContext('2d');
@@ -1412,29 +1441,115 @@ function kitLampTop(ctx, x, y, g) {
     player(x5, o, d0); handle(x5, s5.aim, 5);
     pin(x5, 'player', P(o[0]) + 12, P(o[1]) + 14);
     const midPt = [o[0] + d0[0] * mid.t * 0.35, o[1] + d0[1] * mid.t * 0.35];
-    pin(x5, '24 neighbouring pixels of the player’s view', P(midPt[0]) + 6, P(midPt[1]) + 18, COL.blue);
-    if (hp) pin(x5, `light bouncing off the ${objName(scene2, mid.hit.seg)}: every direction`, P(hp[0]) + 8, P(hp[1]) - 18, COL.amber);
+    pin(x5, 'blue fan: 24 neighbouring pixels', P(midPt[0]) + 6, P(midPt[1]) + 18, COL.blue);
+    if (hp) pin(x5, `amber spray: light bouncing off the ${objName(scene2, mid.hit.seg)}`, P(hp[0]) + 8, P(hp[1]) - 18, COL.amber);
     // the same 24 pixels on the player's screen, coloured by what each ray hit
     const S = 180, ix = W - S - 8, iy = W - 78, ih = 40; kitInset(x5, ix, iy, S, 70, 'those 24 pixels on screen');
     const cw = (S - 8) / NB5;
     for (let i = 0; i < NB5; i++) { const r = prim.rays[i]; x5.fillStyle = r.hit ? OBJCOL[objName(scene2, r.hit.seg)] : KIT.skyLite; x5.fillRect(ix + 4 + i * cw, iy + 26, Math.ceil(cw), ih); if (r.hit) { x5.fillStyle = 'rgba(0,0,0,' + Math.min(0.7, r.t * 1.1).toFixed(2) + ')'; x5.fillRect(ix + 4 + i * cw, iy + 26, Math.ceil(cw), ih); } }
-    $('c5-left').innerHTML = `player's view bundle: <strong>${prim.leaves.size} distinct leaves</strong>`;
-    $('c5-right').innerHTML = gi ? `bounce bundle: <strong>${gi.leaves.size} distinct leaves</strong>` : 'bounce bundle: middle ray hit nothing, drag the aim onto a wall or tree';
+    $('c5-left').innerHTML = `blue fan: <strong>${prim.leaves.size} finished boxes touched</strong>`;
+    $('c5-right').innerHTML = gi ? `amber spray: <strong>${gi.leaves.size} finished boxes touched</strong>` : 'amber spray: the middle ray hit nothing, drag the aim point onto a wall or a tree';
     $('s5-p-l').textContent = prim.leaves.size; $('s5-p-n').textContent = prim.nodes; $('s5-p-r').textContent = (prim.nodes / NB5).toFixed(1);
     $('s5-g-l').textContent = gi ? gi.leaves.size : '—'; $('s5-g-n').textContent = gi ? gi.nodes : '—'; $('s5-g-r').textContent = gi ? (gi.nodes / NB5).toFixed(1) : '—';
+    s5.stats = { hit: mid.hit ? objName(scene2, mid.hit.seg) : null, primLeaves: prim.leaves.size, giLeaves: gi ? gi.leaves.size : 0 };
+    L5 && L5.check();
   }
   function budget5() {
     const [w, h] = RESO[s5.res], rpp = s5.sh + s5.rf + s5.gi, rays = w * h * rpp, ms = rays / (s5.rate * 1e9) * 1000;
     $('t5-rays').textContent = (rays / 1e6).toFixed(2) + ' M';
     $('t5-ms').textContent = ms.toFixed(2) + ' ms';
     $('t5-share').textContent = (ms / 16.667 * 100).toFixed(1) + ' %';
+    L5 && L5.check();
   }
   draw5(); budget5();
   const draw5T = throttle(draw5);
   drag(c5, () => [s5.cam, s5.aim], (i, x, y) => { const h = i === 0 ? s5.cam : s5.aim; h[0] = x; h[1] = y; draw5T(); });
   $('segRes').addEventListener('click', ev => { const b = ev.target.closest('button'); if (!b) return; s5.res = +b.dataset.v; segOn(ev.currentTarget, s5.res); budget5(); });
-  for (const [id, key, fmt] of [['sh5', 'sh', v => v], ['rf5', 'rf', v => v], ['gi5', 'gi', v => v], ['rate5', 'rate', v => v + ' Grays/s']]) {
+  for (const [id, key, fmt] of [['sh5', 'sh', v => v], ['rf5', 'rf', v => v], ['gi5', 'gi', v => v], ['rate5', 'rate', v => v + ' billion rays a second']]) {
     $(id).addEventListener('input', () => { s5[key] = +$(id).value; $(id + 'v').textContent = fmt(s5[key]); budget5(); });
   }
+
+  // ---------- guided steps ----------
+  const set1 = o => { Object.assign(s1, o); if (o.N) { $('nseg').value = s1.N; $('nsegv').textContent = fmtN(s1.N); rebuild1(); } draw1(); };
+  L1 = lesson("brute", { next: { id: "build", title: "How the tree of boxes is built" }, steps: [
+    { say: "Ray tracing draws a picture by asking, for every pixel, <b>what is the first thing in this direction</b>. You are looking down on a village at night. The small figure is the player, the white line is their line of sight, and the amber dot is the first thing it touches. A line like that is called a <b>ray</b>. The inset shows what the player sees, made by firing one ray per column of pixels.", enter: () => set1({ N: 300, o: [0.09, 0.60], a: [0.72, 0.24] }) },
+    { say: "The slow way to answer is to check the ray against <b>every edge in the village</b>: each wall, crate side and leaf edge, 300 of them right now. <b>Push the slider below to 5,000</b> to give the props more detail.", todo: "push the edges slider to 5,000", goal: () => s1.N >= 4000, try: () => { $("nseg").value = 5000; $("nseg").dispatchEvent(new Event("input")); },
+      done: "The first tile followed the slider up to 5,000 checks for this one ray. The other two tiles barely moved. That is what the tree of boxes buys you." },
+    { say: "The quick way wraps the village in <b>boxes inside boxes</b>: one box around everything, cut in two, each half cut again, down to small boxes with a few edges each. A ray that misses a box never looks inside it. Blue boxes are the ones this ray opened, red ones it missed, amber ones had their edges checked.",
+      quiz: { q: "Suppose the ray misses the box around the hedge. How many of the hedge's leaf edges get checked?", options: [
+        { t: "All of them, the box is only a hint", why: "A missed box is never opened, so nothing inside it is looked at." },
+        { t: "None", ok: true, why: "One failed box check throws out every edge inside it in one go. That is why the two tree tiles stay small however many edges there are." },
+        { t: "About half", why: "The box check is all or nothing. Miss the box and every edge inside it is skipped." } ] } },
+    { say: "<b>Drag the aim point</b> so the line of sight crosses the well and carries on toward the oak behind it.", todo: "drag the aim point onto the well", goal: () => s1.stats && s1.stats.hit === "well", try: () => { s1.a = [0.30, 0.64]; draw1(); }, enter: () => set1({ o: [0.09, 0.60] }),
+      done: "The hit stays on the well, and boxes farther along the line turn red without being opened. Once the ray has found something, any box that starts beyond it is skipped too." },
+    { say: "Now <b>aim at nothing</b>: drag the aim point so the line leaves the village without touching anything, for instance down past the end of the fence.", todo: "aim so the ray hits nothing", goal: () => s1.stats && s1.stats.hit === null, try: () => { s1.o = [0.05, 0.55]; s1.a = [0.02, 0.95]; draw1(); },
+      done: "That column of the inset shows sky. The slow way still checked every edge to find that out; the tree only opened the boxes along the line." },
+    { say: "One ray, one answer, a few dozen box checks instead of thousands of edge checks. The tree of boxes is called a <b>bounding volume hierarchy</b>, BVH for short. The rest of the page is about building it, walking it, and keeping it current. The box check itself is under the hood." } ] });
+
+  const set2 = o => { Object.assign(s2, o); segOn($("segBuild"), s2.method); $("lvl").value = s2.level; $("lvlv").textContent = s2.level; if (o.leaf !== undefined) { $("leaf").value = s2.leaf; $("leafv").textContent = s2.leaf; rebuild2(); } s2.hover = null; draw2(); };
+  const hover2 = () => { for (const p of [[0.27, 0.27], [0.70, 0.20], [0.50, 0.84], [0.30, 0.64]]) { const nd = pickNode2(p[0], p[1]); if (nd) { s2.hover = nd; s2.hovered = true; draw2(); return; } } };
+  L2 = lesson("build", { next: { id: "traverse", title: "Walking the tree, one box at a time" }, steps: [
+    { say: "Building the tree means taking the box around the whole village and <b>cutting it in two</b>, then cutting each half, and so on until every box holds only a few edges. This is level 3: the boxes after three rounds of cuts. Blue boxes will be cut again; dashed amber boxes are finished. The strip along the bottom is about the white box, and we come to it in a moment.", enter: () => set2({ method: "sah", level: 3, leaf: 4 }) },
+    { say: "<b>Drag the level slider</b> from 0 up to 6 or beyond. Level 0 is the one box around everything.", todo: "drag the level slider to 6 or more", goal: () => s2.maxSeen >= 6, try: () => { $("lvl").value = 7; $("lvl").dispatchEvent(new Event("input")); },
+      done: "Each level roughly doubles the number of boxes, and they shrink until each one hugs a single prop or a piece of one. A ray that misses a big box skips every small box inside it." },
+    { say: "Where you cut matters. <b>Hover over any box</b> and look at the strip at the bottom: it is the cost of every place that box could be cut, from one side to the other. The amber dot is the cheapest cut; the blue dot is a cut down the middle.", todo: "hover over a box", goal: () => s2.hovered, try: hover2,
+      done: "The white box is the one under your pointer, and the dashed line is where it was cut. On most boxes the cheapest cut is not the middle: it sits at a gap between props, so the two halves overlap less." },
+    { say: "", quiz: { q: "Why is cutting at a gap between two props cheaper than cutting down the middle?", options: [
+        { t: "Because the two halves end up the same size", why: "Equal halves give a tidy tree, but tidy is not the same as fast. A middle cut through the house puts bits of the house in both halves." },
+        { t: "Because the two halves overlap less, so a ray usually only has to open one of them", ok: true, why: "A ray only pays for the boxes it enters. Two boxes that do not overlap mean most rays enter one of them, not both." },
+        { t: "Because it makes fewer boxes", why: "Both rules end with about the same number of boxes. What differs is how much those boxes overlap." } ] } },
+    { say: "<b>Switch the cut rule to 'down the middle'</b> and compare the boxes over the village.", todo: "switch the cut rule below", goal: () => s2.method === "median", try: () => $("segBuild").querySelector('[data-v="median"]').click(), enter: () => set2({ method: "sah", level: 3 }),
+      done: "The middle cuts slice through the house and the boxes overlap each other. The table says what that costs: more boxes per ray. Cutting by cost takes longer to build, but you build once and then fire millions of rays. The cost rule is the surface area heuristic, SAH." },
+    { say: "One more knob. 'Edges per finished box' says when to stop cutting. <b>Drag it down to 1, then up to 8</b>, and watch the two right-hand columns of the table.", todo: "drag it to 1, then to 8", goal: () => s2.leafLo && s2.leafHi, try: () => { $("leaf").value = 1; $("leaf").dispatchEvent(new Event("input")); $("leaf").value = 8; $("leaf").dispatchEvent(new Event("input")); }, enter: () => set2({ method: "sah", level: 3, leaf: 4 }),
+      done: "Tiny boxes mean more boxes to visit and fewer edge checks; big boxes mean the opposite. Real engines settle on a handful of triangles per box." },
+    { say: "Cut where the gaps are, not down the middle, and stop when a box holds only a few edges. The cost formula and the quick way to try cuts are under the hood." } ] });
+
+  const set3 = o => { if (o.o) s3.o = o.o; if (o.a) s3.a = o.a; if (o.any !== undefined) { s3.anyHit = o.any; segOn($("segRay"), o.any ? "any" : "closest"); } retrace3(false); if (o.step) { s3.step = Math.min(o.step, s3.st.trace.length); $("step3").value = s3.step; } draw3(); };
+  L3 = lesson("traverse", { next: { id: "twolevel", title: "Moving props without rebuilding everything" }, steps: [
+    { say: "The ray walks the tree with a <b>to-do list of boxes</b>. Take the top box off the list and check it. If the ray misses it, throw it away. If it is a finished box, check its edges. Otherwise put its two halves on the list, the nearer half on top. The chips under the picture are the list, and the amber chip is next.", enter: () => set3({ o: [0.08, 0.66], a: [0.95, 0.30], any: false, step: 1 }) },
+    { say: "<b>Press the forward button</b> a few times, or drag the step slider, and watch the chips. Get to step 6 or later.", todo: "step forward to step 6 or later", goal: () => s3.stats && s3.stats.k >= 6, try: () => { $("step3").value = 6; $("step3").dispatchEvent(new Event("input")); }, enter: () => set3({ any: false, step: 1 }),
+      done: "Each opened box added two chips, each finished box added none, and each missed box just vanished. The list never gets long, a handful of chips at most, which is why this fits in fast hardware." },
+    { say: "", quiz: { q: "The ray has just found a hit. A box still on the list starts farther away than that hit. What happens to it?", options: [
+        { t: "It is opened anyway, to be safe", why: "Nothing inside it can be nearer than the hit, so opening it would be wasted work." },
+        { t: "It is thrown away without being opened", ok: true, why: "Once a hit is known, any box that starts beyond it is skipped. The demo draws those boxes in dashed red." },
+        { t: "It is checked first, in case it is nearer", why: "It starts beyond the hit, so nothing inside it can be nearer." } ] },
+      todo: "drag the step slider to the end of the walk", goal: () => s3.stats && s3.stats.k >= s3.stats.len, try: () => { $("step3").value = $("step3").max; $("step3").dispatchEvent(new Event("input")); },
+      done: "Every dashed red box started beyond the hit and was skipped unopened. The list is empty, the walk is done, and the readout says how many boxes were looked at in all." },
+    { say: "<b>Switch what the ray asks to 'anything at all'</b>. That is the question a shadow ray asks: is anything between this spot and the light, never mind what.", todo: "switch to 'anything at all' below", goal: () => s3.anyHit, try: () => $("segRay").querySelector('[data-v="any"]').click(), enter: () => set3({ any: false }),
+      done: "The walk stops at the first edge it touches, so it takes fewer steps and never has to sort out which hit is nearest. Shadow rays are the cheapest kind." },
+    { say: "Back to the nearest thing. <b>Drag the aim point</b> so the player looks straight at the well, and scrub to the end of the walk.", todo: "aim at the well, then go to the last step", goal: () => s3.stats && s3.stats.hit === "well" && s3.stats.k >= s3.stats.len, try: () => { s3.a = [0.30, 0.64]; retrace3(false); s3.step = s3.st.trace.length; $("step3").value = s3.step; draw3(); }, enter: () => set3({ o: [0.08, 0.66], any: false }),
+      done: "The hit is close, so almost everything else in the village starts beyond it and gets thrown away as soon as it comes up. A near hit makes a cheap ray." },
+    { say: "A to-do list, nearer half on top, and skip anything beyond the current hit. The loop and the ray-against-edge formula are under the hood, with the 3D version, ray against triangle, next to it." } ] });
+
+  const set4 = o => { if (o.wind !== undefined && $("deform4").checked !== o.wind) { $("deform4").checked = o.wind; $("deform4").dispatchEvent(new Event("change")); } if (o.reset) { INST.forEach((inst, k) => Object.assign(inst, INST0[k])); rebuildTLAS(); s4.op = "top tree built"; } if (o.o) s4.o = o.o; if (o.a) s4.a = o.a; draw4(); };
+  L4 = lesson("twolevel", { next: { id: "budget", title: "How many rays a frame can afford" }, steps: [
+    { say: "A real scene has thousands of props, and many are copies of one shape: the three boulders here are one boulder placed three times. So each shape gets <b>its own tree, built once</b>, and a <b>small top tree</b> holds one box per placed copy. The dashed outlines are those boxes. The ray walks the top tree, and when it enters a copy's box it carries on inside that shape's own tree. The inset shows the ray inside the shape it hit.", enter: () => set4({ wind: false, reset: true, o: [0.05, 0.40], a: [0.95, 0.72] }) },
+    { say: "<b>Drag a boulder</b> by its handle to somewhere else.", todo: "drag a boulder somewhere else", goal: () => s4.moved, try: () => { moveInst(0, 0.40, 0.42); draw4(); },
+      done: "The caption says what was rebuilt: the top tree, with only a handful of boxes in it, in a fraction of a millisecond. The boulder's own tree was not touched, because the boulder itself did not change shape." },
+    { say: "", quiz: { q: "A crate slides across the ground and an oak bends in the wind. Which one is the expensive update?", options: [
+        { t: "The crate, because it moved farther", why: "How far it moves does not matter. Its shape stayed the same, so only its one box in the top tree changes." },
+        { t: "The oak, because its shape changed", ok: true, why: "A bent oak has different edges, so every box in the oak's own tree has to be regrown. That tree can have thousands of boxes; the top tree has a handful." },
+        { t: "Both cost the same", why: "Moving changes one box in the small top tree. Bending changes every box in the shape's own tree." } ] } },
+    { say: "<b>Tick the wind box.</b>", todo: "tick the wind box below", goal: () => s4.deform, try: () => { if (!$("deform4").checked) $("deform4").click(); },
+      done: "Both oaks bend, because they share one shape, and that shape's tree is regrown every frame: the caption now adds the time for that. Regrowing keeps the tree's layout and only resizes the boxes, which is quick, but the boxes get baggier the further the shape drifts from where the tree was built." },
+    { say: "Untick the wind, then <b>drag the aim point</b> so the line of sight passes through two or more props before it hits one. The caption counts the props entered.", todo: "untick the wind and aim the ray through two props", goal: () => !s4.deform && s4.stats && s4.stats.entered >= 2, try: () => set4({ wind: false, reset: true, o: [0.05, 0.40], a: [0.38, 0.58] }), enter: () => set4({ wind: false, reset: true, o: [0.05, 0.40] }),
+      done: "Both props light up amber, and the ray went down into both of their trees. The top tree cannot tell which of two overlapping copies is nearer until it has looked inside each one." },
+    { say: "Moving a copy is cheap: one box in the top tree. Changing a shape is not: its whole tree has to be regrown, and regrown trees go stale, so engines rebuild them every few frames. The maths for pushing a ray into a shape's own space is under the hood." } ] });
+
+  const set5 = o => { Object.assign(s5, o); segOn($("segRes"), s5.res); for (const [id, key, fmt] of [["sh5", "sh", v => v], ["rf5", "rf", v => v], ["gi5", "gi", v => v], ["rate5", "rate", v => v + " billion rays a second"]]) { $(id).value = s5[key]; $(id + "v").textContent = fmt(s5[key]); } budget5(); draw5(); };
+  L5 = lesson("budget", { next: { id: "tradeoffs", title: "Tradeoffs" }, onStep: i => { $("tbl5").hidden = i >= 3; }, steps: [
+    { say: "A 1920×1080 screen has about two million pixels, and each needs at least one ray. Neighbouring pixels look in nearly the same direction: the <b>blue fan</b> is 24 of them. Where the middle one lands, light bounces off in every direction, and to work out how bright that spot is you fire rays back out along those bounces: the <b>amber spray</b>. Blue boxes are the finished boxes the fan touched; amber boxes are the ones the spray touched.", enter: () => set5({ cam: [0.07, 0.52], aim: [0.42, 0.33], res: 1080, sh: 1, rf: 1, gi: 2, rate: 10 }) },
+    { say: "", quiz: { q: "24 blue rays and 24 amber rays. Which group is more work for the tree?", options: [
+        { t: "The same, it is 24 rays each", why: "Count the boxes, not the rays. The readouts under the picture say how many finished boxes each group touched." },
+        { t: "The amber spray", ok: true, why: "The spray goes in every direction, so each ray walks its own path through the tree and touches its own boxes. The fan shares almost everything." },
+        { t: "The blue fan", why: "The fan's rays run side by side through the same few boxes. Look at the readouts under the picture." } ] } },
+    { say: "<b>Aim the player at an oak.</b>", todo: "drag the aim point onto an oak", goal: () => s5.stats && s5.stats.hit === "oak", try: () => { s5.cam = [0.07, 0.52]; s5.aim = [0.83, 0.56]; draw5(); },
+      done: "The fan lands in a couple of finished boxes; the spray still scatters across the village. Same 24 rays, several times the boxes." },
+    { say: "Now the budget for a whole frame. The tiles count every ray on the screen. <b>Push 'bounce rays for lighting' up to 8 per pixel.</b>", todo: "push bounce rays to 8", goal: () => s5.gi >= 8, try: () => { $("gi5").value = 8; $("gi5").dispatchEvent(new Event("input")); }, enter: () => set5({ res: 1080, sh: 1, rf: 1, gi: 2, rate: 10 }),
+      done: "Over twenty million rays a frame, and the milliseconds tile climbed with it. Every extra ray per pixel is two million more rays." },
+    { say: "<b>Switch the screen size to 3840×2160.</b>", todo: "switch the screen size below", goal: () => s5.res === 2160, try: () => $("segRes").querySelector('[data-v="2160"]').click(),
+      done: "Four times the pixels, four times the rays, four times the time. The hardware speed slider is the peak a graphics card is advertised at, and that number assumes rays like the blue fan. Sprays like the amber one run well below it." },
+    { say: "Count rays per frame, not per pixel, and expect scattered rays to run slower than the speed on the box. Cleaning up the noise and updating the trees come on top. The formula is under the hood." } ] });
+
 })();
 </script>

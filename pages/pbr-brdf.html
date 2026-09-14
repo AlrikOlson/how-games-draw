@@ -237,73 +237,63 @@ input[type=color] { width: 44px; height: 30px; padding: 2px; border: 1px solid v
 .uses td:first-child { white-space: normal; min-width: 12ch; }
 .prose p.below { margin-top: 24px; }
 .warn { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-top: 6px; }
+.lesson .tiles .tile .n { font-size: 22px; }
 </style>
 
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a wet street at night · one lamp, one player · a round shield on the tavern wall · drag the lamp and the player</p>
+    <p class="eyebrow">a wet street at night · one lamp, one player · five guided demos · nothing to install</p>
     <h1>PBR &amp; the BRDF</h1>
-    <p class="lead">A BRDF is the rule that says how much light bounces off a surface toward your eye, given where the light came from. Nearly every engine uses the same rule: a soft matte part plus a sharp highlight built from three terms called D, G and F, and it fixes the old problem of highlights that were as bright as an artist typed no matter how wide they were. <b>The thing people get wrong:</b> "PBR" is a set of rules about not inventing light, not one shader. Two engines can both be physically based and disagree on every constant; what they share is that a narrower highlight is a brighter one, and no surface gives back more light than it gets.</p>
+    <p class="lead">For every pixel of every surface, a game has to answer one question: of the light landing here, how much bounces toward the player? The rule that answers it is called a BRDF, and nearly every engine now uses the same one: a soft matte part plus a sharp highlight, built so that a wider highlight is always a dimmer one. Older games let artists type in any highlight brightness they liked, which is why a wet floor from 2008 looks like plastic. <b>The thing people get wrong:</b> "physically based" is not one piece of code. It is a promise not to invent light. Two engines can keep that promise with different formulas; what they share is that no surface gives back more light than it gets.</p>
     <div class="key">
-      <span style="--sw:#f2a341">the lobe: where the lamp's light goes (D term)</span>
-      <span style="--sw:#4aa3ff">matte part, line of sight (G term)</span>
-      <span style="--sw:#ffffff">F term, rays, handles</span>
-      <span style="--sw:#5ad48a">bump the lamp reaches</span>
-      <span style="--sw:#ef5d5d">bump in shade, ray stuck</span>
+      <span style="--sw:#f2a341">the lamp's light: where it goes, and the highlight</span>
+      <span style="--sw:#4aa3ff">the matte part, and the player's line of sight</span>
+      <span style="--sw:#ffffff">rays, handles, the player's view</span>
+      <span style="--sw:#5ad48a">a bump the lamp reaches</span>
+      <span style="--sw:#ef5d5d">a bump in shade, a ray that got stuck</span>
     </div>
     <dl class="terms">
-      <dt>BRDF</dt><dd>the rule for how much light leaving a point goes toward the eye, given where it came from</dd>
-      <dt>diffuse</dt><dd>the soft matte part of the light, spread evenly in every direction</dd>
-      <dt>specular</dt><dd>the shiny highlight, tight around the mirror direction</dd>
-      <dt>lobe</dt><dd>the shape you get by plotting how much light leaves in each direction</dd>
-      <dt>roughness</dt><dd>0 is a mirror, 1 is chalk; the one slider artists touch most</dd>
-      <dt>microfacet</dt><dd>one of the tiny mirrors a rough surface is modelled as</dd>
-      <dt>F0</dt><dd>how reflective a surface is when you look straight at it</dd>
-      <dt>metallic</dt><dd>0 for plastic, wood and skin, 1 for metals; almost nothing in between</dd>
+      <dt>BRDF</dt><dd>the rule for how much of the light landing on a point bounces toward the eye, given where it came from</dd>
+      <dt>diffuse</dt><dd>the soft matte part of the bounce, spread about evenly in every direction</dd>
+      <dt>specular</dt><dd>the shiny highlight: the lamp seen in the surface, tight around the mirror direction</dd>
+      <dt>lobe</dt><dd>the shape you get by drawing how much light leaves in each direction</dd>
+      <dt>roughness</dt><dd>how bumpy a surface is at a scale too small to see; 0 is a mirror, 1 is chalk, and it is the one slider artists touch most</dd>
+      <dt>microfacet</dt><dd>one of the tiny flat pieces a rough surface is modelled as, each one a little mirror</dd>
+      <dt>F0</dt><dd>how much light a surface reflects when you look at it head-on: about 4% for plastic, most of it for a metal</dd>
+      <dt>metallic</dt><dd>a switch: 0 for plastic, wood and skin, 1 for metals; almost nothing in between</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#lobe"><span class="n">01</span>The lobe</a></li><li><a href="#micro"><span class="n">02</span>Microfacets</a></li><li><a href="#fresnel"><span class="n">03</span>Fresnel</a></li><li><a href="#sphere"><span class="n">04</span>A lit shield</a></li><li><a href="#ibl"><span class="n">05</span>Sky light, baked</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#lobe"><span class="n">01</span>Where the lamp's light goes</a></li><li><a href="#micro"><span class="n">02</span>The tiny bumps in the road</a></li><li><a href="#fresnel"><span class="n">03</span>Every surface mirrors at a slant</a></li><li><a href="#sphere"><span class="n">04</span>A lit shield, new rule next to old</a></li><li><a href="#ibl"><span class="n">05</span>Sky light, baked ahead of time</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="lobe">
-    <h2>The lobe: where the light goes</h2>
-    <p class="sub">A lamp lights one spot on a wet road and a player looks at it. Drag the lamp or the player and watch how much light heads toward the player's eye.</p>
+  <section id="lobe" class="stage">
+    <h2>Where the lamp's light goes</h2>
+    <p class="sub">A lamp lights one spot on a wet road and a player looks at it. Watch how much of that light heads for the player's eye.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c1" width="512" height="512" class="grab sq" aria-label="Side view of a street at night: a hanging lamp lights a spot on a wet road and a player looks at it; the BRDF lobe is drawn from that spot with the player's line of sight crossing it"></canvas>
-        <div class="cap"><span id="c1-read"></span><span id="c1-peak"></span></div>
+        <div class="cap"><span id="c1-read"></span></div>
+        <div class="cap"><span id="c1-peak"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Light from the lamp hits a spot on the road and leaves in many directions, but not evenly. <b>The lobe is the shape of that spread.</b> A matte surface sends light everywhere about the same; a shiny one sends most of it in one tight beam near the mirror direction. <b>Roughness sets how tight the beam is.</b></p>
-
-        <h3>What you're seeing</h3>
-        <p>A side-on view of the street. The lamp hangs on the left, the player stands on the right, and the amber outline drawn from the spot between them is the lobe: how much light leaves that spot in each direction. The blue half-disc inside it is the matte part, the same size every way. The bump in the amber shape sits near the mirror of the lamp's direction, and that bump is the highlight.</p>
-        <p>The blue line is the player's line of sight. The white dot where it crosses the lobe is how much of the lamp's light the player gets from that spot, and the inset in the corner shows the spot at that brightness. The readout gives the lamp angle, alpha (roughness squared), F0, how tall the peak is, where it lands, and what reaches the player.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the player until the line of sight lands on the bump. The spot in the inset flares: that is the lamp's reflection.</li>
-          <li>Drag the lamp down toward the road. The bump slides to the other side and grows tall and thin, and the player has to stand farther away to catch it.</li>
-          <li>Push roughness to 1. The bump spreads out and gets shorter, until the lobe looks almost like the blue disc and the spot looks the same from anywhere.</li>
-          <li>Click "1 metal", which turns the spot into a bronze plate. The blue disc vanishes; only the highlight is left.</li>
-          <li>Tick D, G and F to see the three terms drawn as dashed curves over the same angles.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="r1">Roughness <span class="val" id="r1v">0.40</span></label><input type="range" id="r1" min="0.05" max="1" step="0.01" value="0.4"></div>
-          <div class="ctl"><span class="lab">Metallic</span><div class="seg" id="seg1m" role="group" aria-label="Metallic"><button data-v="0" aria-pressed="true">0 non-metal</button><button data-v="1">1 metal</button></div></div>
-          <div class="ctl"><label for="col1">Base colour</label><input type="color" id="col1" value="#c9803f"></div>
-          <div class="ctl"><span class="lab">Radius scale</span><div class="seg" id="seg1s" role="group" aria-label="Radius scale"><button data-v="lin" aria-pressed="true">linear</button><button data-v="log">log</button></div></div>
+      <div class="lesson" data-lesson="lobe">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><label for="r1">Roughness, 0 mirror to 1 chalk <span class="val" id="r1v">0.40</span></label><input type="range" id="r1" min="0.05" max="1" step="0.01" value="0.4"></div>
+          <div class="ctl" data-step-min="5"><span class="lab">Metallic</span><div class="seg" id="seg1m" role="group" aria-label="Metallic"><button data-v="0" aria-pressed="true">0 not metal</button><button data-v="1">1 metal</button></div></div>
+          <div class="ctl" data-step-min="5"><label for="col1">Base colour</label><input type="color" id="col1" value="#c9803f"></div>
+          <div class="ctl" data-step-min="6"><span class="lab">How the shape is drawn</span><div class="seg" id="seg1s" role="group" aria-label="Radius scale"><button data-v="lin" aria-pressed="true">true size</button><button data-v="log">squashed (log)</button></div></div>
         </div>
-        <div class="controls" style="margin-top:12px">
+        <div class="controls" data-step-min="6">
           <div class="chks">
-            <label class="chk"><input type="checkbox" id="showD"> D(h)</label>
-            <label class="chk"><input type="checkbox" id="showG"> G(l,v)</label>
-            <label class="chk"><input type="checkbox" id="showF"> F(v·h)</label>
+            <label class="chk"><input type="checkbox" id="showD"> D: which way the bumps face</label>
+            <label class="chk"><input type="checkbox" id="showG"> G: what lamp and eye both reach</label>
+            <label class="chk"><input type="checkbox" id="showF"> F: how mirror-like at this angle</label>
           </div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">A rougher surface spreads the lamp's light wider, and the wider it spreads, the dimmer it must be.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The BRDF (bidirectional reflectance distribution function) answers one question: for light arriving from direction <code>l</code>, what fraction leaves toward the eye direction <code>v</code>, per unit of solid angle, which is a patch of directions the way an area is a patch of surface. The matte part is Lambert diffuse, <code>albedo / π</code>, the same in every direction. Albedo is the base colour: the share of light the surface does not soak up.</p>
         <p>The highlight is the product of three terms, and each one is a probability rather than a colour. <code>D</code> is how many of the tiny mirrors (microfacets) point along the half vector <code>h</code>, the direction halfway between light and eye. <code>G</code> is how many of those are neither in a neighbour's shade nor hidden from view. <code>F</code> is the fraction of light a single facet mirrors instead of letting through. The <code>4 (n·l)(n·v)</code> underneath converts from one facet's frame to the whole surface.</p>
         <p class="words">In words: light out is the matte part plus the highlight part, times how much light lands, which is n·l.</p>
@@ -328,45 +318,35 @@ k_d = (1 − F) · (1 − metallic)</div>
   vec3  kd   = (1.0 - F) * (1.0 - metal);          <span class="c">// metal: no matte part at all</span>
   <span class="k">return</span> (kd * albedo / PI + spec) * NoL;          <span class="c">// caller multiplies by light radiance</span>
 }</pre>
-        <p class="tldr">A rougher surface spreads the highlight wider, and the wider it gets, the dimmer it must be.</p>
-      </div>
+      </div></details>
     </div>
   </section>
 
-  <section id="micro">
-    <h2>Microfacets: the tiny mirrors</h2>
+  <section id="micro" class="stage">
+    <h2>The tiny bumps in the road</h2>
     <p class="sub">One millimetre of the same road, magnified 340 times. Bounce the lamp's rays off the bumps and count which ones escape.</p>
-    <div class="cols wide">
+    <div class="cols">
       <div class="vp">
         <canvas id="c2" width="640" height="360" class="grab r169" aria-label="One millimetre of the road magnified into bumpy facets, with rays from a draggable lamp bouncing off them, a draggable eye, a small picture of where on the street the millimetre is, and a histogram of facet tilts"></canvas>
-        <div class="cap"><span id="c2-read"></span><span id="c2-hist"></span></div>
+        <div class="cap"><span id="c2-read"></span></div>
+        <div class="cap"><span id="c2-hist"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Zoom far enough into the road and it is bumpy. <b>Each bump acts like a tiny mirror</b> tilted its own way. A rough surface has bumps tilted every which way, so the lamp's reflection scatters. <b>Some bumps sit in the shade of their neighbours</b> and some are hidden from your eye, and that lost light is what the D and G terms count.</p>
-
-        <h3>What you're seeing</h3>
-        <p>A 1 mm strip of the road as 96 flat mirrors with random tilts. The small picture in the corner shows where on the street that millimetre is. Rays come in from the lamp handle on the left and bounce off the first bump they hit. Green bumps get light; red ones face the lamp but sit in a neighbour's shade. An amber ray bounced away toward the sky; a red ray segment bounced back into the road and got stuck.</p>
-        <p>The histogram on the right counts bump tilts. The smooth curve over it is what the GGX formula predicts for that roughness.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag roughness to 0.05. The road flattens to a mirror, every ray escapes, and the tiles read close to 100%.</li>
-          <li>Drag the lamp handle down near the road. More bumps go red as they shade each other, and the lit-area tile drops.</li>
-          <li>Press "regenerate facets". The bumps change, the measured numbers move, but the Smith prediction stays put.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:0">
-          <div class="ctl"><label for="r2">Roughness <span class="val" id="r2v">0.60</span></label><input type="range" id="r2" min="0.05" max="1" step="0.01" value="0.6"></div>
-          <div class="ctl"><span class="lab">Facets</span><div class="seg" id="seg2n" role="group" aria-label="Facet count"><button data-v="48">48</button><button data-v="96" aria-pressed="true">96</button><button data-v="192">192</button></div></div>
-          <div class="ctl"><span class="lab">Sample</span><button class="btn" id="seed2" type="button">regenerate facets</button></div>
+      <div class="lesson" data-lesson="micro">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="r2">Roughness, 0 mirror to 1 chalk <span class="val" id="r2v">0.60</span></label><input type="range" id="r2" min="0.05" max="1" step="0.01" value="0.6"></div>
+          <div class="ctl" data-step-min="5"><span class="lab">Pieces in the millimetre</span><div class="seg" id="seg2n" role="group" aria-label="Facet count"><button data-v="48">48</button><button data-v="96" aria-pressed="true">96</button><button data-v="192">192</button></div></div>
+          <div class="ctl" data-step-min="5"><span class="lab">New bumps</span><button class="btn" id="seed2" type="button">shuffle the bumps</button></div>
         </div>
-        <div class="tiles">
-          <div class="tile" id="t2-shadow"><div class="n">—</div><div class="l">lit area, measured vs Smith G1(l)</div></div>
-          <div class="tile" id="t2-mask"><div class="n">—</div><div class="l">visible area, measured vs Smith G1(v)</div></div>
-          <div class="tile" id="t2-rays"><div class="n">—</div><div class="l">reflected rays that escape</div></div>
+        <div class="tiles" data-step-min="2">
+          <div class="tile" id="t2-shadow"><div class="n">—</div><div class="l">share the lamp reaches: measured vs formula</div></div>
+          <div class="tile" id="t2-mask"><div class="n">—</div><div class="l">share the eye can see: measured vs formula</div></div>
+          <div class="tile" id="t2-rays"><div class="n">—</div><div class="l">bounced rays that escape</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">D counts which way the bumps face; G counts how many of them the lamp and the eye can both reach.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p class="below">GGX is a statement about tilts, called slopes: most facets are nearly flat, but the tails are long, so a few facets point far off the average normal. That long tail is the soft halo around a highlight on a GGX surface. It is also why GGX replaced the older Beckmann and Blinn-Phong models, whose tails fall off like a bell curve and look clipped next to it.</p>
         <p>Shadowing and masking are the same fact seen from two sides. Shadowing is a facet that faces the light while a neighbour blocks it. Masking is a facet that faces the eye while a bump hides it. Smith's <code>G1</code> predicts the visible fraction from <code>α</code> and the angle alone, without knowing where the bumps are; the tiles compare that prediction with what this particular surface measures.</p>
         <p class="words">In words: D says how many facets point a given way; G1 says what share of them one direction can see; G multiplies the light's view by the eye's view.</p>
@@ -389,40 +369,29 @@ G(l, v) = G1(l) · G1(v)                                      <span class="c">//
   float gl = NoV * sqrt(NoL * NoL * (1.0 - a2) + a2);
   <span class="k">return</span> 0.5 / (gv + gl);                  <span class="c">// Filament's form: G / (4 NoL NoV) folded in</span>
 }</pre>
-        <p class="tldr">D counts which way the bumps point; G counts how many of them the light and the eye can both reach.</p>
-      </div>
+      </div></details>
     </div>
   </section>
 
-  <section id="fresnel">
-    <h2>Fresnel: every surface mirrors at a slant</h2>
+  <section id="fresnel" class="stage">
+    <h2>Every surface mirrors at a slant</h2>
     <p class="sub">A puddle on the road between the player and a lamp. Drag the player low and far and the puddle turns from a dark patch into a mirror.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c3" width="512" height="512" class="grab sq" aria-label="Schlick Fresnel curves for plastic, iron and silver above a street scene where a draggable player looks at a puddle lit by a hanging lamp, with an inset of the puddle as the player sees it"></canvas>
-        <div class="cap"><span id="c3-read"></span><span>F(θ) = F0 + (1 − F0)(1 − cos θ)^5</span></div>
+        <div class="cap"><span id="c3-read"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Look straight down at a puddle and you see the road under it. <b>Look at it from far away, at a low angle, and it turns into a mirror.</b> Every surface does this, plastic and metal alike; only the head-on amount differs. <b>That head-on amount is F0</b>, and it is the one number that separates metals from everything else.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Top: how reflective a surface is, from 0 to 1, against the angle you view it from, for three F0 values: plastic, iron and silver. Bottom: the street. The player looks at the puddle, the lamp hangs on the far side, and each reflected ray from the puddle to the lamp is drawn at the brightness the formula gives for that angle, so they fade when the player looks straight down and brighten as the player gets low.</p>
-        <p>The inset shows the puddle as the player sees it: dark road through the water when looking down, the lamp's reflection when looking across. Water has an F0 of 0.02, so the inset uses that.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the player away from the puddle and down toward the road. All three curves head to 1, the reflected rays turn bright, and the lamp appears in the puddle.</li>
-          <li>Drag the player up over the puddle. The plastic tile drops to about 0.04 and the puddle shows the road under it, which is why a wet floor looks dull from above.</li>
-          <li>Compare iron and silver at any angle: metals start high and have less far to climb.</li>
-        </ul>
-
-        <div class="tiles">
-          <div class="tile" id="t3-a"><div class="n">—</div><div class="l">F0 = 0.04 plastic</div></div>
-          <div class="tile" id="t3-b"><div class="n">—</div><div class="l">F0 = 0.56 iron</div></div>
-          <div class="tile" id="t3-c"><div class="n">—</div><div class="l">F0 = 0.95 silver</div></div>
+      <div class="lesson" data-lesson="fresnel">
+        <div class="tiles" data-step-min="2">
+          <div class="tile" id="t3-a"><div class="n">—</div><div class="l">plastic, 4% head-on</div></div>
+          <div class="tile" id="t3-b"><div class="n">—</div><div class="l">iron, 56% head-on</div></div>
+          <div class="tile" id="t3-c"><div class="n">—</div><div class="l">silver, 95% head-on</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">Everything turns into a mirror at a low angle; the head-on amount is the only thing that differs between materials.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p><code>F0</code> is the reflectance looking straight down. For almost every dielectric, which is any non-metal such as plastic, wood or skin, it sits between 0.02 and 0.05, so engines hard-code 0.04 and give artists no control over it. Metals have a coloured <code>F0</code> of 0.5 to 0.98, and that colour is what the base colour texture stores in the metallic workflow.</p>
         <p>The curve matters more than the constant. Every material, plastic or silver, reaches 100% reflectance as the view angle approaches 90°. A wet road at dusk mirrors the headlights ahead for this reason, and a shader that skips Fresnel makes floors look dry and dull at a distance. Schlick's formula is a cheap fit to the real Fresnel equations that costs one <code>pow</code>, and every engine in the table below uses it.</p>
         <p class="words">In words: start at F0 and climb to 1 as the view goes flat; the fifth power keeps the value near F0 until the angle gets steep.</p>
@@ -437,52 +406,40 @@ F0 = mix(vec3(0.04), baseColor, metallic)</div>
 }
 <span class="c">// UE4 replaces pow with a spherical-gaussian fit, same shape, 2 fewer instructions:</span>
 <span class="k">float</span> f = exp2((-5.55473 * VoH - 6.98316) * VoH);</pre>
-        <p class="tldr">Everything reflects at a low angle; F0 only sets where the curve starts.</p>
-      </div>
+      </div></details>
     </div>
   </section>
 
-  <section id="sphere">
-    <h2>A lit shield: new model next to old</h2>
-    <p class="sub">A round shield on the tavern's plank wall, lit by the lamp. Slide roughness and metallic and compare the physically based shield with the older Blinn-Phong one.</p>
-    <div class="cols two">
+  <section id="sphere" class="stage">
+    <h2>A lit shield, new rule next to old</h2>
+    <p class="sub">A round shield on the tavern wall, lit by the lamp. The left one follows the energy rule; the right one is how games did it before 2013.</p>
+    <div class="cols three">
       <div class="vp">
         <canvas id="c4a" width="160" height="160" class="grab sq px" aria-label="Round shield with a domed centre hanging on a wooden plank wall, shaded with the Cook-Torrance GGX BRDF; drag to move the lamp"></canvas>
-        <div class="cap"><strong>shield · GGX · Smith · Schlick</strong><span id="c4a-cap"></span></div>
+        <div class="cap"><strong>new rule (GGX)</strong><span id="c4a-cap"></span></div>
       </div>
       <div class="vp">
         <canvas id="c4b" width="160" height="160" class="grab sq px" aria-label="The same shield and wall shaded with Blinn-Phong; drag to move the lamp"></canvas>
-        <div class="cap"><strong>same shield · Blinn-Phong</strong><span id="c4b-cap"></span></div>
+        <div class="cap"><strong>old rule (Blinn-Phong)</strong><span id="c4b-cap"></span></div>
+        <div class="cap"><span id="c4-mode"></span></div>
+      </div>
+      <div class="lesson" data-lesson="sphere">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="r4">Roughness, 0 mirror to 1 chalk <span class="val" id="r4v">0.30</span></label><input type="range" id="r4" min="0.05" max="1" step="0.01" value="0.3"></div>
+          <div class="ctl" data-step-min="3"><label class="chk"><input type="checkbox" id="norm4"> scale the old rule down as it spreads</label></div>
+          <div class="ctl" data-step-min="4"><label for="m4">Metallic, 0 plastic to 1 metal <span class="val" id="m4v">0.00</span></label><input type="range" id="m4" min="0" max="1" step="0.01" value="0"></div>
+          <div class="ctl" data-step-min="4"><label for="col4">Base colour</label><input type="color" id="col4" value="#c9803f"></div>
+        </div>
+        <div class="tiles" data-step-min="2">
+          <div class="tile" id="t4-pbr"><div class="n">—</div><div class="l">new rule: brightest point of the highlight</div></div>
+          <div class="tile" id="t4-ph"><div class="n">—</div><div class="l">old rule: brightest point</div></div>
+          <div class="tile" id="t4-w"><div class="n">—</div><div class="l">highlight width, new vs old</div></div>
+        </div>
       </div>
     </div>
-    <p class="warn" id="c4-mode"></p>
-    <div class="controls">
-      <div class="ctl"><label for="r4">Roughness <span class="val" id="r4v">0.30</span></label><input type="range" id="r4" min="0.05" max="1" step="0.01" value="0.3"></div>
-      <div class="ctl"><label for="m4">Metallic <span class="val" id="m4v">0.00</span></label><input type="range" id="m4" min="0" max="1" step="0.01" value="0"></div>
-      <div class="ctl"><label for="col4">Base colour</label><input type="color" id="col4" value="#c9803f"></div>
-      <div class="ctl"><label class="chk"><input type="checkbox" id="norm4"> normalise Phong by (p+8)/8π</label></div>
-    </div>
-    <div class="tiles">
-      <div class="tile" id="t4-pbr"><div class="n">—</div><div class="l">GGX peak specular</div></div>
-      <div class="tile" id="t4-ph"><div class="n">—</div><div class="l">Phong peak specular</div></div>
-      <div class="tile" id="t4-w"><div class="n">—</div><div class="l">highlight half-width, GGX vs Phong</div></div>
-    </div>
-    <div class="cols wide">
-      <div class="prose">
-        <p class="plain">This is the payoff. <b>The left shield follows the energy rule: a wider highlight is a dimmer highlight.</b> The right shield uses Blinn-Phong, the model most games used before 2013, where the highlight's brightness is whatever number an artist typed. <b>Slide roughness and the left one stays believable; the right one does not.</b></p>
-
-        <h3>What you're seeing</h3>
-        <p>Two 160×160 views of the same round shield hanging on the tavern wall, with the same base colour, lamp and roughness. The domed centre of the shield is a half sphere, the rim around it is almost flat, and the planks behind are rough wood. The white dot is the lamp; drag it. Left is the full GGX, Smith and Schlick model. Right is Blinn-Phong with its exponent picked to match the GGX highlight width. The tiles give each shield's peak highlight value and how wide each highlight is, in degrees.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Slide roughness from 0.05 to 1. The left highlight spreads and dims together; the right one spreads and, at 1, the whole shield glows.</li>
-          <li>Tick the normalise box. The right shield now dims as it spreads too. This is the fix engines added around 2010.</li>
-          <li>Slide metallic to 1. The shield turns to bronze: the left one loses its matte shading and its highlight takes on the base colour.</li>
-          <li>Drag the lamp to a corner. The highlight slides across the dome and a second, wider one shows up on the flat rim and the planks.</li>
-        </ul>
-
-        <h3>The real version</h3>
+    <div class="foot">
+      <p class="tldr">Physically based shading buys you one thing: move any slider and the surface still looks like a real material.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The area under the lobe is fixed because <code>D</code> integrates to one, so a wider lobe must be a lower one. Blinn-Phong has no such rule: its peak is whatever <code>ks</code> the artist typed, and at roughness 1 its exponent hits zero and the whole shield glows. The normalisation checkbox adds the <code>(p+8)/8π</code> factor that fixes this, the first step most engines took toward PBR around 2010, before switching to GGX.</p>
         <p>At metallic 1 the diffuse lobe disappears. The shield is lit only by its highlight, and that highlight takes on the base colour, because for a metal <code>F0</code> is the base colour. This is the whole metal/roughness workflow: one RGB texture that means "albedo" for non-metals and "highlight colour" for metals, one channel to choose between them, one channel for roughness. The engine never stores a separate specular colour.</p>
         <p class="words">In words: light out is matte plus highlight, times the light landing, times n·l, plus a flat ambient guess; the light landing falls off with distance squared.</p>
@@ -500,44 +457,34 @@ vec3 col  = brdf(N, V, L, baseColor, roughness, metallic) * E;
 col      += ambient * baseColor;                       <span class="c">// placeholder for the IBL below</span>
 col       = col / (col + 1.0);                         <span class="c">// tone map, then sRGB encode</span>
 fragColor = vec4(pow(col, vec3(1.0 / 2.2)), 1.0);</pre>
-        <p class="tldr">Physically based shading buys you one thing: move any slider and the surface still looks like a real material.</p>
-      </div>
+      </div></details>
     </div>
   </section>
 
-  <section id="ibl">
-    <h2>Sky light, baked: the split sum</h2>
-    <p class="sub">The player carries the shield outside under an afternoon sky. Hover the lookup table and slide roughness to see how two baked textures give the shield its sky reflection.</p>
-    <div class="cols wide">
+  <section id="ibl" class="stage">
+    <h2>Sky light, baked ahead of time</h2>
+    <p class="sub">The player carries the shield outside under an afternoon sky. Two tables made in advance give it a sky reflection with two lookups per pixel.</p>
+    <div class="cols">
       <div class="vp">
         <canvas id="c5" width="640" height="360" class="r169" aria-label="The sky around the player, from road to sun, blurred at six roughness levels; the BRDF lookup table; and an inset of the shield as the player sees it under that sky"></canvas>
-        <div class="cap"><span id="c5-read"></span><span id="c5-mip"></span></div>
+        <div class="cap"><span id="c5-read"></span></div>
+        <div class="cap"><span id="c5-mip"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">A single lamp is easy: one direction, one bounce. <b>Outside, the sky lights the shield from every direction at once</b>, and adding all of them up per pixel would take thousands of samples. <b>The split sum trick bakes two tables ahead of time</b> so the shader does two texture reads instead.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Left: the sky around the player as a one-line panorama (road, tree line, sky, sun), blurred at six roughness levels, one per mip, which is a smaller pre-blurred copy of a texture. A mirror surface reads the sharp top strip; a rough one reads a blurry lower strip.</p>
-        <p>Middle: the 64×64 lookup table (LUT), computed here with 128 samples per texel. Red is the weight on F0, green is the constant that gets added on top. Right: the shield as the player sees it under that sky, built from exactly those two reads per pixel. The white ring marks the pixels whose N·V matches the slider.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Slide roughness to 1. The active strip on the left is the blurriest one; the sun spreads into a smear and the sun's glint on the shield goes soft.</li>
-          <li>Slide N·V down to 0.02, which means looking along the surface. The ring moves to the shield's edge and the green tile climbs: even black plastic shows the sky at that angle.</li>
-          <li>Hover the LUT. Both sliders follow the cursor and the tiles show scale, bias and the result for F0 = 0.04.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:0">
-          <div class="ctl"><label for="r5">Roughness <span class="val" id="r5v">0.40</span></label><input type="range" id="r5" min="0" max="1" step="0.01" value="0.4"></div>
-          <div class="ctl"><label for="nv5">N·V <span class="val" id="nv5v">0.70</span></label><input type="range" id="nv5" min="0.02" max="1" step="0.01" value="0.7"></div>
+      <div class="lesson" data-lesson="ibl">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="r5">Roughness, 0 mirror to 1 chalk <span class="val" id="r5v">0.40</span></label><input type="range" id="r5" min="0" max="1" step="0.01" value="0.4"></div>
+          <div class="ctl" data-step-min="3"><label for="nv5">How face-on the view is, 1 centre to 0 rim <span class="val" id="nv5v">0.70</span></label><input type="range" id="nv5" min="0.02" max="1" step="0.01" value="0.7"></div>
         </div>
-        <div class="tiles">
-          <div class="tile" id="t5-scale"><div class="n">—</div><div class="l">LUT scale (red)</div></div>
-          <div class="tile" id="t5-bias"><div class="n">—</div><div class="l">LUT bias (green)</div></div>
-          <div class="tile" id="t5-spec"><div class="n">—</div><div class="l">F0·scale + bias, F0 = 0.04</div></div>
+        <div class="tiles" data-step-min="3">
+          <div class="tile" id="t5-scale"><div class="n">—</div><div class="l">weight (the red channel)</div></div>
+          <div class="tile" id="t5-bias"><div class="n">—</div><div class="l">extra added (the green channel)</div></div>
+          <div class="tile" id="t5-spec"><div class="n">—</div><div class="l">result for plastic: 0.04 × weight + extra</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">Two table reads stand in for adding up the whole sky, at the cost of round reflections at a slant.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p class="below">A point light is one term of the rendering integral, the sum over every incoming direction. An environment is all of the terms at once, and integrating the BRDF against a cubemap (six images that wrap around the scene) per pixel is thousands of samples. Karis's split sum pulls the integral apart into two factors that can each be baked.</p>
         <p>The first factor is the environment blurred by the GGX lobe, stored once per roughness in the mip chain of a cubemap, so a lookup is one <code>textureLod</code>. The second is the BRDF integrated against a plain white environment. It depends only on <code>n·v</code> and roughness and is the same for every scene, so it ships with the engine as a 2D texture.</p>
         <p>The LUT stores two numbers because <code>F0</code> factors out linearly: the red channel is the weight on <code>F0</code>, the green channel is the constant that remains. Green is the reason a black dielectric still shows a rim of sky at grazing angles. The blur step assumes <code>n = v = r</code>, so highlights from the environment come out round instead of stretched at grazing angles, the one visible artifact of the split sum.</p>
@@ -555,21 +502,20 @@ vec2  ab     = texture(brdfLUT, vec2(NoV, roughness)).rg;   <span class="c">// s
 vec3  spec   = pref * (F0 * ab.x + ab.y);
 vec3  diff   = texture(irradianceEnv, N).rgb * baseColor * (1.0 - metallic);
 vec3  ambient = (diff + spec) * ao;</pre>
-        <p class="tldr">Two texture reads stand in for thousands of samples, at the cost of round highlights at grazing angles.</p>
-      </div>
+      </div></details>
     </div>
   </section>
 
   <section id="tradeoffs">
     <h2>Tradeoffs: which model, and what it costs</h2>
     <p class="sub">Each row is one way to compute the matte part or the highlight.</p>
-    <p class="plain">Read across: <b>how many instructions it costs</b> per light per pixel, what the artist has to author, <b>how it looks wrong</b>, and when to choose it. The instruction counts are rough estimates for one light in a deferred pass, where lighting runs once per screen pixel after geometry is drawn. The shape of the tail and the number of inputs matter more than the exact count.</p>
+    <p class="plain">Read across: <b>how many instructions it costs</b> per light per pixel (an instruction is one small step of the per-pixel program), what the artist has to author, <b>how it looks wrong</b>, and when to choose it. The counts are rough estimates for one light in a deferred pass, where lighting runs once per screen pixel after the geometry is drawn. The shape of the highlight's tail and the number of inputs matter more than the exact count.</p>
     <div class="tbl-wrap">
     <table class="stats txt">
       <thead><tr><th>Model</th><th>Instructions per light (est.)</th><th>What it needs</th><th>How it looks wrong</th><th>Pick it when</th></tr></thead>
       <tbody>
-        <tr><td>Lambert diffuse</td><td>~3</td><td>albedo</td><td>Too dark at low angles on rough surfaces; no bounce-back toward the light</td><td>Almost always. The error is small and the cost is close to nothing.</td></tr>
-        <tr><td>Burley / Disney diffuse</td><td>~12</td><td>albedo, roughness</td><td>Can give back more light than it gets on its own; Frostbite rescales it</td><td>Rough non-metals like cloth and skin, where the brightening at low angles shows.</td></tr>
+        <tr><td>Lambert diffuse</td><td>~3</td><td>base colour</td><td>Too dark at low angles on rough surfaces; no bounce-back toward the light</td><td>Almost always. The error is small and the cost is close to nothing.</td></tr>
+        <tr><td>Burley / Disney diffuse</td><td>~12</td><td>base colour, roughness</td><td>Can give back more light than it gets on its own; Frostbite rescales it</td><td>Rough non-metals like cloth and skin, where the brightening at low angles shows.</td></tr>
         <tr><td>GGX + Smith + Schlick</td><td>~30</td><td>base colour, roughness, metallic</td><td>Long tail can read as haze on very smooth surfaces; loses light at roughness above 0.5 because it only counts one bounce</td><td>The default. glTF, Unreal, Unity, Frostbite and Filament all ship it.</td></tr>
         <tr><td>Beckmann + Smith</td><td>~35 (exp)</td><td>same</td><td>Bell-curve tail, so highlights look clipped next to GGX</td><td>Matching older offline renders or measured data that was fit with it.</td></tr>
         <tr><td>Normalised Blinn-Phong</td><td>~10 (pow)</td><td>colour, exponent</td><td>No Fresnel, no masking; too dark at low angles</td><td>Mobile budgets and pre-2013 content. Karis maps roughness to p = 2/α² − 2.</td></tr>
@@ -593,7 +539,7 @@ vec3  ambient = (diff + spec) * ao;</pre>
         <tr><td>Split-sum IBL</td><td>One read from the blurred cubemap at mip = roughness, one read from the LUT at (n·v, roughness).</td><td>Prefiltered cubemap chain, 2-channel 2D LUT</td><td>Unreal Engine 4, Frostbite (Lagarde and de Rousiers, "Moving Frostbite to PBR", 2014), Filament</td></tr>
         <tr><td>Principled material</td><td>One BRDF with a dozen artist-facing sliders: base colour, metallic, roughness, specular, sheen, clearcoat, anisotropy.</td><td>Ten or so numbers, all in 0 to 1</td><td>Disney (Burley, "Physically Based Shading at Disney", 2012), Blender's Principled BSDF</td></tr>
         <tr><td>Interchange format</td><td>Store base colour, metallic (blue channel) and roughness (green channel) in two textures so any engine can load the same asset.</td><td>Two RGBA textures plus normal and occlusion</td><td>glTF 2.0 metal-roughness (Khronos, 2017), the default for web and mobile pipelines</td></tr>
-        <tr><td>Mobile PBR</td><td>Same GGX lobe with a cheaper G, half-precision math and a precomputed DFG term folded into the LUT.</td><td>Same inputs, fewer bits</td><td>Filament (Google, open source, 2018), many mobile engines</td></tr>
+        <tr><td>Mobile PBR</td><td>Same GGX lobe with a cheaper G, lower-precision math and a precomputed DFG term (the highlight's share of the light, as in demo 05) folded into the lookup table.</td><td>Same inputs, fewer bits</td><td>Filament (Google, open source, 2018), many mobile engines</td></tr>
       </tbody>
     </table>
     </div>
@@ -716,9 +662,77 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   // ---------- shared BRDF math (scalar, per channel where needed) ----------
   const PI = Math.PI;
+  let L1, L2, L3, L4, L5;
   const AMBER = "#f2a341", BLUE = "#4aa3ff", WHITE = "#ffffff", GREEN = "#5ad48a", RED = "#ef5d5d", GROUND = "#0b0e13";
   const GRID = "rgba(255,255,255,0.12)";
   const MONO = "12px 'IBM Plex Mono', Menlo, monospace";
@@ -740,20 +754,20 @@ function kitInset(ctx, x, y, w, h, title) {
     return [(ev.clientX - r.left) / r.width * canvas.width, (ev.clientY - r.top) / r.height * canvas.height];
   }
   function drag(canvas, getHandles, onMove, onHover, radius = 22) {
-    let active = -1;
+    let active = -1, last = null;
     canvas.addEventListener("pointerdown", ev => {
       const [x, y] = worldOf(canvas, ev);
       const hs = getHandles(); let best = -1, bd = radius;
       hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
-      if (best >= 0) { active = best; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); ev.preventDefault(); }
-      else if (hs.length === 0 && onMove) { active = 0; canvas.setPointerCapture(ev.pointerId); onMove(0, x, y); }
+      if (best >= 0) { active = best; last = [x, y]; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); ev.preventDefault(); }
+      else if (hs.length === 0 && onMove) { active = 0; last = [x, y]; canvas.setPointerCapture(ev.pointerId); onMove(0, x, y); }
     });
     canvas.addEventListener("pointermove", ev => {
       const [x, y] = worldOf(canvas, ev);
-      if (active >= 0) onMove(active, x, y);
+      if (active >= 0) { last = [x, y]; onMove(active, x, y); }
       else if (onHover) onHover(x, y);
     });
-    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    const end = ev => { if (active >= 0) { if (last) onMove(active, last[0], last[1]); active = -1; last = null; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
     canvas.addEventListener("pointerup", end);
     canvas.addEventListener("pointercancel", end);
     canvas.addEventListener("pointerleave", () => { if (onHover) onHover(-1, -1); });
@@ -895,12 +909,12 @@ function kitInset(ctx, x, y, w, h, title) {
     kitLabel(ctx, "what reaches the player", dot[0] + (dot[0] > O1[0] ? -8 : 8), dot[1] - 16, dot[0] > O1[0] ? "right" : "left");
     label(ctx, "straight up", O1[0] - 10, O1[1] - RMAX1 - 26, "rgba(255,255,255,0.6)", "right");
     label(ctx, "mirror of the lamp", O1[0] + mir[0] * (RMAX1 + 30) + (mir[0] > 0 ? -6 : 6), O1[1] - mir[1] * (RMAX1 + 30) - 14, "rgba(255,255,255,0.5)", mir[0] > 0 ? "right" : "left");
-    label(ctx, "lobe: light leaving each way, " + (S1.scale === "log" ? "log radius" : "peak = 1"), 12, 16, AMBER);
-    label(ctx, "matte part: k_d·albedo/π·(n·l)", 12, 34, BLUE);
+    label(ctx, "light leaving each way" + (S1.scale === "log" ? ", squashed scale" : ", tallest = 1"), 12, 16, AMBER);
+    label(ctx, "matte part: about the same every way", 12, 34, BLUE);
     let ly = 52;
-    if (document.getElementById("showD").checked) { label(ctx, "D(h) / D_max", 12, ly, AMBER); ly += 18; }
-    if (document.getElementById("showG").checked) { label(ctx, "G(l,v)", 12, ly, BLUE); ly += 18; }
-    if (document.getElementById("showF").checked) { label(ctx, "F(v·h)", 12, ly, WHITE); ly += 18; }
+    if (document.getElementById("showD").checked) { label(ctx, "D: which way the bumps face (dashed)", 12, ly, AMBER); ly += 18; }
+    if (document.getElementById("showG").checked) { label(ctx, "G: what lamp and eye both reach (dashed)", 12, ly, BLUE); ly += 18; }
+    if (document.getElementById("showF").checked) { label(ctx, "F: how mirror-like at this angle (dotted)", 12, ly, WHITE); ly += 18; }
     // inset: the spot as the player sees it
     const I = INS1; kitInset(ctx, I.x, I.y, I.w, I.h, "player sees");
     cobbles(ctx, I.x + 6, I.y + 26, I.w - 12, I.h - 32, 14);
@@ -910,8 +924,9 @@ function kitInset(ctx, x, y, w, h, title) {
     // readouts
     let pk = 0, pi = 0; for (let i = 0; i <= N; i++) if (tot[i] > pk) { pk = tot[i]; pi = i; }
     const F0 = albedo.map(c => 0.04 * (1 - S1.metal) + c * S1.metal);
-    document.getElementById("c1-read").innerHTML = `lamp θl = <strong>${deg(S1.thetaL).toFixed(0)}°</strong> · α = ${(S1.rough * S1.rough).toFixed(3)} · F0 = (${F0.map(c => c.toFixed(2)).join(", ")})`;
-    document.getElementById("c1-peak").innerHTML = `peak <strong>${pk.toFixed(pk > 10 ? 0 : 2)}</strong> at θv = ${(-89.5 + pi * 179 / N).toFixed(0)}° · player at θv = ${deg(thP).toFixed(0)}° gets <strong>${toPlayer.toFixed(toPlayer > 10 ? 0 : 2)}</strong>`;
+    document.getElementById("c1-read").innerHTML = `lamp tilted <strong>${deg(S1.thetaL).toFixed(0)}°</strong> from straight up · roughness ${S1.rough.toFixed(2)} · reflects ${(lum(F0) * 100).toFixed(0)} % head-on`;
+    document.getElementById("c1-peak").innerHTML = `most light heads <strong>${(-89.5 + pi * 179 / N).toFixed(0)}°</strong> from straight up (peak ${pk.toFixed(pk > 10 ? 0 : 2)}) · the player, at ${deg(thP).toFixed(0)}°, gets <strong>${toPlayer.toFixed(toPlayer > 10 ? 0 : 2)}</strong>`;
+    L1 && L1.check();
   }
   drag(c1, () => { const l = [-Math.sin(S1.thetaL), Math.cos(S1.thetaL)]; return [[O1[0] + l[0] * LR1, O1[1] - l[1] * LR1], playerEye1()]; }, (i, x, y) => {
     if (i === 0) { const t = Math.atan2(-(x - O1[0]), Math.max(1, O1[1] - y)); S1.thetaL = Math.max(-1.35, Math.min(1.35, t)); }
@@ -1052,15 +1067,16 @@ function kitInset(ctx, x, y, w, h, title) {
     ctx.strokeStyle = GRID; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(HX, HY + HH + 0.5); ctx.lineTo(HX + HW, HY + HH + 0.5); ctx.moveTo(HX + HW / 2 + 0.5, HY); ctx.lineTo(HX + HW / 2 + 0.5, HY + HH); ctx.stroke();
     label(ctx, "−90°", HX, HY + HH + 12, "rgba(255,255,255,0.45)"); label(ctx, "0°", HX + HW / 2, HY + HH + 12, "rgba(255,255,255,0.45)", "center"); label(ctx, "+90°", HX + HW, HY + HH + 12, "rgba(255,255,255,0.45)", "right");
     label(ctx, "which way each bump tilts", HX + HW / 2, HY + HH + 28, "rgba(255,255,255,0.45)", "center");
-    label(ctx, "bumps per bin", HX, HY - 36, BLUE); label(ctx, "GGX slope pdf, α = " + a.toFixed(3), HX, HY - 18, AMBER);
+    label(ctx, "pieces per bar", HX, HY - 36, BLUE); label(ctx, "what the formula predicts (GGX)", HX, HY - 18, AMBER);
     // Smith comparisons
     const NoL = Math.cos(S2.thetaL), NoV = Math.cos(S2.thetaV);
     const sL = g1Smith(NoL, a), sV = g1Smith(NoV, a);
     document.querySelector("#t2-shadow .n").innerHTML = `${VL.g1.toFixed(2)} <small>vs ${sL.toFixed(2)}</small>`;
     document.querySelector("#t2-mask .n").innerHTML = `${VV.g1.toFixed(2)} <small>vs ${sV.toFixed(2)}</small>`;
     document.querySelector("#t2-rays .n").innerHTML = `${hits - masked} <small>of ${hits} · ${masked} re-hit</small>`;
-    document.getElementById("c2-read").innerHTML = `lamp θl = <strong>${deg(S2.thetaL).toFixed(0)}°</strong> · eye θv = <strong>${deg(-S2.thetaV).toFixed(0)}°</strong> · α = ${a.toFixed(3)} · G = ${(VL.g1 * VV.g1).toFixed(2)} measured, ${(sL * sV).toFixed(2)} Smith`;
-    document.getElementById("c2-hist").innerHTML = `1 mm of road · ${N} facets of ${(1000 / N).toFixed(1)} µm · ${B} bins`;
+    document.getElementById("c2-read").innerHTML = `lamp <strong>${deg(S2.thetaL).toFixed(0)}°</strong> from straight up · eye <strong>${deg(-S2.thetaV).toFixed(0)}°</strong> · roughness ${S2.rough.toFixed(2)} · reached by both: ${(VL.g1 * VV.g1).toFixed(2)} measured, ${(sL * sV).toFixed(2)} by the formula`;
+    document.getElementById("c2-hist").innerHTML = `1 mm of road · ${N} pieces, each ${(1000 / N).toFixed(1)} µm wide (1 µm is a thousandth of a millimetre) · ${B} bars`;
+    L2 && L2.check();
   }
   drag(c2, () => [[CX - Math.sin(S2.thetaL) * ARC, BASE - Math.cos(S2.thetaL) * ARC], [CX - Math.sin(S2.thetaV) * ARC, BASE - Math.cos(S2.thetaV) * ARC]], (i, x, y) => {
     const t = Math.max(-1.45, Math.min(1.45, Math.atan2(-(x - CX), Math.max(1, BASE - y))));
@@ -1069,7 +1085,8 @@ function kitInset(ctx, x, y, w, h, title) {
   const r2 = document.getElementById("r2"); r2.value = S2.rough; document.getElementById("r2v").textContent = S2.rough.toFixed(2);
   r2.addEventListener("input", () => { S2.rough = +r2.value; document.getElementById("r2v").textContent = S2.rough.toFixed(2); draw2(); });
   onSeg("seg2n", v => { S2.N = +v; draw2(); });
-  document.getElementById("seed2").addEventListener("click", () => { regen2(); draw2(); });
+  S2.regen = 0;
+  document.getElementById("seed2").addEventListener("click", () => { regen2(); S2.regen++; draw2(); });
   draw2();
 
   // ======================================================================
@@ -1096,7 +1113,7 @@ function kitInset(ctx, x, y, w, h, title) {
     ctx.strokeStyle = GRID; ctx.lineWidth = 1;
     for (const f of [0, 0.25, 0.5, 0.75, 1]) { const y = PY + PH - f * PH + 0.5; ctx.beginPath(); ctx.moveTo(PX, y); ctx.lineTo(PX + PW, y); ctx.stroke(); label(ctx, f.toFixed(2), PX - 8, y, "rgba(255,255,255,0.45)", "right"); }
     for (const d of [0, 30, 60, 90]) { const x = PX + d / 90 * PW + 0.5; ctx.beginPath(); ctx.moveTo(x, PY); ctx.lineTo(x, PY + PH); ctx.stroke(); label(ctx, d + "°", x, PY + PH + 12, "rgba(255,255,255,0.45)", "center"); }
-    label(ctx, "F(θ): how mirror-like, by viewing angle", PX + PW, PY - 12, "rgba(255,255,255,0.5)", "right");
+    label(ctx, "how mirror-like, by the player's angle", PX + PW, PY - 12, "rgba(255,255,255,0.5)", "right");
     for (const [f0, col] of F0S) {
       ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath();
       for (let i = 0; i <= 180; i++) { const th = i / 180 * PI / 2, F = fSchlick(Math.cos(th), f0); const x = PX + i / 180 * PW, y = PY + PH - F * PH; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
@@ -1128,7 +1145,7 @@ function kitInset(ctx, x, y, w, h, title) {
     kitLabel(ctx, "lamp", lx + 16, ly - 20, "left", "rgba(255,255,255,0.75)");
     kitLabel(ctx, "player (drag)", ex, Math.min(ey, FLOOR - 8) - 24, "center");
     kitLabel(ctx, "puddle", HIT, FLOOR + 24, "center", "#c7cdd8");
-    label(ctx, "θ = " + deg(S3.theta).toFixed(0) + "° from straight up", HIT + 10, FLOOR - EYE_R - 2);
+    label(ctx, deg(S3.theta).toFixed(0) + "° off vertical", HIT + 10, FLOOR - EYE_R - 2);
     // inset: the puddle as the player sees it
     const I = INS3; kitInset(ctx, I.x, I.y, I.w, I.h, "player sees");
     cobbles(ctx, I.x + 4, I.y + 24, I.w - 8, I.h - 28, 12);
@@ -1143,7 +1160,8 @@ function kitInset(ctx, x, y, w, h, title) {
     label(ctx, "lamp in it: " + (Fw * 100).toFixed(0) + " %", pcx, I.y + 92, "rgba(255,255,255,0.8)", "center");
     const els = ["t3-a", "t3-b", "t3-c"];
     vals.forEach((F, i) => { document.querySelector("#" + els[i] + " .n").textContent = (F * 100).toFixed(1) + " %"; });
-    document.getElementById("c3-read").innerHTML = `θ = <strong>${deg(S3.theta).toFixed(0)}°</strong> · cos θ = ${Math.cos(S3.theta).toFixed(3)} · (1 − cos θ)^5 = ${Math.pow(1 - Math.cos(S3.theta), 5).toFixed(4)} · puddle (F0 0.02) ${(Fw * 100).toFixed(1)} %`;
+    document.getElementById("c3-read").innerHTML = `the player looks from <strong>${deg(S3.theta).toFixed(0)}°</strong> off vertical · the puddle (water, 2 % head-on) mirrors <strong>${(Fw * 100).toFixed(1)} %</strong> of the lamp`;
+    L3 && L3.check();
   }
   drag(c3, () => [[HIT + Math.sin(S3.theta) * EYE_R, FLOOR - Math.cos(S3.theta) * EYE_R]], (i, x, y) => {
     S3.theta = Math.max(0, Math.min(89.5 * PI / 180, Math.atan2(x - HIT, Math.max(1, FLOOR - y)))); draw3();
@@ -1227,7 +1245,7 @@ void main(){
   let gla = makeGL(c4a), glb = gla ? makeGL(c4b) : null;
   const useGL = !!(gla && glb);
   if (!useGL) { for (const c of [c4a, c4b]) { c.width = 128; c.height = 128; } }
-  document.getElementById("c4-mode").textContent = useGL ? "WebGL fragment shader, 160×160 pixels, the GLSL below runs per pixel" : "WebGL unavailable: per-pixel 2D canvas fallback at 128×128";
+  document.getElementById("c4-mode").textContent = useGL ? "drawn on the graphics card, 160×160 pixels: the code under the hood runs once per pixel" : "WebGL unavailable: drawn one pixel at a time in plain JavaScript, 128×128 pixels";
   const ctx4a = useGL ? null : c4a.getContext("2d"), ctx4b = useGL ? null : c4b.getContext("2d");
   // 2D fallback: the same shield, rim and wall, one pixel at a time
   function shadeJS(ctx, R, mode, base, lightPos) {
@@ -1280,11 +1298,12 @@ void main(){
     const q = (1 - Math.SQRT2 * a * a) / (1 - a * a);
     const wG = q > 0 && a * a < 1 / Math.SQRT2 ? deg(Math.acos(Math.sqrt(q))) : 90;
     const wP = pw > 0 ? deg(Math.acos(Math.pow(0.5, 1 / pw))) : 90;
-    document.querySelector("#t4-pbr .n").innerHTML = `${pbrPeak.toFixed(2)} <small>W/m²·sr</small>`;
-    document.querySelector("#t4-ph .n").innerHTML = `${phPeak.toFixed(2)} <small>W/m²·sr</small>`;
+    document.querySelector("#t4-pbr .n").innerHTML = `${pbrPeak.toFixed(2)}`;
+    document.querySelector("#t4-ph .n").innerHTML = `${phPeak.toFixed(2)}`;
     document.querySelector("#t4-w .n").innerHTML = `±${wG >= 90 ? "90+" : wG.toFixed(1)}° <small>vs ±${wP >= 90 ? "90+" : wP.toFixed(1)}°</small>`;
-    document.getElementById("c4a-cap").innerHTML = `α = ${a.toFixed(3)} · F0 = ${lum(F0).toFixed(2)} · kd = ${(1 - S4.metal).toFixed(2)}`;
-    document.getElementById("c4b-cap").innerHTML = `p = ${pw.toFixed(0)} · ${S4.norm ? "normalised" : "unnormalised"}`;
+    document.getElementById("c4a-cap").innerHTML = `roughness ${S4.rough.toFixed(2)} · reflects ${(lum(F0) * 100).toFixed(0)} % head-on · matte share ${(1 - S4.metal).toFixed(2)}`;
+    document.getElementById("c4b-cap").innerHTML = `shininess number ${pw.toFixed(0)} · ${S4.norm ? "scaled down as it spreads" : "not scaled down"}`;
+    L4 && L4.check();
   }
   const req4 = raf(draw4);
   function setLight(canvas, x, y) {
@@ -1398,19 +1417,19 @@ void main(){
       const y = SY0 + k * SGAP;
       ctx.drawImage(stripCanvases[k], SX, y, SW, SH);
       if (k === mipI) { ctx.strokeStyle = AMBER; ctx.lineWidth = 2; ctx.strokeRect(SX - 2, y - 2, SW + 4, SH + 4); }
-      label(ctx, `mip ${k} · roughness ${(k / (MIPS - 1)).toFixed(1)} · α ${Math.pow(k / (MIPS - 1), 2).toFixed(2)}`, SX, y - 9, k === mipI ? AMBER : "rgba(255,255,255,0.5)");
+      label(ctx, `row ${k} · roughness ${(k / (MIPS - 1)).toFixed(1)}`, SX, y - 9, k === mipI ? AMBER : "rgba(255,255,255,0.5)");
     }
     label(ctx, "road", SX + SW * 0.2, 336, "rgba(255,255,255,0.45)", "center"); label(ctx, "trees", SX + SW * 0.5, 336, "rgba(255,255,255,0.45)", "center"); label(ctx, "sun", SX + SW * 0.667, 336, "rgba(255,255,255,0.45)", "center"); label(ctx, "sky", SX + SW * 0.88, 336, "rgba(255,255,255,0.45)", "center");
-    label(ctx, "the sky around the player, blurred per mip", SX, 350, "rgba(255,255,255,0.45)");
+    label(ctx, "the sky around the player, blurred more in each row", SX, 350, "rgba(255,255,255,0.45)");
     // LUT
     ctx.imageSmoothingEnabled = false; ctx.drawImage(lutCanvas, LX, LY, LS, LS);
     ctx.strokeStyle = GRID; ctx.lineWidth = 1; ctx.strokeRect(LX + 0.5, LY + 0.5, LS - 1, LS - 1);
     const px = LX + S5.nv * LS, py = LY + LS - S5.rough * LS;
     ctx.strokeStyle = WHITE; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, LY); ctx.lineTo(px, LY + LS); ctx.moveTo(LX, py); ctx.lineTo(LX + LS, py); ctx.stroke();
     ctx.beginPath(); ctx.arc(px, py, 5, 0, PI * 2); ctx.strokeStyle = WHITE; ctx.lineWidth = 2; ctx.stroke();
-    label(ctx, "N·V → 1", LX + LS - 4, LY + LS + 14, "rgba(255,255,255,0.5)", "right"); label(ctx, "0", LX, LY + LS + 14, "rgba(255,255,255,0.5)");
-    label(ctx, "roughness ↑", LX, LY - 24, "rgba(255,255,255,0.5)"); label(ctx, "red = scale · green = bias", LX, LY - 10, "rgba(255,255,255,0.5)");
-    label(ctx, "the LUT: hover it", LX + LS, LY - 24, AMBER, "right");
+    label(ctx, "face-on → 1", LX + LS - 4, LY + LS + 14, "rgba(255,255,255,0.5)", "right"); label(ctx, "0 (rim)", LX, LY + LS + 14, "rgba(255,255,255,0.5)");
+    label(ctx, "roughness ↑", LX, LY - 24, "rgba(255,255,255,0.5)"); label(ctx, "red = weight · green = extra", LX, LY - 10, "rgba(255,255,255,0.5)");
+    label(ctx, "the table: hover it", LX + LS, LY - 24, AMBER, "right");
     // the shield as the player sees it
     const I = INS5; kitInset(ctx, I.x, I.y, I.w, I.h, "player sees");
     renderShield(S5.rough);
@@ -1420,18 +1439,20 @@ void main(){
     const ring = Math.sqrt(Math.max(0, 1 - S5.nv * S5.nv)) * SH_R;
     ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(scx, scy, ring, 0, PI * 2); ctx.stroke();
     label(ctx, "the shield", scx, I.y + 138, "rgba(255,255,255,0.8)", "center");
-    label(ctx, "ring: N·V = " + S5.nv.toFixed(2), scx, I.y + 152, "rgba(255,255,255,0.6)", "center");
+    label(ctx, "ring: face-on " + S5.nv.toFixed(2), scx, I.y + 152, "rgba(255,255,255,0.6)", "center");
     kitArrow(ctx, LX + LS + 6, LY + LS / 2, I.x - 4, LY + LS / 2, "rgba(255,255,255,0.5)", 1);
     const i = Math.min(LUT_N - 1, Math.floor(S5.nv * LUT_N)), j = Math.min(LUT_N - 1, Math.floor(S5.rough * LUT_N)), k = (j * LUT_N + i) * 2;
     const sc = lut[k], bi = lut[k + 1];
     document.querySelector("#t5-scale .n").textContent = sc.toFixed(3);
     document.querySelector("#t5-bias .n").textContent = bi.toFixed(3);
     document.querySelector("#t5-spec .n").textContent = (0.04 * sc + bi).toFixed(3);
-    document.getElementById("c5-read").innerHTML = `texel (${i}, ${j}) · N·V = <strong>${S5.nv.toFixed(2)}</strong> · roughness <strong>${S5.rough.toFixed(2)}</strong> → scale ${sc.toFixed(3)}, bias ${bi.toFixed(3)}`;
-    document.getElementById("c5-mip").innerHTML = `mip ${mipF.toFixed(1)} of ${MIPS - 1} · LUT ${LUT_N}×${LUT_N}×${LUT_S} samples in ${S5time.toFixed(0)} ms`;
+    document.getElementById("c5-read").innerHTML = `table cell (${i}, ${j}) · face-on <strong>${S5.nv.toFixed(2)}</strong> · roughness <strong>${S5.rough.toFixed(2)}</strong> → weight ${sc.toFixed(3)}, extra ${bi.toFixed(3)}`;
+    document.getElementById("c5-mip").innerHTML = `blur row ${mipF.toFixed(1)} of ${MIPS - 1} · table ${LUT_N}×${LUT_N} cells, ${LUT_S} directions each, computed in ${S5time.toFixed(0)} ms`;
+    L5 && L5.check();
   }
   function hover5(x, y) {
     if (x < LX || x > LX + LS || y < LY || y > LY + LS) return;
+    S5.hovered = true;
     S5.nv = Math.max(0.02, Math.min(1, (x - LX) / LS)); S5.rough = Math.max(0, Math.min(1, 1 - (y - LY) / LS));
     document.getElementById("r5").value = S5.rough; document.getElementById("nv5").value = S5.nv;
     document.getElementById("r5v").textContent = S5.rough.toFixed(2); document.getElementById("nv5v").textContent = S5.nv.toFixed(2);
@@ -1442,5 +1463,99 @@ void main(){
   r5.addEventListener("input", () => { S5.rough = +r5.value; document.getElementById("r5v").textContent = S5.rough.toFixed(2); draw5(); });
   nv5.addEventListener("input", () => { S5.nv = +nv5.value; document.getElementById("nv5v").textContent = S5.nv.toFixed(2); draw5(); });
   draw5();
+
+  // ---------- guided steps ----------
+  const DEF1 = { thetaL: 45 * PI / 180, rough: 0.4, metal: 0, base: "#c9803f", scale: "lin", px: 150 };
+  const set1 = o => { Object.assign(S1, o); r1.value = S1.rough; document.getElementById("r1v").textContent = S1.rough.toFixed(2); segOn(document.getElementById("seg1m"), S1.metal); segOn(document.getElementById("seg1s"), S1.scale); document.getElementById("col1").value = S1.base; draw1(); };
+  const viewDeg1 = () => deg(Math.atan2(S1.px - 4, EYE1));
+  L1 = lesson("lobe", { next: { id: "micro", title: "The tiny bumps in the road" }, steps: [
+    { say: "A street at night, seen from the side. The lamp shines on one spot of the wet road, and the player on the right looks at it. Light that hits the spot bounces off in every direction, but not evenly: the amber shape drawn from the spot shows how much goes each way, and the bump in it is the lamp's reflection.", enter: () => set1({ ...DEF1 }) },
+    { say: "The blue line is the player's line of sight, and the white dot where it crosses the amber shape is how much of the lamp's light the player gets from the spot. <b>Drag the player</b> until the line of sight runs through the bump.", todo: "drag the player onto the bump", goal: () => Math.abs(viewDeg1() - deg(S1.thetaL)) < 8, try: () => { S1.px = 85; draw1(); },
+      done: "The spot in the small picture flares. The player is standing where the lamp's reflection lands, and that bright patch is what a highlight is: the lamp, seen in the road." },
+    { say: "Now the lamp.", quiz: { q: "If you drag the lamp down toward the road, where does the bump go?", options: [
+        { t: "It stays put; only its brightness changes", why: "The bump sits at the mirror of the lamp's direction, so when the lamp moves, the bump moves." },
+        { t: "Down toward the road on the player's side, so the player has to stand farther away to catch it", ok: true, why: "A reflection sits at the mirror of the lamp's direction. A low lamp gives a long, low reflection, like headlights on a wet motorway." },
+        { t: "Straight up, over the spot", why: "Light only bounces straight up when it comes straight down. A low lamp bounces low." } ] },
+      todo: "now drag the lamp down near the road", goal: () => S1.thetaL > 1.1, try: () => { S1.thetaL = 1.22; draw1(); }, enter: () => set1({ ...DEF1, px: 85 }),
+      done: "The bump swung down toward the road, out of the player's line of sight, and the peak number under the picture climbed. A low lamp makes a stronger, longer reflection, the way headlights streak across a wet motorway." },
+    { say: "<b>Push roughness up to 1.</b> Roughness is how bumpy the surface is at a scale too small to see: 0 is a polished mirror, 1 is chalk.", todo: "drag the roughness slider to 1", goal: () => S1.rough >= 0.95, try: () => { r1.value = 1; r1.dispatchEvent(new Event("input")); }, enter: () => set1({ ...DEF1, px: 85 }),
+      done: "The bump spread out until the whole shape is nearly the blue half-disc, and the peak number fell. Chalk sends the lamp's light everywhere about equally, so no single direction gets much." },
+    { say: "Now the spot becomes a bronze plate.", quiz: { q: "What happens to the blue matte part when the surface is a metal?", options: [
+        { t: "It gets brighter, because metal is shiny", why: "The shine is the highlight, the amber bump. The matte part is different: light that went into the surface and came back out softened." },
+        { t: "It disappears; a metal has only the highlight", ok: true, why: "Light that goes into a metal is soaked up, so nothing comes back out softened. Only the mirror bounce is left, and it takes on the metal's colour." },
+        { t: "It turns bronze-coloured", why: "The highlight takes on the metal's colour. The matte part does not turn bronze; it goes away." } ] },
+      todo: "now click 1 metal below", goal: () => S1.metal === 1, try: () => document.getElementById("seg1m").querySelector('[data-v="1"]').click(), enter: () => set1({ ...DEF1, px: 85 }),
+      done: "The blue part is gone and the bump is all that is left. This is why a gold highlight is gold and a plastic highlight is white: plastic mirrors the lamp's own colour, and only 4 % of it head-on." },
+    { say: "Three ingredients make the bump, and the boxes below draw each one as a dashed line: which way the tiny bumps face (D), how many of them the lamp and the eye can both reach (G), and how mirror-like the surface is at this angle (F). <b>Tick all three.</b>", todo: "tick D, G and F below", goal: () => ["showD", "showG", "showF"].every(id => document.getElementById(id).checked), try: () => { for (const id of ["showD", "showG", "showF"]) { const el = document.getElementById(id); if (!el.checked) el.click(); } }, enter: () => set1({ ...DEF1, px: 85 }),
+      done: "Three dashed curves, multiplied together, make the highlight. The next two demos take them one at a time: first the bumps, D and G, then the mirror-at-a-slant effect, F." },
+    { say: "One idea to keep: a rougher surface spreads the lamp's light wider, and the wider it spreads, the dimmer it must be, because the road cannot give back more light than it gets. The formula that draws the amber shape is under the hood." } ] });
+
+  const DEF2 = { rough: 0.6, N: 96, thetaL: 60 * PI / 180, thetaV: -30 * PI / 180 };
+  const set2 = o => { Object.assign(S2, o); r2.value = S2.rough; document.getElementById("r2v").textContent = S2.rough.toFixed(2); segOn(document.getElementById("seg2n"), S2.N); draw2(); };
+  L2 = lesson("micro", { next: { id: "fresnel", title: "Every surface mirrors at a slant" }, steps: [
+    { say: "Zoom in far enough and the road is bumpy. This is one millimetre of it, magnified 340 times and drawn as 96 flat pieces, each tilted its own way. Every piece is a tiny mirror. The lamp's rays come in from the left and bounce off the first piece they hit: an amber ray got away, a red one hit another bump and was lost.", enter: () => set2({ ...DEF2 }) },
+    { say: "<b>Drag roughness down to 0.05.</b>", todo: "drag the roughness slider to 0.05", goal: () => S2.rough <= 0.1, try: () => { r2.value = 0.05; r2.dispatchEvent(new Event("input")); },
+      done: "The road flattens into a mirror. Every piece faces the same way, every ray bounces the same way, and every ray escapes: the tiles under the picture read close to 100 %. Roughness is nothing more than how spread out these tilts are." },
+    { say: "Now the lamp.", quiz: { q: "If the lamp drops low, close to the road, what happens to the bumps?", options: [
+        { t: "More turn green: a low lamp lights more of them", why: "A low lamp skims across the bumps, and each bump throws a longer shadow on the ones behind it." },
+        { t: "More turn red: a low lamp leaves more bumps in a neighbour's shade", ok: true, why: "Each bump throws a shadow on the next one, and the lower the lamp, the longer the shadows. Light that lands in those shadows never reaches the player." },
+        { t: "Nothing changes; every bump still faces up", why: "The bumps do not move, but which ones the lamp can reach depends on where the lamp is." } ] },
+      todo: "now drag the lamp down near the road", goal: () => S2.thetaL > 1.2, try: () => { S2.thetaL = 1.3; draw2(); }, enter: () => set2({ ...DEF2 }),
+      done: "Red spreads along the strip and the first tile drops. The bumps that face the lamp are still there; their neighbours block the light. That lost light is why a rough surface goes dark under a low sun." },
+    { say: "The same thing happens from the player's side. <b>Drag the eye down low</b> on the right.", todo: "drag the eye down near the road", goal: () => S2.thetaV < -1.2, try: () => { S2.thetaV = -1.3; draw2(); }, enter: () => set2({ ...DEF2 }),
+      done: "Now the second tile drops: pieces the lamp lights but a neighbour hides from the eye. That light is lost too. The formula, Smith's G, guesses both shares from roughness and angle alone, without knowing where any bump is, and each tile shows its guess next to what this strip measures." },
+    { say: "The blue bars on the right count how many pieces tilt each way, and the amber curve is what the formula (called GGX) predicts. <b>Press shuffle the bumps</b> a few times.", todo: "press the shuffle button below", goal: () => S2.regen >= 1, try: () => document.getElementById("seed2").click(), enter: () => { S2.regen = 0; set2({ ...DEF2 }); },
+      done: "The bars jump around; the curve does not. The formula never stores the bumps, only how likely each tilt is: most pieces are nearly flat, and a few tilt a long way. That is the D term, and its long tails are the soft halo around every highlight in a modern game." },
+    { say: "D counts which way the bumps face; G counts how many of them the lamp and the eye can both reach. Both come from the one roughness number, so an artist paints one grey picture and gets all of this. The formulas are under the hood." } ] });
+
+  const set3 = th => { S3.theta = th; draw3(); };
+  L3 = lesson("fresnel", { next: { id: "sphere", title: "A lit shield, new rule next to old" }, steps: [
+    { say: "Bottom: the player looks at a puddle, with the lamp on the far side of it. Top: a graph of how mirror-like a surface is, from 0 to 1, against the angle the player looks from, for three materials: plastic, iron and silver. The dashed line marks the player's angle right now, and the small picture shows the puddle as the player sees it.", enter: () => set3(60 * PI / 180) },
+    { say: "<b>Drag the player up</b>, right over the puddle, to look straight down into it.", todo: "drag the player up over the puddle", goal: () => S3.theta < 0.26, try: () => set3(0.1),
+      done: "The puddle shows the road under it, and the plastic tile reads about 4 %. Looked at head-on, water and plastic barely reflect at all, which is why a wet floor looks dull from above." },
+    { say: "Now suppose the player walks away and crouches, looking across the puddle at a low angle.", quiz: { q: "What does the puddle look like from there?", options: [
+        { t: "The same dark patch; water is water", why: "Look at the graph: every curve climbs toward 1 on the right. The material has not changed, but the angle has." },
+        { t: "A mirror with the lamp in it", ok: true, why: "At a low angle every surface turns into a mirror, plastic and water included. That is why a wet road at dusk shows the headlights ahead." },
+        { t: "Brighter, but only if the lamp is nearer", why: "A nearer lamp is a brighter lamp, but how mirror-like the puddle is depends on the player's angle, not on the lamp's distance." } ] },
+      todo: "now drag the player down and far to the right", goal: () => S3.theta > 1.31, try: () => set3(80 * PI / 180), enter: () => set3(60 * PI / 180),
+      done: "All three curves climb toward 1, the reflected rays go bright, and the lamp shows up in the puddle. Every material does this. The only difference between them is where the curve starts." },
+    { say: "Look at the three tiles at any angle.", quiz: { q: "Why does silver start so much higher than plastic?", options: [
+        { t: "Silver is smoother", why: "Smoothness is roughness, a separate setting. This graph is for a perfectly smooth surface of each material." },
+        { t: "Silver reflects most of the light even head-on, and that head-on amount is the one number that separates metals from everything else", ok: true, why: "Plastic reflects about 4 % head-on, silver about 95 %. Engines store that head-on amount as F0, and for a metal F0 is also its colour." },
+        { t: "Silver is lighter in colour", why: "Colour and reflectivity are different things. A dark metal still reflects far more head-on than white plastic." } ] } },
+    { say: "The curve stays flat until about 60° and then shoots up, which makes this effect easy to miss and easy to skip. A game that leaves it out has dry-looking floors and dull water in the distance. The formula is under the hood." } ] });
+
+  const DEF4 = { rough: 0.3, metal: 0, base: "#c9803f", norm: false, dir: [-0.45, 0.5, 0.74] };
+  const set4 = o => { Object.assign(S4, o); S4.dir = S4.dir.slice(); r4.value = S4.rough; document.getElementById("r4v").textContent = S4.rough.toFixed(2); m4.value = S4.metal; document.getElementById("m4v").textContent = S4.metal.toFixed(2); document.getElementById("col4").value = S4.base; document.getElementById("norm4").checked = S4.norm; draw4(); };
+  L4 = lesson("sphere", { next: { id: "ibl", title: "Sky light, baked ahead of time" }, steps: [
+    { say: "Two pictures of the same shield with the same lamp, colour and roughness. The white dot is the lamp, and you can drag it on either picture. Left is the rule from this page. Right is Blinn-Phong, the rule most games used before 2013, where the brightness of the highlight was a number an artist typed in.", enter: () => set4({ ...DEF4 }) },
+    { say: "Imagine sliding roughness all the way up to 1.", quiz: { q: "What should happen to the highlight as the shield gets rougher?", options: [
+        { t: "It spreads out and gets dimmer, because the same light is shared over a wider patch", ok: true, why: "The lamp's light is fixed. Spread it over more of the shield and each part gets less. That is the energy rule." },
+        { t: "It spreads out and stays as bright", why: "Then the shield would be giving back more light than the lamp put in. The old rule does exactly this, and you are about to see it." },
+        { t: "It gets smaller and sharper", why: "Rougher means more tilts among the tiny bumps, so the reflection spreads out, like the lamp on chalk in the first demo." } ] },
+      todo: "now slide roughness to 1", goal: () => S4.rough >= 0.95, try: () => { r4.value = 1; r4.dispatchEvent(new Event("input")); }, enter: () => set4({ ...DEF4 }),
+      done: "Left: the highlight spread and faded together. Right: it spread and the whole shield glows, brighter than the lamp could ever make it. The tiles give the brightest point of each highlight." },
+    { say: "<b>Tick the box</b> that scales the old rule down as its highlight spreads.", todo: "tick the box below", goal: () => S4.norm, try: () => document.getElementById("norm4").click(), enter: () => set4({ ...DEF4, rough: 1 }),
+      done: "The right shield dims as it spreads too. This one extra line was the first step most engines took, around 2010, before switching to the rule on the left." },
+    { say: "<b>Slide metallic to 1.</b> Metallic is a switch: 0 for plastic, wood and skin, 1 for metal.", todo: "slide metallic to 1", goal: () => S4.metal >= 0.95, try: () => { m4.value = 1; m4.dispatchEvent(new Event("input")); }, enter: () => set4({ ...DEF4, norm: true }),
+      done: "The shield turns to bronze. The left one lost its soft matte shading and its highlight took on the base colour, because a metal reflects its own colour. One colour picture, one metal switch and one roughness picture: that is every input a modern material needs." },
+    { say: "<b>Drag the lamp</b> into a corner of either picture.", todo: "drag the white dot to a corner", goal: () => S4.dir[0] * S4.dir[0] + S4.dir[1] * S4.dir[1] > 0.7, try: () => setLight(c4a, 20, 20), enter: () => set4({ ...DEF4, norm: true, metal: 1 }),
+      done: "The highlight slides across the dome, and a second, wider one shows up on the flat rim and the planks behind. Same rule, three surfaces, no extra settings: each one is only a different roughness." },
+    { say: "Move any slider and the left shield still looks like a real material. That is what physically based buys, and it is why assets from ten different artists can sit in one scene and match. The lighting code is under the hood." } ] });
+
+  const set5 = (rough, nv) => { S5.rough = rough; S5.nv = nv; r5.value = rough; nv5.value = nv; document.getElementById("r5v").textContent = rough.toFixed(2); document.getElementById("nv5v").textContent = nv.toFixed(2); draw5(); };
+  L5 = lesson("ibl", { next: { id: "tradeoffs", title: "Tradeoffs: which model, and what it costs" }, steps: [
+    { say: "Outside there is no single lamp: the whole sky lights the shield from every direction at once, and adding all of it up for every pixel, every frame, is far too slow. So the engine makes two tables ahead of time. Left: the sky around the player, blurred a little more in each row. Middle: a 64×64 table of numbers. Right: the shield, built from one read of each.", enter: () => set5(0.4, 0.7) },
+    { say: "<b>Slide roughness to 1.</b>", todo: "drag the roughness slider to 1", goal: () => S5.rough >= 0.95, try: () => { r5.value = 1; r5.dispatchEvent(new Event("input")); }, enter: () => set5(0.4, 0.7),
+      done: "The amber box moved to the blurriest row, and the sun on the shield went from a sharp glint to a soft smear. A rough shield reflects a blurry sky, so the engine blurs the sky once, in advance, and reads the row that matches." },
+    { say: "The middle table. Left to right is how face-on the player sees a point of the shield: 1 at the centre, 0 at the rim. Bottom to top is roughness.", quiz: { q: "Why does the table turn green toward its left edge?", options: [
+        { t: "The rim of the shield catches more sun", why: "The table knows nothing about the sun or the sky. It is the same table in every scene." },
+        { t: "At the rim the player sees the surface at a slant, and every surface turns mirror-like at a slant", ok: true, why: "It is the puddle effect from the last demo, baked in. The green channel is the reflection every material gets at a slant, whatever its head-on amount." },
+        { t: "It is darker in the middle to save memory", why: "Every cell costs the same two numbers. The colours are the values, not a compression trick." } ] },
+      todo: "now slide the face-on slider down to 0.02", goal: () => S5.nv <= 0.05, try: () => { nv5.value = 0.02; nv5.dispatchEvent(new Event("input")); }, enter: () => set5(0.4, 0.7),
+      done: "The white ring moved out to the rim of the shield and the extra tile climbed. Even a black plastic shield shows a rim of sky at its edge." },
+    { say: "<b>Hover the middle table</b> and sweep the cursor across it.", todo: "hover the table", goal: () => S5.hovered, try: () => hover5(LX + LS * 0.5, LY + LS * 0.3), enter: () => set5(0.4, 0.7),
+      done: "Both sliders follow the cursor, and the tiles show the two numbers stored at that cell: a weight and an extra. The per-pixel program multiplies the head-on reflectivity by the weight, adds the extra, and scales the blurred sky by the result. Two table reads instead of adding up the whole sky." },
+    { say: "Two table reads stand in for the whole sky, and the only price is that reflections of the sky come out round instead of stretched at a slant. The split-sum formula and the code are under the hood." } ] });
 })();
 </script>

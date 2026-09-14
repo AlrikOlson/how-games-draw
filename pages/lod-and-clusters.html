@@ -219,7 +219,7 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
 
 /* page-specific */
-.vp canvas.wide { aspect-ratio: 16 / 9; }
+.vp canvas.r169 { aspect-ratio: 16 / 9; }
 .vp canvas.sq { aspect-ratio: 1; }
 .uses.trade { font-size: 14px; }
 .uses.trade td { min-width: 14ch; }
@@ -231,58 +231,49 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a 14 m boulder at the end of a road · 2048-point outline · 1080p at 60° fov · walk the player away</p>
+    <p class="eyebrow">a big boulder at the end of a road · five guided demos · nothing to install</p>
     <h1>LOD &amp; Clusters</h1>
-    <p class="lead">A level of detail, or LOD, is a cheaper copy of a mesh with fewer triangles, used when the object is small on screen. On this page the object is a 14 m boulder at the end of a road, and the player walks away from it. LOD saves the GPU from drawing detail smaller than a pixel, which is wasted work and slow work. The thing almost everyone gets wrong is picking the level by distance. The real rule is <b>projected error</b>: how many pixels the cheap copy strays from the full one, and whether anyone could see that.</p>
+    <p class="lead">Everything a game draws is built from triangles, and one big rock can take thousands of them. When that rock is far away it covers only a few pixels, so drawing every triangle is wasted work. A level of detail, or LOD, is a cheaper copy of the rock with fewer triangles, swapped in when the missing detail would be smaller than a pixel anyway. This page follows one 14 m boulder at the end of a road while the player walks away from it. <b>The thing people get wrong:</b> the cheap copy should not be picked by distance. It should be picked by how far it strays from the true shape, measured in pixels on the screen, and whether anyone could see that.</p>
     <div class="key">
-      <span style="--sw:#f2a341">most detailed copy of the boulder (LOD 0)</span>
-      <span style="--sw:#4aa3ff">least detailed copy</span>
-      <span style="--sw:#ffffff">true outline, the player's view wedge, drag handles</span>
-      <span style="--sw:#5ad48a">pixel whose shading is kept</span>
-      <span style="--sw:#ef5d5d">wasted shader lane, or a boulder drawn coarser than it should be</span>
+      <span style="--sw:#f2a341">the most detailed copy of the boulder</span>
+      <span style="--sw:#4aa3ff">the least detailed copy</span>
+      <span style="--sw:#ffffff">the true outline, what the player can see, drag handles</span>
+      <span style="--sw:#5ad48a">a pixel whose colouring work is kept</span>
+      <span style="--sw:#ef5d5d">colouring work thrown away, or a boulder drawn cruder than it should be</span>
     </div>
     <dl class="terms">
-      <dt>LOD</dt><dd>level of detail: a copy of a mesh with fewer triangles, for when it is small on screen</dd>
       <dt>mesh</dt><dd>the triangles that make up an object's surface</dd>
-      <dt>projected error</dt><dd>how far the simplified shape strays from the full one, measured in screen pixels</dd>
-      <dt>τ (tau)</dt><dd>the error you are willing to accept, in pixels; at 1 px nobody can see the difference</dd>
+      <dt>LOD</dt><dd>level of detail: a copy of a mesh with fewer triangles, for when the object is small on screen</dd>
+      <dt>stray</dt><dd>how far a cheaper copy's outline sits from the true one; measured in pixels on the screen, the formulas call it projected error</dd>
+      <dt>allowed error</dt><dd>the stray you accept, in pixels, written τ (tau) in the formulas; at 1 px nobody can see the difference</dd>
       <dt>cluster</dt><dd>a chunk of about 128 triangles that picks its own level of detail</dd>
-      <dt>DAG</dt><dd>the hierarchy of clusters, coarse versions above fine ones; short for directed acyclic graph</dd>
-      <dt>pixel quad</dt><dd>the 2×2 block of pixels a GPU always shades together</dd>
+      <dt>hierarchy</dt><dd>the family tree of clusters, coarser versions above finer ones; the formulas call it a DAG</dd>
+      <dt>pixel block</dt><dd>the 2×2 group of pixels a GPU always colours together; the code calls it a quad</dd>
       <dt>page</dt><dd>a 128 KB block of cluster data that is loaded or dropped as one unit</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#error"><span class="n">01</span>Pick the level by pixel error</a></li><li><a href="#quads"><span class="n">02</span>Why tiny triangles cost so much</a></li><li><a href="#dag"><span class="n">03</span>Let each chunk pick its own level</a></li><li><a href="#stream"><span class="n">04</span>Load only the pages you need</a></li><li><a href="#cost"><span class="n">05</span>Triangle count as you back away</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#error"><span class="n">01</span>Pick the copy by pixel error</a></li><li><a href="#quads"><span class="n">02</span>Why tiny triangles cost so much</a></li><li><a href="#dag"><span class="n">03</span>Let each chunk pick its own level</a></li><li><a href="#stream"><span class="n">04</span>Load only the pages you need</a></li><li><a href="#cost"><span class="n">05</span>Triangle count as you back away</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="error">
-    <h2>Pick the level by pixel error</h2>
-    <p class="sub">The player walks down the road away from a big boulder. Drag the track and watch which of the four copies of the boulder gets drawn, and how far it strays in pixels.</p>
+  <section id="error" class="stage">
+    <h2>Pick the copy by pixel error</h2>
+    <p class="sub">The player walks down a road away from a big boulder. Four copies of the boulder exist, and the demo shows which one gets drawn and how far it strays on screen.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c1" class="wide grab" width="640" height="360" aria-label="Over-the-shoulder view of a road with pines leading to a boulder, the boulder drawn with the level of detail picked for the current distance, a 4x magnifier on its worst point and a distance track"></canvas>
-        <div class="cap"><span id="c1-read"></span><span id="c1-tri"></span></div>
+        <canvas id="c1" class="r169 grab" width="640" height="360" aria-label="Over-the-shoulder view of a road with pines leading to a boulder, the boulder drawn with the copy picked for the current distance, a 4x zoom box on its worst point and a distance track"></canvas>
+        <div class="cap"><span id="c1-read"></span></div>
+        <div class="cap"><span id="c1-tri"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The boulder comes in four copies: 2048, 512, 128 and 32 points around its outline. Each cheaper copy strays a little from the true shape. <b>Measure that stray in pixels on screen</b>, then <b>pick the cheapest copy that stays under a threshold</b>. Distance only matters through how much it shrinks the error.</p>
-
-        <h3>What you're seeing</h3>
-        <p>A 1:1 pixel crop of the 1080p frame, over the player's shoulder: the road, the pines and the grey boulder at the end. The thin white line is the boulder's true 2048-point outline. The tint over it is the copy in use, amber for the most detailed and blue for the least.</p>
-        <p>The inset at the top right zooms 4× into a 40×40 px window around the worst point of the chosen copy, so you can see the error in pixels. The track at the top is how far the player has walked; its colours mark where the copy switches for the current threshold.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the track handle to the right, walking away. The boulder shrinks, the e_px numbers in the readout fall and the tint turns blue as coarser copies take over.</li>
-          <li>Set the threshold τ to 4 px. The switch marks slide toward the player, so you drop levels sooner.</li>
-          <li>Untick the cross-fade and drag slowly across a switch mark. The boulder's edge pops. Tick it and the two copies blend through a dot pattern, easiest to see in the magnifier.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><label for="d1">Camera distance <span class="val" id="d1v">100 m</span></label><input type="range" id="d1" min="1" max="2.9031" step="0.001" value="2.000"></div>
-          <div class="ctl"><label for="tau1">Threshold τ <span class="val" id="tau1v">1.0 px</span></label><input type="range" id="tau1" min="0.25" max="4" step="0.25" value="1"></div>
-          <div class="ctl chk"><input type="checkbox" id="fade1" checked><label for="fade1">dithered cross-fade</label></div>
+      <div class="lesson" data-lesson="error">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><label for="d1">How far the player has walked <span class="val" id="d1v">100 m</span></label><input type="range" id="d1" min="1" max="2.9031" step="0.001" value="2.000"></div>
+          <div class="ctl"><label for="tau1">Allowed error on screen <span class="val" id="tau1v">1.0 px</span></label><input type="range" id="tau1" min="0.25" max="4" step="0.25" value="1"></div>
+          <div class="ctl chk"><input type="checkbox" id="fade1" checked><label for="fade1">blend copies with a dot pattern</label></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Pick the cheapest copy whose stray on screen stays under the allowed error; distance only matters through that.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Each level is made offline by decimation, which means removing one point at a time, always the one that moves the outline least, until the target count is reached. The level's error is then measured, not guessed: the largest distance in metres from any original point to the simplified outline. That one number is all the runtime needs.</p>
         <p>At runtime the error is projected to pixels using the camera distance and the field of view, which is the angle the camera can see. The coarsest level whose projected error still fits under the threshold τ wins.</p>
         <p class="words">In words: pixel error is the world error scaled by how big a metre looks at this distance; pick the coarsest level under τ; the switch distance is where a level's error crosses τ.</p>
@@ -306,45 +297,34 @@ d_switch(L) = e_L · (H/2) / (τ · tan(fov/2))</div>
 <span class="c">// pixel shader, both levels drawn during the fade band</span>
 <span class="k">float</span> t = bayer4x4[ivec2(gl_FragCoord.xy) &amp; 3] / 16.0;
 <span class="k">if</span> (isOutgoingLOD ? (t &lt; fade) : (t &gt;= fade)) <span class="k">discard</span>;      <span class="c">// masks are complementary: every pixel drawn once</span></pre>
-
-        <p class="tldr">Pick the cheapest mesh whose error on screen stays under your pixel threshold. Distance is only an input to that.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="quads">
+  <section id="quads" class="stage">
     <h2>Why tiny triangles cost so much</h2>
-    <p class="sub">The boulder is 800 m away and only 17 pixels wide, but its mesh is still 2048 triangles. Drag one of them around a 16×16 pixel patch of the screen, then shrink it and watch how much shader work gets thrown away.</p>
+    <p class="sub">The boulder is 800 m away and only 17 pixels wide, but its mesh is still 2048 triangles. One of them sits on a 16×16 pixel patch of the screen, and the demo counts the colouring work it causes.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" class="sq grab" width="512" height="512" aria-label="A 16x16 pixel patch of the screen showing the far boulder against sky and grass, magnified, with one triangle of its mesh and the 2x2 pixel quads it touches, plus an inset of the player's view"></canvas>
-        <div class="cap"><span id="c2-read"></span><span id="c2-zero"></span></div>
+        <canvas id="c2" class="sq grab" width="512" height="512" aria-label="A 16x16 pixel patch of the screen showing the far boulder against sky and grass, magnified, with one triangle of its mesh and the 2x2 pixel blocks it touches, plus an inset of the player's view"></canvas>
+        <div class="cap"><span id="c2-read"></span></div>
+        <div class="cap"><span id="c2-zero"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">A GPU never shades one pixel on its own. It <b>always shades a 2×2 block called a quad</b>, even when the triangle touches only one of the four. The other three are wasted. So <b>a mesh full of pixel-sized triangles can cost four times what it should</b>, which is the real reason a distant mesh needs fewer triangles.</p>
-
-        <h3>What you're seeing</h3>
-        <p>16×16 pixels of the screen where the far boulder lands, magnified 26×: grey stone, sky above, grass below, and the 2×2 quads outlined. The amber triangle is one triangle of the boulder's mesh. Green pixels are covered by it, so their shading is kept. Red pixels are helper lanes: shaded because they share a quad with a green one, then thrown away.</p>
-        <p>The inset at the bottom right is the player's view down the road, with the patch marked in white. The tiles count the useful pixels, the lanes launched, and the ratio between them.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the size slider down to 1 px. Efficiency drops toward 25 %: one useful pixel for every four lanes.</li>
-          <li>Switch to tiled mesh at that size. The boulder's whole patch runs the shader about four times per pixel.</li>
-          <li>Push the size to 12 px. Waste only happens along the edges and efficiency climbs.</li>
-        </ul>
-
-        <div class="controls">
+      <div class="lesson" data-lesson="quads">
+        <div class="controls" data-step-min="3">
           <div class="ctl"><label for="tri2">Triangle size <span class="val" id="tri2v">2.5 px</span></label><input type="range" id="tri2" min="0.5" max="12" step="0.25" value="2.5"></div>
-          <div class="ctl"><span class="lab">Scene</span><div class="seg" id="mode2" role="group" aria-label="Single triangle or tiled mesh"><button data-v="one" aria-pressed="true">one triangle</button><button data-v="tiled">tiled mesh</button></div></div>
+          <div class="ctl"><span class="lab">What is on the patch</span><div class="seg" id="mode2" role="group" aria-label="One triangle or the whole mesh"><button data-v="one" aria-pressed="true">one triangle</button><button data-v="tiled">the whole mesh, tiled</button></div></div>
         </div>
-        <div class="tiles">
-          <div class="tile"><div class="n" id="t2-cov">—</div><div class="l">pixel centres shaded</div></div>
-          <div class="tile"><div class="n" id="t2-lanes">—</div><div class="l">lanes launched</div></div>
-          <div class="tile on"><div class="n" id="t2-eff">—</div><div class="l">quad efficiency</div></div>
+        <div class="tiles" data-step-min="2">
+          <div class="tile"><div class="n" id="t2-cov">—</div><div class="l">useful pixels coloured</div></div>
+          <div class="tile"><div class="n" id="t2-lanes">—</div><div class="l">pixel programs run</div></div>
+          <div class="tile on"><div class="n" id="t2-eff">—</div><div class="l">share of the work kept</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Every triangle pays for whole 2×2 blocks of pixels, so pixel-sized triangles cost up to four times more than they look.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The quad exists because of derivatives. <code>dFdx</code> and <code>dFdy</code> are shader functions that ask how much a value changes to the next pixel over, and they need a neighbour to subtract. Mip selection, which picks how blurry a copy of the texture to sample, uses those derivatives.</p>
         <p>A triangle that covers one pixel centre still launches all four lanes. The three extras are helper lanes: they run the full shader and their results are thrown away.</p>
         <p>Tile the whole area with pixel-sized triangles and the shader runs roughly four times per output pixel. The rasterizer, the fixed hardware that turns triangles into pixels, also spends its per-triangle setup rate on triangles that cover nothing. This is why a 2048-triangle mesh at 500 m is a bad idea even though it draws in one call.</p>
@@ -365,39 +345,28 @@ vec4 albedo = textureLod(tex, uv, lod);
 <span class="c">// Nanite's software path for small triangles, per pixel, no quads:</span>
 <span class="k">uint64</span> packed = (<span class="k">uint64</span>(depthBits) &lt;&lt; 32) | (clusterId &lt;&lt; 7) | triIndex;
 InterlockedMax(visBuffer[pixel], packed);   <span class="c">// nearest depth wins, id rides along</span></pre>
-
-        <p class="tldr">Every triangle pays for whole 2×2 blocks of pixels, so pixel-sized triangles cost up to four times more than they look.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="dag">
+  <section id="dag" class="stage">
     <h2>Let each chunk pick its own level</h2>
-    <p class="sub">The same boulder seen from above, with the player standing beside it. Drag the player around and watch each cluster of 128 segments choose its own level.</p>
+    <p class="sub">The same boulder seen from above, with the player standing beside it. The outline is cut into clusters, and each one chooses its own level of detail.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c3" class="sq grab" width="512" height="512" aria-label="Top-down map of the boulder with a road and pines, the player and their view wedge, the outline coloured per cluster by level of detail, and the cluster hierarchy below with the drawn clusters filled"></canvas>
-        <div class="cap"><span id="c3-read"></span><span id="c3-lv"></span></div>
+        <div class="cap"><span id="c3-read"></span></div>
+        <div class="cap"><span id="c3-lv"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Instead of one level for the whole boulder, <b>cut the mesh into clusters of about 128 triangles</b> and <b>let each cluster pick its own level</b>. The side facing you stays sharp while the side facing away goes coarse. The hard part is <b>making sure neighbours never leave a crack</b>, and the fix lives in how the levels are built.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Top: the map from above, 48 m across, with the road, the pines and the boulder as grey stone. The player is the blue figure and the faint wedge is what they can see. The boulder's outline is drawn cluster by cluster, amber for the finest level and blue for the coarsest, with white dots where clusters meet. The two corner labels point at the side facing the player and the side facing away.</p>
-        <p>Bottom: the hierarchy itself, one row per level with the single root cluster at the top. Filled dots are the clusters being drawn right now, the set called the cut.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the player close to one side of the boulder. The nearest clusters turn amber while the far side stays blue.</li>
-          <li>Raise τ to 8 px. Almost everything goes blue and the cluster count in the readout falls.</li>
-          <li>Look at a boundary between two colours. The white dot sits on both sides, so there is no gap.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><label for="tau3">Threshold τ <span class="val" id="tau3v">2.0 px</span></label><input type="range" id="tau3" min="0.25" max="8" step="0.25" value="2"></div>
+      <div class="lesson" data-lesson="dag">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><label for="tau3">Allowed error on screen <span class="val" id="tau3v">2.0 px</span></label><input type="range" id="tau3" min="0.25" max="8" step="0.25" value="2"></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Split the mesh into clusters and give each an error that only grows upward; then every cluster can pick its own level with no cracks.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Building the hierarchy: take neighbouring clusters, merge them into one group, simplify the group to half its segments, split the result back into clusters, and repeat until one cluster is left. The result is a DAG, a directed acyclic graph, which is a tree where a child may have more than one parent.</p>
         <p>Points on a group's boundary are locked during simplification, so two groups always agree on their shared edge. The next level shifts the grouping, which moves those locked boundaries into the middle of a new group where they can finally be simplified.</p>
         <p>Every cluster stores two errors: the error of the group that made it and the error of the group that consumed it. Both are made monotonic, meaning a parent's error is always at least the largest error below it. The cut then needs one test per cluster with no walk up or down the tree.</p>
@@ -421,40 +390,29 @@ vertex test:  dist(p, ab) = |(b − a) × (p − a)| / |b − a|      (Douglas-P
   <span class="k">uint</span> slot; InterlockedAdd(visibleCount, 1, slot);
   visibleClusters[slot] = id;                        <span class="c">// one indirect draw eats this list</span>
 }</pre>
-
-        <p class="tldr">Split the mesh into clusters and give each an error that only grows upward; then every cluster can pick its own level with no cracks.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="stream">
+  <section id="stream" class="stage">
     <h2>Load only the pages you need</h2>
-    <p class="sub">A valley with twelve of these boulders and one road. They share one hierarchy stored in 128 KB pages. Drag the player along the road and lower the budget to watch pages come and go.</p>
+    <p class="sub">A valley with twelve of these boulders and one road. Their cluster data sits in 128 KB pages, and the demo shows which pages are in video memory as the player moves.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c4" class="sq grab" width="512" height="512" aria-label="Top-down map of a valley with a road, pines and twelve boulders, each drawn at its own level of detail around the player, and a strip of nine memory pages below showing which are loaded"></canvas>
-        <div class="cap"><span id="c4-read"></span><span id="c4-deg"></span></div>
+        <div class="cap"><span id="c4-read"></span></div>
+        <div class="cap"><span id="c4-deg"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The whole hierarchy is too big to keep in video memory for every object. So it is <b>cut into 128 KB pages</b>, and <b>only the pages some visible cluster needs are loaded</b>. When memory runs out, <b>the finest pages go first</b> and the object just looks a bit coarser for a moment. Nothing ever vanishes.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Top: the valley from above, 142 m across, with twelve copies of the boulder, each drawn at its own cut around the player. A red dashed ring around a boulder means it is drawing coarser than τ because a page it wanted is not loaded.</p>
-        <p>Bottom: video memory as nine page slots. Filled means loaded, dim means no one needs it, and a red dashed outline means wanted but evicted. Page 0 holds the top of the hierarchy and is always loaded.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the player next to one boulder. Its fine pages light up and the loaded count in the readout rises.</li>
-          <li>Pull the budget down to 128 KB. Only page 0 fits, and every boulder draws from the top of the hierarchy in red.</li>
-          <li>Raise τ to 8 px. Fewer fine pages are needed and the memory figure drops.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><label for="budget4">Budget <span class="val" id="budget4v">640 KB</span></label><input type="range" id="budget4" min="1" max="9" step="1" value="5"></div>
-          <div class="ctl"><label for="tau4">Threshold τ <span class="val" id="tau4v">1.0 px</span></label><input type="range" id="tau4" min="0.25" max="8" step="0.25" value="1"></div>
+      <div class="lesson" data-lesson="stream">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="budget4">Video memory budget <span class="val" id="budget4v">640 KB</span></label><input type="range" id="budget4" min="1" max="9" step="1" value="5"></div>
+          <div class="ctl"><label for="tau4">Allowed error on screen <span class="val" id="tau4v">1.0 px</span></label><input type="range" id="tau4" min="0.25" max="8" step="0.25" value="1"></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Stream the hierarchy in 128 KB pages, keep the root always, and drop the finest pages first; the mesh only ever gets briefly coarser.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Clusters are packed into fixed-size pages, coarsest levels first, so page 0 holds the top of the hierarchy and is never evicted. The cull pass that computes the cut also notices when a chosen cluster lives in a page that is not loaded. It writes a request, draws the nearest loaded ancestor instead, and the CPU streams the page in over the next frames.</p>
         <p>Over budget, the finest pages are evicted first. An instance whose cut lost a page raises its own threshold until its cut fits in loaded memory. A coarser cut is still a valid cut, so the crack-free property survives eviction.</p>
         <p>In this demo a page holds 4 clusters. That is a stand-in for engines that quantize and compress geometry to pack far more clusters into the same 128 KB.</p>
@@ -473,46 +431,33 @@ fallback: τᵢ ← min { e_px(c) : e_px(c) &gt; τᵢ }  until cut(instanceᵢ,
 sortRequestsByPriority();
 <span class="k">while</span> (residentBytes + PAGE_BYTES &gt; budget) evict(leastRecentlyRequestedPage());
 <span class="k">for</span> (req : requests) <span class="k">if</span> (residentBytes + PAGE_BYTES &lt;= budget) load(req.page);</pre>
-
-        <p class="tldr">Stream the hierarchy in 128 KB pages, keep the root always, and drop the finest pages first; the mesh only ever gets briefly coarser.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="cost">
+  <section id="cost" class="stage">
     <h2>Triangle count as you back away</h2>
-    <p class="sub">The strip on top shows the player walking away from the boulder along the road. Drag the player to compare no LOD, four fixed levels and the cluster cut at that distance.</p>
-    <div class="cols wide">
+    <p class="sub">The player walks away from the boulder along the road, and a chart compares three ways of deciding how many triangles to draw at each distance.</p>
+    <div class="cols">
       <div class="vp">
-        <canvas id="c5" class="wide grab" width="640" height="360" aria-label="A side view of the player walking away from the boulder along a road with pines, above a chart of triangles versus distance for no LOD, four discrete levels and the cluster cut"></canvas>
-        <div class="cap"><span id="c5-read"></span><span id="c5-cull"></span></div>
+        <canvas id="c5" class="r169 grab" width="640" height="360" aria-label="A side view of the player walking away from the boulder along a road with pines, above a chart of triangles versus distance for no LOD, four fixed copies and the cluster cut"></canvas>
+        <div class="cap"><span id="c5-read"></span></div>
+        <div class="cap"><span id="c5-cull"></span></div>
+      </div>
+      <div class="lesson" data-lesson="cost">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><label for="tau5">Allowed error on screen <span class="val" id="tau5v">1.0 px</span></label><input type="range" id="tau5" min="0.25" max="4" step="0.25" value="1"></div>
+        </div>
+        <div class="tiles" data-step-min="2">
+          <div class="tile"><div class="n" id="t5-none">—</div><div class="l">no LOD</div></div>
+          <div class="tile"><div class="n" id="t5-disc">—</div><div class="l">4 fixed copies</div></div>
+          <div class="tile on"><div class="n" id="t5-clus">—</div><div class="l">clusters, each its own level</div></div>
+        </div>
       </div>
     </div>
-    <div class="cols">
-      <div class="prose">
-        <p class="plain">This chart is the payoff. With <b>no LOD</b> the boulder costs 2048 triangles at every distance. <b>Four fixed levels</b> drop in big steps. The <b>cluster cut</b> drops in many small steps and stays closest to what the pixels deserve. All three end on the same 32-triangle floor.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The strip is the road in side view: the boulder at the left, the player wherever you drag them, and a dashed line down to the chart cursor at the same distance. Below it, triangles submitted for the boulder against distance, on a log scale from 10 m to 800 m. White dashed is no LOD, amber is the four discrete levels, blue is the cluster cut. The faint blue dashed line uses the right axis and counts how many hierarchy nodes the cull pass had to visit.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the player to 50 m. The discrete tile sits on a step while the cluster tile lands in between.</li>
-          <li>Drag the player out to 500 m. All three lines meet near the floor and the gap closes.</li>
-          <li>Lower τ to 0.25 px. Every switch moves further out and the staircase widens.</li>
-        </ul>
-      </div>
-      <div class="prose">
-        <div class="controls" style="margin-top:0">
-          <div class="ctl"><label for="tau5">Threshold τ <span class="val" id="tau5v">1.0 px</span></label><input type="range" id="tau5" min="0.25" max="4" step="0.25" value="1"></div>
-        </div>
-        <div class="tiles">
-          <div class="tile"><div class="n" id="t5-none">—</div><div class="l">no LOD</div></div>
-          <div class="tile"><div class="n" id="t5-disc">—</div><div class="l">4 discrete LODs</div></div>
-          <div class="tile on"><div class="n" id="t5-clus">—</div><div class="l">cluster cut</div></div>
-        </div>
-
-        <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">Per-cluster LOD follows the pixel budget far more closely than whole-mesh levels, and ships as one draw request to the GPU.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The discrete curve is a staircase: each step is one switch distance from the first demo. The cluster curve steps more often and more gently, because each of the 33 clusters switches at its own distance and the near side of the boulder stays finer than the far side. Both reach the same floor of 32 triangles; the difference is how much they overshoot in between.</p>
         <p>Draw calls, the requests the CPU sends to the GPU, tell the other half. Discrete LOD costs one draw per mesh per instance, or one instanced draw per level in use. The cluster path is one indirect draw for the whole scene, paid for with a cull dispatch that walks the hierarchy from the root and stops at the cut. The dashed line counts those visits.</p>
         <p class="words">In words: the triangle count is the sum over the clusters in the cut; the nodes visited are every cluster whose ancestors all failed the test.</p>
@@ -527,24 +472,22 @@ push(root);
   <span class="k">if</span> (projectError(n.error, sphereDistance(cam, n.bounds)) &lt;= tau) { emit(n); <span class="k">continue</span>; }
   <span class="k">for</span> (child : n.children) <span class="k">if</span> (!seen(child)) push(child);   <span class="c">// DAG: siblings share children</span>
 }</pre>
-
-        <p class="tldr">Per-cluster LOD follows the pixel budget far more closely than whole-mesh levels, and ships as one indirect draw.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
   <section id="tradeoffs">
     <h2>Tradeoffs</h2>
     <p class="sub">Four ways to match triangles to pixels, side by side.</p>
-    <p class="plain">Read across a row for one technique. The columns are how much work it is to set up, how much memory it takes, whether you can see it switch, how it copes with tiny triangles, and whether the mesh can still bend or animate. Memory figures are for this page's 2048-vertex boulder unless stated; the ratios carry over.</p>
+    <p class="plain">Read across a row for one technique. The columns are how much work it is to set up, how much memory it takes, whether you can see it switch, how it copes with tiny triangles, and whether the mesh can still bend or animate. Memory figures are for this page's 2048-point boulder unless stated; the ratios carry over.</p>
     <div class="tbl-wrap">
     <table class="uses trade">
       <thead><tr><th>Technique</th><th>Setting it up</th><th>Memory</th><th>Visible switching</th><th>Tiny triangles</th><th>Can it animate</th></tr></thead>
       <tbody>
-        <tr><td>Discrete LODs</td><td>Made by an artist or by automatic decimation, 3 to 5 levels per mesh. Cheap to set up, tedious to tune for each asset.</td><td>All levels added up: 2048 + 512 + 128 + 32 = 2720 vertices, 1.33× the base mesh.</td><td>Yes, at every switch. Hidden with a dithered cross-fade or by keeping τ under 1 px.</td><td>Up to the artist. Too few levels and LOD 0 is all sub-pixel triangles at range.</td><td>Fully. Skinning, morphs and vertex animation all work, since each level is an ordinary mesh.</td></tr>
-        <tr><td>HLOD and impostors</td><td>Merge a whole region into one stand-in mesh offline, or bake a set of pictures of the asset from many angles (an octahedral impostor atlas).</td><td>Stand-in meshes plus atlases. A 2048² RGBA8 impostor atlas is 16 MB raw, 4 MB at BC7.</td><td>Yes, when a region swaps between real meshes and its stand-in. Impostors also shift as you move past them.</td><td>Good. One stand-in replaces hundreds of draws and their tiny triangles.</td><td>No. The stand-in is static and impostors are pictures.</td></tr>
-        <tr><td>Progressive meshes</td><td>Automatic: a list of edge collapses stored as vertex splits (Hoppe, 1996).</td><td>Base mesh plus one split record per removed vertex, about the size of the source mesh.</td><td>None in principle: continuous, with geomorphs that slide vertices between states.</td><td>Decisions are per vertex on the CPU, a poor fit for GPU batching and instancing.</td><td>Limited. The collapse order is baked for the rest pose.</td></tr>
-        <tr><td>Cluster DAG (Nanite)</td><td>Fully automatic: cluster, group, simplify, split, repeat. No per-asset tuning.</td><td>About 2× the source triangles across all levels (1 + ½ + ¼ + …), quantized and compressed on disk; only loaded pages sit in VRAM.</td><td>Per cluster and under 1 px at τ ≤ 1, so effectively none. TAA absorbs the rest.</td><td>Handled. Sub-pixel clusters use the software rasterizer, so no helper lanes.</td><td>Static or rigid moves in its original form. Skinning arrived later and with restrictions.</td></tr>
+        <tr><td>Fixed copies (discrete LODs)</td><td>Made by an artist or by automatic simplification, 3 to 5 copies per mesh. Cheap to set up, tedious to tune for each asset.</td><td>All copies added up: 2048 + 512 + 128 + 32 = 2720 points, 1.33× the base mesh.</td><td>Yes, at every switch. Hidden with a dot-pattern blend or by keeping the allowed error under 1 px.</td><td>Up to the artist. Too few copies and the finest one is all sub-pixel triangles at range.</td><td>Fully. Bending, morphing and moving points all work, since each copy is an ordinary mesh.</td></tr>
+        <tr><td>HLOD and impostors</td><td>Merge a whole region into one stand-in mesh offline, or bake a set of pictures of the asset from many angles (an impostor atlas, laid out on an octahedron).</td><td>Stand-in meshes plus picture sets. A 2048² RGBA8 impostor atlas is 16 MB raw, 4 MB with BC7 compression.</td><td>Yes, when a region swaps between real meshes and its stand-in. Impostors also shift as you move past them.</td><td>Good. One stand-in replaces hundreds of draws and their tiny triangles.</td><td>No. The stand-in is static and impostors are pictures.</td></tr>
+        <tr><td>Progressive meshes</td><td>Automatic: a list of edge collapses stored as vertex splits (Hoppe, 1996).</td><td>Base mesh plus one split record per removed vertex, about the size of the source mesh.</td><td>None in principle: continuous, with geomorphs that slide points between states.</td><td>Decisions are per point on the CPU, a poor fit for GPU batching and instancing.</td><td>Limited. The collapse order is baked for the rest pose.</td></tr>
+        <tr><td>Cluster hierarchy (Nanite)</td><td>Fully automatic: cluster, group, simplify, split, repeat. No per-asset tuning.</td><td>About 2× the source triangles across all levels (1 + ½ + ¼ + …), quantized and compressed on disk; only loaded pages sit in video memory.</td><td>Per cluster and under 1 px at τ ≤ 1, so effectively none. TAA absorbs the rest.</td><td>Handled. Sub-pixel clusters use the software rasterizer, so no wasted pixel programs.</td><td>Static or rigid moves in its original form. Skinning arrived later and with restrictions.</td></tr>
       </tbody>
     </table>
     </div>
@@ -686,8 +629,76 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   "use strict";
+  let L1, L2, L3, L4, L5;
   // ---------- shared scene: a 14 m boulder at the end of a road; its outline has 2048 vertices, metres, centred on the origin ----------
   const N = 2048, H = 1080, FOV = 60 * Math.PI / 180, TANH = Math.tan(FOV / 2);
   const AMBER = [242, 163, 65], BLUE = [74, 163, 255];
@@ -746,10 +757,10 @@ function kitInset(ctx, x, y, w, h, title) {
   function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
   function canvasXY(cv, ev) { const r = cv.getBoundingClientRect(); return [(ev.clientX - r.left) * cv.width / r.width, (ev.clientY - r.top) * cv.height / r.height]; }
   function dragOn(cv, onDown, onMove) {
-    let active = false;
-    cv.addEventListener("pointerdown", ev => { const [x, y] = canvasXY(cv, ev); if (onDown(x, y)) { active = true; cv.setPointerCapture(ev.pointerId); ev.preventDefault(); } });
-    cv.addEventListener("pointermove", ev => { if (!active) return; const [x, y] = canvasXY(cv, ev); onMove(x, y); });
-    const end = ev => { if (active) { active = false; try { cv.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    let active = false, last = null;
+    cv.addEventListener("pointerdown", ev => { const [x, y] = canvasXY(cv, ev); if (onDown(x, y)) { active = true; last = null; cv.setPointerCapture(ev.pointerId); ev.preventDefault(); } });
+    cv.addEventListener("pointermove", ev => { if (!active) return; const [x, y] = canvasXY(cv, ev); last = [x, y]; onMove(x, y); });
+    const end = ev => { if (active) { if (last) onMove(last[0], last[1]); active = false; last = null; try { cv.releasePointerCapture(ev.pointerId); } catch (e) {} } };
     cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
   }
   function throttled(fn) { let pending = false; return () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; fn(); }); }; }
@@ -866,9 +877,11 @@ function kitInset(ctx, x, y, w, h, title) {
     x1.fillStyle = "rgba(255,255,255,0.55)"; x1.fillText("copy in use at each distance", (TR.x0 + TR.x1) / 2, 14);
     const hx = dToX(d); x1.beginPath(); x1.arc(hx, TR.y + TR.h / 2, 7, 0, Math.PI * 2); x1.fillStyle = WHITE; x1.fill(); x1.lineWidth = 2; x1.strokeStyle = GROUND; x1.stroke();
     const errs = LOD.map(l => errPx(l.err, d).toFixed(2)).join(" / ");
-    document.getElementById("c1-read").innerHTML = `d = <strong>${d.toFixed(1)} m</strong> · LOD <strong>${B}</strong> (${LOD[B].idx.length} verts) · e_px: ${errs}`;
+    document.getElementById("c1-read").innerHTML = `player <strong>${d.toFixed(0)} m</strong> from the boulder · drawing LOD <strong>${B}</strong>, ${fmtN(LOD[B].idx.length)} points · stray on screen for LOD 0 to 3: ${errs} px`;
     const tris = f > 0 ? LOD[A].idx.length + LOD[B].idx.length : LOD[B].idx.length;
-    document.getElementById("c1-tri").innerHTML = `<strong>${fmtN(tris)} triangles</strong>${f > 0 ? ` · fading ${A}→${B} at ${(f * 100).toFixed(0)} %` : ""}`;
+    document.getElementById("c1-tri").innerHTML = `<strong>${fmtN(tris)} triangles</strong> drawn${f > 0 ? ` · blending LOD ${A} into LOD ${B}, ${(f * 100).toFixed(0)} % done` : ""}`;
+    st1.stats = { B, A, f };
+    L1 && L1.check();
   }
   const req1 = throttled(draw1);
   const d1 = document.getElementById("d1"), d1v = document.getElementById("d1v");
@@ -983,8 +996,10 @@ function kitInset(ctx, x, y, w, h, title) {
     document.getElementById("t2-cov").textContent = fmtN(covCount);
     document.getElementById("t2-lanes").textContent = fmtN(lanes);
     document.getElementById("t2-eff").textContent = lanes ? (eff * 100).toFixed(0) + " %" : "—";
-    document.getElementById("c2-read").innerHTML = `s = <strong>${st2.s.toFixed(2)} px</strong> · ${fmtN(tris.length)} triangle${tris.length === 1 ? "" : "s"} · ${fmtN(quadCount)} quads · ${fmtN(lanes - covCount)} helper lanes`;
-    document.getElementById("c2-zero").innerHTML = zero ? `<strong>${fmtN(zero)}</strong> cover no centre, still cost setup` : "every triangle covers a centre";
+    document.getElementById("c2-read").innerHTML = `triangle <strong>${st2.s.toFixed(2)} px</strong> wide · ${fmtN(tris.length)} triangle${tris.length === 1 ? "" : "s"} · ${fmtN(quadCount)} blocks of 2×2 touched · ${fmtN(lanes - covCount)} pixels coloured then thrown away`;
+    document.getElementById("c2-zero").innerHTML = zero ? `<strong>${fmtN(zero)}</strong> triangle${zero === 1 ? " touches" : "s touch"} no pixel centre but still cost${zero === 1 ? "s" : ""} setup time` : "every triangle touches at least one pixel centre";
+    st2.stats = { covCount, lanes, zero };
+    L2 && L2.check();
   }
   const req2 = throttled(draw2);
   const tri2 = document.getElementById("tri2");
@@ -1103,8 +1118,10 @@ function kitInset(ctx, x, y, w, h, title) {
     mono(x3, 11); x3.textAlign = "left"; x3.fillStyle = "rgba(255,255,255,0.7)";
     LEVELS.forEach((row, L) => x3.fillText(`L${L} ${row.length}×${row[0].segs}`, 8, rowY(L) + 4));
     kitLabel(x3, "the hierarchy · filled dots are drawn right now", 504, MAPH + 12, "right", "#c7cdd8");
-    document.getElementById("c3-read").innerHTML = `cut: <strong>${cut3.length} clusters</strong> · <strong>${fmtN(segs)} segments</strong> · nearest cluster ${dNear.toFixed(1)} m`;
-    document.getElementById("c3-lv").innerHTML = `levels ${lmin}–${lmax} · errors ≤ ${st3.tau.toFixed(2)} px`;
+    document.getElementById("c3-read").innerHTML = `drawing <strong>${cut3.length} clusters</strong> · <strong>${fmtN(segs)} segments</strong> · nearest cluster ${dNear.toFixed(1)} m from the player`;
+    document.getElementById("c3-lv").innerHTML = `levels ${lmin} to ${lmax} in use · every stray at most ${st3.tau.toFixed(2)} px`;
+    st3.stats = { n: cut3.length, segs, lmin, lmax };
+    L3 && L3.check();
   }
   const req3 = throttled(draw3);
   function cam3(x, y) { st3.x = Math.min(23, Math.max(-23, (x - 256) / S3)); st3.y = Math.min(15, Math.max(-15, (y - MAPH / 2) / S3)); req3(); }
@@ -1171,7 +1188,7 @@ function kitInset(ctx, x, y, w, h, title) {
       if (deg) { x4.strokeStyle = RED; x4.lineWidth = 1.5; x4.setLineDash([3, 3]); x4.beginPath(); x4.arc(cx, cy, (RADIUS + 1.5) * S4, 0, Math.PI * 2); x4.stroke(); x4.setLineDash([]); }
       mono(x4, 10); x4.fillStyle = deg ? RED : "rgba(255,255,255,0.7)"; x4.textAlign = "center";
       const d = Math.hypot(st4.x - p[0], st4.y - p[1]); if (d < dMin) { dMin = d; nearest = i; }
-      x4.fillText(`${d.toFixed(0)} m · L${Math.min(...cuts4[i].map(c => c.level))}${deg ? ` · τ ${taus4[i].toFixed(1)}` : ""}`, cx, cy + (RADIUS + 4.5) * S4);
+      x4.fillText(`${d.toFixed(0)} m · L${Math.min(...cuts4[i].map(c => c.level))}${deg ? ` · now ${taus4[i].toFixed(1)} px` : ""}`, cx, cy + (RADIUS + 4.5) * S4);
     });
     const [cxp, cyp] = m4(st4.x, st4.y), ang = Math.atan2(INST[nearest][1] - st4.y, INST[nearest][0] - st4.x);
     kitPlayerTop(x4, cxp, cyp, 7, ang);
@@ -1195,9 +1212,11 @@ function kitInset(ctx, x, y, w, h, title) {
     mono(x4, 11); x4.textAlign = "left"; x4.fillStyle = "rgba(255,255,255,0.7)";
     x4.fillText(`video memory: ${NPAGES} pages × ${PAGE_KB} KB · ${PER_PAGE} clusters each · P0 never leaves`, 10, MAPH4 + 18);
     x4.fillText("filled: loaded · red dashed: wanted, evicted · dim: nobody needs it", 10, by + bh + 18);
-    document.getElementById("c4-read").innerHTML = `resident <strong>${needed.size} of ${NPAGES} pages</strong> · <strong>${fmtKB(needed.size * PAGE_KB)}</strong> of ${fmtKB(NPAGES * PAGE_KB)} · ${fmtN(tris)} triangles`;
-    document.getElementById("c4-deg").innerHTML = degraded ? `<strong>${degraded} of 12 boulders</strong> drawn coarser than τ` : "every boulder at its own cut";
+    document.getElementById("c4-read").innerHTML = `loaded: <strong>${needed.size} of ${NPAGES} pages</strong>, <strong>${fmtKB(needed.size * PAGE_KB)}</strong> of ${fmtKB(NPAGES * PAGE_KB)} · ${fmtN(tris)} triangles drawn`;
+    document.getElementById("c4-deg").innerHTML = degraded ? `<strong>${degraded} of 12 boulders</strong> drawn cruder than the allowed error` : "every boulder drawn at its own choice of level";
+    st4.stats = { dMin, degraded, loaded: needed.size };
     if (anyFlash && !flashing) { flashing = true; requestAnimationFrame(() => { flashing = false; draw4(); }); }
+    L4 && L4.check();
   }
   const req4 = throttled(draw4);
   function cam4(x, y) { st4.x = Math.min(68, Math.max(-68, (x - 256) / S4)); st4.y = Math.min(54, Math.max(-54, (y - MAPH4 / 2) / S4)); req4(); }
@@ -1262,13 +1281,96 @@ function kitInset(ctx, x, y, w, h, title) {
     document.getElementById("t5-none").textContent = fmtN(N);
     document.getElementById("t5-disc").textContent = fmtN(dT);
     document.getElementById("t5-clus").textContent = fmtN(cT);
-    document.getElementById("c5-read").innerHTML = `d = <strong>${d.toFixed(0)} m</strong> · τ = ${tau.toFixed(2)} px · discrete: LOD ${selectLOD(d, tau)}, 1 draw · cluster: ${nCl} clusters, 1 indirect draw`;
-    document.getElementById("c5-cull").innerHTML = `<strong>${v} of ${CL.length} nodes</strong> visited by the cull`;
+    document.getElementById("c5-read").innerHTML = `player <strong>${d.toFixed(0)} m</strong> away · allowed error ${tau.toFixed(2)} px · fixed copies: LOD ${selectLOD(d, tau)}, one draw request · clusters: ${nCl} drawn, one draw request for all of them`;
+    document.getElementById("c5-cull").innerHTML = `<strong>${v} of ${CL.length} clusters</strong> checked by the GPU to find the ones to draw`;
+    st5.stats = { dT, cT, nCl, v };
+    L5 && L5.check();
   }
   const req5 = throttled(draw5);
   dragOn(c5, x => { st5.d = xD(x); req5(); return true; }, x => { st5.d = xD(x); req5(); });
   const tau5 = document.getElementById("tau5");
   tau5.addEventListener("input", () => { st5.tau = +tau5.value; document.getElementById("tau5v").textContent = st5.tau.toFixed(2) + " px"; req5(); });
   draw5();
+
+  // ---------- guided steps ----------
+  const set1 = o => { Object.assign(st1, o); st1.d = Math.min(TR.dmax, Math.max(TR.dmin, st1.d)); d1.value = Math.log10(st1.d).toFixed(3); d1v.textContent = st1.d.toFixed(0) + " m"; tau1.value = st1.tau; document.getElementById("tau1v").textContent = st1.tau.toFixed(2) + " px"; document.getElementById("fade1").checked = st1.fade; draw1(); };
+  L1 = lesson("error", { next: { id: "quads", title: "Why tiny triangles cost so much" }, steps: [
+    { say: "This is the player's view down a road, a piece of a 1080p screen at true size, with a 14 m boulder at the end. The thin white line is the boulder's exact outline, 2048 points around. The tinted shape over it is the copy being drawn right now: amber for the most detailed copy, blue for the least. The track at the top shows how far the player has walked.", enter: () => set1({ d: 100, tau: 1, fade: true }) },
+    { say: "<b>Drag the white dot on the track to the right</b> to walk the player away, past the 400 m mark.", todo: "drag the track dot past 400 m", goal: () => st1.d >= 350, try: () => set1({ d: 500 }),
+      done: "The boulder shrinks and the tint turns blue: the game swapped in a copy with fewer points. Four copies exist, with 2048, 512, 128 and 32 points. Out here the crude copy looks the same as the fine one, so drawing the fine one would be wasted work." },
+    { say: "So the game has to choose a copy at every moment.", quiz: { q: "What should decide which copy gets drawn?", options: [
+        { t: "How far away the boulder is", why: "Distance alone would treat a pebble and a mountain the same. A huge rock far away still shows its ledges, so distance is only part of the answer." },
+        { t: "How far the cheap copy strays from the true shape, measured in pixels on the screen", ok: true, why: "Every copy strays a little. The zoom box at the top right shows the worst spot of the copy in use. If the stray is under about one pixel, nobody can see it, whatever the distance." },
+        { t: "How many triangles the GPU can afford this frame", why: "A budget says how much you can spend, not which object to spend it on. The stray in pixels says what you can drop without anyone noticing." } ] } },
+    { say: "The caption under the picture lists each copy's stray in pixels, and the zoom box shows the worst spot of the one in use. Right now the game allows a stray of 1 pixel. <b>Raise the allowed error to 4 pixels.</b>", todo: "drag the allowed-error slider to 4 px", goal: () => st1.tau >= 3.5, try: () => { tau1.value = 4; tau1.dispatchEvent(new Event("input")); }, enter: () => set1({ d: 100, tau: 1, fade: true }),
+      done: "The coloured bands on the track slid toward the player: each copy now takes over sooner, so the boulder gets cheaper earlier. The zoom box shows a stray of a few pixels, which is the price." },
+    { say: "Switching copies at one exact spot makes the boulder's edge jump, which players notice as a pop. <b>Untick the blend</b> below, then drag the player slowly across one of the marks on the track and watch the edge.", todo: "untick the blend box", goal: () => !st1.fade, try: () => { const f = document.getElementById("fade1"); f.checked = false; f.dispatchEvent(new Event("change")); }, enter: () => set1({ d: 100, tau: 1, fade: true }),
+      done: "Without the blend, the outline changes shape in a single frame as you cross a mark. The zoom box makes the jump easy to see." },
+    { say: "<b>Tick the blend again</b>, then park the player just past a mark on the track so the caption says the copies are blending.", todo: "tick the blend and stop just past a mark", goal: () => st1.fade && st1.stats && st1.stats.f > 0, try: () => set1({ fade: true, d: dSwitch(2, st1.tau) * 1.1 }), enter: () => set1({ d: 100, fade: false }),
+      done: "For a short stretch past each mark both copies are drawn, and a fixed pattern of dots decides which pixels show which copy. The zoom box shows the dots. Each pixel is still drawn once, and the game's usual frame-to-frame smoothing blurs the dots away." },
+    { say: "Pick the cheapest copy whose stray on screen stays under the allowed error. Distance matters only through how much it shrinks that stray. The formula, the switch distances and the blend code are under the hood." } ] });
+
+  const set2 = o => { Object.assign(st2, o); tri2.value = st2.s; document.getElementById("tri2v").textContent = st2.s.toFixed(2) + " px"; segOn(document.getElementById("mode2"), st2.tiled ? "tiled" : "one"); draw2(); };
+  L2 = lesson("quads", { next: { id: "dag", title: "Let each chunk pick its own level" }, steps: [
+    { say: "Now the boulder is 800 m away and only 17 pixels wide, yet its full mesh, the set of triangles that make its surface, is still 2048 triangles. This is a 16×16 pixel patch of the screen, blown up so each pixel is a big square: sky, the grey rock, grass. The amber shape is one of those triangles. The small picture at the bottom right shows where the patch sits in the player's view.", enter: () => set2({ s: 2.5, ax: 5.3, ay: 6.4, tiled: false }) },
+    { say: "The GPU colours pixels with a small program called a <b>pixel shader</b>, run once per pixel. It never runs it for one pixel alone: it always takes a 2×2 block, outlined in brighter lines here. Green pixels have their centre dot inside the triangle, so their colour is kept. Red pixels were coloured only because they share a block with a green one, and that work is thrown away. <b>Drag the triangle</b> somewhere else.", todo: "drag the triangle", goal: () => Math.abs(st2.ax - 5.3) > 1 || Math.abs(st2.ay - 6.4) > 1, try: () => { st2.ax = 9; st2.ay = 9; draw2(); },
+      done: "Wherever it lands, every block it touches is coloured in full. The tiles count the useful pixels, the pixel programs run, and the share of that work that was kept." },
+    { say: "Suppose you shrink the triangle until it covers just one pixel centre.", quiz: { q: "How many times does the pixel shader run for it?", options: [
+        { t: "Once, for the one pixel", why: "The GPU cannot run the shader for a single pixel. It always launches the whole 2×2 block." },
+        { t: "Four times, one for each pixel of the block", ok: true, why: "One useful result and three thrown away. The extras exist because the shader asks its neighbours how fast things change across the surface, and it needs neighbours to ask." },
+        { t: "Zero, it is too small to matter", why: "A triangle that covers a centre dot is drawn, however small. Even one that misses every dot still costs setup time." } ] },
+      todo: "now drag the size slider down to 1 px", goal: () => st2.s <= 1.25, try: () => { tri2.value = 1; tri2.dispatchEvent(new Event("input")); },
+      done: "The share of work kept drops toward a quarter: one useful pixel for every four programs run. If the triangle misses every centre dot, nothing is coloured at all, and the caption says so." },
+    { say: "A far boulder is made of thousands of these. <b>Switch the patch to the whole mesh, tiled</b>, keeping the triangles about 1 px.", todo: "choose the whole mesh below", goal: () => st2.tiled && st2.s <= 1.5, try: () => { document.getElementById("mode2").querySelector('[data-v="tiled"]').click(); tri2.value = 1; tri2.dispatchEvent(new Event("input")); },
+      done: "The patch runs the pixel shader about four times per pixel, and some triangles cover no centre dot at all yet still cost the GPU time to set up. This is the real reason a distant mesh needs fewer triangles, more than the triangle count itself." },
+    { say: "<b>Push the size up to 10 pixels or more.</b>", todo: "drag the size slider to 10 px or more", goal: () => st2.s >= 9, try: () => { tri2.value = 12; tri2.dispatchEvent(new Event("input")); },
+      done: "Waste only happens along the edges now, and the share kept climbs well past half. Big triangles are cheap per pixel; pixel-sized ones cost up to four times what they look." },
+    { say: "Every triangle pays for whole 2×2 blocks. Nanite, the cluster renderer in Unreal Engine 5, avoids the rule for its tiniest triangles by drawing them one pixel at a time with its own program instead of the fixed hardware. That code is under the hood." } ] });
+
+  const set3 = o => { Object.assign(st3, o); tau3.value = st3.tau; document.getElementById("tau3v").textContent = st3.tau.toFixed(2) + " px"; draw3(); };
+  L3 = lesson("dag", { next: { id: "stream", title: "Load only the pages you need" }, steps: [
+    { say: "The same boulder from above, 48 m across, with the player as the blue figure and the faint wedge showing what they can see. One copy for the whole boulder is wasteful: the side facing the player needs detail, the side facing away does not. So the mesh is cut into chunks called <b>clusters</b>, about 128 triangles each, and each cluster picks its own copy. The outline is drawn cluster by cluster, amber for the finest, blue for the coarsest.", enter: () => set3({ x: -9.5, y: 3.5, tau: 2 }) },
+    { say: "<b>Drag the player</b> round to the far side of the boulder, on the right.", todo: "drag the player to the right of the boulder", goal: () => st3.x > 5, try: () => { st3.x = 9.5; st3.y = -3; draw3(); },
+      done: "The clusters nearest the player turned amber and the ones now facing away went blue. The caption counts the clusters drawn and their segments, the outline's stand-in for triangles." },
+    { say: "Two neighbouring clusters have picked different levels.", quiz: { q: "What happens at the seam between them?", options: [
+        { t: "A crack opens, because a fine outline and a coarse one do not meet", why: "That is what happens with copies built separately. These were built so that neighbours always meet." },
+        { t: "They meet exactly, because both keep the same points on their shared boundary", ok: true, why: "The white dots are those shared points. While a coarser version is built, the points on a cluster's boundary are locked, so both sides agree." },
+        { t: "The finer one is drawn on top of the coarser one", why: "Nothing is drawn twice. Each cluster owns its stretch of the outline." } ] } },
+    { say: "<b>Raise the allowed error to 8 pixels.</b>", todo: "drag the allowed-error slider to 8 px", goal: () => st3.tau >= 7, try: () => { tau3.value = 8; tau3.dispatchEvent(new Event("input")); }, enter: () => set3({ tau: 2 }),
+      done: "Almost everything goes blue and the cluster count falls. The dots under the map are the <b>hierarchy</b>: one row per level, the single root cluster at the top. Filled dots are the clusters drawn right now, exactly one on every path from the root down." },
+    { say: "Put the error back to 2 px and <b>walk the player to a corner of the map.</b>", todo: "set the error to 2 px and drag the player to a corner", goal: () => st3.tau <= 2.5 && Math.hypot(st3.x, st3.y) > 18, try: () => set3({ tau: 2, x: -22, y: -14 }), enter: () => set3({ tau: 8, x: -9.5, y: 3.5 }),
+      done: "Only a few clusters near the root are drawn, all blue. Each cluster asks one question: is my parent's stray too big for the screen while my own fits? Yes means draw me. Because strays only grow going up the tree, exactly one cluster on each path says yes." },
+    { say: "Cut the mesh into clusters, build coarser versions that agree at their seams, and every cluster picks its own level with no cracks. The build recipe and the GPU test are under the hood." } ] });
+
+  const set4 = o => { Object.assign(st4, o); budget4.value = st4.budget; document.getElementById("budget4v").textContent = fmtKB(st4.budget * PAGE_KB); tau4.value = st4.tau; document.getElementById("tau4v").textContent = st4.tau.toFixed(2) + " px"; draw4(); };
+  L4 = lesson("stream", { next: { id: "cost", title: "Triangle count as you back away" }, steps: [
+    { say: "A valley 142 m across with twelve of these boulders and one road. The player is the blue figure, and each boulder draws its own set of clusters, amber near the player, blue far away. All that cluster data is too big to keep in <b>video memory</b>, the graphics card's own memory, for every object. So it is cut into blocks of 128 KB called <b>pages</b>, the nine slots at the bottom. Filled slots are loaded. Page 0 holds the top of the hierarchy and is always loaded.", enter: () => set4({ x: -8, y: -22, tau: 1, budget: 5 }) },
+    { say: "<b>Drag the player right up to one boulder.</b>", todo: "drag the player next to a boulder", goal: () => st4.stats && st4.stats.dMin < 10.5, try: () => { st4.x = INST[4][0] - 9; st4.y = INST[4][1]; draw4(); },
+      done: "Its fine pages lit up and the loaded count in the caption rose. Only pages that some drawn cluster needs are loaded; the rest stay on disk." },
+    { say: "The budget is 640 KB, room for five pages.", quiz: { q: "What happens when the boulders want more pages than that?", options: [
+        { t: "The extra boulders vanish until there is room", why: "Nothing ever vanishes. Page 0 always holds a coarse version of everything." },
+        { t: "The finest pages are dropped and those boulders draw a bit coarser for a moment", ok: true, why: "A boulder that loses a page falls back to the coarsest loaded version of that part. A coarser choice is still a valid one, so no cracks appear." },
+        { t: "The game pauses to load them", why: "Loading happens over the next frames while the coarser version is drawn. The player sees a brief softening, not a stall." } ] },
+      todo: "now pull the budget down to 128 KB", goal: () => st4.budget <= 1, try: () => { budget4.value = 1; budget4.dispatchEvent(new Event("input")); },
+      done: "Only page 0 fits. Every boulder draws from the top of the hierarchy and gets a red dashed ring, meaning it is cruder than the allowed error asks for. Red dashed slots are pages that are wanted but were thrown out." },
+    { say: "Set the budget back to 640 KB and <b>raise the allowed error to 8 pixels.</b>", todo: "budget to 640 KB, allowed error to 8 px", goal: () => st4.budget >= 4 && st4.tau >= 7, try: () => { budget4.value = 5; budget4.dispatchEvent(new Event("input")); tau4.value = 8; tau4.dispatchEvent(new Event("input")); }, enter: () => set4({ budget: 1, tau: 1 }),
+      done: "Fewer fine pages are needed and the memory figure in the caption drops. A looser allowed error pulls the same lever as a smaller budget, just on purpose." },
+    { say: "Stream the hierarchy in pages, keep the root page always, and drop the finest pages first. Nothing vanishes; things get briefly coarser. The request and eviction code is under the hood." } ] });
+
+  const set5 = o => { Object.assign(st5, o); tau5.value = st5.tau; document.getElementById("tau5v").textContent = st5.tau.toFixed(2) + " px"; draw5(); };
+  L5 = lesson("cost", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "The strip at the top is the road from the side: the boulder at the left, the player wherever you put them. The chart below counts the triangles drawn for the boulder at every distance from 10 m to 800 m. The white dashed line is no LOD at all, 2048 triangles everywhere. Amber is the four fixed copies from the first demo. Blue is the clusters, each picking its own level.", enter: () => set5({ d: 200, tau: 1 }) },
+    { say: "<b>Drag the player to about 50 m.</b>", todo: "drag the player to about 50 m", goal: () => st5.d >= 40 && st5.d <= 65, try: () => set5({ d: 50 }),
+      done: "The amber dot sits on a flat step: the fixed copies can only change in four big jumps. The blue dot lands between the steps, because each of the 33 clusters switches at its own distance. The tiles show the three counts." },
+    { say: "Now think about 500 m out.", quiz: { q: "Where do the three lines end up far away?", options: [
+        { t: "All three drop to 32 triangles", why: "No LOD never changes. It draws all 2048 triangles for a boulder a dozen pixels wide." },
+        { t: "No LOD stays at 2048; the other two meet at the floor of 32", ok: true, why: "Both LOD schemes end on the same crudest copy. The difference between them is how much they overshoot on the way there." },
+        { t: "The cluster line drops to zero", why: "Something must be drawn while the boulder is on screen. The floor is the coarsest cluster, 32 triangles." } ] },
+      todo: "now drag the player out past 500 m", goal: () => st5.d >= 450, try: () => set5({ d: 600 }),
+      done: "Amber and blue meet near the floor while white stays at 2048. Out here the boulder is a dozen pixels wide, and with no LOD every one of those 2048 triangles pays the 2×2 block tax from the second demo." },
+    { say: "<b>Lower the allowed error to 0.25 pixels.</b>", todo: "drag the allowed-error slider to 0.25 px", goal: () => st5.tau <= 0.3, try: () => { tau5.value = 0.25; tau5.dispatchEvent(new Event("input")); }, enter: () => set5({ tau: 1 }),
+      done: "Every switch moves farther out and the amber staircase widens. The blue line moves too but stays close beneath it. A stricter allowed error costs triangles at every distance." },
+    { say: "One more line: the faint blue dashes, read on the right axis, count how many clusters the GPU had to check to find the ones to draw. It starts at the root and stops as soon as a cluster passes, so far away it checks a handful, and only up close, where everything is drawn fine, does it check all 33." },
+    { say: "Clusters follow the pixels far more closely than whole-mesh copies, and the whole scene goes to the GPU as one draw request instead of one per object. The walk through the hierarchy is under the hood." } ] });
 })();
 </script>

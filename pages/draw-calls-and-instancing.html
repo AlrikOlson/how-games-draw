@@ -221,8 +221,10 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 /* page-specific */
 .vp canvas.sq { aspect-ratio: 1; }
 .vp canvas.r169 { aspect-ratio: 16 / 9; }
-.tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-@media (max-width: 640px) { .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.tiles.four, .lesson .tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 640px) { .tiles.four, .lesson .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+section.stage#anatomy .cols { grid-template-columns: minmax(0, auto) minmax(440px, 1fr); }
+@media (max-width: 900px) { section.stage#anatomy .cols { grid-template-columns: minmax(0, 1fr); } }
 .btn { font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 6px 12px; background: var(--chip); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
 .btn:hover { border-color: var(--accent); }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -234,65 +236,60 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a village market at the edge of a forest · 5,000 trees · 200 kinds of prop · 48 painted crates · one 16.7 ms frame</p>
+    <p class="eyebrow">a village market at the edge of a forest · five guided demos · nothing to install</p>
     <h1>Draw Calls &amp; Instancing</h1>
-    <p class="lead">A draw call is the CPU telling the GPU "draw this mesh with this material, now". The GPU reads one in a blink, but the CPU spends microseconds setting each one up, and a few thousand of them can eat the whole frame while the GPU sits waiting. <b>Batching</b>, <b>instancing</b> and <b>indirect draws</b> all shrink the same number: how many times per frame the CPU has to say "draw". The part people get wrong is that on Vulkan and DX12 the draw itself is nearly free, and the cost moved into the culling, sorting and texture bookkeeping around it.</p>
+    <p class="lead">A game draws each thing on screen by giving the graphics chip an order: draw this shape with this paint. That order is a draw call. The chip carries one out in a blink, but the computer's main processor spends a few microseconds writing each one, and a few thousand a frame can eat the whole frame while the graphics chip sits waiting. This page is about giving fewer orders: sorting them, sending one order for thousands of copies, and letting the chip write its own. <b>The thing people get wrong:</b> on the newest ways of talking to the chip the order itself is nearly free, and the cost has moved into the sorting, the camera test and the texture bookkeeping around it.</p>
     <div class="key">
       <span style="--sw:#f2a341">CPU work · a prop that gets drawn this frame</span>
-      <span style="--sw:#4aa3ff">GPU work · material and texture lookups</span>
-      <span style="--sw:#ffffff">player and camera handles · the moment a batch is handed over</span>
-      <span style="--sw:#ef5d5d">over budget · a state change · texture bleed</span>
+      <span style="--sw:#4aa3ff">GPU work · texture and material lookups</span>
+      <span style="--sw:#ffffff">player and camera handles · the moment a batch of orders is handed over</span>
+      <span style="--sw:#ef5d5d">over budget · a setup change · a neighbour's paint bleeding in</span>
       <span style="--sw:#5ad48a">within budget</span>
     </div>
     <dl class="terms">
-      <dt>draw call</dt><dd>one order from the CPU to the GPU: draw this mesh with this material</dd>
+      <dt>CPU</dt><dd>the computer's main processor, the one running the game</dd>
+      <dt>GPU</dt><dd>the graphics chip, the one that draws the picture</dd>
+      <dt>draw call</dt><dd>one order from the CPU to the GPU: draw this shape with this paint</dd>
       <dt>prop</dt><dd>one object in the world: a crate, a tree, a barrel, a lamp</dd>
-      <dt>command buffer</dt><dd>the list of draws the CPU writes up and hands to the GPU in one go</dd>
-      <dt>pipeline</dt><dd>the compiled shaders plus fixed settings a draw runs with; switching it is the priciest bind</dd>
-      <dt>descriptor</dt><dd>a small record telling the GPU where a texture or a block of material values lives</dd>
-      <dt>instance</dt><dd>one copy of a shared mesh with its own position and colour</dd>
+      <dt>mesh</dt><dd>a shape, stored as a list of triangles</dd>
+      <dt>texture</dt><dd>a picture wrapped onto a shape, like wrapping paper</dd>
+      <dt>command buffer</dt><dd>the list of orders the CPU writes up and hands to the GPU in one go</dd>
+      <dt>pipeline</dt><dd>the small drawing program plus the fixed settings an order runs with; switching it is the priciest setup step</dd>
+      <dt>descriptor</dt><dd>a small note telling the GPU where a texture or a block of material values lives</dd>
+      <dt>instance</dt><dd>one copy of a shared shape with its own position and colour</dd>
       <dt>frustum</dt><dd>the wedge of space the camera can see</dd>
-      <dt>indirect draw</dt><dd>a draw whose arguments the GPU reads from a buffer instead of the CPU supplying them</dd>
-      <dt>bindless</dt><dd>every texture in the scene sits in one big list and the shader picks one by number</dd>
+      <dt>indirect draw</dt><dd>an order whose numbers the GPU reads from a list in its own memory instead of the CPU supplying them</dd>
+      <dt>bindless</dt><dd>every texture in the scene sits in one long list and the program picks one by number</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#anatomy"><span class="n">01</span>What one draw call costs</a></li><li><a href="#sorting"><span class="n">02</span>Sort draws so binds become free</a></li><li><a href="#instancing"><span class="n">03</span>Instancing</a></li><li><a href="#indirect"><span class="n">04</span>Let the GPU write its own draws</a></li><li><a href="#bindless"><span class="n">05</span>Bindless and the material problem</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#anatomy"><span class="n">01</span>What one draw call costs</a></li><li><a href="#sorting"><span class="n">02</span>Sort the orders, skip the setup</a></li><li><a href="#instancing"><span class="n">03</span>One order, five thousand trees</a></li><li><a href="#indirect"><span class="n">04</span>Let the GPU write the orders</a></li><li><a href="#bindless"><span class="n">05</span>Why textures split the batch</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="anatomy">
+  <section id="anatomy" class="stage">
     <h2>What one draw call costs</h2>
-    <p class="sub">A market street full of crates, barrels and trees, and every prop is one order to the GPU. Move the sliders and watch which of the CPU or the GPU runs out of time first.</p>
-    <div class="cols wide">
+    <p class="sub">A market street of crates, barrels and trees, and every prop is one order from the CPU to the GPU. Find out which of the two runs out of time first.</p>
+    <div class="cols">
       <div class="vp">
         <canvas id="c1" class="r169" width="640" height="360" aria-label="A market street of crates, barrels, trees and the player, with one crate's draw order zoomed into its four CPU jobs, above a timeline of the CPU writing draws and the GPU running them for one frame"></canvas>
-        <div class="cap"><span id="c1-read"></span><span>budget 16.7 ms · 512 draws per submit</span></div>
+        <div class="cap"><span id="c1-read"></span><span>budget 16.7 ms per frame (60 frames a second) · orders handed over 512 at a time</span></div>
       </div>
-      <div class="prose">
-        <p class="plain"><b>A draw call is one order from the CPU to the GPU</b>: draw this mesh, with this material, now. The GPU reads it in a blink. The CPU spends about 5 microseconds getting each one ready, and <b>3,000 of them fill 15 of your 16.7 ms</b>. A frame full of small draws can leave the GPU idle, and <b>a faster graphics card fixes nothing</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The top band is what the player sees: a market street where every crate, barrel, tree, house, lamp and the player is one draw call. More draws per frame puts more props in the street. The arrow picks one crate and zooms its order into the four jobs the CPU does for it. Amber is the pipeline bind, which picks the compiled shaders and settings the draw runs with. Blue is the descriptor update, which points the GPU at this crate's texture and material values. Grey is the vertex and index buffer binds, the mesh data. White is writing the draw command itself.</p>
-        <p>Below that is the whole frame on a timeline. The amber lane is the CPU writing orders, the blue lane is the GPU carrying them out. White ticks mark each submit, the moment a batch of 512 orders is handed to the GPU. Any gap in the blue lane is the GPU waiting.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Push Draws per frame to 10,000. The street packs with props, the amber lane runs past 16.7 ms and fps falls to 20. The CPU is the one out of time, so the frame is CPU bound.</li>
-          <li>Drag CPU µs per draw down to 1.0, about what Vulkan or DX12 costs. The CPU lane shrinks to a fifth and the blue lane becomes the limit.</li>
-          <li>Push GPU µs per draw to 12. Now the GPU sets the frame time and the CPU slider stops mattering.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:0">
-          <div class="ctl"><label for="draws1">Draws per frame <span class="val" id="draws1v">3,000</span></label><input type="range" id="draws1" min="100" max="20000" step="100" value="3000"></div>
-          <div class="ctl"><label for="cpu1">CPU µs per draw <span class="val" id="cpu1v">5.0</span></label><input type="range" id="cpu1" min="0.5" max="40" step="0.5" value="5"></div>
-          <div class="ctl"><label for="gpu1">GPU µs per draw <span class="val" id="gpu1v">2.0</span></label><input type="range" id="gpu1" min="0.5" max="12" step="0.5" value="2"></div>
+      <div class="lesson" data-lesson="anatomy">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="draws1">Draw calls per frame <span class="val" id="draws1v">3,000</span></label><input type="range" id="draws1" min="100" max="20000" step="100" value="3000"></div>
+          <div class="ctl"><label for="cpu1">CPU cost per draw call <span class="val" id="cpu1v">5.0 µs</span></label><input type="range" id="cpu1" min="0.5" max="40" step="0.5" value="5"></div>
+          <div class="ctl"><label for="gpu1">GPU cost per draw call <span class="val" id="gpu1v">2.0 µs</span></label><input type="range" id="gpu1" min="0.5" max="12" step="0.5" value="2"></div>
         </div>
         <div class="tiles four">
-          <div class="tile" id="t1-cpu"><div class="n">—</div><div class="l">CPU ms</div></div>
-          <div class="tile" id="t1-gpu"><div class="n">—</div><div class="l">GPU ms</div></div>
-          <div class="tile" id="t1-idle"><div class="n">—</div><div class="l">GPU idle</div></div>
-          <div class="tile" id="t1-fps"><div class="n">—</div><div class="l">fps</div></div>
+          <div class="tile" id="t1-cpu"><div class="n">—</div><div class="l">CPU busy, milliseconds</div></div>
+          <div class="tile" id="t1-gpu"><div class="n">—</div><div class="l">GPU busy, milliseconds</div></div>
+          <div class="tile" id="t1-idle"><div class="n">—</div><div class="l">GPU waiting</div></div>
+          <div class="tile" id="t1-fps"><div class="n">—</div><div class="l">frames per second</div></div>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">The GPU reads an order in a blink, the CPU spends microseconds writing it, and thousands of orders a frame make the CPU the slow one.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>Before the GPU sees anything, every draw makes the CPU do four things. It binds a pipeline, checking the shader stages and fixed settings. It updates a descriptor set or constant buffer, the records that say where this draw's textures and material values live. It binds the vertex and index buffers. Then it writes the draw command.</p>
         <p>On D3D11 and OpenGL each of those steps went through a driver that re-checked everything on every call, and 5 to 20 µs per draw was normal. On Vulkan and DX12 the same four steps run in your own code and cost 1 to 3 µs. They still run once per draw.</p>
         <p>The GPU only starts on a command buffer, the recorded list of draws, once the CPU submits it. While the CPU is still recording the next batch, the GPU waits. When the CPU lane crosses the 16.7 ms line the frame is CPU bound: the GPU finishes early, idles, and a faster GPU changes nothing. Push the GPU slider up and it flips: the CPU finishes first and the GPU lane sets the frame time.</p>
@@ -314,46 +311,36 @@ idle   = 1 − gpu_busy / frame</div>
 }
 queue.submit(cmd);                    <span class="c">// GPU starts here, not at the first draw</span></pre>
 
-        <p class="tldr">The GPU reads a draw in nanoseconds, the CPU spends microseconds writing it, and with thousands per frame the CPU is what runs out of time.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="sorting">
-    <h2>Sort draws so binds become free</h2>
-    <p class="sub">The 200 props on the market square, in the order the CPU sends them. Sort that list by one packed key and watch most of the state changes disappear.</p>
+  <section id="sorting" class="stage">
+    <h2>Sort the orders, skip the setup</h2>
+    <p class="sub">The 200 props on the market square, in the order the CPU sends them. Sort that list and watch most of the setup work disappear.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c2" class="sq" width="512" height="512" aria-label="A market square of 200 props above the unsorted and sorted draw lists, the first draws of each shown as prop icons and all 200 as state rows, with the sort key bit layout and CPU cost bars"></canvas>
-        <div class="cap"><span id="c2-read"></span><span>each strip is one prop's draw · gap = state change</span></div>
+        <div class="cap"><span id="c2-read"></span><span>each strip is one prop's order · every break in a run is a setup change</span></div>
       </div>
-      <div class="prose">
-        <p class="plain"><b>A bind that doesn't change costs nothing.</b> If two draws in a row use the same pipeline, the second one skips that bind. So the renderer <b>sorts the draw list</b> so draws that share the priciest state sit next to each other. It's a delivery driver grouping stops by street: the trips between them vanish.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The band at the top is the market square: 200 props, each one draw. Below it are two to-do lists for the CPU. The top list is the order the level file happens to list the props, the bottom is the same 200 sorted. The first 32 draws of each list are drawn as the props they stand for, so you can watch the sort put crates next to crates and trees next to trees.</p>
-        <p>Under the prop icons, three colour rows cover all 200 draws: pipeline in amber, which is the shader (wood, leaf, stone), material in blue, which is the paint or bark texture, and mesh in grey, the shape. A run of one colour is a stretch of draws sharing that state, and every break in a run is a state change, counted in red on the right. Under the lists is the 64-bit sort key with its fields laid out from the most expensive change on the left to the cheapest on the right. At the bottom, two bars stack the estimated CPU time for each list by what changed.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover a strip or a prop icon. A white ring picks out that prop on the square, and the white outline in the other list shows where its draw landed after sorting.</li>
-          <li>Push Materials to 64. Both lists gain changes, but the sorted count stays a fraction of the unsorted one.</li>
-          <li>Switch the key to depth first. Draws are now ordered by distance, the sorted icons mix kinds again, and the saving shrinks.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:0">
-          <div class="ctl"><span class="lab">Sort key</span><div class="seg" id="seg2" role="group" aria-label="Sort key order"><button data-v="state" aria-pressed="true">pipeline→material→mesh</button><button data-v="depth">depth first</button></div></div>
-          <div class="ctl"><label for="pso2">Pipelines <span class="val" id="pso2v">6</span></label><input type="range" id="pso2" min="1" max="16" step="1" value="6"></div>
-          <div class="ctl"><label for="mat2">Materials <span class="val" id="mat2v">24</span></label><input type="range" id="mat2" min="1" max="64" step="1" value="24"></div>
-          <div class="ctl"><span class="lab">List</span><button class="btn" id="reshuffle2">reshuffle</button></div>
+      <div class="lesson" data-lesson="sorting">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><span class="lab">Sort the list</span><div class="seg" id="seg2" role="group" aria-label="Sort key order"><button data-v="state" aria-pressed="true">by program, then texture, then shape</button><button data-v="depth">by distance first</button></div></div>
+          <div class="ctl"><label for="pso2">Shader programs in use <span class="val" id="pso2v">6</span></label><input type="range" id="pso2" min="1" max="16" step="1" value="6"></div>
+          <div class="ctl"><label for="mat2">Textures in use <span class="val" id="mat2v">24</span></label><input type="range" id="mat2" min="1" max="64" step="1" value="24"></div>
+          <div class="ctl"><span class="lab">The level's order</span><button class="btn" id="reshuffle2">shuffle it</button></div>
         </div>
         <div class="tiles">
-          <div class="tile"><div class="n" id="t2-un">—</div><div class="l">changes unsorted</div></div>
-          <div class="tile on"><div class="n" id="t2-so">—</div><div class="l">changes sorted</div></div>
-          <div class="tile"><div class="n" id="t2-ms">—</div><div class="l">CPU µs sorted</div></div>
+          <div class="tile"><div class="n" id="t2-un">—</div><div class="l">setup changes, unsorted</div></div>
+          <div class="tile on"><div class="n" id="t2-so">—</div><div class="l">setup changes, sorted</div></div>
+          <div class="tile"><div class="n" id="t2-ms">—</div><div class="l">CPU microseconds, sorted</div></div>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Sort the orders so ones with the same setup sit together, and most of the setup becomes free.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>The draw itself is the cheap part. The binds before it are the expensive part, and a bind that does not change costs nothing. So the renderer packs everything that determines state into one 64-bit integer, puts the most expensive change in the most significant bits, and sorts the list once. Draws next to each other then share a pipeline, then a material, then a mesh, and the loop only rebinds when a field differs from the previous draw.</p>
         <p>Depth goes in the low bits so that within one mesh the draws still run front to back. That helps early-Z, the GPU's trick of skipping pixels already covered by something closer. Transparent draws need the opposite order, back to front, so for them depth moves into the high bits and state sorting is given up. The layer field sits at the very top for that reason: it keeps opaque and transparent draws apart before any other field applies.</p>
         <p class="words">In words: stack the fields into one number, dearest change on top, then sort. CPU time is the submits plus one cost for each time a field changes down the list.</p>
@@ -376,43 +363,33 @@ t_cpu ≈ N · submit + Σ_changes cost(field)
 std::sort(draws.begin(), draws.end(),
           [](<span class="k">auto</span>&amp; a, <span class="k">auto</span>&amp; b) { <span class="k">return</span> a.key &lt; b.key; }); <span class="c">// radix sort in practice</span></pre>
 
-        <p class="tldr">Sort the draw list by one packed key, priciest state in the top bits, and most binds turn into no-ops.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="instancing">
-    <h2>Instancing: one mesh, thousands of copies</h2>
-    <p class="sub">The player stands in a forest of 5,000 trees that all share one mesh. Drag the player and the aim point, and compare three ways of getting the trees in view onto the screen.</p>
+  <section id="instancing" class="stage">
+    <h2>One order, five thousand trees</h2>
+    <p class="sub">The player stands in a forest of 5,000 trees that all share one shape. Drag the player and compare three ways of sending the trees to the GPU.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c3" class="sq grab" width="512" height="512" aria-label="Top-down map of a forest of 5000 trees with the player, the view wedge, an inset of what the player sees, and the instance buffer layout underneath"></canvas>
         <div class="cap"><span id="c3-read"></span><span id="c3-mem"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Five thousand trees share one mesh, so drawing them one at a time is 5,000 orders for the same thing. <b>Instancing sends one order with a count of 5,000</b> and a list of where each copy goes. <b>One draw, 320 KB of positions</b>, and every tree can still move. It is the photocopier set to 5,000 copies: one press, the machine handles the rest.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The map is 1 km by 0.73 km of forest seen from above, and every green dot is a tree. The player is the camera: the blue figure is the player, the small white handle is the point they are looking at, and the wedge between them is the frustum, the wedge of space the camera can see. Trees inside it get an amber dot; those are the ones that reach the screen. The inset at the top right is what the player sees, the same wedge of trees from the ground.</p>
-        <p>The panel underneath changes with the mode. For instancing it shows the instance buffer, one 64-byte record per tree, and the 16 numbers inside the record of one tree, with an arrow from that tree to its slot. For static batch it shows the merged vertex buffer and how tiny one mesh is against it. For individual draws it shows the command buffer repeating the same bind-and-draw pair 5,000 times against the 16.7 ms budget.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover a tree. Its slot in the buffer lights up and the readout shows the byte it lives at.</li>
-          <li>Switch to static batch. Still one draw, but the memory tile jumps from hundreds of kilobytes to over 160 MB.</li>
-          <li>Switch to individual. Same trees, 5,000 draws, and the CPU bar runs past the red 16.7 ms line.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:0">
-          <div class="ctl"><span class="lab">Submission</span><div class="seg" id="seg3" role="group" aria-label="Submission mode"><button data-v="individual">individual</button><button data-v="static">static batch</button><button data-v="instanced" aria-pressed="true">instanced</button></div></div>
+      <div class="lesson" data-lesson="instancing">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><span class="lab">How the trees are sent</span><div class="seg" id="seg3" role="group" aria-label="Submission mode"><button data-v="individual">one order per tree</button><button data-v="static">one merged giant shape</button><button data-v="instanced" aria-pressed="true">one order, 5,000 copies</button></div></div>
         </div>
         <div class="tiles">
-          <div class="tile on"><div class="n" id="t3-draws">—</div><div class="l">draws</div></div>
-          <div class="tile"><div class="n" id="t3-cpu">—</div><div class="l">CPU µs</div></div>
-          <div class="tile"><div class="n" id="t3-mem">—</div><div class="l">geometry + instance memory</div></div>
+          <div class="tile on"><div class="n" id="t3-draws">—</div><div class="l">draw calls</div></div>
+          <div class="tile"><div class="n" id="t3-cpu">—</div><div class="l">CPU microseconds</div></div>
+          <div class="tile"><div class="n" id="t3-mem">—</div><div class="l">memory for shapes and positions</div></div>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Instancing is one order plus a list of where each copy goes; the shape is stored once and every copy can still move.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>Instancing keeps one copy of the mesh and one draw call, and moves the per-object data into a buffer that the vertex shader indexes with <code>gl_InstanceID</code>, the number of the copy it is currently working on. Each instance here is a 3×4 world matrix, the numbers that place and scale the tree, plus a colour: 64 bytes. So 5,000 trees are 320 KB of instance data next to a 12.8 KB mesh. The CPU issues one draw with <code>instanceCount = 5000</code> and is done.</p>
         <p>Static batching is the older answer: move every tree's vertices into world space ahead of time and merge them into one giant vertex buffer. That is also one draw, but the mesh is copied 5,000 times, the index buffer outgrows 16-bit indices, and nothing can move without a rebuild. Instancing wins on memory by more than two orders of magnitude and costs one buffer load per vertex.</p>
         <p>Without culling the GPU still processes all 5,000 instances. The ones outside the frustum run the vertex shader and get thrown away afterwards. The next section moves that decision onto the GPU as well.</p>
@@ -446,44 +423,34 @@ world_pos      = vec4(p, 1) · mat3x4     3 rows × 16 B = 48 B, + rgba 16 B = 6
         </table>
         </div>
 
-        <p class="tldr">Instancing is one draw plus a list of per-copy records; it keeps the mesh once and lets every copy move.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="indirect">
-    <h2>Let the GPU write its own draws</h2>
-    <p class="sub">The player walks through a village of 6,579 props in 200 kinds: trees, bushes, crates, barrels, rocks, fences. Drag the player; a GPU pass tests every prop against the view and fills in the draw arguments while the CPU issues the same one command every frame.</p>
+  <section id="indirect" class="stage">
+    <h2>Let the GPU write the orders</h2>
+    <p class="sub">The player walks through a village of 6,579 props in 200 shapes. Drag the player; the GPU tests every prop against the camera and fills in the orders itself, while the CPU says the same one thing every frame.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c4" class="sq grab" width="512" height="512" aria-label="Top-down village of thousands of props with the player's view wedge, and below it the indirect draw argument bars the GPU writes for 200 mesh types, grouped by kind of prop"></canvas>
-        <div class="cap"><span id="c4-read"></span><span>hover a bar or a prop for its args</span></div>
+        <div class="cap"><span id="c4-read"></span><span>hover a bar or a prop to read its order</span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Instancing still leaves the CPU deciding what's in view and how many copies to ask for. <b>An indirect draw hands that job to the GPU</b>: the CPU points at a buffer and says "the numbers in here are the draw". A small GPU program fills the buffer by testing every object against the camera. <b>The CPU's work per frame becomes a constant</b>, whether the scene holds 500 objects or 50,000.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The map is the village from above. Every prop is one instance of one of 200 mesh types, drawn in its own colour: greens for trees, pines and bushes, browns for crates, barrels, fences and stumps, grey for rocks. A prop with an amber ring passed the camera test and gets drawn. The dim ones failed it and are skipped. Below the map is the argument buffer: one bar per mesh type, grouped by kind of prop, and the bar's height is how many copies of that type survived. A flat red bar is a type with zero survivors.</p>
-        <p>The line under the bars prints the four numbers in one type's argument record, and the last line is the single command the CPU issued. Hover a bar or a prop to inspect its type.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the aim point so the player looks at the empty edge of the map. The bars collapse, instances drawn falls, and the CPU draws tile stays at 1.</li>
-          <li>Switch to compacted + count buffer. The red zero-length bars vanish, GPU draws executed drops to the non-empty count, and the count buffer turns blue.</li>
-          <li>Hover any prop. Every prop of the same mesh type gets a white ring, and its bar is outlined.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:0">
-          <div class="ctl"><span class="lab">Argument buffer</span><div class="seg" id="seg4" role="group" aria-label="Indirect mode"><button data-v="fixed" aria-pressed="true">200 fixed commands</button><button data-v="count">compacted + count buffer</button></div></div>
+      <div class="lesson" data-lesson="indirect">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><span class="lab">The order list the GPU writes</span><div class="seg" id="seg4" role="group" aria-label="Indirect mode"><button data-v="fixed" aria-pressed="true">200 slots, one per shape</button><button data-v="count">squeeze out the empty slots</button></div></div>
         </div>
         <div class="tiles four">
-          <div class="tile on"><div class="n" id="t4-cpu">1</div><div class="l">CPU draws issued</div></div>
-          <div class="tile"><div class="n" id="t4-cmds">—</div><div class="l">GPU draws executed</div></div>
-          <div class="tile"><div class="n" id="t4-inst">—</div><div class="l">instances drawn</div></div>
-          <div class="tile"><div class="n" id="t4-us">—</div><div class="l">CPU draw µs</div></div>
+          <div class="tile on"><div class="n" id="t4-cpu">1</div><div class="l">orders the CPU gave</div></div>
+          <div class="tile"><div class="n" id="t4-cmds">—</div><div class="l">orders the GPU ran</div></div>
+          <div class="tile"><div class="n" id="t4-inst">—</div><div class="l">props drawn</div></div>
+          <div class="tile"><div class="n" id="t4-us">—</div><div class="l">CPU microseconds</div></div>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">With indirect draws the GPU tests the props and writes its own orders, so the CPU's work per frame stops growing with the scene.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>With an indirect draw the CPU no longer supplies the arguments. It points at a buffer and says "the four uints at this offset are the draw". A compute shader, a GPU program that runs one thread per object rather than per pixel, fills that buffer. Each thread tests one instance against the frustum. On pass it does an <code>atomicAdd</code>, a counter increment that is safe when thousands of threads hit it at once, on its mesh type's <code>instanceCount</code>, and writes the instance index into a compacted list. The vertex shader then reads <code>inst[visible[gl_InstanceIndex]]</code>.</p>
         <p>MultiDrawIndirect extends this to an array of argument records, one per mesh type, run by a single CPU call. The 200 commands here are one <code>vkCmdDrawIndexedIndirect</code>. A mesh type whose count ended at zero is an empty draw the GPU skips in a few cycles. Or the compute pass compacts the array and writes the survivor count to a count buffer for <code>DrawIndirectCount</code>. Either way the CPU's draw work per frame is a constant, no matter how many objects the scene holds.</p>
         <p class="words">In words: each mesh type owns a 16-byte record and a fixed stretch of the visible list; every surviving instance grabs the next slot in its type's stretch and bumps that type's count.</p>
@@ -510,47 +477,37 @@ CPU per frame: 1 dispatch + 1 multi-draw, independent of N</div>
 <span class="c">// CPU, once per frame:</span>
 <span class="c">// vkCmdDrawIndexedIndirect(cmd, argsBuf, 0, 200, sizeof(DrawArgs));</span></pre>
 
-        <p class="tldr">With indirect draws the GPU culls and writes its own draw arguments, and the CPU's per-frame draw work stops depending on scene size.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="bindless">
-    <h2>Bindless and the material problem</h2>
-    <p class="sub">48 crates on the market with 9 different paint jobs. See why different textures break a batch apart, and compare four ways of putting it back together.</p>
+  <section id="bindless" class="stage">
+    <h2>Why textures split the batch</h2>
+    <p class="sub">48 crates on the market with 9 different paint jobs. See why different textures break one order into many, and four ways of putting it back together.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c5" class="sq" width="512" height="512" aria-label="A 4096 texture atlas of crate paint jobs with red mip bleed bands, a texture array of the same paint jobs, an inset of a near and a far crate as the player sees them, and 48 crates on the market ground grouped into draws"></canvas>
-        <div class="cap"><span id="c5-read"></span><span>hover an atlas tile for its UV remap</span></div>
+        <div class="cap"><span id="c5-read"></span><span>hover a paint job on the big sheet</span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Instancing only works while every copy uses the same textures. <b>Give each crate its own paint job and the batch splits back into one draw per material.</b> The old fixes glue the textures together into one big image. <b>Bindless skips the gluing</b>: every texture goes in one long list and the shader picks by number, so the batch never has to split.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Top left is a 4096² atlas: one big sheet with every crate paint job packed in as a tile. The red bands on each tile are bleed, the strip near the edge where the blurry lower-resolution copies of the sheet pull in colour from the neighbouring tile. Top right is a texture array, the same paint jobs stacked as separate layers with no shared edges. Under it is what the player sees: a near crate and a far crate with the same paint job. The far one is sampled from the blurry mip level, so its neighbours' paint creeps in at the edges.</p>
-        <p>The bottom row is the 48 crates lined up on the market ground, coloured by paint job and grouped by pipeline, the shader they use. Each white bracket is one draw. Fewer brackets means fewer draws.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Push Mip level from 6 to 8 on a 1024² tile. The red bands widen to 256 texels a side, only 25 % of each tile is still clean, and the far crate is mostly its neighbours' colours. At level 9 nothing of its own paint is left.</li>
-          <li>Step from per-draw bind to texture array. The brackets merge down to one per pipeline. Go on to bindless and texture binds drops to 1, but draws and unique pipelines stay where they were.</li>
-          <li>Pick bindless + uber-shader. One bracket, one draw, one pipeline for all 48 crates.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:0">
-          <div class="ctl"><span class="lab">Binding model</span><div class="seg" id="seg5" role="group" aria-label="Binding model"><button data-v="classic" aria-pressed="true">per-draw bind</button><button data-v="array">texture array</button><button data-v="bindless">bindless</button><button data-v="uber">bindless + uber-shader</button></div></div>
-          <div class="ctl"><label for="mip5">Mip level <span class="val" id="mip5v">6</span></label><input type="range" id="mip5" min="0" max="11" step="1" value="6"></div>
-          <div class="ctl"><span class="lab">Atlas tile</span><div class="seg" id="segT5" role="group" aria-label="Atlas tile size"><button data-v="256">256²</button><button data-v="512">512²</button><button data-v="1024" aria-pressed="true">1024²</button></div></div>
-          <div class="ctl"><label for="mat5">Unique materials <span class="val" id="mat5v">9</span></label><input type="range" id="mat5" min="1" max="16" step="1" value="9"></div>
-          <div class="ctl"><label for="var5">Shader variants <span class="val" id="var5v">3</span></label><input type="range" id="var5" min="1" max="4" step="1" value="3"></div>
+      <div class="lesson" data-lesson="bindless">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><span class="lab">How a crate gets its texture</span><div class="seg" id="seg5" role="group" aria-label="Binding model"><button data-v="classic" aria-pressed="true">one texture at a time</button><button data-v="array">a stack of textures</button><button data-v="bindless">bindless: pick by number</button><button data-v="uber">bindless + one program for all</button></div></div>
+          <div class="ctl"><label for="mip5">Distance blur level (mip) <span class="val" id="mip5v">6</span></label><input type="range" id="mip5" min="0" max="11" step="1" value="6"></div>
+          <div class="ctl"><span class="lab">Size of each paint job on the sheet</span><div class="seg" id="segT5" role="group" aria-label="Atlas tile size"><button data-v="256">256×256</button><button data-v="512">512×512</button><button data-v="1024" aria-pressed="true">1024×1024</button></div></div>
+          <div class="ctl"><label for="mat5">Different paint jobs <span class="val" id="mat5v">9</span></label><input type="range" id="mat5" min="1" max="16" step="1" value="9"></div>
+          <div class="ctl"><label for="var5">Different shader programs <span class="val" id="var5v">3</span></label><input type="range" id="var5" min="1" max="4" step="1" value="3"></div>
         </div>
         <div class="tiles">
-          <div class="tile on"><div class="n" id="t5-draws">—</div><div class="l">draws for 48 crates</div></div>
-          <div class="tile"><div class="n" id="t5-binds">—</div><div class="l">texture binds</div></div>
-          <div class="tile"><div class="n" id="t5-pso">—</div><div class="l">unique pipelines</div></div>
+          <div class="tile on"><div class="n" id="t5-draws">—</div><div class="l">draw calls for 48 crates</div></div>
+          <div class="tile"><div class="n" id="t5-binds">—</div><div class="l">texture switches</div></div>
+          <div class="tile"><div class="n" id="t5-pso">—</div><div class="l">shader programs</div></div>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Textures split a batch; a sheet or a stack merges the textures, bindless merges the lookup, and only one program for everything merges the rest.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>Instancing needs every instance in a draw to use the same bound textures. Give each crate its own paint texture and the batch splits back into one draw per material, because a descriptor bind sits between them. The two classic fixes remove the bind by removing the separate texture. A texture array puts every material in one resource, one layer each, picked by an integer from the instance data. An atlas packs them into one 4096² image and remaps UVs, the coordinates that say where on the texture a vertex lands, with a scale and an offset.</p>
         <p>The atlas has a cost. Mipmaps, the chain of half-size copies the GPU samples from at a distance, are built on the whole image. At level L each mip texel covers 2^L base texels and the filter reaches that far into the neighbouring tile. Wrapping UVs do not work at all. A texture array has neither problem, but every layer must share size, format and mip count.</p>
         <p>Bindless removes the bind instead of the texture. The shader indexes a descriptor array holding every texture with an integer from a material buffer, so draws only need to split on pipeline. With an uber-shader, one shader that handles every material's features through flags, that count is one, and the whole scene is a single indirect draw.</p>
@@ -574,25 +531,24 @@ pipelines = unique shader variants    bindless does not lower this; an uber-shad
 }
 <span class="c">// HLSL SM 6.6: Texture2D t = ResourceDescriptorHeap[m.albedo];</span></pre>
 
-        <p class="tldr">Textures are what split a batch; atlases and arrays merge the textures, bindless merges the lookup, and only an uber-shader merges the pipelines.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
   <section id="tradeoffs">
     <h2>Tradeoffs</h2>
-    <p class="sub">Every technique buys a lower CPU cost per object with some mix of memory, rigidity and hardware requirements.</p>
+    <p class="sub">Every technique buys a lower CPU cost per object with some mix of memory, things that can no longer change, and hardware it needs.</p>
     <p class="plain" style="max-width:66ch">Read this table top to bottom as a ladder: each row cuts the CPU's per-object work further than the one above, and pays for it in memory, in what is allowed to differ between objects, or in the hardware it needs. <b>You are choosing how much of the per-draw work to move off the CPU</b> and what you give up to do it.</p>
     <div class="tbl-wrap">
     <table class="uses">
-      <thead><tr><th>Technique</th><th>What the CPU pays</th><th>What it costs in memory</th><th>What can differ between objects</th><th>Where per-object data lives</th><th>Pick it when</th></tr></thead>
+      <thead><tr><th>Technique</th><th>What the CPU pays per frame</th><th>What it costs in memory</th><th>What can differ between objects</th><th>Where per-object data lives</th><th>Pick it when</th></tr></thead>
       <tbody>
         <tr><td>Individual draws</td><td>1 to 20 µs per object, every frame</td><td>Mesh stored once</td><td>Anything can differ per draw</td><td>Unlimited, via constants set per draw</td><td>Under about 1,000 objects, or every object has a unique material</td></tr>
-        <tr><td>Static batching</td><td>Near zero: one draw per batch</td><td>Mesh copied per object; 32-bit indices past 65,535 vertices</td><td>Nothing moves; one material per batch</td><td>Baked into the vertices</td><td>Level geometry that never moves, mobile GL ES</td></tr>
-        <tr><td>Dynamic batching</td><td>CPU copies and transforms vertices each frame</td><td>Small scratch buffer</td><td>Only tiny meshes pay off (Unity caps at 900 vertex attributes)</td><td>Baked again each frame</td><td>Sprites, particles, UI quads</td></tr>
-        <tr><td>GPU instancing</td><td>One draw per mesh + material pair</td><td>Mesh once + N × 64 to 256 B</td><td>Same mesh and same bound textures per draw</td><td>One record per instance, any layout</td><td>Foliage, props, crowds, debris</td></tr>
-        <tr><td>Indirect + bindless</td><td>Constant: one dispatch, one multi-draw</td><td>+16 B args per mesh type, +4 B per visible instance</td><td>Any mesh, any material, one pipeline</td><td>Unlimited, in a GPU buffer indexed by instance id</td><td>Tens of thousands of objects, GPU-driven culling</td></tr>
-        <tr><td>Mesh shaders</td><td>Constant; a task shader culls meshlets on the GPU</td><td>Meshlets of about 64 verts / 124 tris, around 10 % over an index buffer</td><td>Per-meshlet cull, LOD and generation on the GPU</td><td>Unlimited</td><td>Dense geometry on Turing / RDNA2 or newer hardware</td></tr>
+        <tr><td>Static batching</td><td>Near zero: one draw per batch</td><td>Shape copied per object; corner numbers need 4 bytes past 65,535 corners</td><td>Nothing moves; one material per batch</td><td>Baked into the vertices</td><td>Level geometry that never moves, mobile GL ES</td></tr>
+        <tr><td>Dynamic batching</td><td>CPU copies and transforms vertices each frame</td><td>Small scratch buffer</td><td>Only tiny shapes pay off (Unity caps at 900 vertex attributes)</td><td>Baked again each frame</td><td>Sprites, particles, UI quads</td></tr>
+        <tr><td>GPU instancing</td><td>One draw per mesh + material pair</td><td>Shape once + N × 64 to 256 B</td><td>Same shape and same textures per draw</td><td>One record per instance, any layout</td><td>Foliage, props, crowds, debris</td></tr>
+        <tr><td>Indirect + bindless</td><td>Constant: one dispatch, one multi-draw</td><td>+16 B args per mesh type, +4 B per visible instance</td><td>Any shape, any material, one shader program</td><td>Unlimited, in a GPU buffer indexed by instance id</td><td>Tens of thousands of objects, GPU-driven culling</td></tr>
+        <tr><td>Mesh shaders</td><td>Constant; a task shader culls meshlets, small chunks of triangles, on the GPU</td><td>Meshlets of about 64 corners / 124 triangles, around 10 % over an index buffer</td><td>Per-chunk camera test, detail level and generation on the GPU</td><td>Unlimited</td><td>Dense geometry on Turing / RDNA2 or newer hardware</td></tr>
       </tbody>
     </table>
     </div>
@@ -617,7 +573,7 @@ pipelines = unique shader variants    bindless does not lower this; an uber-shad
       </tbody>
     </table>
     </div>
-    <p class="note">One trap: "draw calls are expensive" was a statement about D3D11 and OpenGL, where the driver re-checked state inside every call. On Vulkan and DX12 that overhead is gone and a raw draw is a few hundred nanoseconds. The cost moved to managing descriptors, and the real limit became how many objects the CPU can cull and sort per frame, which is why culling and sorting now move onto the GPU too.</p>
+    <p class="note">One trap: "draw calls are expensive" was a statement about D3D11 and OpenGL, older ways of talking to the GPU where the driver re-checked every setting inside every call. On Vulkan and DX12 that overhead is gone and a raw draw is a few hundred nanoseconds. The cost moved to managing descriptors, the notes that say where textures live, and the real limit became how many objects the CPU can test against the camera and sort per frame, which is why that testing and sorting now move onto the GPU too.</p>
   </section>
 </div>
 
@@ -736,8 +692,76 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   const $ = id => document.getElementById(id);
+  let L1, L2, L3, L4, L5;
   const AMB = "#f2a341", BLU = "#4aa3ff", WHT = "#ffffff", RED = "#ef5d5d", GRN = "#5ad48a", GRD = "#0b0e13", DIM = "rgba(255,255,255,0.12)";
   const MONO = '"IBM Plex Mono", Menlo, Consolas, monospace';
   const fmtN = n => Math.round(n).toLocaleString("en-US");
@@ -768,7 +792,7 @@ function kitInset(ctx, x, y, w, h, title) {
     let active = -1;
     canvas.addEventListener("pointerdown", ev => { const [x, y] = ptr(canvas, ev); const hs = [cam.c, cam.a]; let best = -1, bd = 16; hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } }); if (best >= 0) { active = best; canvas.setPointerCapture(ev.pointerId); } else if (onHover) onHover(x, y); });
     canvas.addEventListener("pointermove", ev => { const [x, y] = ptr(canvas, ev); if (active >= 0) { const h = active === 0 ? cam.c : cam.a; h[0] = Math.max(4, Math.min(508, x)); h[1] = Math.max(4, Math.min(cam.maxY, y)); onMove(); } else if (onHover) onHover(x, y); });
-    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    const end = ev => { if (active >= 0) { onMove(); active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
     canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
     canvas.addEventListener("pointerleave", () => { if (onHover) onHover(-1, -1); });
   }
@@ -817,7 +841,7 @@ function kitInset(ctx, x, y, w, h, title) {
   // ================= 1. anatomy of a draw call =================
   const c1 = $("c1"), g1 = c1.getContext("2d");
   const s1 = { draws: 3000, cpu: 5, gpu: 2 };
-  const SPLIT = [["pipeline bind", 0.40, AMB], ["descriptor / constants", 0.30, BLU], ["vertex + index bind", 0.10, "rgba(255,255,255,0.45)"], ["draw submit", 0.20, WHT]];
+  const SPLIT = [["pick program", 0.40, AMB], ["point at texture", 0.30, BLU], ["pick shape", 0.10, "rgba(255,255,255,0.45)"], ["write order", 0.20, WHT]];
   const K1 = 512, BUDGET = 16.7;
   const HZ1 = 74, GND1 = 120;
   // market street props: prop 0 is the crate whose order gets zoomed
@@ -878,15 +902,16 @@ function kitInset(ctx, x, y, w, h, title) {
     txt(g1, r.gEnd.toFixed(1) + " ms", Math.min(sx(r.gEnd) + 4, x1 - 40), gy + lh / 2 + 4, WHT, "left", 11);
     const bound = r.cpuEnd >= r.gEnd ? "CPU bound" : "GPU bound";
     txt(g1, bound.toUpperCase() + (r.frame > BUDGET ? " · OVER BUDGET" : " · ON BUDGET"), x1, y0 - 10, r.frame > BUDGET ? RED : GRN, "right", 11);
-    $("c1-read").innerHTML = `<strong>${fmtN(s1.draws)} draws</strong> · CPU ${r.cpuEnd.toFixed(1)} ms · GPU busy ${r.busy.toFixed(1)} ms · <strong>${bound}</strong>`;
+    $("c1-read").innerHTML = `<strong>${fmtN(s1.draws)} draw calls</strong> · CPU busy ${r.cpuEnd.toFixed(1)} ms · GPU busy ${r.busy.toFixed(1)} ms · <strong>${r.cpuEnd >= r.gEnd ? "the CPU runs out of time first" : "the GPU runs out of time first"}</strong>`;
     $("t1-cpu").querySelector(".n").textContent = r.cpuEnd.toFixed(1);
     $("t1-gpu").querySelector(".n").textContent = r.busy.toFixed(1);
     $("t1-idle").querySelector(".n").textContent = Math.round(r.idle * 100) + " %";
     $("t1-fps").querySelector(".n").textContent = r.fps.toFixed(0);
     $("t1-cpu").classList.toggle("on", r.cpuEnd >= r.gEnd); $("t1-gpu").classList.toggle("on", r.gEnd > r.cpuEnd);
+    L1 && L1.check();
   }
   const bind1 = (id, key, fmt) => { const el = $(id); el.addEventListener("input", () => { s1[key] = +el.value; $(id + "v").textContent = fmt(+el.value); draw1(); }); };
-  bind1("draws1", "draws", v => fmtN(v)); bind1("cpu1", "cpu", v => v.toFixed(1)); bind1("gpu1", "gpu", v => v.toFixed(1));
+  bind1("draws1", "draws", v => fmtN(v)); bind1("cpu1", "cpu", v => v.toFixed(1) + " µs"); bind1("gpu1", "gpu", v => v.toFixed(1) + " µs");
   draw1();
 
   // ================= 2. state sorting =================
@@ -910,11 +935,11 @@ function kitInset(ctx, x, y, w, h, title) {
   function sort2() { const order = ORDER[s2.mode]; for (const d of draws2) d.key = pack(d, order); sorted2 = draws2.slice().sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0); pos2 = new Array(s2.N); sorted2.forEach((d, i) => pos2[d.id] = i); }
   function changes(list) { const c = { pso: 0, mat: 0, mesh: 0 }; let p = null; for (const d of list) { if (!p || d.pso !== p.pso) c.pso++; if (!p || d.mat !== p.mat || d.pso !== p.pso) c.mat++; if (!p || d.mesh !== p.mesh) c.mesh++; p = d; } c.total = c.pso + c.mat + c.mesh; c.us = c.pso * COST.pso + c.mat * COST.mat + c.mesh * COST.mesh + list.length * COST.submit; return c; }
   function shade(base, v, n) { const t = n <= 1 ? 1 : 0.25 + 0.75 * (v / (n - 1)); return `rgba(${base[0]},${base[1]},${base[2]},${t.toFixed(3)})`; }
-  const ROWS = [["pipeline", "pso", [242, 163, 65]], ["material", "mat", [74, 163, 255]], ["mesh", "mesh", [230, 232, 236]]];
+  const ROWS = [["program", "pso", [242, 163, 65]], ["texture", "mat", [74, 163, 255]], ["shape", "mesh", [230, 232, 236]]];
   const X2 = 72, W2 = 404, NI2 = 32, IW2 = W2 / NI2;
   function drawList(list, y, label, hoverPos) {
     const sw = W2 / list.length; const ch = changes(list);
-    txt(g2, label.toUpperCase() + " · " + ch.total + " state changes · " + ch.us.toFixed(0) + " µs", 12, y, "rgba(255,255,255,0.6)", "left", 11);
+    txt(g2, label.toUpperCase() + " · " + ch.total + " setup changes · " + ch.us.toFixed(0) + " µs", 12, y, "rgba(255,255,255,0.6)", "left", 11);
     txt(g2, "first 32", 66, y + 20, "rgba(255,255,255,0.45)", "right", 9);
     g2.fillStyle = "rgba(255,255,255,0.04)"; g2.fillRect(X2, y + 6, W2, 22);
     for (let i = 0; i < NI2 && i < list.length; i++) { const d = list[i]; propSide(g2, kind2(d), X2 + i * IW2 + IW2 / 2, y + 26, Math.min(10, size2(d)), tint2(d)); }
@@ -939,19 +964,19 @@ function kitInset(ctx, x, y, w, h, title) {
     const hv = s2.hover;
     if (hv >= 0) { const d = draws2[hv]; const s = size2(d) * 0.8; g2.strokeStyle = WHT; g2.lineWidth = 1.5; g2.beginPath(); g2.arc(d.sx, d.sy - s * 0.45, s * 0.9, 0, Math.PI * 2); g2.stroke(); kitLabel(g2, "this one", Math.min(d.sx + 10, 430), Math.max(14, d.sy - s - 8), "left"); }
     const chU = drawList(draws2, 110, "unsorted · the order the level lists them", hv);
-    const chS = drawList(sorted2, 200, "sorted by key · grouped by kind", hv >= 0 ? pos2[hv] : -1);
+    const chS = drawList(sorted2, 200, "sorted · same setup side by side", hv >= 0 ? pos2[hv] : -1);
     // key layout
     const order = ORDER[s2.mode]; const kx = 12, ky = 300, kw = 488;
-    txt(g2, "64-BIT SORT KEY · most expensive change in the top bits", kx, ky - 6, "rgba(255,255,255,0.6)", "left", 11);
+    txt(g2, "THE SORT NUMBER, 64 BITS · priciest setup in the top bits", kx, ky - 6, "rgba(255,255,255,0.6)", "left", 11);
     let bit = 64, x = kx; const cols = { layer: "rgba(255,255,255,0.25)", pso: "rgba(242,163,65,0.8)", mat: "rgba(74,163,255,0.8)", mesh: "rgba(230,232,236,0.55)", depth: "rgba(90,212,138,0.55)" };
-    const names = { layer: "layer", pso: "pipeline", mat: "material", mesh: "mesh", depth: "depth" };
+    const names = { layer: "layer", pso: "program", mat: "texture", mesh: "shape", depth: "distance" };
     const d = hv >= 0 ? draws2[hv] : null;
     for (const f of order) { const bits = FIELDS[f], w = bits / 64 * kw; g2.fillStyle = cols[f]; g2.fillRect(x + 1, ky, w - 2, 26); txt(g2, names[f], x + w / 2, ky + 11, GRD, "center", 10); txt(g2, bits + " b", x + w / 2, ky + 22, GRD, "center", 10); txt(g2, (bit - 1) + "", x + 2, ky + 37, "rgba(255,255,255,0.4)", "left", 9); if (d) txt(g2, d[f] + "", x + w / 2, ky + 51, WHT, "center", 11); bit -= bits; x += w; }
     txt(g2, "0", kx + kw - 2, ky + 37, "rgba(255,255,255,0.4)", "right", 9);
-    if (d) txt(g2, `${kind2(d)} #${d.id} → key 0x${d.key.toString(16).padStart(16, "0")} → sorted position ${pos2[d.id]}`, kx, ky + 66, "rgba(255,255,255,0.85)", "left", 11);
-    else txt(g2, "hover a prop or a strip: field values and the packed key appear here", kx, ky + 66, "rgba(255,255,255,0.4)", "left", 11);
+    if (d) txt(g2, `${kind2(d)} #${d.id} → sort number 0x${d.key.toString(16).padStart(16, "0")} → sorted position ${pos2[d.id]}`, kx, ky + 66, "rgba(255,255,255,0.85)", "left", 11);
+    else txt(g2, "hover a prop or a strip: its setup numbers and its sort number appear here", kx, ky + 66, "rgba(255,255,255,0.4)", "left", 11);
     // cost bars
-    const by = 390; txt(g2, "ESTIMATED CPU TIME · stacked by what changed", kx, by - 6, "rgba(255,255,255,0.6)", "left", 11);
+    const by = 390; txt(g2, "ESTIMATED CPU TIME · stacked by what had to change", kx, by - 6, "rgba(255,255,255,0.6)", "left", 11);
     const maxUs = Math.max(chU.us, chS.us); const bw = 400, bx = 88;
     [["unsorted", chU], ["sorted", chS]].forEach(([n, c], i) => {
       const y = by + 6 + i * 30; txt(g2, n, bx - 6, y + 14, "rgba(255,255,255,0.7)", "right", 11);
@@ -959,10 +984,12 @@ function kitInset(ctx, x, y, w, h, title) {
       for (const [us, col] of parts) { const w = us / maxUs * bw; g2.fillStyle = col; g2.fillRect(x, y, Math.max(0, w - 1), 20); x += w; }
       txt(g2, c.us.toFixed(0) + " µs", Math.min(x + 6, 470), y + 14, WHT, "left", 11);
     });
-    let lx = bx; for (const [n, col] of [["pipeline", AMB], ["material", BLU], ["mesh", "rgba(230,232,236,0.6)"], ["submit", "rgba(255,255,255,0.25)"]]) { g2.fillStyle = col; g2.fillRect(lx, by + 72, 9, 9); txt(g2, n, lx + 13, by + 80, "rgba(255,255,255,0.6)", "left", 10); lx += 92; }
+    let lx = bx; for (const [n, col] of [["program", AMB], ["texture", BLU], ["shape", "rgba(230,232,236,0.6)"], ["the order", "rgba(255,255,255,0.25)"]]) { g2.fillStyle = col; g2.fillRect(lx, by + 72, 9, 9); txt(g2, n, lx + 13, by + 80, "rgba(255,255,255,0.6)", "left", 10); lx += 92; }
     txt(g2, `sorted list saves ${(chU.us - chS.us).toFixed(0)} µs of ${chU.us.toFixed(0)} · ${Math.round((1 - chS.us / chU.us) * 100)} %`, kx, by + 108, "rgba(255,255,255,0.75)", "left", 11);
     $("t2-un").textContent = chU.total; $("t2-so").textContent = chS.total; $("t2-ms").textContent = chS.us.toFixed(0);
-    $("c2-read").innerHTML = `<strong>${chU.total} → ${chS.total}</strong> state changes · ${chU.us.toFixed(0)} → ${chS.us.toFixed(0)} µs`;
+    $("c2-read").innerHTML = `<strong>${chU.total} → ${chS.total}</strong> setup changes · ${chU.us.toFixed(0)} → ${chS.us.toFixed(0)} µs of CPU`;
+    s2.stats = { un: chU.total, so: chS.total, pct: Math.round((1 - chS.us / chU.us) * 100) };
+    L2 && L2.check();
   }
   function hover2(x, y) {
     let h = -1;
@@ -972,6 +999,7 @@ function kitInset(ctx, x, y, w, h, title) {
       if (y >= 116 && y < 138) h = draws2[ii].id; else if (y >= 140 && y <= 190) h = i;
       else if (y >= 206 && y < 228) h = sorted2[ii].id; else if (y >= 230 && y <= 280) h = sorted2[i].id;
     }
+    if (h >= 0) s2.hovered = true;
     if (h !== s2.hover) { s2.hover = h; draw2(); }
   }
   c2.addEventListener("pointermove", ev => { const [x, y] = ptr(c2, ev); hover2(x, y); });
@@ -980,7 +1008,7 @@ function kitInset(ctx, x, y, w, h, title) {
   onSeg("seg2", v => { s2.mode = v; sort2(); draw2(); });
   $("pso2").addEventListener("input", ev => { s2.P = +ev.target.value; $("pso2v").textContent = s2.P; gen2(); draw2(); });
   $("mat2").addEventListener("input", ev => { s2.M = +ev.target.value; $("mat2v").textContent = s2.M; gen2(); draw2(); });
-  $("reshuffle2").addEventListener("click", () => { s2.seed = (s2.seed * 1664525 + 1013904223) >>> 0; gen2(); draw2(); });
+  $("reshuffle2").addEventListener("click", () => { s2.seed = (s2.seed * 1664525 + 1013904223) >>> 0; s2.shuffles = (s2.shuffles || 0) + 1; gen2(); draw2(); });
   gen2(); draw2();
 
   // ================= 3. instancing =================
@@ -1018,7 +1046,7 @@ function kitInset(ctx, x, y, w, h, title) {
     kitLabel(g3, "looking here", Math.min(cam3.a[0] + 10, 400), Math.max(12, cam3.a[1] - 14), "left");
     const mx = cam3.c[0] + f.d[0] * 100, my = cam3.c[1] + f.d[1] * 100;
     kitLabel(g3, `${fmtN(inView)} trees in view · drawn`, Math.max(4, Math.min(mx, 340)), Math.max(12, Math.min(my, MAP_H - 30)), "left", AMB);
-    kitLabel(g3, "5,000 trees, one mesh · 1 km × 0.73 km · 100 m grid", 6, MAP_H - 12, "left", "#c7cdd8");
+    kitLabel(g3, "5,000 trees, one shape · 1 km × 0.73 km · 100 m grid", 6, MAP_H - 12, "left", "#c7cdd8");
     inset3(f, inViewIdx);
     const h = s3.hover; if (h >= 0) { const x = trees[h * 3], y = trees[h * 3 + 1]; g3.strokeStyle = WHT; g3.lineWidth = 1.5; g3.beginPath(); g3.arc(x, y, 7, 0, Math.PI * 2); g3.stroke(); }
     // ---- bottom panel ----
@@ -1027,52 +1055,54 @@ function kitInset(ctx, x, y, w, h, title) {
     const hid = h >= 0 ? h : 1234, hs = trees[hid * 3 + 2];
     const tickX = bx + hid / N3 * bw;
     if (s3.mode === "instanced") {
-      txt(g3, `INSTANCE BUFFER · one 64 B record per tree · ${fmtN(N3)} × ${STRIDE} B = ${fmtB(N3 * STRIDE)}`, bx, py, "rgba(255,255,255,0.6)", "left", 11);
+      txt(g3, `THE COPY LIST · one 64-byte record per tree · ${fmtN(N3)} × ${STRIDE} B = ${fmtB(N3 * STRIDE)}`, bx, py, "rgba(255,255,255,0.6)", "left", 11);
       g3.fillStyle = "rgba(74,163,255,0.35)"; g3.fillRect(bx, py + 8, bw, 12); g3.fillStyle = WHT; g3.fillRect(tickX, py + 6, 2, 16);
       kitArrow(g3, trees[hid * 3], trees[hid * 3 + 1] + 4, tickX + 1, py + 4, WHT, 1);
       txt(g3, `tree #${hid}'s record, at byte ${fmtN(hid * STRIDE)}`, tickX < 250 ? tickX + 6 : tickX - 4, py + 33, WHT, tickX < 250 ? "left" : "right", 10);
       const cy = py + 44, cw = bw / 16; const labels = ["m00", "m01", "m02", "tx", "m10", "m11", "m12", "ty", "m20", "m21", "m22", "tz", "r", "g", "b", "a"];
       const vals = [hs, 0, 0, (trees[hid * 3] * MPP).toFixed(0), 0, hs, 0, "0", 0, 0, hs, (trees[hid * 3 + 1] * MPP).toFixed(0), ".3", ".6", ".2", "1"];
       for (let i = 0; i < 16; i++) { g3.fillStyle = i < 12 ? "rgba(242,163,65,0.55)" : "rgba(74,163,255,0.6)"; g3.fillRect(bx + i * cw + 1, cy, cw - 2, 30); txt(g3, labels[i], bx + i * cw + cw / 2, cy + 12, GRD, "center", 9); txt(g3, typeof vals[i] === "number" ? vals[i].toFixed(1) : vals[i], bx + i * cw + cw / 2, cy + 24, GRD, "center", 9); }
-      txt(g3, "where it stands and how big: mat3x4 world · 48 B", bx, cy + 44, "rgba(255,255,255,0.55)", "left", 10); txt(g3, "its colour · 16 B", bx + bw, cy + 44, "rgba(255,255,255,0.55)", "right", 10);
-      txt(g3, `one order: drawIndexed(instanceCount = ${fmtN(N3)}) · the vertex shader reads inst[gl_InstanceID]`, bx, cy + 58, "rgba(255,255,255,0.75)", "left", 10);
-      txt(g3, `${fmtN(N3 * MESH_V)} vertex invocations, ${fmtN(inView * MESH_V)} of them in view`, bx, cy + 71, "rgba(255,255,255,0.75)", "left", 10);
+      txt(g3, "where it stands, which way it faces, how big · 48 B", bx, cy + 44, "rgba(255,255,255,0.55)", "left", 10); txt(g3, "its colour · 16 B", bx + bw, cy + 44, "rgba(255,255,255,0.55)", "right", 10);
+      txt(g3, `one order: draw this shape ${fmtN(N3)} times · for copy number N the GPU reads record N`, bx, cy + 58, "rgba(255,255,255,0.75)", "left", 10);
+      txt(g3, `the GPU still places ${fmtN(N3 * MESH_V)} corners (400 per tree), only ${fmtN(inView * MESH_V)} of them in view`, bx, cy + 71, "rgba(255,255,255,0.75)", "left", 10);
     } else if (s3.mode === "static") {
       const vb = N3 * MESH_VB, ib = N3 * 1800 * 3 * 4;
-      txt(g3, `MERGED VERTEX BUFFER · every tree's vertices copied in · ${fmtN(N3 * MESH_V)} × 32 B = ${fmtB(vb)}`, bx, py, "rgba(255,255,255,0.6)", "left", 10);
+      txt(g3, `ONE GIANT SHAPE · every tree's corners copied in · ${fmtN(N3 * MESH_V)} × 32 B = ${fmtB(vb)}`, bx, py, "rgba(255,255,255,0.6)", "left", 10);
       g3.fillStyle = "rgba(242,163,65,0.35)"; g3.fillRect(bx, py + 8, bw, 12); g3.fillStyle = WHT; g3.fillRect(tickX, py + 6, 2, 16);
       kitArrow(g3, trees[hid * 3], trees[hid * 3 + 1] + 4, tickX + 1, py + 4, WHT, 1);
-      txt(g3, `tree #${hid}: vertices ${fmtN(hid * MESH_V)} to ${fmtN(hid * MESH_V + MESH_V - 1)}, already in world space`, tickX < 250 ? tickX + 6 : tickX - 4, py + 33, WHT, tickX < 250 ? "left" : "right", 10);
-      txt(g3, `INDEX BUFFER · ${fmtN(N3 * 5400)} × 4 B = ${fmtB(ib)} · 32-bit, because ${fmtN(N3 * MESH_V)} > 65,535`, bx, py + 58, "rgba(255,255,255,0.6)", "left", 11);
+      txt(g3, `tree #${hid}: corners ${fmtN(hid * MESH_V)} to ${fmtN(hid * MESH_V + MESH_V - 1)}, already placed in the world`, tickX < 250 ? tickX + 6 : tickX - 4, py + 33, WHT, tickX < 250 ? "left" : "right", 10);
+      txt(g3, `CORNER NUMBERING · ${fmtN(N3 * 5400)} × 4 B = ${fmtB(ib)} · 4 bytes each, because ${fmtN(N3 * MESH_V)} > 65,535`, bx, py + 58, "rgba(255,255,255,0.6)", "left", 11);
       g3.fillStyle = "rgba(230,232,236,0.3)"; g3.fillRect(bx, py + 66, bw * ib / vb, 12);
       const one = MESH_VB / vb * bw;
-      g3.fillStyle = AMB; g3.fillRect(bx, py + 96, Math.max(1, one), 12); txt(g3, `one tree mesh for comparison: ${fmtB(MESH_VB)} · ${(one).toFixed(2)} px wide at this scale`, bx + 8, py + 106, "rgba(255,255,255,0.7)", "left", 10);
-      txt(g3, `moving one tree means rewriting ${fmtB(MESH_VB)} of vertices; ${fmtN(N3 * MESH_V)} vertex invocations either way`, bx, py + 128, "rgba(255,255,255,0.75)", "left", 10);
+      g3.fillStyle = AMB; g3.fillRect(bx, py + 96, Math.max(1, one), 12); txt(g3, `one tree shape for comparison: ${fmtB(MESH_VB)} · ${(one).toFixed(2)} px wide at this scale`, bx + 8, py + 106, "rgba(255,255,255,0.7)", "left", 10);
+      txt(g3, `moving one tree means rewriting ${fmtB(MESH_VB)} of corners; the GPU places ${fmtN(N3 * MESH_V)} corners either way`, bx, py + 128, "rgba(255,255,255,0.75)", "left", 10);
     } else {
-      txt(g3, `COMMAND BUFFER · ${fmtN(N3)} × (bind constants 64 B + drawIndexed) · ${fmtN(N3 * CPU_US)} µs of CPU`, bx, py, "rgba(255,255,255,0.6)", "left", 10);
+      txt(g3, `THE ORDER LIST · ${fmtN(N3)} × (set 64 B of values + draw) · ${fmtN(N3 * CPU_US)} µs of CPU`, bx, py, "rgba(255,255,255,0.6)", "left", 10);
       const cw = bw / 40;
       for (let i = 0; i < 40; i++) { g3.fillStyle = "rgba(242,163,65,0.6)"; g3.fillRect(bx + i * cw + 1, py + 8, cw * 0.6 - 1, 14); g3.fillStyle = "rgba(255,255,255,0.6)"; g3.fillRect(bx + i * cw + cw * 0.6, py + 8, cw * 0.4 - 1, 14); }
       txt(g3, "…", bx + bw, py + 20, WHT, "right", 12);
-      txt(g3, "amber = bind 64 B of constants · white = draw · one pair per tree, 5,000 times", bx, py + 36, "rgba(255,255,255,0.55)", "left", 10);
+      txt(g3, "amber = set 64 B of values · white = the order · one pair per tree, 5,000 times", bx, py + 36, "rgba(255,255,255,0.55)", "left", 10);
       g3.fillStyle = "rgba(255,255,255,0.05)"; g3.fillRect(bx, py + 50, bw, 40);
       const frac = Math.min(1, N3 * CPU_US / 1000 / BUDGET);
       g3.fillStyle = AMB; g3.fillRect(bx, py + 50, bw * Math.min(1, frac), 40);
       g3.strokeStyle = RED; g3.setLineDash([4, 4]); g3.beginPath(); const bxx = bx + bw * Math.min(1, BUDGET / (N3 * CPU_US / 1000)); g3.moveTo(bxx, py + 46); g3.lineTo(bxx, py + 94); g3.stroke(); g3.setLineDash([]);
       txt(g3, `${(N3 * CPU_US / 1000).toFixed(1)} ms of CPU`, bx + 8, py + 75, GRD, "left", 11); txt(g3, "16.7 ms", bxx, py + 106, RED, "center", 10);
-      txt(g3, `tree #${hid}'s draw: constants at ${fmtN(hid * 64)} B in the per-frame upload · same mesh bound every time`, bx, py + 128, "rgba(255,255,255,0.75)", "left", 10);
+      txt(g3, `tree #${hid}'s order: its values at byte ${fmtN(hid * 64)} of this frame's upload · the same shape picked every time`, bx, py + 128, "rgba(255,255,255,0.75)", "left", 10);
     }
     const drawsN = { individual: N3, static: 1, instanced: 1 }[s3.mode];
     const mem = { individual: MESH_VB + MESH_IB + N3 * 64, static: N3 * MESH_VB + N3 * 5400 * 4, instanced: MESH_VB + MESH_IB + N3 * STRIDE }[s3.mode];
     $("t3-draws").textContent = fmtN(drawsN); $("t3-cpu").textContent = fmtN(drawsN * CPU_US); $("t3-mem").textContent = fmtB(mem);
-    $("c3-read").innerHTML = `<strong>${fmtN(inView)} of ${fmtN(N3)}</strong> trees in view · draws <strong>${fmtN(drawsN)}</strong>`;
-    $("c3-mem").textContent = `${fmtN(N3 * MESH_V)} vertex invocations`;
+    $("c3-read").innerHTML = `<strong>${fmtN(inView)} of ${fmtN(N3)}</strong> trees in view · draw calls <strong>${fmtN(drawsN)}</strong>`;
+    $("c3-mem").textContent = `the GPU places ${fmtN(N3 * MESH_V)} corners, 400 per tree`;
+    s3.inView = inView;
     $("r3a-d").textContent = fmtN(N3); $("r3a-c").textContent = fmtN(N3 * CPU_US) + " µs"; $("r3a-g").textContent = fmtB(MESH_VB + MESH_IB);
     $("r3b-d").textContent = "1"; $("r3b-c").textContent = CPU_US + " µs"; $("r3b-g").textContent = fmtB(N3 * MESH_VB + N3 * 5400 * 4);
     $("r3c-d").textContent = "1"; $("r3c-c").textContent = CPU_US + " µs"; $("r3c-g").textContent = fmtB(MESH_VB + MESH_IB); $("r3c-i").textContent = STRIDE + " B × " + fmtN(N3) + " = " + fmtB(N3 * STRIDE);
     document.querySelectorAll("#tbl3 tbody tr").forEach(tr => tr.classList.toggle("on", tr.dataset.m === s3.mode));
+    L3 && L3.check();
   }
   const req3 = raf(draw3);
-  camDrag(c3, cam3, req3, (x, y) => { let h = -1; if (x >= 0 && y < MAP_H) { let bd = 8; for (let i = 0; i < N3; i++) { const d = Math.hypot(trees[i * 3] - x, trees[i * 3 + 1] - y); if (d < bd) { bd = d; h = i; } } } if (h !== s3.hover) { s3.hover = h; req3(); } });
+  camDrag(c3, cam3, req3, (x, y) => { let h = -1; if (x >= 0 && y < MAP_H) { let bd = 8; for (let i = 0; i < N3; i++) { const d = Math.hypot(trees[i * 3] - x, trees[i * 3 + 1] - y); if (d < bd) { bd = d; h = i; } } } if (h >= 0) s3.hovered = true; if (h !== s3.hover) { s3.hover = h; req3(); } });
   onSeg("seg3", v => { s3.mode = v; draw3(); });
   draw3();
 
@@ -1111,34 +1141,36 @@ function kitInset(ctx, x, y, w, h, title) {
     drawFrustum(g4, f);
     kitPlayerTop(g4, cam4.c[0], cam4.c[1], 8, Math.atan2(f.d[1], f.d[0])); handle(g4, cam4.a[0], cam4.a[1], 5);
     kitLabel(g4, "player", Math.min(cam4.c[0] + 14, 450), cam4.c[1], "left");
-    kitLabel(g4, `the village · ${fmtN(N4)} props of ${T4} kinds`, 6, 12, "left");
-    kitLabel(g4, "amber ring = passed the view test, drawn", 506, 32, "right", AMB);
+    kitLabel(g4, `the village · ${fmtN(N4)} props of ${T4} shapes`, 6, 12, "left");
+    kitLabel(g4, "amber ring = passed the camera test, drawn", 506, 32, "right", AMB);
     kitLabel(g4, "dim = failed, skipped", 506, 50, "right", "#c7cdd8");
-    kitLabel(g4, "GPU cull: one thread per prop", 6, MAP4 - 12, "left", "#c7cdd8");
+    kitLabel(g4, "the GPU tests every prop at once, one worker each", 6, MAP4 - 12, "left", "#c7cdd8");
     // ---- args buffer ----
     g4.fillStyle = "rgba(255,255,255,0.03)"; g4.fillRect(0, MAP4, 512, 512 - MAP4); g4.strokeStyle = DIM; g4.beginPath(); g4.moveTo(0, MAP4 + 0.5); g4.lineTo(512, MAP4 + 0.5); g4.stroke();
     const nonEmpty = types.filter(t => t.count > 0).length;
     const list = s4.mode === "count" ? types.filter(t => t.count > 0) : types;
     const py = MAP4 + 18, bx = 12, bw = 488, bh = 50;
-    txt(g4, `ARGS BUFFER · ${list.length} × 16 B = ${fmtB(list.length * 16)} · bar = instanceCount, written by atomicAdd`, bx, py, "rgba(255,255,255,0.6)", "left", 10.5);
+    txt(g4, `ORDERS WRITTEN BY THE GPU · ${list.length} × 16 B = ${fmtB(list.length * 16)} · bar height = copies that passed`, bx, py, "rgba(255,255,255,0.6)", "left", 10.5);
     const maxC = Math.max(1, ...types.map(t => t.capacity)); const cw = bw / T4;
     g4.fillStyle = "rgba(255,255,255,0.05)"; g4.fillRect(bx, py + 8, bw, bh);
     list.forEach((t, i) => { const x = bx + i * cw; const hh = t.count / maxC * bh; g4.fillStyle = t.count > 0 ? AMB : "rgba(239,93,93,0.45)"; if (t.count > 0) g4.fillRect(x, py + 8 + bh - hh, Math.max(1, cw - 0.6), hh); else g4.fillRect(x, py + 8 + bh - 1, Math.max(1, cw - 0.6), 1); if (types.indexOf(t) === s4.hover) { g4.strokeStyle = WHT; g4.strokeRect(x - 0.5, py + 8, cw + 1, bh); } });
     if (s4.mode === "fixed") { const fw = bw / FAM4.length; FAM4.forEach((k, i) => { txt(g4, k + "s", bx + (i + 0.5) * fw, py + bh + 19, "rgba(255,255,255,0.5)", "center", 9); if (i) { g4.strokeStyle = DIM; g4.beginPath(); g4.moveTo(Math.round(bx + i * fw) + 0.5, py + 8); g4.lineTo(Math.round(bx + i * fw) + 0.5, py + 8 + bh); g4.stroke(); } }); }
-    else txt(g4, "compacted: kinds no longer sit in fixed slots", bx + bw / 2, py + bh + 19, "rgba(255,255,255,0.5)", "center", 9);
-    txt(g4, s4.mode === "count" ? `compacted: ${nonEmpty} commands kept, ${T4 - nonEmpty} dropped` : `${nonEmpty} non-empty · ${T4 - nonEmpty} with instanceCount = 0 (red, skipped by the GPU)`, bx, py + bh + 34, "rgba(255,255,255,0.55)", "left", 10);
+    else txt(g4, "squeezed: shapes no longer sit in fixed slots", bx + bw / 2, py + bh + 19, "rgba(255,255,255,0.5)", "center", 9);
+    txt(g4, s4.mode === "count" ? `squeezed: ${nonEmpty} orders kept, ${T4 - nonEmpty} empty ones dropped` : `${nonEmpty} shapes with copies in view · ${T4 - nonEmpty} with none (red, the GPU skips them)`, bx, py + bh + 34, "rgba(255,255,255,0.55)", "left", 10);
     const ht = s4.hover >= 0 ? types[s4.hover] : types[17]; const hi = types.indexOf(ht);
     txt(g4, `args[${hi}] = { vertexCount: ${fmtN(ht.vertexCount)}, instanceCount: ${ht.count}, firstVertex: ${fmtN(ht.firstVertex)}, firstInstance: ${fmtN(ht.firstInstance)} }`, bx, py + bh + 50, WHT, "left", 9);
-    txt(g4, `mesh type ${hi} is a ${FAM4[fam4(hi)]} · visible[${fmtN(ht.firstInstance)} .. ${fmtN(ht.firstInstance + ht.count - 1)}] hold its ids · capacity ${ht.capacity}`, bx, py + bh + 64, "rgba(255,255,255,0.6)", "left", 9.5);
+    txt(g4, `shape ${hi} is a ${FAM4[fam4(hi)]} · its copies fill slots ${fmtN(ht.firstInstance)} to ${fmtN(ht.firstInstance + ht.count - 1)} of the visible list · room for ${ht.capacity}`, bx, py + bh + 64, "rgba(255,255,255,0.6)", "left", 9.5);
     const cy = py + bh + 76; g4.fillStyle = s4.mode === "count" ? "rgba(74,163,255,0.6)" : "rgba(255,255,255,0.12)"; g4.fillRect(bx, cy, 120, 22);
-    txt(g4, `drawCount = ${s4.mode === "count" ? nonEmpty : "—"}`, bx + 60, cy + 15, s4.mode === "count" ? GRD : "rgba(255,255,255,0.4)", "center", 10);
-    txt(g4, s4.mode === "count" ? `CPU: vkCmdDrawIndexedIndirectCount(args, countBuf, max ${T4})` : `CPU: vkCmdDrawIndexedIndirect(args, 0, drawCount = ${T4}, stride 16)`, bx + 130, cy + 15, "rgba(255,255,255,0.8)", "left", 9);
+    txt(g4, `how many: ${s4.mode === "count" ? nonEmpty : "not written"}`, bx + 60, cy + 15, s4.mode === "count" ? GRD : "rgba(255,255,255,0.4)", "center", 10);
+    txt(g4, s4.mode === "count" ? `the CPU's one order: run as many of these as the GPU's counter says, up to ${T4}` : `the CPU's one order: run all ${T4} of these, 16 bytes apart`, bx + 130, cy + 15, "rgba(255,255,255,0.8)", "left", 9);
     const executed = s4.mode === "count" ? nonEmpty : T4;
     $("t4-cmds").textContent = executed; $("t4-inst").textContent = fmtN(vis); $("t4-us").textContent = "3";
-    $("c4-read").innerHTML = `<strong>${fmtN(vis)} of ${fmtN(N4)}</strong> props pass · <strong>${nonEmpty} of ${T4}</strong> mesh types non-empty`;
+    $("c4-read").innerHTML = `<strong>${fmtN(vis)} of ${fmtN(N4)}</strong> props pass the camera test · <strong>${nonEmpty} of ${T4}</strong> shapes have any in view`;
+    s4.stats = { vis, nonEmpty };
+    L4 && L4.check();
   }
   const req4 = raf(draw4);
-  camDrag(c4, cam4, req4, (x, y) => { let h = -1; if (x >= 12 && x <= 500 && y >= MAP4 + 26 && y <= MAP4 + 76) { const list = s4.mode === "count" ? types.filter(t => t.count > 0) : types; const i = Math.floor((x - 12) / (488 / T4)); if (i < list.length) h = types.indexOf(list[i]); } else if (y < MAP4 && x >= 0) { let bd = 7; for (const o of inst4) { const d = Math.hypot(o.x - x, o.y - y); if (d < bd) { bd = d; h = o.t; } } } if (h !== s4.hover) { s4.hover = h; req4(); } });
+  camDrag(c4, cam4, req4, (x, y) => { let h = -1; if (x >= 12 && x <= 500 && y >= MAP4 + 26 && y <= MAP4 + 76) { const list = s4.mode === "count" ? types.filter(t => t.count > 0) : types; const i = Math.floor((x - 12) / (488 / T4)); if (i < list.length) h = types.indexOf(list[i]); } else if (y < MAP4 && x >= 0) { let bd = 7; for (const o of inst4) { const d = Math.hypot(o.x - x, o.y - y); if (d < bd) { bd = d; h = o.t; } } } if (h >= 0) s4.hovered = true; if (h !== s4.hover) { s4.hover = h; req4(); } });
   onSeg("seg4", v => { s4.mode = v; draw4(); });
   draw4();
 
@@ -1159,7 +1191,7 @@ function kitInset(ctx, x, y, w, h, title) {
     g5.fillStyle = GRD; g5.fillRect(0, 0, 512, 512);
     // ---- atlas ----
     const ax = 14, ay = 28, as = 256, tpp = 4096 / as; const n = 4096 / s5.tile, ts = as / n; const bleedTx = Math.pow(2, s5.mip), bleedPx = bleedTx / tpp;
-    txt(g5, `ATLAS 4096² · ${n * n} paint jobs, one sheet`, ax, ay - 8, "rgba(255,255,255,0.6)", "left", 11);
+    txt(g5, `ONE BIG SHEET (ATLAS) 4096² · ${n * n} paint jobs`, ax, ay - 8, "rgba(255,255,255,0.6)", "left", 11);
     g5.fillStyle = "rgba(255,255,255,0.05)"; g5.fillRect(ax, ay, as, as);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
       const x = ax + i * ts, y = ay + j * ts; const id = j * n + i;
@@ -1172,17 +1204,17 @@ function kitInset(ctx, x, y, w, h, title) {
     const hv = s5.hover >= 0 && s5.hover < n * n ? s5.hover : Math.min(n * n - 1, n + 1);
     const hi = hv % n, hj = Math.floor(hv / n); g5.strokeStyle = WHT; g5.lineWidth = 2; g5.strokeRect(ax + hi * ts + 1, ay + hj * ts + 1, ts - 2, ts - 2);
     kitLabel(g5, "red = neighbour's paint bleeds in", ax + as - 2, ay + 12, "right", RED);
-    txt(g5, `level ${s5.mip}: mip texel = ${fmtN(bleedTx)} texels · mip is ${fmtN(4096 >> s5.mip)}²`, ax, ay + as + 16, "rgba(255,255,255,0.75)", "left", 10);
-    txt(g5, `bleed ${fmtN(bleedTx)} texels per edge · ${Math.round(safeFrac * 100)} % still clean`, ax, ay + as + 30, bleedTx * 2 >= s5.tile ? RED : "rgba(255,255,255,0.75)", "left", 10);
-    const sc = (s5.tile / 4096).toFixed(4); txt(g5, `tile ${hv}: uv' = uv · ${sc} + (${(hi * s5.tile / 4096).toFixed(4)}, ${(hj * s5.tile / 4096).toFixed(4)})`, ax, ay + as + 44, WHT, "left", 10);
+    txt(g5, `blur level ${s5.mip}: each blurred dot covers ${fmtN(bleedTx)} texels · the copy is ${fmtN(4096 >> s5.mip)}²`, ax, ay + as + 16, "rgba(255,255,255,0.75)", "left", 10);
+    txt(g5, `neighbours bleed ${fmtN(bleedTx)} texels in from each edge · ${Math.round(safeFrac * 100)} % still clean`, ax, ay + as + 30, bleedTx * 2 >= s5.tile ? RED : "rgba(255,255,255,0.75)", "left", 10);
+    const sc = (s5.tile / 4096).toFixed(4); txt(g5, `paint job ${hv}: scale the crate's coordinates by ${sc}, then shift by (${(hi * s5.tile / 4096).toFixed(4)}, ${(hj * s5.tile / 4096).toFixed(4)})`, ax, ay + as + 44, WHT, "left", 10);
     // ---- texture array ----
-    const tx = 300, ty = 28; txt(g5, `TEXTURE ARRAY · ${n * n} layers of ${s5.tile}²`, tx, ty - 8, "rgba(255,255,255,0.6)", "left", 11);
+    const tx = 300, ty = 28; txt(g5, `A STACK OF TEXTURES · ${n * n} layers of ${s5.tile}²`, tx, ty - 8, "rgba(255,255,255,0.6)", "left", 11);
     const layers = Math.min(5, n * n), ls = 84;
     for (let l = layers - 1; l >= 0; l--) { const x = tx + l * 14, y = ty + (layers - 1 - l) * 11; g5.fillStyle = GRD; g5.fillRect(x, y, ls, ls); crateFace(g5, x, y, ls, ls, paint(l)); g5.strokeStyle = "rgba(255,255,255,0.45)"; g5.lineWidth = 1; g5.strokeRect(x + 0.5, y + 0.5, ls - 1, ls - 1); if (l === 0) kitLabel(g5, "layer 0", x + 4, y + ls - 10, "left"); }
-    txt(g5, `mip ${s5.mip} is ${fmtN(Math.max(1, s5.tile >> s5.mip))}² per layer`, tx, ty + ls + 58, "rgba(255,255,255,0.75)", "left", 10);
-    txt(g5, "no bleed, wrap works,", tx, ty + ls + 72, "rgba(255,255,255,0.75)", "left", 10);
+    txt(g5, `blur level ${s5.mip} is ${fmtN(Math.max(1, s5.tile >> s5.mip))}² per layer`, tx, ty + ls + 58, "rgba(255,255,255,0.75)", "left", 10);
+    txt(g5, "no bleed, repeating works,", tx, ty + ls + 72, "rgba(255,255,255,0.75)", "left", 10);
     txt(g5, "all layers one size and format", tx, ty + ls + 86, "rgba(255,255,255,0.75)", "left", 10);
-    txt(g5, "uv' = vec3(uv, layer)", tx, ty + ls + 102, WHT, "left", 10);
+    txt(g5, "each crate just names its layer", tx, ty + ls + 102, WHT, "left", 10);
     // ---- what the player sees: a near and a far crate ----
     const ix = 298, iy = 222, iw = 206, ih = 108; kitInset(g5, ix, iy, iw, ih, "what the player sees");
     g5.fillStyle = KIT.grass; g5.fillRect(ix + 1, iy + 74, iw - 2, ih - 75);
@@ -1194,12 +1226,12 @@ function kitInset(ctx, x, y, w, h, title) {
       g5.fillStyle = nb[2]; g5.fillRect(cx - s / 2, cy - s / 2, s, b); g5.fillStyle = nb[3]; g5.fillRect(cx - s / 2, cy + s / 2 - b, s, b);
     }
     crateBleed(ix + 52, iy + 50, 46, 0); crateBleed(ix + 150, iy + 60, 26, s5.mip);
-    kitLabel(g5, "near · mip 0", ix + 52, iy + 92, "center");
-    kitLabel(g5, `far · mip ${s5.mip}`, ix + 150, iy + 92, "center", bleedTx * 2 >= s5.tile ? RED : WHT);
+    kitLabel(g5, "near · sharp copy", ix + 52, iy + 92, "center");
+    kitLabel(g5, `far · blur level ${s5.mip}`, ix + 150, iy + 92, "center", bleedTx * 2 >= s5.tile ? RED : WHT);
     // ---- the material problem: 48 crates on the market ----
     const my = 352; g5.strokeStyle = DIM; g5.beginPath(); g5.moveTo(0, my - 14.5); g5.lineTo(512, my - 14.5); g5.stroke();
     const K = s5.K, V = s5.V; const mats = objs5.map(r => Math.floor(r * K)); const variant = m => m % V;
-    const labels = { classic: "PER-DRAW BIND · sorted by paint job, one draw per paint job", array: "TEXTURE ARRAY · one draw per shader variant, layer index in instance data", bindless: "BINDLESS · one draw per pipeline, texture index in the material buffer", uber: "BINDLESS + UBER-SHADER · one pipeline, one draw for everything" };
+    const labels = { classic: "ONE TEXTURE AT A TIME · sorted by paint job, one order per paint job", array: "A STACK OF TEXTURES · one order per shader program, layer number in each crate's record", bindless: "BINDLESS · one order per shader program, texture number in each crate's record", uber: "BINDLESS + ONE PROGRAM FOR ALL · one program, one order for everything" };
     txt(g5, labels[s5.mode], 14, my, "rgba(255,255,255,0.6)", "left", 11);
     let groups;
     const sorted = mats.map((m, i) => ({ m, v: variant(m), i })).sort((a, b) => a.v - b.v || a.m - b.m);
@@ -1209,15 +1241,17 @@ function kitInset(ctx, x, y, w, h, title) {
     const ox = 14, ow = 484, dw = ow / N5; const ry = my + 8;
     g5.fillStyle = KIT.dirt; g5.fillRect(0, ry + 2, 512, 22); g5.fillStyle = KIT.grass; g5.fillRect(0, ry + 24, 512, 3);
     sorted.forEach((o, k) => { crateFace(g5, ox + k * dw + 0.8, ry + 8, dw - 1.6, dw - 1.6, paint(o.m)); });
-    let k0 = 0; for (const grp of groupBy(sorted, o => o.v)) { g5.fillStyle = "rgba(255,255,255,0.12)"; g5.fillRect(ox + k0 * dw + 1, ry + 32, grp.length * dw - 2, 12); txt(g5, "pipeline " + grp[0].v, ox + k0 * dw + grp.length * dw / 2, ry + 41, "rgba(255,255,255,0.7)", "center", 9); k0 += grp.length; }
+    let k0 = 0; for (const grp of groupBy(sorted, o => o.v)) { g5.fillStyle = "rgba(255,255,255,0.12)"; g5.fillRect(ox + k0 * dw + 1, ry + 32, grp.length * dw - 2, 12); txt(g5, "program " + grp[0].v, ox + k0 * dw + grp.length * dw / 2, ry + 41, "rgba(255,255,255,0.7)", "center", 9); k0 += grp.length; }
     k0 = 0; const by = ry + 52; for (const grp of groups) { const x = ox + k0 * dw, w = grp.length * dw; g5.strokeStyle = WHT; g5.lineWidth = 1; g5.beginPath(); g5.moveTo(x + 1, by); g5.lineTo(x + 1, by + 6); g5.lineTo(x + w - 1, by + 6); g5.lineTo(x + w - 1, by); g5.stroke(); k0 += grp.length; }
     const draws = groups.length, binds = s5.mode === "classic" ? draws : s5.mode === "array" ? V : 1, pso = s5.mode === "uber" ? 1 : V;
-    txt(g5, `each bracket = one draw · ${draws} draw${draws > 1 ? "s" : ""} · ${binds} texture bind${binds > 1 ? "s" : ""} · ${pso} pipeline${pso > 1 ? "s" : ""}`, ox, by + 24, WHT, "left", 11);
-    const why = { classic: `each paint job needs its own descriptor set bound, so the instanced batch splits ${draws} ways`, array: `paint jobs share one texture2DArray, so only the ${V} shader variant${V > 1 ? "s" : ""} split the batch`, bindless: `the descriptor array holds all ${K} textures; only pipeline changes remain`, uber: `material and shader features come from buffers; the CPU issues a single draw` }[s5.mode];
+    txt(g5, `each bracket = one order · ${draws} order${draws > 1 ? "s" : ""} · ${binds} texture switch${binds > 1 ? "es" : ""} · ${pso} shader program${pso > 1 ? "s" : ""}`, ox, by + 24, WHT, "left", 11);
+    const why = { classic: `each paint job needs the GPU pointed at its texture first, so the batch splits ${draws} ways`, array: `the paint jobs share one stacked texture, so only the ${V} shader program${V > 1 ? "s" : ""} split the batch`, bindless: `the long list holds all ${K} textures; only program changes still split it`, uber: `paint and program features both come from records; the CPU gives a single order` }[s5.mode];
     txt(g5, why, ox, by + 40, "rgba(255,255,255,0.6)", "left", 10);
-    txt(g5, `${N5} crates on the market · ${K} paint jobs · ${V} shader variant${V > 1 ? "s" : ""} · crate colour = paint job`, ox, by + 54, "rgba(255,255,255,0.45)", "left", 10);
+    txt(g5, `${N5} crates on the market · ${K} paint jobs · ${V} shader program${V > 1 ? "s" : ""} · crate colour = paint job`, ox, by + 54, "rgba(255,255,255,0.45)", "left", 10);
     $("t5-draws").textContent = draws; $("t5-binds").textContent = binds; $("t5-pso").textContent = pso;
-    $("c5-read").innerHTML = `bleed <strong>${fmtN(bleedTx)} texels</strong> at mip ${s5.mip} · <strong>${draws}</strong> draws · <strong>${pso}</strong> pipelines`;
+    $("c5-read").innerHTML = `neighbours bleed in <strong>${fmtN(bleedTx)} texels</strong> at blur level ${s5.mip} · <strong>${draws}</strong> draw calls · <strong>${pso}</strong> shader programs`;
+    s5.stats = { draws, binds, pso, safe: Math.round(safeFrac * 100) };
+    L5 && L5.check();
   }
   function groupBy(list, keyFn) { const out = []; let cur = null, ck = null; for (const o of list) { const k = keyFn(o); if (k !== ck) { cur = []; out.push(cur); ck = k; } cur.push(o); } return out; }
   c5.addEventListener("pointermove", ev => { const [x, y] = ptr(c5, ev); let h = -1; if (x >= 14 && x < 270 && y >= 28 && y < 284) { const n = 4096 / s5.tile, ts = 256 / n; h = Math.floor((y - 28) / ts) * n + Math.floor((x - 14) / ts); } if (h !== s5.hover) { s5.hover = h; draw5(); } });
@@ -1228,5 +1262,102 @@ function kitInset(ctx, x, y, w, h, title) {
   $("mat5").addEventListener("input", ev => { s5.K = +ev.target.value; $("mat5v").textContent = s5.K; draw5(); });
   $("var5").addEventListener("input", ev => { s5.V = +ev.target.value; $("var5v").textContent = s5.V; draw5(); });
   draw5();
+
+  // ---------- guided steps ----------
+  const set1 = o => { Object.assign(s1, o); $("draws1").value = s1.draws; $("draws1v").textContent = fmtN(s1.draws); $("cpu1").value = s1.cpu; $("cpu1v").textContent = s1.cpu.toFixed(1) + " µs"; $("gpu1").value = s1.gpu; $("gpu1v").textContent = s1.gpu.toFixed(1) + " µs"; draw1(); };
+  const slide = (id, v) => { $(id).value = v; $(id).dispatchEvent(new Event("input")); };
+  L1 = lesson("anatomy", { next: { id: "sorting", title: "Sort the orders, skip the setup" }, steps: [
+    { say: "Two chips share the work. The <b>CPU</b> is the main processor that runs the game; the <b>GPU</b> is the graphics chip that draws the picture. Every crate, barrel and tree on this street is one <b>draw call</b>: an order from the CPU to the GPU saying draw this shape with this paint, now. The bottom half is one frame on a timeline: amber is the CPU writing orders, blue is the GPU carrying them out. 3,000 orders, 5 microseconds each.", enter: () => set1({ draws: 3000, cpu: 5, gpu: 2 }) },
+    { say: "A frame has 16.7 milliseconds if the game is to run at 60 frames a second.", quiz: { q: "You ask for 10,000 orders instead of 3,000. Which chip runs out of time?", options: [
+        { t: "The GPU, because it has more to draw", why: "The GPU spends 2 microseconds on each order, so 10,000 of them take it 20 milliseconds of steady work, and much of that overlaps the CPU's writing. The CPU has it worse." },
+        { t: "The CPU: 10,000 times 5 microseconds is 50 milliseconds, three frames' worth", ok: true, why: "Writing the orders alone takes 50 milliseconds. The GPU cannot draw an order before it is written, so it spends most of the frame waiting." },
+        { t: "Neither, the frame is always 16.7 milliseconds", why: "The budget is 16.7 milliseconds. The frame lasts as long as the slower chip takes, and when that is longer the game stutters." } ] },
+      todo: "push Draw calls per frame up to 10,000", goal: () => s1.draws >= 9000, try: () => slide("draws1", 10000),
+      done: "The amber lane runs far past the red line and frames per second falls to 20. The blue lane is mostly marked waiting. The CPU is the slow one here, and a faster graphics card would change nothing." },
+    { say: "Make each order cheaper instead. The newest ways of talking to the GPU, called Vulkan and DirectX 12, let the CPU write an order in about 1 microsecond instead of 5. <b>Drag CPU cost per draw call down to 1.0.</b>", todo: "drag CPU cost per draw call down to 1.0 µs", goal: () => s1.cpu <= 1.5, try: () => slide("cpu1", 1), enter: () => set1({ draws: 10000, cpu: 5, gpu: 2 }),
+      done: "The amber lane shrinks to a fifth, and now the blue lane is the longer one. Same 10,000 props, but the GPU is now the chip that sets the frame time." },
+    { say: "Now make the drawing itself heavier, as if every prop got fancy lighting. <b>Push GPU cost per draw call up to 12.</b>", todo: "push GPU cost per draw call up to 12 µs", goal: () => s1.gpu >= 10, try: () => slide("gpu1", 12), enter: () => set1({ draws: 10000, cpu: 1, gpu: 2 }),
+      done: "The GPU is now far over budget and the CPU slider stops mattering. A frame always lasts as long as the slower chip. The rest of this page is about the other case, where the CPU is the slow one." },
+    { say: "Look at the white ticks in the CPU lane. The CPU does not send orders one at a time; it hands them over in batches of 512.", quiz: { q: "Why does the blue lane start late instead of at 0 milliseconds?", options: [
+        { t: "The GPU needs time to warm up", why: "There is no warm-up. The blue lane starts exactly at the first white tick." },
+        { t: "The GPU only receives orders when a batch is handed over, so it waits for the first 512 to be written", ok: true, why: "Each white tick is a hand-over. Before the first one the GPU has nothing to do, and between hand-overs it can run dry, which is the red waiting." },
+        { t: "The first order is bigger than the others", why: "Every order costs the same here. The delay is the batch, not the order." } ] } },
+    { say: "The GPU reads an order in a blink, the CPU spends microseconds writing it, and thousands of orders a frame make the CPU the slow one. Every trick on this page is a way to give fewer orders. The cost formula and the plain order-writing loop are under the hood." } ] });
+
+  const set2 = o => { Object.assign(s2, o); segOn($("seg2"), s2.mode); $("pso2").value = s2.P; $("pso2v").textContent = s2.P; $("mat2").value = s2.M; $("mat2v").textContent = s2.M; gen2(); draw2(); };
+  L2 = lesson("sorting", { next: { id: "instancing", title: "One order, five thousand trees" }, steps: [
+    { say: "Before each order the CPU does setup: pick the <b>shader program</b> (the small program that says how wood or leaves look), point at the <b>texture</b> (the picture wrapped onto the shape), pick the <b>shape</b>. Setup that has not changed since the last order costs nothing. Top list: the 200 orders as the level file lists them. Bottom: the same 200, sorted. In the colour rows every break in a run is a setup change the CPU pays for; the red counts add them up.", enter: () => set2({ mode: "state", P: 6, M: 24, hover: -1 }) },
+    { say: "<b>Hover a prop on the square</b>, or a strip in either list.", todo: "hover a prop or a strip", goal: () => s2.hovered, try: () => { s2.hover = draws2[5].id; s2.hovered = true; draw2(); },
+      done: "A white ring marks the prop, and the white outline in the other list shows where its order landed after sorting. Sorting only moves orders around. Every prop is still drawn, just in a different sequence." },
+    { say: "The market has 24 different textures right now. Suppose the artists add more.", quiz: { q: "If you push Textures in use up to 64, what happens to the sorted count of setup changes?", options: [
+        { t: "It stays where it is", why: "More textures means more breaks in the texture row, even when the orders are grouped. It has to grow." },
+        { t: "It grows, but stays a fraction of the unsorted count", ok: true, why: "Sorted, each texture is paid for about once. Unsorted, it is paid for almost every time the texture differs from the previous order." },
+        { t: "It grows until it matches the unsorted count", why: "With 64 textures across 200 orders, sorting still groups three or so orders per texture, so the sorted count stays well below." } ] },
+      todo: "push Textures in use up to 64", goal: () => s2.M >= 60, try: () => slide("mat2", 64), enter: () => set2({ mode: "state", P: 6, M: 24 }),
+      done: "Both counts grew, and the sorted one is still a fraction of the unsorted one. The saving in the bottom bars is what those skipped changes are worth in CPU time." },
+    { say: "<b>Switch the sort to by distance first.</b>", todo: "switch the sort below", goal: () => s2.mode === "depth", try: () => $("seg2").querySelector('[data-v="depth"]').click(), enter: () => set2({ mode: "state" }),
+      done: "The sorted icons mix kinds again and the saving nearly vanishes. Sorting by distance is what see-through things like glass and smoke need, and it costs the grouping. Real renderers keep those in a separate list." },
+    { say: "<b>Switch back to by program, then texture, then shape</b>, and press <b>shuffle it</b> twice to reorder the level file.", todo: "switch the sort back and shuffle at least twice", goal: () => s2.mode === "state" && (s2.shuffles || 0) >= 2, try: () => { $("seg2").querySelector('[data-v="state"]').click(); $("reshuffle2").click(); $("reshuffle2").click(); },
+      done: "The unsorted count jumps around with every shuffle. The sorted count barely moves. After sorting, the CPU cost depends on how many different setups the scene has, not on the order the level happened to list them in." },
+    { say: "Sort the orders so ones with the same setup sit next to each other, and most of the setup becomes free. The renderer does it with one 64-bit number per order, stacking the setup fields with the priciest on top and sorting by that number. The layout of that number is under the hood." } ] });
+
+  const set3 = o => { Object.assign(s3, o); segOn($("seg3"), s3.mode); cam3.c[0] = 256; cam3.c[1] = 300; cam3.a[0] = 256; cam3.a[1] = 90; draw3(); };
+  L3 = lesson("instancing", { next: { id: "indirect", title: "Let the GPU write the orders" }, steps: [
+    { say: "A forest seen from above, 1 km across: <b>5,000 trees</b>, every green dot one tree, all the same shape. The blue figure is the player and the wedge is what their camera can see. Trees inside it get an amber dot; the small inset is the view from the ground. Below the map is how the trees are sent to the GPU right now: <b>one order</b>, plus a list of 5,000 short records saying where each copy stands.", enter: () => set3({ mode: "instanced", hover: -1 }) },
+    { say: "<b>Drag the player or the looking-here handle</b> so the camera looks off the edge of the map, with fewer than 150 trees in the wedge.", todo: "aim the camera off the edge of the map", goal: () => s3.inView <= 150, try: () => { cam3.a[0] = 256; cam3.a[1] = 368; draw3(); },
+      done: "Fewer amber dots, and the inset empties. But read the last line of the panel: the GPU still places all 2,000,000 corners, because with one order it has no idea which of the 5,000 copies matter. The next stage fixes that." },
+    { say: "First, the worst way to do it.", quiz: { q: "If you switch to one order per tree, how long does the CPU spend writing orders?", options: [
+        { t: "5 microseconds, the same as before", why: "That was one order. One order per tree is 5,000 orders." },
+        { t: "25 milliseconds, more than a whole frame", ok: true, why: "5,000 orders times 5 microseconds. The trees have not changed, only how many times the CPU has to say draw." },
+        { t: "It depends on how many trees are in view", why: "In this mode the CPU sends every tree, in view or not. Only the GPU knows which ones land on screen." } ] },
+      todo: "switch to one order per tree", goal: () => s3.mode === "individual", try: () => $("seg3").querySelector('[data-v="individual"]').click(), enter: () => set3({ mode: "instanced" }),
+      done: "The panel shows the same set-values-then-draw pair 5,000 times, and the amber bar runs past the red 16.7 ms line. Five thousand tiny orders for one shape is what this page exists to avoid." },
+    { say: "The old fix was to glue every tree into one huge shape ahead of time. <b>Switch to one merged giant shape.</b>", todo: "switch to one merged giant shape", goal: () => s3.mode === "static", try: () => $("seg3").querySelector('[data-v="static"]').click(),
+      done: "Back to one order, but look at the memory tile: over 160 MB instead of a few hundred kilobytes. The tree's shape was copied 5,000 times, and no tree can move without rebuilding the whole thing." },
+    { say: "", quiz: { q: "Switch back to one order, 5,000 copies. Why is its memory so much smaller?", options: [
+        { t: "The trees are drawn with less detail", why: "Every tree has the same 400 corners in every mode. What changes is how many times the shape is stored." },
+        { t: "The shape is stored once, and each tree only adds a 64-byte record saying where it stands", ok: true, why: "5,000 records of 64 bytes is 320 KB, next to one 12.8 KB shape. That is what instancing is: one shape, a list of copies." },
+        { t: "The GPU squashes the copies to save space", why: "Nothing is squashed. The shape is simply not copied." } ] },
+      todo: "switch back to one order, 5,000 copies", goal: () => s3.mode === "instanced", try: () => $("seg3").querySelector('[data-v="instanced"]').click(), enter: () => set3({ mode: "static" }),
+      done: "One order, one shape, 320 KB of records. And every tree can still move, because moving one means changing its 64-byte record, not the shape." },
+    { say: "<b>Hover a tree on the map.</b>", todo: "hover a tree", goal: () => s3.hovered, try: () => { s3.hover = 1234; s3.hovered = true; draw3(); },
+      done: "Its record lights up in the list and the readout says which byte it starts at. The 16 numbers inside are twelve for where it stands, which way it faces and how big it is, and four for its colour." },
+    { say: "One order plus a list of where each copy goes: that is <b>instancing</b>. The shape is stored once and each copy costs 64 bytes. The small GPU program that reads the list for each copy, and the memory sums, are under the hood." } ] });
+
+  const set4 = o => { Object.assign(s4, o); segOn($("seg4"), s4.mode); cam4.c[0] = 256; cam4.c[1] = 280; cam4.a[0] = 256; cam4.a[1] = 60; draw4(); };
+  L4 = lesson("indirect", { next: { id: "bindless", title: "Why textures split the batch" }, steps: [
+    { say: "A village of <b>6,579 props in 200 shapes</b>. With plain instancing the CPU would still have to work out which props are in view and write 200 orders, one per shape. Here the <b>GPU does that itself</b>. Amber ring: passed the camera test. Dim: failed. Under the map is a list of 200 orders the GPU fills in, one bar per shape, and each bar's height is how many copies passed.", enter: () => set4({ mode: "fixed", hover: -1 }) },
+    { say: "<b>Drag the player or the looking-here handle</b> so the camera looks off the edge of the map. Watch the tile that counts the orders the CPU gave.", todo: "aim the camera off the edge of the map", goal: () => s4.stats && s4.stats.vis <= 300, try: () => { cam4.a[0] = 256; cam4.a[1] = 326; draw4(); },
+      done: "Most bars fell flat and props drawn dropped, but orders the CPU gave is still 1. The CPU said the same thing it says every frame: draw whatever is in the list. The GPU wrote the list." },
+    { say: "", quiz: { q: "The village grows from 6,579 props to 60,000. How much more work does the CPU do per frame to draw them?", options: [
+        { t: "About ten times more", why: "The CPU no longer touches individual props. It points at the list and gives one order, whatever the count." },
+        { t: "None. It still gives one order", ok: true, why: "The camera test runs on the GPU, one small worker per prop, and the GPU fills in its own list. The CPU's part stays a constant." },
+        { t: "It depends on how many are in view", why: "Which props are in view is exactly the question the GPU now answers. The CPU never sees the answer." } ] } },
+    { say: "The flat red bars are shapes with no copies in view. The GPU still reads all 200 orders and skips the empty ones in a few cycles. <b>Switch to squeeze out the empty slots.</b>", todo: "switch to squeeze out the empty slots", goal: () => s4.mode === "count", try: () => $("seg4").querySelector('[data-v="count"]').click(), enter: () => set4({ mode: "fixed" }),
+      done: "The red bars are gone, orders the GPU ran dropped to the count of shapes with copies in view, and the blue box shows the GPU also wrote down how many orders there are. The CPU's order became: run as many as your counter says." },
+    { say: "<b>Hover any prop on the map</b>, or a bar.", todo: "hover a prop or a bar", goal: () => s4.hovered, try: () => { s4.hover = 40; s4.hovered = true; draw4(); },
+      done: "Every prop of that shape gets a white ring and its bar is outlined. The line below prints its order: four numbers, 16 bytes. The second number, instanceCount, is the one the GPU filled in, bumped once by every prop of that shape that passed." },
+    { say: "The CPU points at a list and says draw that. A small GPU program tests every prop against the camera and fills the list in. The CPU's work per frame stops depending on the size of the scene. That program, and how thousands of props add themselves to one counter at the same time without tripping over each other, are under the hood." } ] });
+
+  const set5 = o => { Object.assign(s5, o); segOn($("seg5"), s5.mode); segOn($("segT5"), s5.tile); $("mip5").value = s5.mip; $("mip5v").textContent = s5.mip; $("mat5").value = s5.K; $("mat5v").textContent = s5.K; $("var5").value = s5.V; $("var5v").textContent = s5.V; draw5(); };
+  L5 = lesson("bindless", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "Instancing has a catch: every copy in one order has to use the same <b>texture</b>, the picture wrapped onto the shape. The 48 crates along the bottom have 9 different paint jobs, and each white bracket is one order. Right now the crates are grouped by paint, so that is <b>9 orders</b>. The two pictures at the top are the old fixes: glue every paint job onto one big sheet, called an atlas, or stack them as layers of one tall texture.", enter: () => set5({ mode: "classic", mip: 6, tile: 1024, K: 9, V: 3, hover: -1 }) },
+    { say: "A far-away crate is drawn from a smaller, blurrier copy of the sheet, and the GPU keeps a chain of those copies, each half the size of the last. Look at the far crate in the inset: a neighbour's paint has crept in at its edges, shown in red.", quiz: { q: "Why does the neighbour's paint creep in?", options: [
+        { t: "The crate is too small to draw properly", why: "Small is fine. The trouble is where the blurry copy's colours come from." },
+        { t: "Shrinking the whole sheet blends each paint job with the ones next to it, and the blur reaches across the tile edge", ok: true, why: "Each dot of a blurry copy is an average of many dots of the sheet, and near a tile's edge that average includes the neighbouring tile. The red band is how far in that reaches." },
+        { t: "The GPU picked the wrong paint job", why: "It picked the right one. The blurry copy of the right one already contains the neighbours." } ] } },
+    { say: "<b>Drag Distance blur level from 6 up to 8.</b>", todo: "drag Distance blur level up to 8", goal: () => s5.mip >= 8, try: () => slide("mip5", 8), enter: () => set5({ mode: "classic", mip: 6, tile: 1024 }),
+      done: "The red bands widen to 256 texels a side (a texel is one dot of a texture) and only 25 % of each tile is still clean. The far crate is mostly its neighbours' colours. The stack on the right has no such problem, because its layers never touch." },
+    { say: "<b>Switch to a stack of textures.</b>", todo: "switch to a stack of textures", goal: () => s5.mode === "array", try: () => $("seg5").querySelector('[data-v="array"]').click(), enter: () => set5({ mode: "classic" }),
+      done: "The brackets merged to one order per shader program: 3 instead of 9, and texture switches fell to 3. Each crate's 64-byte record now names its layer, so one order can cover crates with different paint." },
+    { say: "Bindless goes further: every texture in the scene sits in one long list, and the crate's record says which number to use.", quiz: { q: "If you switch to bindless, what happens to the count of shader programs?", options: [
+        { t: "It drops to 1", why: "Bindless is about textures. The 3 shader programs are still 3 different programs, and an order can only run one." },
+        { t: "It stays at 3, so there are still 3 orders", ok: true, why: "Texture switches drop to 1, but each program still needs its own order. Textures were only half of what splits a batch." },
+        { t: "It goes up, one per texture", why: "The programs never depended on the textures. Bindless removes the texture switches and leaves the programs alone." } ] },
+      todo: "switch to bindless", goal: () => s5.mode === "bindless", try: () => $("seg5").querySelector('[data-v="bindless"]').click(), enter: () => set5({ mode: "array" }),
+      done: "Texture switches is 1, draw calls and shader programs are still 3. The remaining splits are all program changes." },
+    { say: "<b>Pick bindless + one program for all.</b>", todo: "pick bindless + one program for all", goal: () => s5.mode === "uber", try: () => $("seg5").querySelector('[data-v="uber"]').click(),
+      done: "One bracket, one order, one program for all 48 crates. That single program handles every kind of paint by reading flags from the crate's record, so nothing is left to split on." },
+    { say: "Textures are what split a batch. Gluing them onto a sheet or stacking them merges the textures, bindless merges the lookup, and only one program for everything merges the last split. The sheet's coordinate fix, the bleed formula and the bindless program are under the hood." } ] });
 })();
 </script>

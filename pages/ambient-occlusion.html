@@ -234,13 +234,13 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a 10 m wide cellar in cross-section · the engine's camera looks straight down · its depth photo has 320 cells · drag the white point along any surface</p>
+    <p class="eyebrow">a cellar with crates, a barrel and stone steps · five guided demos · nothing to install</p>
     <h1>Ambient Occlusion</h1>
-    <p class="lead">Ambient occlusion darkens corners, creases and the ground under things, so objects look like they sit in the world instead of floating on it. It costs about a millisecond a frame and makes almost every scene read better, which is why nearly every game runs it. The thing people get wrong is what it should darken: only the soft light that comes from everywhere at once, never the direct light from the sun or a lamp. A sunlit corner already has real shadows and should not be darkened a second time.</p>
+    <p class="lead">Look at the floor where a crate meets it, or a corner where two walls meet: it is a little darker there, even when no lamp is casting a shadow. Games add that darkening on purpose, and it is called ambient occlusion, AO for short. It costs about a millisecond a frame and makes things look like they sit on the ground instead of floating above it, which is why nearly every game runs it. <b>The thing people get wrong:</b> AO should only darken the soft light that comes from everywhere at once, never the direct light from the sun or a lamp. A sunlit corner already has real shadows and should not be darkened a second time.</p>
     <div class="key">
-      <span style="--sw:#4aa3ff">ray that gets out, or a test point in open air</span>
-      <span style="--sw:#f2a341">ray that hits something, or a test point that is buried</span>
-      <span style="--sw:#ffffff">the point you drag, horizon lines</span>
+      <span style="--sw:#4aa3ff">a ray that gets out, or a test dot in open air</span>
+      <span style="--sw:#f2a341">a ray that hits something, or a test dot that is buried</span>
+      <span style="--sw:#ffffff">the point you drag, and the skyline lines</span>
       <span style="--sw:#8a9098">the AO result, painted as a band along every surface: dark means buried</span>
     </div>
     <dl class="terms">
@@ -248,41 +248,32 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
       <dt>occlusion</dt><dd>how much of the sky a point cannot see because something is in the way</dd>
       <dt>hemisphere</dt><dd>the half-dome of directions above a surface point; a half circle on this page</dd>
       <dt>normal</dt><dd>the direction a surface faces, straight out from it</dd>
-      <dt>depth buffer</dt><dd>an image where each pixel stores how far away the nearest surface is, not its colour; the camera's depth photo</dd>
-      <dt>texel</dt><dd>one pixel of a texture such as the depth buffer; one cell of the photo</dd>
-      <dt>sample</dt><dd>one test point or one ray; more samples means less noise and more cost</dd>
-      <dt>horizon</dt><dd>in one direction, the steepest angle at which something blocks the view</dd>
+      <dt>depth buffer</dt><dd>an image where each pixel stores how far away the nearest surface is instead of its colour; the camera's depth photo</dd>
+      <dt>texel</dt><dd>one pixel of a stored image such as the depth buffer; one cell of the photo</dd>
+      <dt>sample</dt><dd>one test: one ray fired, or one dot checked against the photo</dd>
+      <dt>horizon, or skyline</dt><dd>in one direction, the steepest angle at which something blocks the view</dd>
+      <dt>screen space</dt><dd>any method that works only from the pictures the camera already took, without touching the 3D scene</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#truth"><span class="n">01</span>The true answer</a></li><li><a href="#ssao"><span class="n">02</span>SSAO</a></li><li><a href="#horizon"><span class="n">03</span>Horizons</a></li><li><a href="#denoise"><span class="n">04</span>Noise, blur, history</a></li><li><a href="#beyond"><span class="n">05</span>What the depth buffer cannot see</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#truth"><span class="n">01</span>The true answer</a></li><li><a href="#ssao"><span class="n">02</span>SSAO, guessing from the depth photo</a></li><li><a href="#horizon"><span class="n">03</span>Skylines</a></li><li><a href="#denoise"><span class="n">04</span>Noise, blur, history</a></li><li><a href="#beyond"><span class="n">05</span>What the depth photo cannot see</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="truth">
+  <section id="truth" class="stage">
     <h2>The true answer: 64 rays per point</h2>
-    <p class="sub">A player stands in a cellar with crates, a barrel and stone steps. Drag the white point along the floor, the crates or the steps and watch which of its 64 rays get out.</p>
+    <p class="sub">A player stands in a cellar with crates, a barrel and stone steps. From any point on any surface, fire 64 rays upward and count how many get away.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c1" width="640" height="360" class="r169 grab" aria-label="Cross-section of a cellar with a player, a large crate, a barrel, a small crate and stone steps; 64 cosine-weighted rays fan out from a draggable surface point, blue where they escape and amber where they hit"></canvas>
         <div class="cap"><span id="c1-read"></span><span id="c1-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Ambient occlusion asks one thing at every point on every surface: <b>how much sky can you see from here</b>. On top of the crate you see most of it; on the floor between the barrel and the crate, almost none. The way to find out is to <b>fire rays in every upward direction and count how many get away</b>. That count, as a fraction, is the AO value. This is slow, which is why the rest of the page is about faking it, but it is what every faster method is trying to match.</p>
-
-        <h3>What you're seeing</h3>
-        <p>A cross-section of a 10 m cellar: the player at the left, a big crate, a barrel, a small crate, and two stone steps up to the right. The engine's camera on this page looks straight down from above. From the white point, 64 rays fan out in a half circle. Blue rays escape past the dashed radius. Amber rays hit something first, with a dot where they stopped.</p>
-        <p>Every surface carries a grey band painted by the same test: bright means open sky, dark means buried. The darkest stretches are the floor between the player and the crate, and the gap between the barrel and the small crate.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the point onto the floor between the barrel and the small crate. Nearly every ray turns amber and the readout drops toward 0.</li>
-          <li>Drag it onto the top of the big crate. The only things a ray can hit are the player and the floor far below, so most rays escape.</li>
-          <li>Push the radius to 3 m. The floor beside the steps gets darker, because more distant things now count as blockers.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="r1">Radius r <span class="val" id="r1v">1.5 m</span></label><input type="range" id="r1" min="0.25" max="3" step="0.05" value="1.5"></div>
+      <div class="lesson" data-lesson="truth">
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><label for="r1">How far each ray is followed <span class="val" id="r1v">1.5 m</span></label><input type="range" id="r1" min="0.25" max="3" step="0.05" value="1.5"></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">AO is the share of the sky a point can see, and 64 rays per point is the answer everything else on this page is chasing.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The reference is a Monte Carlo estimate, which means it approximates an integral with random samples. From point <code>p</code>, shoot rays across the hemisphere, the half-dome of directions above the surface, and count the ones that travel the full distance <code>r</code> without hitting anything.</p>
         <p>The rays are not spread evenly. They are cosine-weighted: dense near the normal, the direction the surface faces, and sparse near the horizon. A ray that skims the surface would bring in little light anyway, so it gets fewer samples. With this spread the estimate is the plain average of hit or miss, with no extra weights.</p>
         <p>The radius <code>r</code> is a design choice, not physics. A small <code>r</code> gives tight contact shadows where the crate meets the floor; a large one darkens the whole cellar. Every method on this page uses the same <code>r</code>, and the 64-ray reference is what they all try to match for a fraction of the work.</p>
@@ -302,42 +293,35 @@ cosine pdf (n·ω)/π  ⇒  AO ≈ (1/N) Σ V(p, ω_i)
 }
 <span class="k">float</span> ao = vis / 64.0;                            <span class="c">// 1 = open sky, 0 = buried</span></pre>
 
-        <p class="tldr">AO is the fraction of the sky a point can see, and 64 rays per point is the answer everything else on this page is chasing.</p>
-      </div>
+        
+    </div></details>
     </div>
   </section>
-
-  <section id="ssao">
-    <h2>SSAO: guessing from the depth buffer</h2>
-    <p class="sub">The engine takes one depth photo of the cellar from above, the strip at the top. Move the point and watch each test sample get checked against that photo instead of the real crates.</p>
+  <section id="ssao" class="stage">
+    <h2>SSAO: guessing from the depth photo</h2>
+    <p class="sub">The engine takes one depth photo of the cellar from above, the strip along the top. Each test dot around the point is checked against that photo instead of the real crates.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" width="640" height="360" class="r169 grab" aria-label="The same cellar cross-section with the camera's depth photo as a strip along the top; SSAO test samples around a draggable point are blue in open air and amber where the depth photo says they are buried"></canvas>
+        <canvas id="c2" width="640" height="360" class="r169 grab" aria-label="The same cellar cross-section with the camera's depth photo as a strip along the top; SSAO test dots around a draggable point are blue in open air and amber where the depth photo says they are buried"></canvas>
         <div class="cap"><span id="c2-read"></span><span id="c2-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Firing real rays is too slow for a game, so SSAO <b>cheats with the depth buffer</b>, the image the GPU already has that stores how far away each pixel's surface is. Around each pixel it <b>sprinkles a handful of test points</b> in a half-dome and asks, for each one, whether there is a surface in front of it. If the depth buffer says yes, that point <b>counts as blocked</b>. No rays, no crates, one lookup per point.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The strip along the top is the depth buffer, the camera's photo of the cellar from above: 320 cells, each 3.1 cm wide, brighter where the surface is closer to the camera. The player's head and the crate tops are bright, the floor is dark. Around the white point, each test sample is a dot. Blue dots sit in open air. Amber dots are under the stored surface, with a line up to the cell that said so. Hollow dots were under the surface but too far from the point in depth, so the range check threw them out.</p>
-        <p>The band along every surface is shaded by the same test, and the readout puts the result next to the 64-ray reference.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Switch the kernel to sphere with the point on the open floor left of the steps. Half the samples land under the floor and the AO reads about 0.5 for a spot that should read 1.</li>
-          <li>Turn the range check off and drag the point onto the floor beside the big crate. Samples that land above the crate top now count as blockers for the floor.</li>
-          <li>Pull the samples slider from 16 down to 4 and watch the band turn patchy.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><span class="lab">Kernel</span><div class="seg" id="segK" role="group" aria-label="Kernel shape"><button data-v="sphere">sphere</button><button data-v="hemi" aria-pressed="true">hemisphere</button></div></div>
-          <div class="ctl"><span class="lab">Range check</span><div class="seg" id="segRC" role="group" aria-label="Range check"><button data-v="on" aria-pressed="true">on</button><button data-v="off">off</button></div></div>
-          <div class="ctl"><label for="ssN">Samples N <span class="val" id="ssNv">16</span></label><input type="range" id="ssN" min="4" max="64" step="1" value="16"></div>
-          <div class="ctl"><label for="ssR">Radius <span class="val" id="ssRv">1.5 m</span></label><input type="range" id="ssR" min="0.25" max="3" step="0.05" value="1.5"></div>
-          <div class="ctl"><label for="ssB">Bias <span class="val" id="ssBv">0.03 m</span></label><input type="range" id="ssB" min="0" max="0.2" step="0.005" value="0.03"></div>
+      <div class="lesson" data-lesson="ssao">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="ssN">Test dots per pixel <span class="val" id="ssNv">16</span></label><input type="range" id="ssN" min="4" max="64" step="1" value="16"></div>
+          <div class="ctl"><label for="ssR">How far the dots spread <span class="val" id="ssRv">1.5 m</span></label><input type="range" id="ssR" min="0.25" max="3" step="0.05" value="1.5"></div>
         </div>
-
-        <h3>The real version</h3>
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><span class="lab">Where the dots go</span><div class="seg" id="segK" role="group" aria-label="Kernel shape"><button data-v="sphere">a full circle</button><button data-v="hemi" aria-pressed="true">a half circle, facing out</button></div></div>
+        </div>
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><span class="lab">Ignore a blocker far above the point</span><div class="seg" id="segRC" role="group" aria-label="Range check"><button data-v="on" aria-pressed="true">on</button><button data-v="off">off</button></div></div>
+          <div class="ctl"><label for="ssB">Lift on each dot, so a surface cannot block itself <span class="val" id="ssBv">0.03 m</span></label><input type="range" id="ssB" min="0" max="0.2" step="0.005" value="0.03"></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">SSAO never touches the scene; it only asks the depth photo whether each nearby test dot is inside something.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>This is Crytek's 2007 method. Take the pixel's position in view space, which means measured from the camera, scatter N points around it, and project each one back onto the screen. Read the depth stored at that screen position. If the stored surface is closer to the camera than the sample, the sample is inside something, so it counts as occluded.</p>
         <p>The original kernel, the cloud of sample offsets, was a full sphere. On flat ground half of it is below the floor, so an open surface reads 0.5 instead of 1. A hemisphere kernel turned to face along the normal fixes that.</p>
         <p>Two guards make it usable. A bias, a small offset added to each sample's depth, stops a surface from occluding itself because stored depth comes in steps. A range check drops samples whose stored depth is far from the pixel's own depth. Without it, a tree behind a character darkens the character.</p>
@@ -364,46 +348,37 @@ mat3 tbn = kernelBasis(n, noiseTex[ivec2(gl_FragCoord.xy) &amp; 3]);  <span clas
 }
 <span class="k">float</span> ao = 1.0 - occ / <span class="k">float</span>(N);</pre>
 
-        <p class="tldr">SSAO never touches the scene; it only asks the depth buffer whether each nearby test point is inside something.</p>
-      </div>
+        
+    </div></details>
     </div>
   </section>
-
-  <section id="horizon">
-    <h2>Horizons: walk out, keep the steepest angle</h2>
-    <p class="sub">Same cellar, same depth photo. Move the point and watch the march to the left and to the right find how high the crates, the barrel and the player rise above it.</p>
+  <section id="horizon" class="stage">
+    <h2>Skylines: walk out, keep the steepest angle</h2>
+    <p class="sub">Same cellar, same depth photo. From the point, a march steps left and right along the photo and finds how high the crates, the barrel and the player rise above it.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c3" width="640" height="360" class="r169 grab" aria-label="The cellar cross-section with a horizon march stepping left and right from a draggable point along the depth photo; amber wedges show the part of the half circle blocked by the crates and the player, blue the open part"></canvas>
         <div class="cap"><span id="c3-read"></span><span id="c3-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Instead of random test points, HBAO and GTAO <b>walk away from the pixel</b> in a few screen directions and, at each step, note how steeply the surface there rises above the point. The steepest angle found is the <b>horizon</b> in that direction, like the skyline you see from a street. <b>Everything below the horizon is blocked</b>, everything above is open. Two angles replace dozens of yes-or-no tests, and the result is <b>much less noisy for the same cost</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The depth photo is a single row here, so there are only two directions: left and right. The short white ticks are the steps of the march, out to the dashed radius. The white lines run to the sample that set each horizon, the top of the crate or the player's head, and the amber wedges under them are the blocked part of the half circle. The blue wedge between them is the open part.</p>
-        <p>The band along the surface is shaded by whichever method is selected. The tiles compare both methods against the reference, and against SSAO given the same number of depth fetches, as an RMS error across every surface in the cellar.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the point onto the floor beside the big crate. The amber wedge on the crate's side grows steep while the other stays flat, and the readout matches the reference closely.</li>
-          <li>Drop steps per direction to 2. The horizon still lands on something and the band stays smooth; compare the two RMS error tiles.</li>
-          <li>Switch between HBAO and GTAO with the point on the floor between the barrel and the small crate. GTAO tracks the reference more closely at the same steps.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><span class="lab">Shade surface with</span><div class="seg" id="segH" role="group" aria-label="Horizon method"><button data-v="hbao">HBAO</button><button data-v="gtao" aria-pressed="true">GTAO</button></div></div>
-          <div class="ctl"><label for="hbK">Steps per direction <span class="val" id="hbKv">8</span></label><input type="range" id="hbK" min="2" max="32" step="1" value="8"></div>
-          <div class="ctl"><label for="hbR">Radius <span class="val" id="hbRv">1.5 m</span></label><input type="range" id="hbR" min="0.25" max="3" step="0.05" value="1.5"></div>
+      <div class="lesson" data-lesson="horizon">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="hbK">Steps each way <span class="val" id="hbKv">8</span></label><input type="range" id="hbK" min="2" max="32" step="1" value="8"></div>
+          <div class="ctl"><label for="hbR">How far the march goes <span class="val" id="hbRv">1.5 m</span></label><input type="range" id="hbR" min="0.25" max="3" step="0.05" value="1.5"></div>
         </div>
-        <div class="tiles four">
-          <div class="tile"><div class="n" id="t3-hbao">·</div><div class="l">HBAO at point</div></div>
-          <div class="tile"><div class="n" id="t3-gtao">·</div><div class="l">GTAO at point</div></div>
-          <div class="tile"><div class="n" id="t3-err">·</div><div class="l">horizon RMS err</div></div>
-          <div class="tile"><div class="n" id="t3-serr">·</div><div class="l">SSAO RMS err</div></div>
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><span class="lab">Which skyline method paints the band</span><div class="seg" id="segH" role="group" aria-label="Horizon method"><button data-v="hbao">HBAO</button><button data-v="gtao" aria-pressed="true">GTAO</button></div></div>
         </div>
-
-        <h3>The real version</h3>
+        <div class="tiles four" data-step-min="3">
+          <div class="tile"><div class="n" id="t3-hbao">·</div><div class="l">HBAO at the point</div></div>
+          <div class="tile"><div class="n" id="t3-gtao">·</div><div class="l">GTAO at the point</div></div>
+          <div class="tile"><div class="n" id="t3-err">·</div><div class="l">skyline method: average error, whole cellar</div></div>
+          <div class="tile"><div class="n" id="t3-serr">·</div><div class="l">SSAO, same number of lookups: average error</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">A skyline march finds the highest thing in each direction, and everything below the skyline is blocked.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Walk away from the pixel in a screen direction, read the depth at each step, and keep the steepest elevation angle seen so far. That angle is the horizon in that direction. Everything under it is blocked and everything above is open. Two numbers per direction replace N independent hit tests, and the estimate changes smoothly as the horizon moves, so it is far less noisy for the same number of depth fetches.</p>
         <p>HBAO (NVIDIA, 2008) integrates the horizon evenly over the view hemisphere and fades blockers by distance. GTAO (Activision, 2016) integrates the cosine-weighted hemisphere around the normal in closed form per slice, a slice being one screen direction and its opposite. That matches the reference definition. In 3D the slice result is averaged over directions φ; with one slice here it is divided by its open-sky value. Samples beyond <code>r</code> are ignored in both.</p>
         <p class="words">In words: HBAO scores each direction by how high its horizon is; GTAO takes two horizons per slice and solves the cosine-weighted integral between them exactly.</p>
@@ -433,43 +408,34 @@ GTAO  h1, h2 = horizons from the view vector,
 }
 <span class="k">float</span> ao = 1.0 - 0.5 * (horizonSin(uv, +dx, p, n) + horizonSin(uv, -dx, p, n));</pre>
 
-        <p class="tldr">A horizon march finds the skyline in each direction, and everything below the skyline is blocked.</p>
-      </div>
+        
+    </div></details>
     </div>
   </section>
-
-  <section id="denoise">
+  <section id="denoise" class="stage">
     <h2>Noise, blur, history</h2>
-    <p class="sub">The cellar floor seen from above, as the AO image the engine computes. Drag the crate around the floor and watch the four stages that turn a noisy AO image into a clean one; the inset shows the finished picture the player gets.</p>
-    <div class="cols wide">
+    <p class="sub">The cellar floor seen from above, as the AO image the engine computes. Four panels turn a speckled image into a clean one; the inset is the picture the player gets.</p>
+    <div class="cols">
       <div class="vp">
         <canvas id="c4" width="640" height="360" class="r169 grab" aria-label="Four panels of a cellar floor seen from above with a draggable crate, a barrel, a drain channel and a raised ledge: raw noisy AO, depth-blind blur, bilateral blur, and temporal accumulation with an inset of the coloured result the player sees"></canvas>
         <div class="cap"><span id="c4-read"></span><span id="c4-cap"></span></div>
       </div>
-    </div>
-    <div class="cols two below">
-      <div class="prose">
-        <p class="plain">Twelve test points per pixel is nowhere near enough, so the raw AO image is <b>speckled with noise</b>. The trick is to make the noise a <b>repeating 4×4 pattern</b> and then <b>blur it away</b> in a way that stops at the edges of the crate. Then the game <b>keeps a running average across frames</b>, so each pixel ends up drawing on hundreds of tests it never ran.</p>
-
-        <h3>What you're seeing</h3>
-        <p>A 160×90 depth render of a 16 m × 9 m cellar floor seen from above: a crate you can drag, a barrel, a drain channel across the floor and a raised ledge on the right. Panel 1 is the raw SSAO with 12 samples per pixel. Panel 2 is a plain 4×4 blur that ignores depth and smears a halo around the crate. Panel 3 is a blur that checks depth and stops at the crate's edge. Panel 4 adds the previous frames on top, and its inset multiplies that result over the coloured floor, which is what the player sees.</p>
-        <p>The readout counts the depth fetches for the whole image and how long the JavaScript took.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Compare panels 2 and 3 at the crate's edge. Panel 2 has a bright halo on the floor and a dark bleed onto the crate top; panel 3 has neither.</li>
-          <li>Untick "reject history on depth change" while the crate moves. A ghost of the old occlusion trails behind it in panel 4 and in the inset.</li>
-          <li>Push σ_z up to 1.5 m. The depth check stops mattering and panel 3 grows the same halo as panel 2.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="sigZ">σ_z <span class="val" id="sigZv">0.20 m</span></label><input type="range" id="sigZ" min="0.05" max="1.5" step="0.05" value="0.2"></div>
-          <div class="ctl"><label for="alpha">History α <span class="val" id="alphav">0.10</span></label><input type="range" id="alpha" min="0.02" max="0.5" step="0.01" value="0.1"></div>
-          <div class="ctl chk"><input type="checkbox" id="anim" checked><label for="anim">move the crate</label></div>
-          <div class="ctl chk"><input type="checkbox" id="reject" checked><label for="reject">reject history on depth change</label></div>
+      <div class="lesson" data-lesson="denoise">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="sigZ">Depth jump that counts as an edge <span class="val" id="sigZv">0.20 m</span></label><input type="range" id="sigZ" min="0.05" max="1.5" step="0.05" value="0.2"></div>
         </div>
-
-        <h3>The real version</h3>
+        <div class="controls" data-step-min="4">
+          <div class="ctl chk"><input type="checkbox" id="anim" checked><label for="anim">move the crate by itself</label></div>
+          <div class="ctl chk"><input type="checkbox" id="reject" checked><label for="reject">throw the history away where the depth changed</label></div>
+        </div>
+        <div class="controls" data-step-min="6">
+          <div class="ctl"><label for="alpha">Share of each new frame that goes into the history <span class="val" id="alphav">0.10</span></label><input type="range" id="alpha" min="0.02" max="0.5" step="0.01" value="0.1"></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Make the noise a known pattern, blur it away without crossing edges, then average across frames, and twelve dots do the work of hundreds.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Each pixel of a 4×4 tile rotates the sample kernel differently, so a 4×4 blur sees all 16 rotations, which is 192 effective samples. A blur that ignores depth smears the dark floor onto the crate top and lightens the floor next to it: the halo in panel 2. The bilateral blur, a blur that weights each neighbour by how close its depth is, stops at the edge, panel 3.</p>
         <p>Temporal accumulation blends in the previous frames, with a new noise phase every frame, panel 4. In a real engine the history has to be reprojected with motion vectors, the per-pixel record of where each point was last frame. Here the camera is fixed, so the only rejection needed is a depth mismatch.</p>
         <p class="words">In words: weight each neighbour by how similar its depth is, average, then blend a tenth of the new result into last frame's running total unless the depth changed.</p>
@@ -480,8 +446,6 @@ history = |z_prev(uv') − z(uv)| &gt; τ ? blurred : hist(uv')
 result  = (1 − α) history + α blurred
           <span class="c">α = 0.1 ⇒ ~10 frames, ~1900 effective samples</span></div>
         <p><code>w_ij</code> is the weight of neighbour <code>j</code> for pixel <code>i</code>, <code>σ_z</code> sets how big a depth difference counts as an edge, <code>τ</code> is the mismatch that throws history away, and <code>α</code> is how much of the new frame goes into the running average. At α = 0.1 about 10 frames are blended, so roughly 1900 effective samples.</p>
-      </div>
-      <div class="prose">
         <p class="words">What this code does: blurs 4×4 with depth-aware weights, then reads last frame's value at the reprojected position and blends it in unless that pixel used to be a different surface.</p>
 <pre class="code"><span class="c">// 4×4 bilateral blur; the footprint matches the 4×4 noise tile on purpose</span>
 <span class="k">float</span> z0 = depth(uv), sum = 0.0, wsum = 0.0;
@@ -499,44 +463,35 @@ vec2 uvPrev = uv - motionVector(uv);
 <span class="k">float</span> h = abs(depthPrev(uvPrev) - z0) &gt; 0.1 ? blurred : history(uvPrev);
 aoOut = mix(h, blurred, alpha);</pre>
 
-        <p class="tldr">Make the noise a known pattern, blur it away without crossing edges, then average across frames and you get hundreds of samples for the price of twelve.</p>
-      </div>
+        
+    </div></details>
     </div>
   </section>
-
-  <section id="beyond">
-    <h2>What the depth buffer cannot see</h2>
-    <p class="sub">The cellar again, now with a shelf over the ledge and the cellar wall just past the right edge of the screen. Drag the point onto the floor beside the shelf, then onto the top step beside the wall, and compare the three methods.</p>
+  <section id="beyond" class="stage">
+    <h2>What the depth photo cannot see</h2>
+    <p class="sub">The cellar again, with a shelf over the steps and the cellar wall just past the right edge of the screen. Three methods, one point, and two places where the photo is wrong.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="640" height="360" class="r169 grab" aria-label="The cellar cross-section with a shelf over the ledge and a wall just outside the camera frame; SSAO, distance-field AO and ray-traced AO compared at a draggable point, with an amber fill showing everything the depth photo believes is solid"></canvas>
+        <canvas id="c5" width="640" height="360" class="r169 grab" aria-label="The cellar cross-section with a shelf over the steps and a wall just outside the camera frame; SSAO, distance-field AO and ray-traced AO compared at a draggable point, with an amber fill showing everything the depth photo believes is solid"></canvas>
         <div class="cap"><span id="c5-read"></span><span id="c5-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The depth buffer only knows about <b>the nearest surface in each pixel</b>, and nothing outside the frame. So SSAO thinks <b>everything under the shelf is solid</b> and <b>the cellar wall just off screen does not exist</b>. Both mistakes shift as the camera turns, which is the crawling AO players notice. The only fix is to <b>ask the scene itself</b>, with a distance field or real rays, and that costs more.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The same cellar plus a shelf on a post over the ledge, and the cellar wall just past the right edge. The dashed brackets mark the frame the camera can see. In SSAO mode the amber fill shows everything the depth photo believes is solid: the whole column under each stored surface, so all the air under the shelf, and nothing outside the frame.</p>
-        <p>Switch methods and the marks change. SSAO shows its test dots. DFAO shows a fan of cones, each with circles for the distance-field steps and a number for how open that cone is. RTAO shows real rays. The tiles give each method's answer at the point with a rough cost, and the readout gives the 64-ray reference.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the point onto the floor just left of the shelf. SSAO darkens it as if it stood against a wall, while the reference says it is mostly open.</li>
-          <li>Drag it to the right end of the top step, beside the wall. SSAO stays bright because the wall is off screen; DFAO and RTAO both find it.</li>
-          <li>Set RTAO to 1 ray per pixel. The answer becomes 0 or 1 with nothing in between, which is why RTAO always needs a denoiser.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><span class="lab">Shade surface with</span><div class="seg" id="segM5" role="group" aria-label="AO method"><button data-v="ssao" aria-pressed="true">SSAO</button><button data-v="dfao">DFAO</button><button data-v="rtao">RTAO</button></div></div>
+      <div class="lesson" data-lesson="beyond">
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><span class="lab">Method that paints the band</span><div class="seg" id="segM5" role="group" aria-label="AO method"><button data-v="ssao" aria-pressed="true">SSAO</button><button data-v="dfao">DFAO</button><button data-v="rtao">RTAO</button></div></div>
+        </div>
+        <div class="controls" data-step-min="6">
           <div class="ctl"><span class="lab">RTAO rays per pixel</span><div class="seg" id="segRays" role="group" aria-label="Rays per pixel"><button data-v="1">1</button><button data-v="4">4</button><button data-v="16" aria-pressed="true">16</button><button data-v="64">64</button></div></div>
         </div>
-        <div class="tiles">
+        <div class="tiles" data-step-min="5">
           <div class="tile" id="t5-ssao"><div class="n">·</div><div class="l" id="t5-ssao-l">SSAO</div></div>
           <div class="tile" id="t5-dfao"><div class="n">·</div><div class="l" id="t5-dfao-l">DFAO</div></div>
           <div class="tile" id="t5-rtao"><div class="n">·</div><div class="l" id="t5-rtao-l">RTAO</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Screen-space AO can only be as right as the depth photo, and the photo knows nothing about what is hidden or off screen.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The depth buffer stores one surface per texel, the nearest. Everything behind it is assumed solid and everything outside the frame does not exist. Under the shelf, SSAO's samples land inside a volume the buffer thinks is filled, so the floor beside the shelf's edge is darkened as if it stood against a wall. At the right end of the top step the real wall is one texel outside the frame, so SSAO sees nothing and the step stays bright. Both errors change as the camera pans, which is the view dependence that players notice as AO "crawling".</p>
         <p>Distance-field AO (Unreal, 2014) cone-traces a signed distance field of the whole scene, on screen or not. A signed distance field is a 3D grid that stores, at every point, how far it is to the nearest surface. Along each cone the ratio of that distance to the cone's width says how much of the cone is still clear. Ray-traced AO is the reference itself with hardware rays, usually one ray per pixel and a denoiser. Both cost more per pixel; only they get these cases right.</p>
         <p class="words">In words: SSAO fails wherever the sample is in air but the buffer says solid, or off screen; DFAO takes the worst clearance along each cone; RTAO is the reference with fewer rays.</p>
@@ -563,47 +518,47 @@ RTAO AO = (1/N) Σ V(p, ω_i),  N = 1 + denoiser</div>
   <span class="k">return</span> sum / wsum;
 }</pre>
 
-        <p class="tldr">Screen-space AO can only be as right as the depth buffer, and the depth buffer knows nothing about what is hidden or off screen.</p>
-      </div>
+        
+    </div></details>
     </div>
   </section>
 
-  <section id="tradeoffs">
+<section id="tradeoffs">
     <h2>Tradeoffs</h2>
-    <p class="sub">Typical numbers at 1920×1080 on a mid-range desktop GPU, full-resolution pass unless noted.</p>
+    <p class="sub">Typical numbers for a 1920×1080 screen on a mid-range desktop graphics card, computed for every pixel unless noted.</p>
     <p class="plain">Read this table as a choice between <b>how much a frame you can spend</b> and <b>which mistakes you can live with</b>. The three screen-space rows all share the same blind spots from the last section; they differ in how much noise you get per depth lookup. The last two rows fix the blind spots by asking the scene, and pay for it.</p>
     <div class="tbl-wrap">
     <table class="stats">
-      <thead><tr><th>Method</th><th>Cost at 1080p</th><th>Lookups per pixel</th><th>What it looks like</th><th>Changes with the camera</th><th>Steady between frames</th><th>Pick it when</th></tr></thead>
+      <thead><tr><th>Method</th><th>Cost per frame at 1080p</th><th>Lookups per pixel</th><th>What it looks like</th><th>Changes as the camera turns</th><th>Steady between frames</th><th>Pick it when</th></tr></thead>
       <tbody>
-        <tr><td>SSAO (Crytek, 2007)</td><td>0.5–1.5 ms</td><td>8–32 depth</td><td>noisy; flat walls go grey with a sphere kernel</td><td>yes</td><td>poor without blur + TAA</td><td>mobile, minimum spec, or as a fallback</td></tr>
-        <tr><td>HBAO+ (NVIDIA)</td><td>1–2 ms</td><td>4–8 dirs × 4–8 steps, deinterleaved</td><td>smooth horizons; creases too dark at large r</td><td>yes</td><td>good</td><td>desktop games without a modern TAA pipeline</td></tr>
-        <tr><td>GTAO (Activision, 2016)</td><td class="hi">0.5–1 ms at half res</td><td>2–4 slices × 4–8 steps</td><td>closest to the reference of the screen-space set</td><td>yes</td><td>good, built for TAA</td><td>the default in most current engines</td></tr>
-        <tr><td>DFAO (Unreal, 2014)</td><td>1–3 ms at half res</td><td>9 cones × ~10–20 SDF taps</td><td>soft; misses thin things the SDF cannot hold</td><td>no</td><td>very good</td><td>large open worlds where off-screen blockers matter</td></tr>
-        <tr><td>RTAO</td><td>2–4 ms + denoiser</td><td>1–2 rays</td><td>the reference with hardware rays; the denoiser handles the noise</td><td>no</td><td>good with a temporal denoiser</td><td>RT-capable hardware, often folded into RT GI</td></tr>
+        <tr><td>SSAO (Crytek, 2007)</td><td>0.5–1.5 ms</td><td>8–32 photo lookups</td><td>speckled; flat walls go grey if the dots fill a full circle</td><td>yes</td><td>poor without the blur and history from section 4</td><td>phones, the lowest settings, or as a fallback</td></tr>
+        <tr><td>HBAO+ (NVIDIA)</td><td>1–2 ms</td><td>4–8 directions × 4–8 steps</td><td>smooth skylines; creases too dark when the march is long</td><td>yes</td><td>good</td><td>desktop games that do not average frames together</td></tr>
+        <tr><td>GTAO (Activision, 2016)</td><td class="hi">0.5–1 ms at half the pixels</td><td>2–4 directions × 4–8 steps</td><td>closest to the 64-ray truth of the depth-photo methods</td><td>yes</td><td>good, built to be averaged across frames</td><td>the default in most current engines</td></tr>
+        <tr><td>DFAO (Unreal, 2014)</td><td>1–3 ms at half the pixels</td><td>9 cones × about 10–20 grid lookups</td><td>soft; misses thin things the distance grid cannot hold</td><td>no</td><td>very good</td><td>large open worlds where off-screen blockers matter</td></tr>
+        <tr><td>RTAO</td><td>2–4 ms plus the clean-up</td><td>1–2 rays</td><td>the 64-ray truth with real rays; the blur and history handle the speckle</td><td>no</td><td>good with history</td><td>ray-tracing hardware, often folded into ray-traced bounce lighting</td></tr>
       </tbody>
     </table>
     </div>
-    <p class="note">The costs are ranges, not benchmarks. Each method shifts by 2× with resolution, radius and sample count. Running a screen-space pass at half resolution and upsampling with a depth-aware filter is the usual way to get GTAO under 1 ms on consoles.</p>
+    <p class="note">The costs are ranges, not benchmarks. Each method shifts by 2× with screen size, distance and dot count. Computing a depth-photo method at half the pixels and scaling it up with a blur that stops at edges is the usual way to get GTAO under 1 ms on consoles.</p>
   </section>
 
-  <section id="uses">
+<section id="uses">
     <h2>Where it shows up in shipped games</h2>
-    <p class="sub">Every row estimates the same integral. What differs is what the query reads: the depth buffer, a distance field, or the geometry.</p>
+    <p class="sub">Every row estimates the same thing, how much sky a point can see. What differs is what it reads: the depth photo, a distance grid, or the scene itself.</p>
     <p class="plain">Each row is <b>one way of asking "how much sky can this point see"</b>. The second column says what the GPU does per pixel, the third says what data has to exist for that to work, and the last names <b>games and engines that shipped it</b>.</p>
     <div class="tbl-wrap">
     <table class="uses">
       <thead><tr><th>Method</th><th>What the GPU does per pixel</th><th>Data it needs</th><th>Seen in</th></tr></thead>
       <tbody>
-        <tr><td>SSAO</td><td>Puts N test points into the depth buffer, counts how many land behind the stored surface, and drops the ones too far away in depth.</td><td>Depth buffer, normals, 4×4 noise texture</td><td>Crysis (Crytek, 2007), the first shipped version; most engines since as a low-end option</td></tr>
-        <tr><td>HBAO+</td><td>Marches 4–8 screen directions, keeps the horizon angle per direction, integrates sin h − sin t; splits the screen 4×4 to keep the cache warm.</td><td>Depth buffer, normals</td><td>NVIDIA GameWorks titles, 2013 onward, e.g. Assassin's Creed IV: Black Flag</td></tr>
-        <tr><td>GTAO</td><td>Per slice, two horizons and a closed-form cosine-weighted integral; 1 slice per pixel, with TAA averaging the rest.</td><td>Depth buffer, normals, TAA</td><td>Call of Duty (Activision, 2016), Unity HDRP, Unreal Engine's GTAO path, Intel XeGTAO (2021)</td></tr>
-        <tr><td>DFAO</td><td>Cone-traces a global signed distance field; occlusion from distance over cone width; cached per world-space probe and interpolated.</td><td>Per-mesh SDFs merged into a global field</td><td>Unreal Engine 4 and 5 (Distance Field Ambient Occlusion)</td></tr>
-        <tr><td>RTAO</td><td>One hardware ray per pixel in a cosine-weighted direction, hit or miss within r, then temporal and spatial denoise.</td><td>Ray-tracing acceleration structure, motion vectors</td><td>Cyberpunk 2077, Metro Exodus, many DXR titles; in Lumen and Metro Exodus Enhanced Edition the AO term comes out of RT GI</td></tr>
+        <tr><td>SSAO</td><td>Places a handful of test dots around the pixel, counts how many the depth photo says are buried, and ignores the ones whose covering surface is far away.</td><td>Depth photo, surface directions, a 4×4 noise pattern</td><td>Crysis (Crytek, 2007), the first shipped version; most engines since as a low-end option</td></tr>
+        <tr><td>HBAO+</td><td>Marches out in 4–8 screen directions, keeps the skyline angle in each, and scores by how high the skylines are; works on the screen in 4×4 groups to keep memory reads fast.</td><td>Depth photo, surface directions</td><td>NVIDIA GameWorks titles, 2013 onward, e.g. Assassin's Creed IV: Black Flag</td></tr>
+        <tr><td>GTAO</td><td>In each direction pair, two skylines and an exact formula for the open share of the half circle; one direction pair per pixel, with frame averaging filling in the rest.</td><td>Depth photo, surface directions, frame averaging</td><td>Call of Duty (Activision, 2016), Unity HDRP, Unreal Engine's GTAO path, Intel XeGTAO (2021)</td></tr>
+        <tr><td>DFAO</td><td>Steps cones through a grid of distances to the nearest surface; how open a cone is comes from that distance over the cone's width; results are cached at points in the world and blended.</td><td>A distance grid per object, merged into one for the whole scene</td><td>Unreal Engine 4 and 5 (Distance Field Ambient Occlusion)</td></tr>
+        <tr><td>RTAO</td><td>One real ray per pixel, favouring straight up, hit or miss within the set distance, then blur and history to clean it up.</td><td>A ray-tracing copy of the scene, a record of where each pixel was last frame</td><td>Cyberpunk 2077, Metro Exodus, many ray-traced titles; in Lumen and Metro Exodus Enhanced Edition it falls out of ray-traced bounce lighting</td></tr>
       </tbody>
     </table>
     </div>
-    <p class="note">The trap is what AO gets applied to. It only approximates how much ambient light a point misses, and direct light already has its own shadows, so a crease facing the sun should be as bright as the sun makes it. Many games still multiply AO over the whole lit image because it looks "grounded", which darkens sunlit corners twice; the right place for it is the indirect light, and in a GTAO pipeline also the specular occlusion derived from it.</p>
+    <p class="note">The trap is what AO gets applied to. It only approximates how much ambient light a point misses, and direct light already has its own shadows, so a crease facing the sun should be as bright as the sun makes it. Many games still multiply AO over the whole lit image because it looks "grounded", which darkens sunlit corners twice; the right place for it is the bounced light only, and in a GTAO pipeline also the matching darkening of reflections that comes with it.</p>
   </section>
 </div>
 
@@ -722,9 +677,78 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   // ---------- world: a cellar in cross-section, x 0..10 m, y up, canvas 640×360 at 64 px/m, y = 4.5 m at the top ----------
   const W = 640, H = 360, PPM = 64, YTOP = 4.5, CAM = 4.5;
+  let L1, L2, L3, L4, L5;
+  const $ = id => document.getElementById(id);
   const sx = x => x * PPM, sy = y => (YTOP - y) * PPM;
   // [x0, y0, x1, y1, kind]; the engine's camera looks straight down, so the top edge of each rect is what it photographs
   const RECTS_A = [
@@ -903,11 +927,12 @@ function kitInset(ctx, x, y, w, h, title) {
   // pointer → world; any press moves the point to the nearest surface sample, then drags
   function worldOf(canvas, ev) { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width * 10, YTOP - (ev.clientY - r.top) / r.height * H / PPM]; }
   function surfaceDrag(canvas, pts, state, redraw) {
-    let active = false, pending = false;
+    let active = false, pending = false, last = null;
     const req = () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; redraw(); }); };
-    canvas.addEventListener("pointerdown", ev => { active = true; canvas.setPointerCapture(ev.pointerId); const [x, y] = worldOf(canvas, ev); state.i = nearestSurface(pts, x, y); req(); });
-    canvas.addEventListener("pointermove", ev => { if (!active) return; const [x, y] = worldOf(canvas, ev); state.i = nearestSurface(pts, x, y); req(); });
-    const end = ev => { active = false; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} };
+    const onMove = (x, y) => { state.i = nearestSurface(pts, x, y); last = [x, y]; req(); };
+    canvas.addEventListener("pointerdown", ev => { active = true; canvas.setPointerCapture(ev.pointerId); const [x, y] = worldOf(canvas, ev); onMove(x, y); });
+    canvas.addEventListener("pointermove", ev => { if (!active) return; const [x, y] = worldOf(canvas, ev); onMove(x, y); });
+    const end = ev => { if (active && last) { state.i = nearestSurface(pts, last[0], last[1]); redraw(); } active = false; last = null; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} };
     canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
   }
   function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
@@ -940,8 +965,10 @@ function kitInset(ctx, x, y, w, h, title) {
     kitLabel(x1, "blue = gets out", 6, 14, "left", BLUE); kitLabel(x1, "amber = blocked", 118, 14, "left", AMBER);
     handle(x1, p.x, p.y);
     pointLabel(x1, p, `${res.vis} of 64 rays get out`, WHITE);
-    document.getElementById("c1-read").innerHTML = `<strong>${res.vis} of 64 rays escape · AO = ${res.ao.toFixed(2)}</strong>`;
-    document.getElementById("c1-cap").textContent = `p = (${p.x.toFixed(2)}, ${p.y.toFixed(2)}) m · r = ${fmtM(r)}`;
+    document.getElementById("c1-read").innerHTML = `<strong>${res.vis} of 64 rays get out · AO ${res.ao.toFixed(2)}</strong> (0 = buried, 1 = open sky)`;
+    document.getElementById("c1-cap").textContent = `point ${p.x.toFixed(2)} m from the left wall, ${p.y.toFixed(2)} m up · rays followed for ${fmtM(r)}`;
+    s1.stats = { vis: res.vis, ao: res.ao };
+    L1 && L1.check();
   }
   surfaceDrag(c1, SURF_A, s1, draw1);
   onRange("r1", fmtM, v => { s1.r = v; draw1(); });
@@ -987,9 +1014,12 @@ function kitInset(ctx, x, y, w, h, title) {
     kitLabel(x2, "blue dot = open air · amber dot = the photo says buried", 6, H - 14, "left", "#c7cdd8");
     normalTick(x2, p); handle(x2, p.x, p.y);
     const ref = refAll(RECTS_A, SURF_A, s2.r)[s2.i];
-    pointLabel(x2, p, `SSAO ${res.ao.toFixed(2)} · true ${ref.toFixed(2)}`, WHITE);
-    document.getElementById("c2-read").innerHTML = `<strong>occluded ${res.occ.toFixed(1)} of ${s2.N} · SSAO = ${res.ao.toFixed(2)}</strong> · reference ${ref.toFixed(2)}`;
-    document.getElementById("c2-cap").textContent = `hollow = occluded but range-rejected · ${s2.kernel === "sphere" ? "sphere" : "hemisphere"} kernel`;
+    pointLabel(x2, p, `SSAO ${res.ao.toFixed(2)} · truth ${ref.toFixed(2)}`, WHITE);
+    const hollow = res.samples.filter(q => q[3] === 2).length;
+    document.getElementById("c2-read").innerHTML = `<strong>${res.occ.toFixed(1)} of ${s2.N} dots buried · SSAO says ${res.ao.toFixed(2)}</strong> · the 64 rays say ${ref.toFixed(2)}`;
+    document.getElementById("c2-cap").textContent = `${hollow} hollow: buried but ignored, the surface over them is too far above · dots in ${s2.kernel === "sphere" ? "a full circle" : "a half circle"}`;
+    s2.stats = { ao: res.ao, ref, hollow };
+    L2 && L2.check();
   }
   surfaceDrag(c2, SURF_A, s2, draw2);
   onSeg("segK", v => { s2.kernel = v; draw2(); });
@@ -1046,14 +1076,16 @@ function kitInset(ctx, x, y, w, h, title) {
     }
     kitLabel(x3, "amber wedge = below the skyline, blocked · blue = open", 6, H - 14, "left", "#c7cdd8");
     normalTick(x3, p); handle(x3, p.x, p.y);
-    pointLabel(x3, p, `${s3.method.toUpperCase()} ${(s3.method === "gtao" ? h.gtao : h.hbao).toFixed(2)} · true ${ref[s3.i].toFixed(2)}`, WHITE);
+    pointLabel(x3, p, `${s3.method.toUpperCase()} ${(s3.method === "gtao" ? h.gtao : h.hbao).toFixed(2)} · truth ${ref[s3.i].toFixed(2)}`, WHITE);
     const deg = a => (a * 180 / Math.PI).toFixed(0) + "°";
-    document.getElementById("c3-read").innerHTML = `<strong>${s3.method.toUpperCase()} = ${(s3.method === "gtao" ? h.gtao : h.hbao).toFixed(2)}</strong> · reference ${ref[s3.i].toFixed(2)}`;
-    document.getElementById("c3-cap").textContent = `2 × ${K} steps of ${(r / K * 100).toFixed(0)} cm · view-space h1 = ${deg(h.h1)}, h2 = ${deg(h.h2)}, n = ${deg(h.nAng)}`;
+    document.getElementById("c3-read").innerHTML = `<strong>${s3.method.toUpperCase()} says ${(s3.method === "gtao" ? h.gtao : h.hbao).toFixed(2)}</strong> · the 64 rays say ${ref[s3.i].toFixed(2)}`;
+    document.getElementById("c3-cap").textContent = `${K} steps of ${(r / K * 100).toFixed(0)} cm each way · skyline right ${deg(h.elev[0])}, left ${deg(h.elev[1])} above flat`;
+    s3.stats = { gtao: h.gtao, hbao: h.hbao, ref: ref[s3.i], elevR: h.elev[0], elevL: h.elev[1] };
     document.getElementById("t3-hbao").textContent = h.hbao.toFixed(2);
     document.getElementById("t3-gtao").textContent = h.gtao.toFixed(2);
     document.getElementById("t3-err").textContent = Math.sqrt(e1 / SURF_A.length).toFixed(3);
-    document.getElementById("t3-serr").innerHTML = Math.sqrt(e2 / SURF_A.length).toFixed(3) + ` <small>N = ${2 * K}</small>`;
+    document.getElementById("t3-serr").innerHTML = Math.sqrt(e2 / SURF_A.length).toFixed(3) + ` <small>${2 * K} dots</small>`;
+    L3 && L3.check();
   }
   surfaceDrag(c3, SURF_A, s3, draw3);
   onSeg("segH", v => { s3.method = v; draw3(); });
@@ -1131,13 +1163,15 @@ function kitInset(ctx, x, y, w, h, title) {
     normalTick(x5, p); handle(x5, p.x, p.y);
     const ref = refAO(RECTS_B, p, r, 64).ao;
     const mv = m === "ssao" ? ss.ao : m === "dfao" ? df.ao : rt.ao;
-    pointLabel(x5, p, `${m.toUpperCase()} ${mv.toFixed(2)} · true ${ref.toFixed(2)}`, WHITE);
-    document.getElementById("c5-read").innerHTML = `<strong>reference (64 rays) = ${ref.toFixed(2)}</strong> · p = (${p.x.toFixed(2)}, ${p.y.toFixed(2)}) m`;
-    document.getElementById("c5-cap").textContent = "cost ≈ order of magnitude at 1080p";
+    pointLabel(x5, p, `${m.toUpperCase()} ${mv.toFixed(2)} · truth ${ref.toFixed(2)}`, WHITE);
+    document.getElementById("c5-read").innerHTML = `<strong>the 64 rays say ${ref.toFixed(2)}</strong> · point ${p.x.toFixed(2)} m from the left wall, ${p.y.toFixed(2)} m up`;
+    document.getElementById("c5-cap").textContent = "costs are rough, for a 1920×1080 screen";
     const set = (id, v, l) => { document.getElementById(id).querySelector(".n").textContent = v.toFixed(2); document.getElementById(id + "-l").textContent = l; document.getElementById(id).classList.toggle("on", id === "t5-" + m); };
-    set("t5-ssao", ss.ao, `SSAO · ${SS5.N} fetches · ≈${(SS5.N * 0.05).toFixed(1)} ms`);
-    set("t5-dfao", df.ao, `DFAO · ${df.taps} SDF taps · ≈${(df.taps * 0.025).toFixed(1)} ms`);
-    set("t5-rtao", rt.ao, `RTAO · ${s5.rays} ray${s5.rays > 1 ? "s" : ""} · ≈${(s5.rays * 1.5).toFixed(0)} ms${s5.rays === 1 ? " + denoiser" : ""}`);
+    set("t5-ssao", ss.ao, `SSAO · ${SS5.N} photo lookups · about ${(SS5.N * 0.05).toFixed(1)} ms`);
+    set("t5-dfao", df.ao, `DFAO · ${df.taps} grid lookups · about ${(df.taps * 0.025).toFixed(1)} ms`);
+    set("t5-rtao", rt.ao, `RTAO · ${s5.rays} ray${s5.rays > 1 ? "s" : ""} · about ${(s5.rays * 1.5).toFixed(0)} ms${s5.rays === 1 ? " plus the clean-up" : ""}`);
+    s5.stats = { ssao: ss.ao, dfao: df.ao, rtao: rt.ao, ref };
+    L5 && L5.check();
   }
   surfaceDrag(c5, SURF_B, s5, draw5);
   onSeg("segM5", v => { s5.method = v; draw5(); });
@@ -1247,16 +1281,17 @@ function kitInset(ctx, x, y, w, h, title) {
     const t0 = performance.now();
     computeRaw(); blur(raw, naive, 0); blur(raw, bil, s4.sigma); temporal();
     const ms = performance.now() - t0;
-    panel(raw, 0, 0, `1 · raw, ${N4} spp, 4×4 noise`);
-    panel(naive, W / 2, 0, `2 · 4×4 box blur, depth-blind`);
-    panel(bil, 0, H / 2, `3 · 4×4 bilateral, σz = ${s4.sigma.toFixed(2)} m`);
-    panel(hist, W / 2, H / 2, `4 · + history, α = ${s4.alpha.toFixed(2)}, frame ${s4.frame}`);
+    panel(raw, 0, 0, `1 · raw: ${N4} dots a pixel`);
+    panel(naive, W / 2, 0, `2 · plain blur, ignores depth`);
+    panel(bil, 0, H / 2, `3 · blur that stops at edges, ${s4.sigma.toFixed(2)} m`);
+    panel(hist, W / 2, H / 2, `4 · plus history, ${Math.round(s4.alpha * 100)}% new, frame ${s4.frame}`);
     yardOutlines(0, 0, true); yardOutlines(W / 2, 0, false); yardOutlines(0, H / 2, false);
     kitInset(x4, W - 178, H - 120, 174, 116, "what the player sees"); playerView(W - 171, H - 96, 160, 90);
     x4.strokeStyle = "rgba(255,255,255,0.35)"; x4.lineWidth = 1; x4.beginPath(); x4.moveTo(W / 2 + 0.5, 0); x4.lineTo(W / 2 + 0.5, H); x4.moveTo(0, H / 2 + 0.5); x4.lineTo(W, H / 2 + 0.5); x4.stroke();
-    document.getElementById("c4-read").innerHTML = `<strong>${(GX * GZ).toLocaleString("en-US")} px × ${N4} samples = ${(GX * GZ * N4).toLocaleString("en-US")} depth fetches</strong> · ${ms.toFixed(1)} ms in JS`;
-    document.getElementById("c4-cap").textContent = `crate at (${s4.bx.toFixed(1)}, ${s4.bz.toFixed(1)}) m · 1 texel = 10 cm · r = 1 m`;
+    document.getElementById("c4-read").innerHTML = `<strong>${(GX * GZ).toLocaleString("en-US")} pixels × ${N4} dots = ${(GX * GZ * N4).toLocaleString("en-US")} photo lookups a frame</strong> · ${ms.toFixed(1)} ms in the browser`;
+    document.getElementById("c4-cap").textContent = `crate at (${s4.bx.toFixed(1)}, ${s4.bz.toFixed(1)}) m · each pixel covers 10 cm · dots spread 1 m`;
     s4.frame++;
+    L4 && L4.check();
   }
   let visible4 = true, tick4 = 0;
   if ("IntersectionObserver" in window) new IntersectionObserver(es => { visible4 = es[0].isIntersecting; }).observe(c4);
@@ -1268,13 +1303,98 @@ function kitInset(ctx, x, y, w, h, title) {
   }
   step4(); requestAnimationFrame(loop4);
   function yardOf(ev) { const r = c4.getBoundingClientRect(); const cx = (ev.clientX - r.left) / r.width * W, cy = (ev.clientY - r.top) / r.height * H; return [(cx % (W / 2)) / (W / 2) * 16, (cy % (H / 2)) / (H / 2) * 9]; }
-  c4.addEventListener("pointerdown", ev => { s4.dragging = true; c4.setPointerCapture(ev.pointerId); const [x, z] = yardOf(ev); s4.bx = Math.max(1.3, Math.min(10.2, x)); s4.bz = Math.max(1.3, Math.min(7.7, z)); s4.anim = false; document.getElementById("anim").checked = false; });
-  c4.addEventListener("pointermove", ev => { if (!s4.dragging) return; const [x, z] = yardOf(ev); s4.bx = Math.max(1.3, Math.min(10.2, x)); s4.bz = Math.max(1.3, Math.min(7.7, z)); });
-  const end4 = ev => { s4.dragging = false; try { c4.releasePointerCapture(ev.pointerId); } catch (e) {} };
+  let last4 = null;
+  const move4 = (x, z) => { s4.bx = Math.max(1.3, Math.min(10.2, x)); s4.bz = Math.max(1.3, Math.min(7.7, z)); last4 = [x, z]; };
+  c4.addEventListener("pointerdown", ev => { s4.dragging = true; s4.dragged = true; c4.setPointerCapture(ev.pointerId); const [x, z] = yardOf(ev); move4(x, z); s4.anim = false; document.getElementById("anim").checked = false; });
+  c4.addEventListener("pointermove", ev => { if (!s4.dragging) return; const [x, z] = yardOf(ev); move4(x, z); });
+  const end4 = ev => { if (s4.dragging && last4) move4(last4[0], last4[1]); s4.dragging = false; last4 = null; try { c4.releasePointerCapture(ev.pointerId); } catch (e) {} };
   c4.addEventListener("pointerup", end4); c4.addEventListener("pointercancel", end4);
   onRange("sigZ", v => v.toFixed(2) + " m", v => { s4.sigma = v; });
   onRange("alpha", v => v.toFixed(2), v => { s4.alpha = v; });
   document.getElementById("anim").addEventListener("change", ev => { s4.anim = ev.target.checked; });
   document.getElementById("reject").addEventListener("change", ev => { s4.reject = ev.target.checked; });
+
+  // ---------- guided steps ----------
+  const set1 = o => { Object.assign(s1, o); $("r1").value = s1.r; $("r1v").textContent = fmtM(s1.r); draw1(); };
+  L1 = lesson("truth", { next: { id: "ssao", title: "SSAO: guessing from the depth photo" }, steps: [
+    { say: "This is a cellar cut open from the side, 10 m wide: the player on the left, a big crate, a barrel, a small crate and two stone steps. The white dot is a point on the floor between the crate and the barrel. From it, <b>64 rays</b> fan out through the half circle above the floor. Blue rays get out past the dashed line. Amber rays hit something first.", enter: () => set1({ i: nearestSurface(SURF_A, 3.0, 0.02), r: 1.5 }) },
+    { say: "Ambient occlusion asks one thing at every point of every surface: <b>how much of the sky is visible from here</b>. The answer is the share of rays that got out, a number from 0 (buried) to 1 (open sky). Every surface carries a grey band painted with that number: bright where the sky is open, dark where it is not." },
+    { say: "<b>Drag the white dot onto the top of the big crate.</b>", todo: "drag the dot onto the top of the big crate", goal: () => { const p = SURF_A[s1.i]; return p.ny > 0.5 && p.y > 1.1 && p.x > 1.65 && p.x < 2.95; }, try: () => { s1.i = nearestSurface(SURF_A, 2.3, 1.2); draw1(); },
+      done: "Almost every ray gets out; only a few going left hit the player. The reading is close to 1 and the band on the crate top is bright." },
+    { say: "Now the floor in the narrow gap between the barrel and the small crate.", quiz: { q: "How many of the 64 rays will get out from there?", options: [
+        { t: "About half", why: "Both sides of the gap are taller than the gap is wide, so most directions are blocked. Drag the dot there and count." },
+        { t: "Only the few that go nearly straight up", ok: true, why: "The gap is 30 cm wide with a barrel on one side and a crate on the other. Only rays that go almost straight up get clear, and the band there is nearly black." },
+        { t: "All of them, the gap is open at the top", why: "Open at the top is not enough. A ray at any real angle runs into a side within a few centimetres." } ] },
+      todo: "drag the dot into the gap to check", goal: () => s1.stats && s1.stats.vis <= 20, try: () => { s1.i = nearestSurface(SURF_A, 4.45, 0.02); draw1(); },
+      done: "About 10 of 64 get out, and the floor between the player and the crate is just as dark. Those creases are what AO darkens." },
+    { say: "Rays are only followed for a set distance, the dashed line. <b>Pull that distance down to 0.5 m.</b>", todo: "drag the slider down to 0.5 m", goal: () => s1.r <= 0.6, try: () => { $("r1").value = 0.5; $("r1").dispatchEvent(new Event("input")); },
+      done: "Now only things within half a metre count as blockers. The gap stays dark, but the open floor in front of the steps turns fully bright. That distance is a choice, not physics: short gives tight shading where things touch, long darkens the whole room." },
+    { say: "That is the whole idea: AO is the share of the sky a point can see. Firing 64 rays for every pixel is far too slow for a game, so every method on this page is a shortcut that tries to match this answer. The formula for how the rays are spread is under the hood." } ] });
+
+  const set2 = o => { Object.assign(s2, o); segOn($("segK"), s2.kernel); segOn($("segRC"), s2.range ? "on" : "off"); $("ssN").value = s2.N; $("ssNv").textContent = String(s2.N); $("ssR").value = s2.r; $("ssRv").textContent = fmtM(s2.r); $("ssB").value = s2.bias; $("ssBv").textContent = s2.bias.toFixed(3) + " m"; draw2(); };
+  L2 = lesson("ssao", { next: { id: "horizon", title: "Skylines: walk out, keep the steepest angle" }, steps: [
+    { say: "A game cannot fire 64 rays per pixel, so it cheats with a picture it already has. The strip along the top is the <b>depth photo</b>: the camera looks straight down at the cellar, and each of its 320 cells stores how far down the nearest surface is instead of a colour. Bright cells are near the camera, like the player's head; dark cells are far, like the floor.", enter: () => set2({ i: nearestSurface(SURF_A, 3.2, 0.02), N: 16, r: 1.5, bias: 0.03, kernel: "hemi", range: true }) },
+    { say: "Around the white dot, 16 <b>test dots</b> are sprinkled in a half circle. Blue ones are in open air. Amber ones are buried, and a line runs up from each to the photo cell that said so. The share of dots in open air is the guess; the label compares it with the 64-ray truth.", quiz: { q: "How does the GPU know a test dot is inside the barrel, without knowing anything about barrels?", options: [
+        { t: "It checks the dot against the barrel's shape", why: "At this stage the GPU has no list of shapes, only pictures of the frame. That is what makes it cheap." },
+        { t: "It reads the photo cell above the dot: the surface stored there is higher than the dot, so the dot is under a surface", ok: true, why: "One lookup per dot. If the stored surface sits above the dot, the dot counts as buried, whatever the thing is." },
+        { t: "It fires a short ray from the dot", why: "No rays here at all. The whole point of this method is to avoid them." } ] } },
+    { say: "Sixteen yes-or-no answers make a rough guess. <b>Drag the test dots per pixel down to 4.</b>", todo: "drag the dots slider down to 4", goal: () => s2.N <= 6, try: () => { $("ssN").value = 4; $("ssN").dispatchEvent(new Event("input")); },
+      done: "The band along the floor turns patchy: with four dots the answer can only be 0, ¼, ½, ¾ or 1, and neighbouring pixels get different dots. That speckle is called noise, and a later section cleans it up. More dots means less noise and more work." },
+    { say: "The dots are placed in a half circle that faces the way the surface faces. The first version of this method, from 2007, used a <b>full circle</b>. The dot is now on the top step, with open sky above it. <b>Switch the dots to a full circle.</b>", todo: "switch to a full circle below", goal: () => s2.kernel === "sphere", try: () => $("segK").querySelector('[data-v="sphere"]').click(), enter: () => set2({ i: nearestSurface(SURF_A, 9.5, 1.6), N: 16, r: 1.5, kernel: "hemi", range: true }),
+      done: "The lower half of the dots are inside the stone, and stone counts as a blocker, so a step under open sky reads about half instead of 1. Flat floors went grey in early games for exactly this reason. Facing the half circle outward fixed it." },
+    { say: "One more guard. The dot is on the floor next to the player, and the dots now spread only 0.5 m. Hollow dots landed inside the player but were <b>ignored</b>, because the surface covering them, the player's head, is far above the point. <b>Turn that rule off.</b>", todo: "switch the ignore rule off below", goal: () => !s2.range, try: () => $("segRC").querySelector('[data-v="off"]').click(), enter: () => set2({ i: nearestSurface(SURF_A, 1.44, 0.02), N: 16, r: 0.5, kernel: "hemi", range: true }),
+      done: "The hollow dots fill in amber and the guess drops close to the truth. The rule exists for a camera looking sideways, where a wall far behind a character would otherwise darken the character. Here the player really is next to the floor, so the rule throws away a real blocker. The photo cannot tell the two cases apart, so the rule is a guess either way." },
+    { say: "SSAO never touches the scene. It only asks the photo whether each test dot is under a surface, and the last slider lifts every dot a hair so a flat floor cannot block itself. Its formula and shader code are under the hood." } ] });
+
+  const set3 = o => { Object.assign(s3, o); segOn($("segH"), s3.method); $("hbK").value = s3.K; $("hbKv").textContent = String(s3.K); $("hbR").value = s3.r; $("hbRv").textContent = fmtM(s3.r); draw3(); };
+  L3 = lesson("horizon", { next: { id: "denoise", title: "Noise, blur, history" }, steps: [
+    { say: "Same cellar, same depth photo, no random dots. Instead the GPU <b>walks away from the point</b> along the photo, 8 steps to the left and 8 to the right; the short white ticks mark the steps. At each step it notes how steeply the surface there rises above the point, and keeps the steepest angle. That angle is the <b>skyline</b> in that direction, like the roofline you see from a street.", enter: () => set3({ i: nearestSurface(SURF_A, 3.24, 0.02), K: 8, r: 1.5, method: "gtao" }) },
+    { say: "The white lines run to the sample that set each skyline, the barrel's top and the crate's top. Below each skyline is an amber wedge: blocked. The blue wedge between them is the open sky. Two angles replace sixteen yes-or-no answers. <b>Drag the point onto the open floor just in front of the steps.</b>", todo: "drag the point to the floor in front of the steps", goal: () => { const p = SURF_A[s3.i]; return p.ny > 0.5 && p.y < 0.1 && p.x > 5.45 && p.x < 6.45; }, try: () => { s3.i = nearestSurface(SURF_A, 6.0, 0.02); draw3(); },
+      done: "The right skyline is the first step, the left one the small crate, both around 50°. The open wedge between them gives the number in the label, a little under the 64-ray truth: rough, but smooth, as the band shows." },
+    { say: "Now fewer steps.", quiz: { q: "If the march takes only 2 steps each way instead of 8, does it still find a skyline?", options: [
+        { t: "No, two steps will miss the crate", why: "The steps are spread over the same distance, so two steps of 75 cm still land on the step and on the crate. The skyline is the steepest thing any step found." },
+        { t: "Yes, roughly the same one", ok: true, why: "Whichever step lands on the crate sets the skyline. Fewer steps make the skyline coarser, not absent." },
+        { t: "Yes, but the band goes speckled like SSAO", why: "A skyline changes smoothly as the point moves, so the band stays smooth. Speckle comes from random dots." } ] },
+      todo: "drag the steps slider down to 2", goal: () => s3.K <= 3, try: () => { $("hbK").value = 2; $("hbK").dispatchEvent(new Event("input")); },
+      done: "The skylines moved a little and the band stayed smooth. The two error tiles compare each method with the 64-ray truth across the whole cellar: with 4 lookups a pixel, the skyline march still beats SSAO." },
+    { say: "<b>Make the march shorter: 0.5 m.</b>", todo: "drag the march distance down to 0.5 m", goal: () => s3.r <= 0.6, try: () => { $("hbR").value = 0.5; $("hbR").dispatchEvent(new Event("input")); }, enter: () => set3({ K: 8, r: 1.5 }),
+      done: "The march stops before it reaches the step or the crate, so both skylines drop to flat and the point reads as open sky. As with the rays, the distance is a design choice." },
+    { say: "Two methods turn skylines into a number. <b>HBAO</b>, from 2008, scores each direction by how high its skyline is. <b>GTAO</b>, from 2016, works out exactly how much of the half circle is open and, like the rays, counts straight up more than sideways. The point is back in the gap beside the crate. <b>Switch to HBAO.</b>", todo: "switch to HBAO below", goal: () => s3.method === "hbao", try: () => $("segH").querySelector('[data-v="hbao"]').click(), enter: () => set3({ i: nearestSurface(SURF_A, 3.24, 0.02), K: 8, r: 1.5, method: "gtao" }),
+      done: "HBAO reads far above the truth for this spot, where GTAO read below it. Across the whole cellar the error tile says GTAO is closer, which is why it is the default in most engines today." },
+    { say: "Walk out, keep the steepest angle, and everything under it is blocked. The same depth photo, far less noise for the same number of lookups. The two formulas and the march code are under the hood." } ] });
+
+  const set4 = o => { Object.assign(s4, o); $("sigZ").value = s4.sigma; $("sigZv").textContent = s4.sigma.toFixed(2) + " m"; $("alpha").value = s4.alpha; $("alphav").textContent = s4.alpha.toFixed(2); $("anim").checked = s4.anim; $("reject").checked = s4.reject; step4(); };
+  L4 = lesson("denoise", { next: { id: "beyond", title: "What the depth photo cannot see" }, steps: [
+    { say: "Now the AO image itself, for a cellar floor seen from above, 160 by 90 pixels: a crate that slides around, a barrel, a drain cut into the floor and a raised ledge on the right. Panel 1 is the raw SSAO guess with <b>12 test dots per pixel</b>: speckled, because each pixel gets its own random dots. The inset is what the player would see with panel 4 laid over the floor.", enter: () => set4({ sigma: 0.2, alpha: 0.1, anim: true, reject: true }) },
+    { say: "The speckle is a <b>repeating 4×4 pattern</b> on purpose, so a blur over any 4×4 patch sees all 16 patterns at once: 192 dots for the price of 12. Panel 2 does exactly that blur.", quiz: { q: "Panel 2 blurs straight across the crate's edge. What does that do there?", options: [
+        { t: "Nothing, the blur is only four pixels wide", why: "Four pixels is 40 cm here. Look at the crate's edge in panel 2." },
+        { t: "It smears the dark floor onto the crate top and the bright crate top onto the floor, a halo", ok: true, why: "The blur has no idea the crate top and the floor are different surfaces, so it mixes them. That soft ring around every object is the classic AO halo." },
+        { t: "It makes the edge sharper", why: "Averaging neighbours can only soften an edge, never sharpen it." } ] } },
+    { say: "Panel 3 fixes it: before mixing in a neighbour, it checks the depth photo, and a neighbour whose depth differs by more than a set amount is left out. That amount is 0.20 m now. <b>Push it up to 1.5 m.</b>", todo: "drag the edge slider up to 1.5 m", goal: () => s4.sigma >= 1.3, try: () => { $("sigZ").value = 1.5; $("sigZ").dispatchEvent(new Event("input")); },
+      done: "The crate is 1.3 m tall, so its edge no longer counts as an edge, and panel 3 grows the same halo as panel 2. Set right, the blur stops exactly where the crate starts." },
+    { say: "Panel 4 adds <b>history</b>: each frame it keeps 90% of last frame's result and mixes in 10% of the new one, with fresh dots every frame. After ten frames or so a pixel has drawn on hundreds of dots it never ran. But the crate is moving. <b>Untick the box that throws the history away where the depth changed.</b>", todo: "untick the throw-away box", goal: () => !s4.reject, try: () => $("reject").click(), enter: () => set4({ sigma: 0.2, alpha: 0.1, anim: true, reject: true }),
+      done: "A ghost of the crate's old shading trails behind it in panel 4 and in the inset: the history remembers a crate that is no longer there. Comparing the depth photo with last frame's catches the change. In a real game the camera moves too, so the history has to be looked up where each pixel was last frame." },
+    { say: "<b>Grab the crate and drag it</b> to a new spot, then let go and watch panel 4.", todo: "drag the crate anywhere", goal: () => !!s4.dragged, try: () => { s4.bx = 8; s4.bz = 3; s4.anim = false; $("anim").checked = false; s4.dragged = true; step4(); }, enter: () => set4({ sigma: 0.2, alpha: 0.1, anim: true, reject: true }),
+      done: "Dragging stops the crate. With nothing moving, the history settles frame by frame into a clean image, cleaner than any blur alone. The readout counts the work: 172,800 photo lookups a frame for this small image." },
+    { say: "<b>Push the share of each new frame up to 0.5.</b>", todo: "drag the share slider up to 0.5", goal: () => s4.alpha >= 0.45, try: () => { $("alpha").value = 0.5; $("alpha").dispatchEvent(new Event("input")); },
+      done: "Panel 4 answers changes at once but stays speckled: half of each frame is new, so only about two frames are averaged. A small share gives a clean image that lags; a large share gives a quick one that shimmers. Games pick around 0.1 and lean on the depth check to hide the lag." },
+    { say: "Make the noise a known pattern, blur it away without crossing edges, then average across frames. Twelve dots a pixel end up doing the work of hundreds. The weights and the shader code are under the hood." } ] });
+
+  const set5 = o => { Object.assign(s5, o); segOn($("segM5"), s5.method); segOn($("segRays"), s5.rays); draw5(); };
+  L5 = lesson("beyond", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "The cellar has grown a <b>shelf</b> on a post over the steps, and the cellar <b>wall</b> now stands just past the right edge of the screen; the dashed lines mark what the camera can see. The amber fill is everything the depth photo believes is solid: from each stored surface all the way down, and nothing outside the frame.", enter: () => set5({ i: nearestSurface(SURF_B, 5.0, 0.8), method: "ssao", rays: 16 }) },
+    { say: "", quiz: { q: "According to the photo, what is in the air between the shelf and the step under it?", options: [
+        { t: "Air, the photo can see the step is lower", why: "The photo keeps one number per cell: the nearest surface from above, which is the shelf. Whatever is under it is lost." },
+        { t: "Solid, all the way down", ok: true, why: "One surface per cell, the nearest, and everything under it is assumed solid. That is what the amber fill under the shelf shows." },
+        { t: "The photo stores both the shelf and the step", why: "A depth photo has one number per cell, not a list. That is what keeps it cheap." } ] } },
+    { say: "<b>Drag the point onto the floor just left of the shelf.</b>", todo: "drag the point to the floor beside the shelf", goal: () => { const p = SURF_B[s5.i]; return p.ny > 0.5 && p.y < 0.1 && p.x > 5.4 && p.x < 6.0; }, try: () => { s5.i = nearestSurface(SURF_B, 5.7, 0.02); draw5(); },
+      done: "Test dots that land in the open air under the shelf count as buried, so SSAO reads darker than the truth, as if a wall stood at the shelf's edge." },
+    { say: "<b>Now drag it to the right end of the top step, beside the wall.</b>", todo: "drag the point to the top step, next to the wall", goal: () => { const p = SURF_B[s5.i]; return p.ny > 0.5 && p.y > 1.5 && p.x > 8.8; }, try: () => { s5.i = nearestSurface(SURF_B, 9.15, 1.6); draw5(); },
+      done: "SSAO reads 1.00, wide open. The wall is just past the edge of the photo, so as far as SSAO knows it does not exist; the rays say about half. Both mistakes shift as the camera turns, which is the crawling AO players notice." },
+    { say: "The fix is to ask the scene itself. <b>DFAO</b>, distance-field AO, reads a 3D grid that stores at every point how far it is to the nearest surface, on screen or not. <b>Switch the method to DFAO.</b>", todo: "switch to DFAO below", goal: () => s5.method === "dfao", try: () => $("segM5").querySelector('[data-v="dfao"]').click(),
+      done: "Five cones step outward from the point; each circle is one step, drawn as wide as the clearance the grid reports there. The cones going right run into the wall, off screen or not. The tiles give each method's answer and a rough cost per frame." },
+    { say: "<b>RTAO</b>, ray-traced AO, is the 64-ray truth from the first section, done by the graphics card with real rays but far fewer of them. <b>Switch to RTAO and set it to 1 ray per pixel.</b>", todo: "switch to RTAO, then choose 1 ray", goal: () => s5.method === "rtao" && s5.rays === 1, try: () => { $("segM5").querySelector('[data-v="rtao"]').click(); $("segRays").querySelector('[data-v="1"]').click(); },
+      done: "One ray gives one answer: 0 or 1, nothing between, and the band along every surface is a mess of black and white. That is why RTAO is always followed by the blur-and-history from the last section, and why even one ray costs more than SSAO's sixteen lookups." },
+    { say: "Screen-space AO can only be as right as the depth photo, and the photo knows nothing about what is hidden under a shelf or off the edge of the screen. Asking the scene fixes that and costs more. The three formulas and the cone-trace code are under the hood." } ] });
 })();
 </script>

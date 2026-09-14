@@ -236,9 +236,9 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a village lane at night · the player runs past a picket fence · 160×90 output from 80×45 input · Halton(2,3) jitter · stepped at 12 frames per second</p>
+    <p class="eyebrow">a village lane at night · five guided demos · nothing to install</p>
     <h1>Temporal Upscaling</h1>
-    <p class="lead">Temporal upscaling draws a smaller picture each frame and builds the full-size one from that frame plus the last few. You skip shading every pixel you did not draw, and pay a fixed 1 to 2 ms for the upscaler at 4K. <b>The missing pixels are not guessed from their neighbours.</b> They were drawn on earlier frames at slightly shifted positions and moved into place, which is why DLSS 2, FSR 2, XeSS and Unreal's TSR all need depth, motion vectors and the jitter offset from the engine, while a one-frame upscaler such as FSR 1 needs none of that and can only sharpen what it has.</p>
+    <p class="lead">A game screen is a grid of tiny squares called pixels, and colouring every one of them each frame is most of the work a graphics card does. Temporal upscaling draws a smaller picture each frame and builds the full-size one from that picture plus the last few, so most pixels are never drawn at full size at all. <b>The thing people get wrong:</b> the missing pixels are not guessed from their neighbours. They were drawn on earlier frames at slightly shifted positions and slid into place, which is why DLSS, FSR 2, XeSS and Unreal's TSR all need the engine to say how far every pixel moved, while a one-frame upscaler such as FSR 1 needs none of that and can only sharpen what it has.</p>
     <div class="key">
       <span style="--sw:#f2a341">sample drawn this frame</span>
       <span style="--sw:#4aa3ff">samples kept from earlier frames</span>
@@ -247,56 +247,47 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
     </div>
     <dl class="terms">
       <dt>input resolution</dt><dd>the smaller size the frame is drawn at; 1920×1080 for a 4K screen in Performance mode</dd>
-      <dt>scale s</dt><dd>output width over input width; at 2× each input pixel covers 2 by 2 output pixels</dd>
+      <dt>scale</dt><dd>screen width over drawn width, written s in the formulas; at 2× each drawn pixel covers 2 by 2 screen pixels</dd>
       <dt>jitter</dt><dd>a shift of less than one pixel applied to the whole picture, different every frame</dd>
       <dt>history</dt><dd>last frame's finished picture, kept so this frame can reuse it</dd>
-      <dt>motion vector</dt><dd>how far each pixel moved since last frame, in pixels</dd>
+      <dt>motion vector</dt><dd>how far each pixel moved since last frame, drawn here as a white arrow</dd>
       <dt>reprojection</dt><dd>following a motion vector back to find where a pixel was last frame</dd>
       <dt>disocclusion</dt><dd>a spot that was hidden last frame and is visible now, so its history belongs to something else</dd>
-      <dt>mip level</dt><dd>one of the smaller, pre-blurred copies of a texture that the GPU picks from by distance</dd>
+      <dt>mip level</dt><dd>one of the smaller, pre-blurred copies of a texture, the picture wrapped onto a surface, that the GPU picks from by size on screen</dd>
     </dl>
   </header>
   <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#jitter"><span class="n">01</span>Shift the grid a little each frame</a></li><li><a href="#reproject"><span class="n">02</span>Reuse last frame, or throw it away</a></li><li><a href="#accumulate"><span class="n">03</span>Add the frames up, then sharpen</a></li><li><a href="#failures"><span class="n">04</span>Where it breaks</a></li><li><a href="#cost"><span class="n">05</span>What it costs</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="jitter">
+  <section id="jitter" class="stage">
     <h2>Shift the grid a little each frame</h2>
-    <p class="sub">Zoom into 8 by 8 screen pixels on the player's head, watch the coarse sample grid slide under them frame after frame, and hover a pixel to count what it has collected.</p>
+    <p class="sub">A zoomed-in patch of 8 by 8 screen pixels on the player's head, with the coarse grid of drawn samples sliding under it frame after frame.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c1" class="sq" width="512" height="512" aria-label="An 8 by 8 block of screen pixels on the player's head, magnified, with jittered input samples landing in it; a small view of the village lane shows where the patch is"></canvas>
-        <div class="cap"><span id="c1-read"></span><span id="c1-hover">hover an output pixel</span></div>
+        <div class="cap"><span id="c1-read"></span></div>
+        <div class="cap"><span id="c1-hover">hover a square to highlight it</span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The GPU draws a <b>coarse grid of samples</b>, spaced wider than the screen pixels. Every frame the whole grid <b>slides by a fraction of a pixel</b>, so the samples land in new spots. After a few frames <b>every screen pixel has been hit several times</b>, and there is enough real detail to build a sharp full-size picture. Some cameras do the same thing: nudge the sensor between shots, then stack the shots.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The big grid is an 8 by 8 patch of screen pixels around the player's head, magnified; the small picture of the lane at the right shows where that patch sits, in the white box. Amber dots are this frame's samples. Blue dots are samples from earlier frames, fading as they age. The dashed blue lines are the coarse input grid in its current shifted position.</p>
-        <p>The number in each cell counts the samples that have landed in it so far; a red cell has none yet. The small square at the top right is one input pixel with the shift positions numbered in order. The bar chart at the bottom counts how many cells have 0, 1, 2 or more samples.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag Frames accumulated down to 1. At 2× only one cell in four gets a sample; the other 48 go red.</li>
-          <li>Push it to 32. Every cell has several samples and the bar chart bunches up around N/s², which is 8 at 2×.</li>
-          <li>Click 3×. One input pixel now covers 3 by 3 output pixels, so at 16 frames the readout's N/s² falls from 4.00 to 1.78.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><span class="lab">Scale</span><div class="seg" id="seg1" role="group" aria-label="Upscale ratio"><button data-v="1.5">1.5×</button><button data-v="2" aria-pressed="true">2×</button><button data-v="3">3×</button></div></div>
-          <div class="ctl"><label for="n1">Frames accumulated <span class="val" id="n1v">16</span></label><input type="range" id="n1" min="1" max="32" step="1" value="16"></div>
-          <div class="ctl"><label class="chk" for="anim1"><input type="checkbox" id="anim1"> advance frames</label></div>
+      <div class="lesson" data-lesson="jitter">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><span class="lab">How much smaller the GPU draws</span><div class="seg" id="seg1" role="group" aria-label="Upscale ratio"><button data-v="1.5">1.5×</button><button data-v="2" aria-pressed="true">2×</button><button data-v="3">3×</button></div></div>
+          <div class="ctl"><label for="n1">Frames collected so far <span class="val" id="n1v">16</span></label><input type="range" id="n1" min="1" max="32" step="1" value="16"></div>
+          <div class="ctl"><label class="chk" for="anim1"><input type="checkbox" id="anim1"> keep advancing frames</label></div>
         </div>
-
-        <h3>The real version</h3>
-        <p>Scale <code>s</code> is output resolution over input resolution. At 2× one input pixel covers 2 by 2 output pixels, so a single frame gives each output pixel a quarter of a sample on average. Sixteen frames give four. The counter in each cell is that coverage, computed from the offsets in use.</p>
-        <p>The offsets come from a Halton sequence, a fixed list of points that spreads evenly over a square without forming a repeating pattern, base 2 for x and base 3 for y. FSR 2 sizes the sequence at <code>8·s²</code> phases, 32 at 2×, so each output sub-cell sees several distinct offsets before the pattern repeats.</p>
-        <p>The offset goes into the projection matrix, the maths that maps 3D points onto the screen, not into the camera's position. The whole scene shifts by less than one input pixel, depth and motion vectors stay consistent, and the upscaler subtracts the same offset when it places the samples.</p>
-        <p class="words">In words: the shift for frame k is the next point in the Halton sequence, centred on zero; after N frames each output pixel has about N/s² samples.</p>
-        <div class="math">s = r_out / r_in                          1.5, 2 or 3
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Slide the drawn samples a little each frame and, after a few frames, every screen pixel has been hit by real samples.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+<p>Scale <code>s</code> is output resolution over input resolution. At 2× one input pixel covers 2 by 2 output pixels, so a single frame gives each output pixel a quarter of a sample on average. Sixteen frames give four. The counter in each cell is that coverage, computed from the offsets in use.</p>
+<p>The offsets come from a Halton sequence, a fixed list of points that spreads evenly over a square without forming a repeating pattern, base 2 for x and base 3 for y. FSR 2 sizes the sequence at <code>8·s²</code> phases, 32 at 2×, so each output sub-cell sees several distinct offsets before the pattern repeats.</p>
+<p>The offset goes into the projection matrix, the maths that maps 3D points onto the screen, not into the camera's position. The whole scene shifts by less than one input pixel, depth and motion vectors stay consistent, and the upscaler subtracts the same offset when it places the samples.</p>
+<p class="words">In words: the shift for frame k is the next point in the Halton sequence, centred on zero; after N frames each output pixel has about N/s² samples.</p>
+<div class="math">s = r_out / r_in                          1.5, 2 or 3
 j_k = (Halton₂(k) − 0.5, Halton₃(k) − 0.5)   in input pixels, k = 1..phases
 samples per output pixel after N frames ≈ N / s² = N·(r_in / r_out)²
 phases = 8·s²                              32 at 2×, 72 at 3×</div>
-        <p>s is the scale, r_out and r_in the output and input resolutions, j_k the jitter for frame k in input pixels, and N the number of frames accumulated so far.</p>
-        <p class="words">What this code does: picks this frame's offset from the sequence, nudges the projection matrix by that much, and hands the same offset to the upscaler so it can undo it.</p>
+<p>s is the scale, r_out and r_in the output and input resolutions, j_k the jitter for frame k in input pixels, and N the number of frames accumulated so far.</p>
+<p class="words">What this code does: picks this frame's offset from the sequence, nudges the projection matrix by that much, and hands the same offset to the upscaler so it can undo it.</p>
 <pre class="code"><span class="c">// once per frame, before building the view-projection matrix</span>
 <span class="k">int</span>  phase  = frameIndex % phaseCount;                <span class="c">// phaseCount = 8 * s * s</span>
 <span class="k">vec2</span> jitter = vec2(halton(phase + 1, 2), halton(phase + 1, 3)) - 0.5;
@@ -307,52 +298,43 @@ proj[2][1] -= 2.0 * jitter.y / renderHeight;
 viewProj = proj * view;
 <span class="c">// hand the same offset to the upscaler, in pixels, so it can undo it</span>
 upscaler.jitterPixels = jitter;</pre>
-        <p class="tldr">Jitter turns a stream of coarse frames into a full set of real samples; the upscaler only has to know the offsets.</p>
-      </div>
+
+    </div></details>
     </div>
   </section>
 
-  <section id="reproject">
+  <section id="reproject" class="stage">
     <h2>Reuse last frame, or throw it away</h2>
-    <p class="sub">The player runs right along the fence; each pixel looks back along its motion arrow for its own history, and the grass he just uncovered has none of its own, only his.</p>
+    <p class="sub">The player runs right along the fence; each pixel looks back along its motion arrow for its own history, and the grass he just uncovered has none of its own.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c2" class="r169" width="640" height="360" aria-label="A blocky player running right past a house and a picket fence, with motion arrows on his pixels and red cells on the grass he uncovered where history was thrown away"></canvas>
-        <div class="cap"><span id="c2-read"></span><span>64×32 output · 32×16 input · 2×</span></div>
+        <div class="cap"><span id="c2-read"></span></div>
+        <div class="cap"><span>64 by 32 screen pixels, built from a 32 by 16 drawing (2×)</span></div>
       </div>
-      <div class="prose">
-        <p class="plain">To reuse last frame, each pixel has to know <b>where it was last frame</b>. A motion vector, how far the pixel moved since then, points the way. But when the player moves he <b>uncovers grass that was hidden behind him</b>, and that grass has no history of its own, only his. So each pixel <b>compares depths</b>, and if the old pixel sat at a different distance from the camera, it <b>throws the history away and starts fresh</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>A 64 by 32 output built from a 32 by 16 input, so 2×. The player runs right along the lane past the house and the picket fence, which stay still. White arrows on his pixels point back to where each one was last frame; that is its motion vector. Red cells are pixels that fetched history, found the depth did not match, and threw it away. They sit just behind him, on the grass he uncovered this frame.</p>
-        <p>The View buttons switch to the history buffer, which is last frame's finished picture, and to the raw input frame, where you can see the coarse samples and the jitter shift.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Untick "reject on depth mismatch". The red cells disappear and a faint trail in his shirt and skin colours follows him, fading over about ten frames.</li>
-          <li>Push Run speed to 3 px per frame. He uncovers more grass each step, so the "px rejected" count in the readout goes up.</li>
-          <li>Switch View to input (low-res). Each amber dot is one drawn sample, and the grid shifts a little every frame.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><span class="lab">View</span><div class="seg" id="seg2" role="group" aria-label="Which buffer to show"><button data-v="out" aria-pressed="true">resolved output</button><button data-v="hist">history (t−1)</button><button data-v="in">input (low-res)</button></div></div>
+      <div class="lesson" data-lesson="reproject">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><span class="lab">What to show</span><div class="seg" id="seg2" role="group" aria-label="Which buffer to show"><button data-v="out" aria-pressed="true">finished picture</button><button data-v="hist">last frame's picture (history)</button><button data-v="in">the small drawing</button></div></div>
           <div class="ctl"><label for="v2">Run speed <span class="val" id="v2v">1.5 px / frame</span></label><input type="range" id="v2" min="0.5" max="3" step="0.25" value="1.5"></div>
-          <div class="ctl"><label class="chk" for="rej2"><input type="checkbox" id="rej2" checked> reject on depth mismatch</label></div>
+          <div class="ctl"><label class="chk" for="rej2"><input type="checkbox" id="rej2" checked> throw history away when the distance does not match</label></div>
           <div class="ctl"><label class="chk" for="play2"><input type="checkbox" id="play2" checked> play</label></div>
         </div>
-
-        <h3>The real version</h3>
-        <p>The white arrows are motion vectors: the player's pixels read history one step back, which is where he was. The background has zero motion, so the pixels he just left read history at their own position, and that history holds his colour and his depth.</p>
-        <p>That depth does not match the grass depth rendered this frame, so the history is rejected and those pixels start over from the current frame's samples. This is disocclusion handling: a disocclusion is a spot that was hidden last frame and is visible now.</p>
-        <p>Turn rejection off and the same pixels blend stale player colour into the grass: a ghost trail that fades over about ten frames. The cheaper test is a neighbourhood clamp, which clips the history colour to the min and max of the 3 by 3 current samples around it. It needs no depth, but it also erases thin features the current frame missed, which the failures section shows.</p>
-        <p class="words">In words: step back along the motion vector, read the old depth there, and if it disagrees with this frame's depth, use only this frame's samples.</p>
-        <div class="math">uv_prev  = uv − mv(uv)                    mv in output pixels
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Motion arrows say where a pixel came from; the distance check says whether that history is still the same thing.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+<p>The white arrows are motion vectors: the player's pixels read history one step back, which is where he was. The background has zero motion, so the pixels he just left read history at their own position, and that history holds his colour and his depth.</p>
+<p>That depth does not match the grass depth rendered this frame, so the history is rejected and those pixels start over from the current frame's samples. This is disocclusion handling: a disocclusion is a spot that was hidden last frame and is visible now.</p>
+<p>Turn rejection off and the same pixels blend stale player colour into the grass: a ghost trail that fades over about ten frames. The cheaper test is a neighbourhood clamp, which clips the history colour to the min and max of the 3 by 3 current samples around it. It needs no depth, but it also erases thin features the current frame missed, which the failures section shows.</p>
+<p class="words">In words: step back along the motion vector, read the old depth there, and if it disagrees with this frame's depth, use only this frame's samples.</p>
+<div class="math">uv_prev  = uv − mv(uv)                    mv in output pixels
 z_reproj = z_hist(uv_prev)
 reject if |z_reproj − z_cur| &gt; ε            ε = 0.05 of the depth range here
 or clamp: c_hist = clamp(c_hist, min₃ₓ₃(c_in), max₃ₓ₃(c_in))
 c = lerp(c_hist, c_in, α)                  α = 1 when rejected</div>
-        <p>uv is the pixel's position, mv its motion vector, z_hist and z_cur the old and new depths, ε the tolerance, c_hist and c_in the old and new colours, and α the share of new colour in the blend.</p>
-        <p class="words">What this code does: finds where the pixel was last frame, checks that spot is still on screen, compares the two depths in real distance units, and sets the history count to zero when they disagree.</p>
+<p>uv is the pixel's position, mv its motion vector, z_hist and z_cur the old and new depths, ε the tolerance, c_hist and c_in the old and new colours, and α the share of new colour in the blend.</p>
+<p class="words">What this code does: finds where the pixel was last frame, checks that spot is still on screen, compares the two depths in real distance units, and sets the history count to zero when they disagree.</p>
 <pre class="code"><span class="c">// disocclusion test, one output pixel; ip = nearest input pixel</span>
 <span class="k">vec2</span>  mv       = texelFetch(motionTex, ip, 0).xy;         <span class="c">// output pixels, this frame → last</span>
 <span class="k">vec2</span>  uvPrev   = uv - mv * invOutputSize;
@@ -363,62 +345,49 @@ c = lerp(c_hist, c_in, α)                  α = 1 when rejected</div>
 <span class="k">bool</span>  disoccluded = abs(linearize(zHist) - linearize(zNow)) &gt; 0.01 * zFar;
 <span class="k">float</span> historyLen  = (onScreen &amp;&amp; !disoccluded) ? textureLod(historyLen, uvPrev, 0.0).x : 0.0;
 <span class="c">// historyLen 0 means: use only this frame's samples and start accumulating again</span></pre>
-        <p class="tldr">Motion vectors say where a pixel came from; the depth test says whether that history is still the same surface.</p>
-      </div>
+
+    </div></details>
     </div>
   </section>
 
-  <section id="accumulate">
+  <section id="accumulate" class="stage">
     <h2>Add the frames up, then sharpen</h2>
     <p class="sub">The same still view of the lane three ways: drawn at full size, stretched from one small frame, and rebuilt from several small frames, with the error measured live.</p>
-    <div class="cols wide">
+    <div class="cols">
       <div class="vp">
-        <canvas id="c3" class="r169" width="640" height="360" aria-label="The village lane drawn three ways side by side: a full-size reference, a bilinear stretch of one small frame, and the temporal reconstruction, with an RMSE graph underneath"></canvas>
-        <div class="cap"><span id="c3-read"></span><span>RMSE in 0–255 units, lower is better</span></div>
+        <canvas id="c3" class="r169" width="640" height="360" aria-label="The village lane drawn three ways side by side: a full-size reference, a bilinear stretch of one small frame, and the temporal reconstruction, with an error graph underneath"></canvas>
+        <div class="cap"><span id="c3-read"></span></div>
+        <div class="cap"><span>error: how far a picture is from the full-size one, on a 0 to 255 scale; lower is better</span></div>
+      </div>
+      <div class="lesson" data-lesson="accumulate">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">How much smaller the GPU draws</span><div class="seg" id="seg3" role="group" aria-label="Upscale ratio"><button data-v="1.5">1.5×</button><button data-v="2" aria-pressed="true">2×</button><button data-v="3">3×</button></div></div>
+          <div class="ctl"><label for="sh3">Sharpen amount <span class="val" id="sh3v">0.40</span></label><input type="range" id="sh3" min="0" max="1" step="0.05" value="0.4"></div>
+          <div class="ctl"><span class="lab">History</span><button class="btn" id="cut3" type="button">camera cut (forget everything)</button></div>
+          <div class="ctl"><label class="chk" for="play3"><input type="checkbox" id="play3" checked> play</label></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n" id="t3-bil">—</div><div class="l">error, one frame stretched</div></div>
+          <div class="tile on"><div class="n" id="t3-tmp">—</div><div class="l">error, built from many frames</div></div>
+          <div class="tile"><div class="n" id="t3-n">—</div><div class="l">frames since the cut</div></div>
+        </div>
       </div>
     </div>
-    <div class="prose" style="margin-top:22px">
-      <p class="plain">Each output pixel keeps a <b>running average</b> of every sample that has landed near it, plus a count of how much it has seen. New samples <b>count more when they land close to the pixel centre</b>. The count is <b>capped at 32</b>, so old samples keep fading and the picture can still change. The result is a touch soft, so a <b>sharpen pass</b> runs at the end.</p>
-
-      <h3>What you're seeing</h3>
-      <p>Three 100 by 100 panels of the same view: the house, the tree, the picket fence, the lamp post with its thin power line, and the player standing on the road. Left is the reference, drawn at full size with 16 samples per pixel. Middle is one 50 by 50 frame stretched to 100 by 100 by blending neighbours; that is all a spatial upscaler has to work with, and the pickets and the power line go soft or vanish. Right is the temporal result, built from the last few jittered 50 by 50 frames and then sharpened.</p>
-      <p>The number under each panel is RMSE, the average error against the reference on a 0 to 255 scale; lower is better. The graph tracks both numbers over the last 80 frames, blue for the stretched frame and amber for the temporal result.</p>
-
-      <h3>Try this</h3>
-      <ul class="try">
-        <li>Press camera cut. The amber line jumps up to meet the blue one, then falls over the next frames as samples pile up again.</li>
-        <li>Drag RCAS sharpness to 0. The pickets and the power line in the right panel go softer; watch the temporal RMSE tile.</li>
-        <li>Click 3×. The input drops to 33 by 33, both upscales get worse, and the temporal one takes longer to settle.</li>
-      </ul>
-    </div>
-    <div class="controls">
-      <div class="ctl"><span class="lab">Scale</span><div class="seg" id="seg3" role="group" aria-label="Upscale ratio"><button data-v="1.5">1.5×</button><button data-v="2" aria-pressed="true">2×</button><button data-v="3">3×</button></div></div>
-      <div class="ctl"><label for="sh3">RCAS sharpness <span class="val" id="sh3v">0.40</span></label><input type="range" id="sh3" min="0" max="1" step="0.05" value="0.4"></div>
-      <div class="ctl"><span class="lab">History</span><button class="btn" id="cut3" type="button">camera cut (reset)</button></div>
-      <div class="ctl"><label class="chk" for="play3"><input type="checkbox" id="play3" checked> play</label></div>
-    </div>
-    <div class="tiles">
-      <div class="tile"><div class="n" id="t3-bil">—</div><div class="l">RMSE, bilinear</div></div>
-      <div class="tile on"><div class="n" id="t3-tmp">—</div><div class="l">RMSE, temporal</div></div>
-      <div class="tile"><div class="n" id="t3-n">—</div><div class="l">frames since cut</div></div>
-    </div>
-    <div class="cols" style="margin-top:22px">
-      <div class="prose">
-        <h3>The real version</h3>
-        <p>The blend is a running average weighted by confidence. Each output pixel keeps a colour and a count <code>n</code> of how much sample weight it has absorbed. This frame's samples arrive with weight <code>w</code>, a Gaussian (a bell curve) of the distance from the output pixel centre to the jittered input sample, half an output pixel wide.</p>
-        <p>The kernel, the weighting shape used to gather samples, is sized for the output grid, not the input grid. The jitter is what makes that legal: over several frames, samples land close to every output pixel centre. The count is capped, 32 here, so old samples keep fading and the image stays responsive.</p>
-        <p>After a camera cut the count is zero everywhere and the first frame is exactly the bilinear result. The graph shows the RMSE falling as samples accumulate, and a floor it never crosses: the converged image is the scene blurred by the kernel, a touch softer than the box-filtered reference.</p>
-        <p>That floor is what the sharpen pass is for. RCAS is a 3 by 3 cross-shaped kernel that subtracts a little of the four neighbours. The amount is limited by the local min and max, so it sharpens edges without adding bright or dark halos on them.</p>
-      </div>
-      <div class="prose">
-        <p class="words" style="margin-top:0">In words: weight each new sample by how close it landed, fold it into the running average, and raise the count. RCAS then pushes each pixel away from the average of its four neighbours, within a limit.</p>
-        <div class="math">w_i  = exp(−2·d_i²)              d_i = |p_out − p_sample| in output pixels, σ = 0.5 px
+    <div class="foot">
+    <p class="tldr">The picture is a running average of samples from many frames, capped so it can still change, then sharpened to undo the blur.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+<p>The blend is a running average weighted by confidence. Each output pixel keeps a colour and a count <code>n</code> of how much sample weight it has absorbed. This frame's samples arrive with weight <code>w</code>, a Gaussian (a bell curve) of the distance from the output pixel centre to the jittered input sample, half an output pixel wide.</p>
+<p>The kernel, the weighting shape used to gather samples, is sized for the output grid, not the input grid. The jitter is what makes that legal: over several frames, samples land close to every output pixel centre. The count is capped, 32 here, so old samples keep fading and the image stays responsive.</p>
+<p>After a camera cut the count is zero everywhere and the first frame is exactly the bilinear result. The graph shows the RMSE falling as samples accumulate, and a floor it never crosses: the converged image is the scene blurred by the kernel, a touch softer than the box-filtered reference.</p>
+<p>That floor is what the sharpen pass is for. RCAS is a 3 by 3 cross-shaped kernel that subtracts a little of the four neighbours. The amount is limited by the local min and max, so it sharpens edges without adding bright or dark halos on them.</p>
+<p class="words">In words: weight each new sample by how close it landed, fold it into the running average, and raise the count. RCAS then pushes each pixel away from the average of its four neighbours, within a limit.</p>
+<div class="math">w_i  = exp(−2·d_i²)              d_i = |p_out − p_sample| in output pixels, σ = 0.5 px
 c    = (n·c_hist + Σ w_i·c_i) / (n + Σ w_i)
 n'   = min(n + Σ w_i, n_max)     n_max = 32
 α    = Σ w_i / (n + Σ w_i)       the same blend as lerp(c_hist, c_in, α)
 RCAS: c' = (e + lobe·(b+d+f+h)) / (1 + 4·lobe),  lobe ∈ [−0.1875, 0]</div>
-        <p style="margin-top:14px">w_i is the weight of sample i, d_i its distance from the pixel centre, n the accumulated count, c_hist the old colour, c_i the new sample colours, n_max the cap, and α the equivalent blend factor. In the RCAS line e is the centre pixel and b, d, f, h its four neighbours.</p>
-        <p class="words">What this code does: finds the 3 by 3 input samples around the pixel, weights each by distance, reads the history at the reprojected spot, clamps or rejects it, then averages history and new samples by their weights.</p>
+<p>w_i is the weight of sample i, d_i its distance from the pixel centre, n the accumulated count, c_hist the old colour, c_i the new sample colours, n_max the cap, and α the equivalent blend factor. In the RCAS line e is the centre pixel and b, d, f, h its four neighbours.</p>
+<p class="words">What this code does: finds the 3 by 3 input samples around the pixel, weights each by distance, reads the history at the reprojected spot, clamps or rejects it, then averages history and new samples by their weights.</p>
 <pre class="code"><span class="c">// resolve kernel for output pixel p (output px); j = this frame's jitter (input px)</span>
 <span class="k">vec2</span>  q = p / s - 0.5 - j;                     <span class="c">// position in input sample space</span>
 <span class="k">ivec2</span> c = ivec2(round(q));
@@ -435,111 +404,94 @@ h.rgb = clamp(h.rgb, boxMin, boxMax);           <span class="c">// or the depth 
 <span class="k">float</span> n = disoccluded ? 0.0 : h.a;
 <span class="k">vec3</span> outColor = (n * h.rgb + sum) / max(n + wsum, 1e-4);
 historyOut = vec4(outColor, min(n + wsum, N_MAX));</pre>
-      </div>
-    </div>
-    <div class="prose">
-      <p class="tldr">The output is a running average of jittered samples, capped so it can still change, then sharpened to make up for the blur.</p>
+
+    </div></details>
     </div>
   </section>
 
-  <section id="failures">
+  <section id="failures" class="stage">
     <h2>Where it breaks</h2>
-    <p class="sub">The camera follows the player along the fence, past a drifting firefly, with a health bar on screen; each toggle fixes one artifact, and all four start off.</p>
+    <p class="sub">The camera follows the player along the fence, past a drifting firefly, with a health bar on screen; each tick box fixes one fault, and all four start off.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c4" class="r169" width="640" height="360" aria-label="Side-scrolling view of the village lane: thin fence pickets that flicker, a firefly that smears, a soft health bar and crosshair, and a blurry paved road"></canvas>
-        <div class="cap"><span id="c4-read"></span><span>160×90 output · 80×45 input · 2×</span></div>
+        <div class="cap"><span id="c4-read"></span></div>
+        <div class="cap"><span>160 by 90 screen pixels, built from an 80 by 45 drawing (2×)</span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The upscaler only knows what the engine tells it, so <b>every artifact is a missing input</b>. Thin fence pickets fall between samples and <b>flicker</b>. A firefly that writes no motion vector <b>smears</b> along its path. A health bar drawn before the upscale comes out <b>soft</b>. The paving stones come out <b>blurry</b> because the GPU picked a smaller copy of the texture to suit the smaller frame. Each one has a one-line fix on the engine side.</p>
-
-        <h3>What you're seeing</h3>
-        <p>A 160 by 90 output built from 80 by 45. The camera follows the player right at 1 pixel per frame, so the houses, the tree and the fence slide left. The fence pickets are half an output pixel wide. The paving stones on the road are a texture that repeats every 4 texels, where a texel is one pixel of the texture image. The yellow glow is a firefly, a translucent particle drifting across. The white bars and crosshair are the HUD.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Tick "pickets ≥ 1 input px wide". The pickets stop flickering and stay solid while the camera pans.</li>
-          <li>Tick "firefly writes motion vectors". The trail behind the glow goes away.</li>
-          <li>Tick the last two boxes. The health bar and crosshair get crisp edges, and the paving stones separate into slabs instead of a soft grey band.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><label class="chk" for="minw4"><input type="checkbox" id="minw4"> pickets ≥ 1 input px wide</label></div>
-          <div class="ctl"><label class="chk" for="pmv4"><input type="checkbox" id="pmv4"> firefly writes motion vectors</label></div>
-          <div class="ctl"><label class="chk" for="ui4"><input type="checkbox" id="ui4"> HUD drawn after upscale</label></div>
-          <div class="ctl"><label class="chk" for="mip4"><input type="checkbox" id="mip4"> mip bias = log2(r_in / r_out)</label></div>
+      <div class="lesson" data-lesson="failures">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label class="chk" for="minw4"><input type="checkbox" id="minw4"> make the pickets at least one drawn pixel wide</label></div>
+          <div class="ctl"><label class="chk" for="pmv4"><input type="checkbox" id="pmv4"> the firefly reports its motion</label></div>
+          <div class="ctl"><label class="chk" for="ui4"><input type="checkbox" id="ui4"> draw the health bar after the upscale</label></div>
+          <div class="ctl"><label class="chk" for="mip4"><input type="checkbox" id="mip4"> pick the sharper texture copy (mip bias)</label></div>
           <div class="ctl"><label for="cv4">Camera pan <span class="val" id="cv4v">1.00 px / frame</span></label><input type="range" id="cv4" min="0" max="2" step="0.25" value="1"></div>
           <div class="ctl"><label class="chk" for="play4"><input type="checkbox" id="play4" checked> play</label></div>
         </div>
-
-        <h3>The real version</h3>
-        <p>The pickets are half an output pixel wide. On many frames no input sample lands on one, so the current frame says grass there while the history says picket, the depth test rejects, and the picket flickers. Engines keep wires and railings at least one input pixel wide, or draw them after the upscaler.</p>
-        <p>The firefly is translucent, so it writes neither depth nor motion vectors. Its pixels carry the background's motion, the history is fetched from the wrong place, and the glow smears along its own path. FSR 2 takes a reactive mask, a per-pixel flag, for exactly these pixels; Unreal has a "responsive AA" material flag that does the same job.</p>
-        <p>The health bar and crosshair are static on screen, so they accumulate cleanly, but they were rendered at input resolution and rebuilt through the kernel, so their edges are soft. Anything drawn in screen space belongs after the upscaler.</p>
-        <p>The paving texture is soft because the GPU picks mip levels from how fast the texture coordinates change per input pixel, which at 2× is one level coarser than at native. A negative LOD bias on every material sampler, a fixed nudge toward the sharper mip, puts it back.</p>
-        <p class="words">In words: the smaller frame makes the GPU pick a blurrier texture copy; biasing by log2 of the scale picks the copy that native rendering would have used.</p>
-        <div class="math">mip  = log2(texels per input pixel) = mip_native + log2(s)
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Ghost trails, flicker, blur and a soft health bar are all things the engine forgot to tell the upscaler.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+<p>The pickets are half an output pixel wide. On many frames no input sample lands on one, so the current frame says grass there while the history says picket, the depth test rejects, and the picket flickers. Engines keep wires and railings at least one input pixel wide, or draw them after the upscaler.</p>
+<p>The firefly is translucent, so it writes neither depth nor motion vectors. Its pixels carry the background's motion, the history is fetched from the wrong place, and the glow smears along its own path. FSR 2 takes a reactive mask, a per-pixel flag, for exactly these pixels; Unreal has a "responsive AA" material flag that does the same job.</p>
+<p>The health bar and crosshair are static on screen, so they accumulate cleanly, but they were rendered at input resolution and rebuilt through the kernel, so their edges are soft. Anything drawn in screen space belongs after the upscaler.</p>
+<p>The paving texture is soft because the GPU picks mip levels from how fast the texture coordinates change per input pixel, which at 2× is one level coarser than at native. A negative LOD bias on every material sampler, a fixed nudge toward the sharper mip, puts it back.</p>
+<p class="words">In words: the smaller frame makes the GPU pick a blurrier texture copy; biasing by log2 of the scale picks the copy that native rendering would have used.</p>
+<div class="math">mip  = log2(texels per input pixel) = mip_native + log2(s)
 bias = log2(r_in / r_out) = −log2(s)        −0.58 at 1.5×, −1 at 2×, −1.58 at 3×
 footprint after bias = 2^(mip + bias) texels = the native footprint</div>
-        <p>mip is the texture level the GPU picks, s the scale, r_in and r_out the two resolutions, and the footprint is how many texels one pixel covers.</p>
-        <p class="words">What this code does: shifts every texture lookup toward the sharper mip by the scale, flags translucent particles for the upscaler, and leaves screen-space overlays for after it.</p>
+<p>mip is the texture level the GPU picks, s the scale, r_in and r_out the two resolutions, and the footprint is how many texels one pixel covers.</p>
+<p class="words">What this code does: shifts every texture lookup toward the sharper mip by the scale, flags translucent particles for the upscaler, and leaves screen-space overlays for after it.</p>
 <pre class="code"><span class="c">// material shader, internal-resolution pass</span>
 <span class="k">float</span> mipBias = log2(renderWidth / outputWidth);          <span class="c">// -1.0 at 2×; or set it on the sampler</span>
 <span class="k">vec4</span>  albedo  = texture(albedoTex, uv, mipBias);
 <span class="c">// translucent particles: no depth, no motion vectors, so flag them for the resolve</span>
 <span class="k">if</span> (material.responsive) reactiveMask = max(reactiveMask, albedo.a);
 <span class="c">// HUD, film grain, vignette, letterbox: draw at output resolution, after the upscaler</span></pre>
-        <p class="tldr">Ghost trails, flicker, blur and soft HUDs are all inputs the engine forgot to hand the upscaler.</p>
-      </div>
+
+    </div></details>
     </div>
   </section>
 
-  <section id="cost">
+  <section id="cost" class="stage">
     <h2>What it costs</h2>
-    <p class="sub">Pick an output size and a mode: see the small frame the GPU draws next to the big one the player sees, and an estimated frame time split into the part that shrinks and the parts that do not.</p>
+    <p class="sub">Pick a screen size and a mode: see the small frame the GPU draws next to the big one the player sees, and an estimated frame time split into the part that shrinks and the parts that do not.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c5" class="r169" width="640" height="360" aria-label="Bar chart of estimated frame time per upscaling mode, beside two pictures of the village lane: the full-size frame the player sees and the smaller frame the GPU shades"></canvas>
-        <div class="cap"><span id="c5-read"></span><span>estimates, not measurements</span></div>
+        <div class="cap"><span id="c5-read"></span></div>
+        <div class="cap"><span>estimates from a simple model, not measurements</span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The upscaler <b>costs a fixed slice</b> of GPU time, about 1 to 2 ms at 4K, and in return you <b>skip shading most of the pixels</b>. But only the part of the frame that scales with pixel count gets cheaper. <b>Shadow maps, culling, simulation and the HUD cost the same</b> at any input size, so the saving depends on how much of your frame was pixel work to begin with.</p>
-
-        <h3>What you're seeing</h3>
-        <p>On the right, the top picture is the lane as it appears on the player's screen, and the bottom one is the smaller frame the GPU shades in the selected mode. The amber label between them is the upscaler that turns the small one into the big one. On the left, one bar per mode. Grey is the fixed part of the frame that does not care about resolution. Blue is the part that scales with pixel count, divided by s². Amber is the upscaler itself. The dashed green lines mark 16.7 ms (60 Hz) and 8.3 ms (120 Hz). The white outline is the selected mode, and the tiles below give its numbers.</p>
-        <p>These are estimates from a simple model, not measurements.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Click Performance. The bottom picture shrinks to half the width, the blue part of the bar drops to a quarter, and the "saved vs native" tile jumps.</li>
-          <li>Drag Resolution-dependent share down to 40 %. Most of each bar turns grey and the saving shrinks; the upscaler can only help with pixel work.</li>
-          <li>Set Native frame time to 40 ms and find the first mode whose bar dips under the 60 Hz line.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><span class="lab">Output</span><div class="seg" id="seg5r" role="group" aria-label="Output resolution"><button data-v="1080">1080p</button><button data-v="1440">1440p</button><button data-v="2160" aria-pressed="true">4K</button></div></div>
+      <div class="lesson" data-lesson="cost">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">Screen size</span><div class="seg" id="seg5r" role="group" aria-label="Output resolution"><button data-v="1080">1080p</button><button data-v="1440">1440p</button><button data-v="2160" aria-pressed="true">4K</button></div></div>
           <div class="ctl"><span class="lab">Mode</span><div class="seg" id="seg5m" role="group" aria-label="Upscaling mode"><button data-v="1">Quality</button><button data-v="2" aria-pressed="true">Balanced</button><button data-v="3">Performance</button><button data-v="4">Ultra perf.</button></div></div>
-          <div class="ctl"><label for="tn5">Native frame time <span class="val" id="tn5v">24.0 ms</span></label><input type="range" id="tn5" min="8" max="40" step="0.5" value="24"></div>
-          <div class="ctl"><label for="dep5">Resolution-dependent share <span class="val" id="dep5v">75 %</span></label><input type="range" id="dep5" min="40" max="95" step="5" value="75"></div>
+        </div>
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="tn5">Frame time when drawn at full size <span class="val" id="tn5v">24.0 ms</span></label><input type="range" id="tn5" min="8" max="40" step="0.5" value="24"></div>
+          <div class="ctl"><label for="dep5">Share of the frame that shrinks with pixel count <span class="val" id="dep5v">75 %</span></label><input type="range" id="dep5" min="40" max="95" step="5" value="75"></div>
           <div class="ctl"><label for="up5">Upscaler cost at 4K <span class="val" id="up5v">1.2 ms</span></label><input type="range" id="up5" min="0.2" max="4" step="0.1" value="1.2"></div>
         </div>
-        <div class="tiles four">
-          <div class="tile"><div class="n" id="t5-res">—</div><div class="l">internal resolution</div></div>
-          <div class="tile"><div class="n" id="t5-px">—</div><div class="l">pixels shaded per frame</div></div>
-          <div class="tile on"><div class="n" id="t5-ms">—</div><div class="l">frame time, est.</div></div>
-          <div class="tile"><div class="n" id="t5-save">—</div><div class="l">saved vs native</div></div>
+        <div class="tiles four" data-step-min="2">
+          <div class="tile"><div class="n" id="t5-res">—</div><div class="l">size the GPU draws</div></div>
+          <div class="tile"><div class="n" id="t5-px">—</div><div class="l">pixels coloured per frame</div></div>
+          <div class="tile on"><div class="n" id="t5-ms">—</div><div class="l">frame time, estimated</div></div>
+          <div class="tile"><div class="n" id="t5-save">—</div><div class="l">saved vs drawing at full size</div></div>
         </div>
-
-        <h3>The real version</h3>
-        <p>The mode names are the DLSS and FSR 2 presets: Quality renders at 1/1.5 of the output on each axis, Balanced at about 1/1.7, Performance at 1/2, Ultra Performance at 1/3. 4K Performance shades 1920×1080 pixels, a quarter of the output. 4K Quality shades 2560×1440, 44 %.</p>
-        <p>Shadow maps, culling, simulation and the HUD do not get cheaper, so the saving is the resolution-dependent share divided by <code>s²</code>, minus the upscaler itself. Published figures put a temporal upscaler at roughly 1 to 2 ms at 4K output on 2022-era GPUs; the slider is that number, scaled by output pixel count for the smaller targets. The bars are the model, not a benchmark.</p>
-        <p>Dynamic resolution takes this one step further: the engine measures last frame's GPU time and picks the scale for the next frame so the total lands on budget.</p>
-        <p class="words">In words: frame time is the fixed part, plus the pixel part divided by s², plus the upscaler; the upscaler's cost follows the output size, not the input size.</p>
-        <div class="math">t_frame ≈ t_fixed + t_scaled / s² + t_upscale
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Temporal upscaling only shrinks the pixel-bound part of the frame, so measure that share before you count on a saving.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+<p>The mode names are the DLSS and FSR 2 presets: Quality renders at 1/1.5 of the output on each axis, Balanced at about 1/1.7, Performance at 1/2, Ultra Performance at 1/3. 4K Performance shades 1920×1080 pixels, a quarter of the output. 4K Quality shades 2560×1440, 44 %.</p>
+<p>Shadow maps, culling, simulation and the HUD do not get cheaper, so the saving is the resolution-dependent share divided by <code>s²</code>, minus the upscaler itself. Published figures put a temporal upscaler at roughly 1 to 2 ms at 4K output on 2022-era GPUs; the slider is that number, scaled by output pixel count for the smaller targets. The bars are the model, not a benchmark.</p>
+<p>Dynamic resolution takes this one step further: the engine measures last frame's GPU time and picks the scale for the next frame so the total lands on budget.</p>
+<p class="words">In words: frame time is the fixed part, plus the pixel part divided by s², plus the upscaler; the upscaler's cost follows the output size, not the input size.</p>
+<div class="math">t_frame ≈ t_fixed + t_scaled / s² + t_upscale
 pixels shaded = (w_out / s) · (h_out / s)     3840×2160 at 2× → 2.07 M
 t_upscale ∝ output pixels, not input pixels</div>
-        <p>t_frame is the whole frame, t_fixed the part that ignores resolution, t_scaled the part that follows pixel count, t_upscale the upscaler, s the scale, and w_out and h_out the output width and height.</p>
-        <p class="words">What this code does: reads how long the last frame took, nudges the scale a little toward the budget, and rounds the new input size to even numbers.</p>
+<p>t_frame is the whole frame, t_fixed the part that ignores resolution, t_scaled the part that follows pixel count, t_upscale the upscaler, s the scale, and w_out and h_out the output width and height.</p>
+<p class="words">What this code does: reads how long the last frame took, nudges the scale a little toward the budget, and rounds the new input size to even numbers.</p>
 <pre class="code"><span class="c">// dynamic resolution: choose s each frame so GPU time lands on budget</span>
 <span class="k">float</span> gpuMs = readTimestampQuery(previousFrame);
 <span class="k">float</span> ratio = clamp(budgetMs / gpuMs, 0.85, 1.15);          <span class="c">// damp it; never chase one spike</span>
@@ -547,23 +499,23 @@ scale = clamp(scale * sqrt(ratio), 1.0 / 3.0, 1.0);           <span class="c">//
 renderWidth  = roundToEven(outputWidth  * scale);
 renderHeight = roundToEven(outputHeight * scale);
 <span class="c">// the upscaler must accept a varying input size; jitter length and mip bias follow scale</span></pre>
-        <p class="tldr">Temporal upscaling only shrinks the pixel-bound part of the frame, so measure that share before you count on a saving.</p>
-      </div>
+
+    </div></details>
     </div>
   </section>
 
   <section id="tradeoffs">
     <h2>Tradeoffs</h2>
     <p class="sub">Four families that all end at a full-size picture. What each one needs from the engine is the real difference; quality follows from that.</p>
-    <p class="plain">Read the rows top to bottom as rising effort and rising payoff. A <b>spatial</b> upscaler is a day of work and gives a soft picture. A <b>temporal</b> one is weeks of engine plumbing and gives back real detail. The <b>ML</b> versions swap the hand-tuned rules for a trained network on the same inputs. <b>Frame generation</b> sits on top of a temporal upscaler and invents whole frames. The cost column is an estimate for 4K on a 2022-class GPU.</p>
+    <p class="plain">Read the rows top to bottom as rising effort and rising payoff. A <b>spatial</b> upscaler is a day of work and gives a soft picture. A <b>temporal</b> one is weeks of engine plumbing and gives back real detail. The <b>ML</b> versions (machine learning) swap the hand-tuned rules for a trained network on the same inputs. <b>Frame generation</b> sits on top of a temporal upscaler and invents whole frames. The cost column is an estimate for 4K on a 2022-class GPU.</p>
     <div class="tbl-wrap">
     <table class="uses trade">
       <thead><tr><th>Kind</th><th>Needs from the engine</th><th>How it looks when it fails</th><th>Added delay</th><th>Runs on</th><th>Cost, est.</th></tr></thead>
       <tbody>
-        <tr><td>Spatial (FSR 1, NIS)</td><td>One anti-aliased colour frame. Drop-in, a day of work.</td><td>No new detail: edges stay as soft as the input, thin lines are gone, sharpening adds halos.</td><td>None</td><td>Any GPU</td><td>0.3–0.6 ms at 4K</td></tr>
-        <tr><td>Temporal (TAAU, FSR 2, TSR)</td><td>Depth, motion vectors, jitter, mip bias, reactive masks, HUD after upscale. Weeks of engine work.</td><td>Ghost trails and smears where motion vectors are missing; flicker on thin geometry; blur on fast motion.</td><td>None</td><td>Any GPU</td><td>1–2 ms at 4K</td></tr>
-        <tr><td>ML temporal (DLSS 2+, XeSS)</td><td>Same inputs as temporal; a trained network replaces the hand-tuned rejection and blend rules.</td><td>Fewer rules to break, but the same missing-vector artifacts, plus the odd made-up texture detail.</td><td>None</td><td>Tensor or XMX cores for the full model; XeSS has a DP4a path</td><td>1–2 ms at 4K</td></tr>
-        <tr><td>Frame generation (DLSS 3, FSR 3)</td><td>A working temporal upscaler, plus optical flow and a pacing layer; HUD handled separately again.</td><td>Warped HUD and text, garbage where things get uncovered, uneven pacing; a generated frame cannot react to input.</td><td>Adds about one rendered frame</td><td>DLSS 3: RTX 40; FSR 3: any GPU</td><td>2–3 ms per generated frame</td></tr>
+        <tr><td>Spatial (FSR 1, NIS)</td><td>One finished colour frame. Drop-in, a day of work.</td><td>No new detail: edges stay as soft as the input, thin lines are gone, sharpening adds halos.</td><td>None</td><td>Any GPU</td><td>0.3–0.6 ms at 4K</td></tr>
+        <tr><td>Temporal (TAAU, FSR 2, TSR)</td><td>Depth, motion vectors, the jitter shift, the sharper-texture nudge, a flag for see-through things, the HUD drawn after the upscale. Weeks of engine work.</td><td>Ghost trails and smears where motion vectors are missing; flicker on thin geometry; blur on fast motion.</td><td>None</td><td>Any GPU</td><td>1–2 ms at 4K</td></tr>
+        <tr><td>ML temporal (DLSS 2+, XeSS)</td><td>Same inputs as temporal; a trained network replaces the hand-tuned rejection and blend rules.</td><td>Fewer rules to break, but the same missing-vector artifacts, plus the odd made-up texture detail.</td><td>None</td><td>The AI cores on newer GPUs for the full model; XeSS also has a slower path for any GPU</td><td>1–2 ms at 4K</td></tr>
+        <tr><td>Frame generation (DLSS 3, FSR 3)</td><td>A working temporal upscaler, plus optical flow (motion worked out from the pictures alone) and a layer that spaces the frames out evenly; HUD handled separately again.</td><td>Warped HUD and text, garbage where things get uncovered, uneven pacing; a generated frame cannot react to input.</td><td>Adds about one rendered frame</td><td>DLSS 3: RTX 40; FSR 3: any GPU</td><td>2–3 ms per generated frame</td></tr>
       </tbody>
     </table>
     </div>
@@ -578,15 +530,15 @@ renderHeight = roundToEven(outputHeight * scale);
     <table class="uses">
       <thead><tr><th>Use</th><th>What happens each frame</th><th>Data it needs</th><th>Seen in</th></tr></thead>
       <tbody>
-        <tr><td>Temporal super resolution</td><td>Look up last frame along the motion vectors, drop history that fails the depth test or clamp it, then blend the jittered low-res samples into a full-res image.</td><td>Colour, depth, motion vectors, jitter offset, exposure, reactive mask</td><td>DLSS 2.0 (2020), FSR 2.0 (2022), XeSS (2022), Unreal Engine 5 TSR (2022)</td></tr>
-        <tr><td>TAA with upsampling</td><td>The engine's own temporal anti-aliasing writing to a larger target; the ancestor of the vendor SDKs.</td><td>Same as above, without the mask</td><td>Unreal Engine 4 TAAU, Unity HDRP TAA Upscale, many engines</td></tr>
+        <tr><td>Temporal super resolution</td><td>Look up last frame along the motion vectors, drop history that fails the depth test or clamp it, then blend the jittered low-res samples into a full-res image.</td><td>Colour, depth, motion vectors, the jitter shift, brightness, a flag for see-through things</td><td>DLSS 2.0 (2020), FSR 2.0 (2022), XeSS (2022), Unreal Engine 5 TSR (2022)</td></tr>
+        <tr><td>TAA with upsampling</td><td>The engine's own temporal anti-aliasing writing to a larger target; the ancestor of the vendor SDKs.</td><td>Same as above, without the flag</td><td>Unreal Engine 4 TAAU, Unity HDRP TAA Upscale, many engines</td></tr>
         <tr><td>Checkerboard rendering</td><td>Shade half the pixels each frame in a checker pattern, fill the rest from neighbours and the previous frame.</td><td>Colour, depth, motion vectors, object IDs</td><td>PS4 Pro titles from 2016; Horizon Zero Dawn (GDC 2017); Frostbite's Battlefield 1 (GDC 2017)</td></tr>
         <tr><td>Dynamic resolution</td><td>Pick the input size each frame from last frame's GPU time and hand a varying input to the upscaler.</td><td>GPU timestamps, a frame-time target</td><td>Halo Infinite, Call of Duty, most console titles</td></tr>
-        <tr><td>Frame generation</td><td>Make up a whole frame between two rendered ones from motion vectors and optical flow.</td><td>Two frames, motion vectors, optical flow, HUD-less colour</td><td>DLSS 3 (2022), FSR 3 (2023)</td></tr>
+        <tr><td>Frame generation</td><td>Make up a whole frame between two rendered ones from motion vectors and optical flow.</td><td>Two frames, motion vectors, optical flow, the picture without the HUD</td><td>DLSS 3 (2022), FSR 3 (2023)</td></tr>
       </tbody>
     </table>
     </div>
-    <p class="note">The trap: the upscaler only sees what was rendered. It cannot know that a texture scrolls, an animated character bends, a portal shows another room, or a firefly drifts, unless the engine writes a correct motion vector for every one of those pixels, animated UVs included. Nearly every ghosting or smearing report traces back to a missing or wrong motion vector, not to the upscaler.</p>
+    <p class="note">The trap: the upscaler only sees what was rendered. It cannot know that a texture scrolls, an animated character bends, a portal shows another room, or a firefly drifts, unless the engine writes a correct motion vector for every one of those pixels, scrolling and stretching textures included. Nearly every ghosting or smearing report traces back to a missing or wrong motion vector, not to the upscaler.</p>
   </section>
 </div>
 <script>
@@ -704,11 +656,79 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   "use strict";
   const $ = id => document.getElementById(id);
   const GROUND = "#0b0e13", AMBER = "#f2a341", BLUE = "#4aa3ff", WHITE = "#ffffff", RED = "#ef5d5d", GREEN = "#5ad48a", GRID = "rgba(255,255,255,0.12)";
   const MONO = "IBM Plex Mono, Menlo, Consolas, monospace";
+  let L1, L2, L3, L4, L5;
 
   function halton(i, b) { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; }
   function jitterOf(k, phases) { const i = (k % phases) + 1; return [halton(i, 2) - 0.5, halton(i, 3) - 0.5]; }
@@ -1029,7 +1049,7 @@ function kitInset(ctx, x, y, w, h, title) {
       }
     }
     x1.restore();
-    text(x1, `the player's head: ${G1}×${G1} output px · input px = ${s}× wider`, OX, OY + GW + 16, "rgba(255,255,255,0.6)");
+    text(x1, `the player's head: ${G1} by ${G1} screen pixels · one drawn sample covers ${s} by ${s} of them`, OX, OY + GW + 16, "rgba(255,255,255,0.6)");
     // inset: one input pixel with the sequence
     x1.fillStyle = "rgba(255,255,255,0.05)"; x1.fillRect(IX, IY, IW, IW);
     x1.strokeStyle = GRID; x1.beginPath();
@@ -1041,10 +1061,10 @@ function kitInset(ctx, x, y, w, h, title) {
       x1.fillStyle = age === 0 ? AMBER : "rgba(74,163,255,0.85)"; x1.beginPath(); x1.arc(px, py, age === 0 ? 4 : 3, 0, Math.PI * 2); x1.fill();
       if (N <= 16) text(x1, String((k % phases) + 1), px + 5, py + 3, "rgba(255,255,255,0.7)", 9);
     }
-    text(x1, "one input pixel", IX, IY + IW + 16, "rgba(255,255,255,0.6)");
-    text(x1, `= ${s}×${s} output px`, IX, IY + IW + 30, "rgba(255,255,255,0.6)");
-    text(x1, `phase ${(cur[3] % phases) + 1} / ${phases}`, IX, IY + IW + 44, "rgba(255,255,255,0.6)");
-    text(x1, `j = (${sgn(cur[0])}, ${sgn(cur[1])})`, IX, IY + IW + 58, AMBER);
+    text(x1, "one drawn pixel", IX, IY + IW + 16, "rgba(255,255,255,0.6)");
+    text(x1, `= ${s} by ${s} screen pixels`, IX, IY + IW + 30, "rgba(255,255,255,0.6)");
+    text(x1, `shift ${(cur[3] % phases) + 1} of ${phases}`, IX, IY + IW + 44, "rgba(255,255,255,0.6)");
+    text(x1, `shift (${sgn(cur[0])}, ${sgn(cur[1])}) of a pixel`, IX, IY + IW + 58, AMBER);
     text(x1, `last ${frames.length} frames shown`, IX, IY + IW + 72, "rgba(74,163,255,0.85)");
     // inset: what the player sees, with the patch boxed
     kitInset(x1, VX, VY, VW, VH, "player's view");
@@ -1055,7 +1075,7 @@ function kitInset(ctx, x, y, w, h, title) {
     text(x1, "white box: the patch", VX, VY + VH + 14, "rgba(255,255,255,0.6)", 10);
     // histogram: output pixels by sample count
     const HY = 392, HH = 96, HX = 16, HWd = 480;
-    text(x1, "output pixels by sample count", HX, HY - 8, "rgba(255,255,255,0.6)");
+    text(x1, "how many squares hold 0, 1, 2… samples", HX, HY - 8, "rgba(255,255,255,0.6)");
     const bins = new Uint16Array(mx + 1); for (const c of counts) bins[c]++;
     let bmax = 1; for (const b of bins) if (b > bmax) bmax = b;
     const bwid = Math.min(40, HWd / (mx + 1));
@@ -1067,7 +1087,9 @@ function kitInset(ctx, x, y, w, h, title) {
     }
     x1.strokeStyle = GRID; x1.beginPath(); x1.moveTo(HX, HY + HH - 13.5); x1.lineTo(HX + HWd, HY + HH - 13.5); x1.stroke();
     const mean = sum / (G1 * G1);
-    $("c1-read").innerHTML = `<strong>${mean.toFixed(2)} samples per output px</strong> after ${frames.length} frames · N/s² = ${(frames.length / (s * s)).toFixed(2)} · min ${mn} · max ${mx}`;
+    d1.stats = { mean, min: mn, max: mx, frames: frames.length };
+    $("c1-read").innerHTML = `<strong>${mean.toFixed(2)} samples per screen pixel</strong> on average after ${frames.length} frame${frames.length === 1 ? "" : "s"} · fewest ${mn} · most ${mx} · expected ${(frames.length / (s * s)).toFixed(2)}, which is frames ÷ ${s}²`;
+    L1 && L1.check();
   }
   onSeg("seg1", v => { d1.s = +v; draw1(); });
   onRange("n1", "n1v", v => String(v), v => { d1.N = v; if (!d1.anim) d1.k = v - 1; draw1(); });
@@ -1077,9 +1099,9 @@ function kitInset(ctx, x, y, w, h, title) {
     const [x, y] = canvasPt(c1, ev); const i = Math.floor((x - OX) / P1), j = Math.floor((y - OY) / P1);
     const h = (i >= 0 && i < G1 && j >= 0 && j < G1) ? j * G1 + i : -1;
     if (h === d1.hover) return; d1.hover = h;
-    if (!pend1) { pend1 = true; requestAnimationFrame(() => { pend1 = false; draw1(); $("c1-hover").textContent = d1.hover >= 0 ? `output px (${d1.hover % G1}, ${Math.floor(d1.hover / G1)}) highlighted` : "hover an output pixel"; }); }
+    if (!pend1) { pend1 = true; requestAnimationFrame(() => { pend1 = false; draw1(); $("c1-hover").textContent = d1.hover >= 0 ? `square (${d1.hover % G1}, ${Math.floor(d1.hover / G1)}) highlighted` : "hover a square to highlight it"; }); }
   });
-  c1.addEventListener("pointerleave", () => { d1.hover = -1; draw1(); $("c1-hover").textContent = "hover an output pixel"; });
+  c1.addEventListener("pointerleave", () => { d1.hover = -1; draw1(); $("c1-hover").textContent = "hover a square to highlight it"; });
   draw1();
 
   // ---------- 2. reprojection: the player runs past the fence ----------
@@ -1139,10 +1161,11 @@ function kitInset(ctx, x, y, w, h, title) {
     }
     // caption strip
     x2.fillStyle = GROUND; x2.fillRect(0, GH, 640, 40);
-    const lab = { out: "resolved output, frame t", hist: "history buffer, frame t−1, before reprojection", in: "input frame t at 32×16, grid shifted by the jitter" }[d2.view];
+    const lab = { out: "the finished picture for this frame", hist: "history: last frame's finished picture, before anything moved", in: "the small drawing for this frame, 32 by 16, shifted by this frame's jitter" }[d2.view];
     text(x2, lab, 10, GH + 16, "rgba(255,255,255,0.7)");
-    if (d2.view === "out") { x2.fillStyle = "rgba(239,93,93,0.7)"; x2.fillRect(10, GH + 25, 10, 8); text(x2, "history rejected on depth", 26, GH + 33, "rgba(255,255,255,0.55)", 10); x2.fillStyle = WHITE; x2.fillRect(210, GH + 28, 14, 2); text(x2, "motion vector, points to uv − mv", 230, GH + 33, "rgba(255,255,255,0.55)", 10); }
-    $("c2-read").innerHTML = `frame <strong>${U2.k}</strong> · jitter (${sgn(U2.jx)}, ${sgn(U2.jy)}) input px · mv (${d2.v.toFixed(2)}, 0) px · <strong>${U2.rejected}</strong> px rejected${d2.reject ? "" : " (rejection off)"}`;
+    if (d2.view === "out") { x2.fillStyle = "rgba(239,93,93,0.7)"; x2.fillRect(10, GH + 25, 10, 8); text(x2, "history thrown away: distance did not match", 26, GH + 33, "rgba(255,255,255,0.55)", 10); x2.fillStyle = WHITE; x2.fillRect(300, GH + 28, 14, 2); text(x2, "motion arrow: where the pixel was last frame", 320, GH + 33, "rgba(255,255,255,0.55)", 10); }
+    $("c2-read").innerHTML = `frame <strong>${U2.k}</strong> · this frame's shift (${sgn(U2.jx)}, ${sgn(U2.jy)}) of a drawn pixel · the player moves ${d2.v.toFixed(2)} px per frame · <strong>${U2.rejected}</strong> pixels threw their history away${d2.reject ? "" : " (throwing away is off)"}`;
+    L2 && L2.check();
   }
   onSeg("seg2", v => { d2.view = v; draw2(); });
   onRange("v2", "v2v", v => v.toFixed(2) + " px / frame", v => { d2.v = v; });
@@ -1174,11 +1197,11 @@ function kitInset(ctx, x, y, w, h, title) {
     const U = d3.U, last = d3.hist[d3.hist.length - 1] || [0, 0];
     blit3.draw(x3, ref3, PX[0], PY, PS, PS); blit3.draw(x3, bil3, PX[1], PY, PS, PS); blit3.draw(x3, sh3, PX[2], PY, PS, PS);
     x3.strokeStyle = GRID; x3.lineWidth = 1; for (const px of PX) x3.strokeRect(px + 0.5, PY + 0.5, PS - 1, PS - 1);
-    text(x3, "native, 16 spp reference", PX[0], 14, "rgba(255,255,255,0.7)");
-    text(x3, `bilinear from ${U.Wi}×${U.Hi}`, PX[1], 14, BLUE);
-    text(x3, `temporal ${d3.s}× + RCAS ${d3.sharp.toFixed(2)}`, PX[2], 14, AMBER);
-    text(x3, "RMSE " + last[0].toFixed(1), PX[1] + PS, PY + PS + 14, BLUE, 11, "right");
-    text(x3, "RMSE " + last[1].toFixed(1), PX[2] + PS, PY + PS + 14, AMBER, 11, "right");
+    text(x3, "drawn at full size: the target", PX[0], 14, "rgba(255,255,255,0.7)");
+    text(x3, `one ${U.Wi} by ${U.Hi} frame, stretched`, PX[1], 14, BLUE);
+    text(x3, `many frames · sharpen ${d3.sharp.toFixed(2)}`, PX[2], 14, AMBER);
+    text(x3, "error " + last[0].toFixed(1), PX[1] + PS, PY + PS + 14, BLUE, 11, "right");
+    text(x3, "error " + last[1].toFixed(1), PX[2] + PS, PY + PS + 14, AMBER, 11, "right");
     // callouts on the reference: the two thin things the small frame keeps missing
     const wx = 60, wy = LAMP_TOP - (LAMP_X - wx) / (LAMP_X - WIRE_B[0]) * (LAMP_TOP - WIRE_B[1]);   // a point on the power line, world coords
     const sxw = PX[0] + (wx - P3.cam) * 2, syw = PY + (wy - P3.camY) * 2;
@@ -1194,7 +1217,7 @@ function kitInset(ctx, x, y, w, h, title) {
     for (let i = 0; i <= 2; i++) { const y = GY + GH - (i / 2) * GH + 0.5; x3.moveTo(GX, y); x3.lineTo(GX + GWd, y); }
     x3.stroke();
     text(x3, String(ymax), GX + GWd, GY - 4, "rgba(255,255,255,0.5)", 10, "right"); text(x3, "0", GX + GWd, GY + GH - 2, "rgba(255,255,255,0.5)", 10, "right");
-    text(x3, "RMSE vs reference, last 80 frames", GX, GY - 4, "rgba(255,255,255,0.6)");
+    text(x3, "error against the full-size picture, last 80 frames", GX, GY - 4, "rgba(255,255,255,0.6)");
     const n = d3.hist.length, dx = GWd / 79;
     for (const c of d3.cuts) { const x = GX + c * dx + 0.5; x3.strokeStyle = "rgba(255,255,255,0.5)"; x3.setLineDash([3, 3]); x3.beginPath(); x3.moveTo(x, GY); x3.lineTo(x, GY + GH); x3.stroke(); x3.setLineDash([]); text(x3, "cut", x + 3, GY + 10, "rgba(255,255,255,0.6)", 10); }
     for (const [idx, col] of [[0, BLUE], [1, AMBER]]) {
@@ -1204,7 +1227,8 @@ function kitInset(ctx, x, y, w, h, title) {
     }
     let nAcc = 0; { const hN = U.hN; for (let i = 0; i < hN.length; i++) if (hN[i] > nAcc) nAcc = hN[i]; }
     $("t3-bil").textContent = last[0].toFixed(1); $("t3-tmp").textContent = last[1].toFixed(1); $("t3-n").textContent = String(d3.frames);
-    $("c3-read").innerHTML = `frame <strong>${U.k}</strong> · ${R3}×${R3} from ${U.Wi}×${U.Hi} · history weight up to <strong>${nAcc.toFixed(1)}</strong> of ${U.nMax} · ${U.phases} jitter phases`;
+    $("c3-read").innerHTML = `frame <strong>${U.k}</strong> · ${R3} by ${R3} built from ${U.Wi} by ${U.Hi} · the most any pixel has collected: <strong>${nAcc.toFixed(1)}</strong> of the cap of ${U.nMax} · ${U.phases} shift positions before the pattern repeats`;
+    L3 && L3.check();
   }
   setup3();
   onSeg("seg3", v => { d3.s = +v; setup3(); step3(); });
@@ -1240,12 +1264,12 @@ function kitInset(ctx, x, y, w, h, title) {
     kitLabel(x4, d4.uiAfter ? "health bar (HUD), drawn after the upscale" : "health bar (HUD), drawn before the upscale", 6 * C4, 62, "left");
     kitLabel(x4, "crosshair (HUD)", 80 * C4 + 32, 45 * C4 - 10, "left");
     kitLabel(x4, "player", 80 * C4, 58 * C4, "center");
-    kitLabel(x4, d4.minWidth ? "pickets, 1 input px wide" : "pickets, ½ output px wide", 12, 57 * C4 - 4, "left");
-    kitLabel(x4, d4.mipBias ? "paving stones, native mip" : "paving stones, one mip too blurry", 628, 86 * C4, "right");
+    kitLabel(x4, d4.minWidth ? "pickets, one drawn pixel wide" : "pickets, half a screen pixel wide", 12, 57 * C4 - 4, "left");
+    kitLabel(x4, d4.mipBias ? "paving stones, the sharp copy" : "paving stones, a copy one step too blurry", 628, 86 * C4, "right");
     const fl = Math.min(Math.max(d4.px * C4 + 40, 8), 400);
-    kitLabel(x4, d4.pmv ? "firefly, writes motion vectors" : "firefly, no motion vector", fl, Math.max(d4.py * C4 - 22, 12), "left");
-    const mip = Math.log2(S4) + (d4.mipBias ? -Math.log2(S4) : 0);
-    $("c4-read").innerHTML = `frame <strong>${U4.k}</strong> · camera x ${d4.cam.toFixed(1)} px · texture mip <strong>${mip.toFixed(1)}</strong> (${Math.pow(2, mip)}-texel footprint) · firefly mv ${d4.pmv ? "written" : "<strong>missing</strong>"} · ${U4.rejected} px rejected`;
+    kitLabel(x4, d4.pmv ? "firefly, reports its motion" : "firefly, motion not reported", fl, Math.max(d4.py * C4 - 22, 12), "left");
+    $("c4-read").innerHTML = `frame <strong>${U4.k}</strong> · camera has moved ${d4.cam.toFixed(1)} px · paving texture copy: <strong>${d4.mipBias ? "the sharp one" : "one step too blurry"}</strong> · firefly motion ${d4.pmv ? "reported" : "<strong>not reported</strong>"} · ${U4.rejected} pixels threw history away`;
+    L4 && L4.check();
   }
   onCheck("minw4", v => { d4.minWidth = v; if (!d4.play) step4(); });
   onCheck("pmv4", v => { d4.pmv = v; if (!d4.play) step4(); });
@@ -1289,9 +1313,9 @@ function kitInset(ctx, x, y, w, h, title) {
       text(x5, r.b, x + barW / 2, GY + GH + 16, sel ? WHITE : "rgba(255,255,255,0.6)", 10, "center");
       text(x5, `${r.iw}×${r.ih}`, x + barW / 2, GY + GH + 30, "rgba(255,255,255,0.5)", 10, "center");
     });
-    x5.fillStyle = "rgba(255,255,255,0.22)"; x5.fillRect(GX, 346, 10, 8); text(x5, "fixed", GX + 14, 353, "rgba(255,255,255,0.55)", 10);
-    x5.fillStyle = BLUE; x5.fillRect(GX + 60, 346, 10, 8); text(x5, "scales with pixels", GX + 74, 353, "rgba(255,255,255,0.55)", 10);
-    x5.fillStyle = AMBER; x5.fillRect(GX + 200, 346, 10, 8); text(x5, "upscaler", GX + 214, 353, "rgba(255,255,255,0.55)", 10);
+    x5.fillStyle = "rgba(255,255,255,0.22)"; x5.fillRect(GX, 346, 10, 8); text(x5, "same at any size", GX + 14, 353, "rgba(255,255,255,0.55)", 10);
+    x5.fillStyle = BLUE; x5.fillRect(GX + 120, 346, 10, 8); text(x5, "shrinks with pixels", GX + 134, 353, "rgba(255,255,255,0.55)", 10);
+    x5.fillStyle = AMBER; x5.fillRect(GX + 260, 346, 10, 8); text(x5, "upscaler", GX + 274, 353, "rgba(255,255,255,0.55)", 10);
     const r = rows[d5.mode], nat = rows[0];
     // right: the frame the player sees, and the smaller one the GPU shades in this mode
     const FX = 384, FW = LW + 8;
@@ -1300,12 +1324,15 @@ function kitInset(ctx, x, y, w, h, title) {
     kitArrow(x5, FX + 14, 205, FX + 14, 173, AMBER, 1.5);
     kitLabel(x5, `upscaler: ${upHere.toFixed(2)} ms to rebuild`, FX + 26, 182, "left", AMBER);
     const sw = Math.round(LW / r.s), sh = Math.round(LH / r.s);
-    kitInset(x5, FX, 194, FW, sh + 26, `GPU draws · ${r.iw}×${r.ih} · ${(100 * r.px / outPx).toFixed(0)} % of px`);
+    kitInset(x5, FX, 194, FW, sh + 26, `GPU draws · ${r.iw}×${r.ih}`);
     x5.imageSmoothingEnabled = true; x5.drawImage(lane5, FX + 4, 216, sw, sh);
+    kitLabel(x5, `${(100 * r.px / outPx).toFixed(0)} % of the pixels`, FX + FW - 4, 216 + sh - 10, "right", AMBER);
     x5.imageSmoothingEnabled = false;
     $("t5-res").textContent = `${r.iw}×${r.ih}`; $("t5-px").textContent = (r.px / 1e6).toFixed(2) + " M";
     $("t5-ms").textContent = r.total.toFixed(1) + " ms"; $("t5-save").textContent = (nat.total - r.total).toFixed(1) + " ms";
-    $("c5-read").innerHTML = `${ow}×${oh} output · <strong>${r.n} ${r.s}×</strong> shades ${(100 * r.px / outPx).toFixed(0)} % of the pixels · upscaler ${upHere.toFixed(2)} ms here`;
+    d5.stats = { total: r.total, saved: nat.total - r.total };
+    $("c5-read").innerHTML = `${ow}×${oh} screen · <strong>${r.n}, ${r.s}× smaller</strong> colours ${(100 * r.px / outPx).toFixed(0)} % of the pixels · upscaler ${upHere.toFixed(2)} ms at this screen size`;
+    L5 && L5.check();
   }
   onSeg("seg5r", v => { d5.res = +v; draw5(); });
   onSeg("seg5m", v => { d5.mode = +v; draw5(); });
@@ -1327,5 +1354,105 @@ function kitInset(ctx, x, y, w, h, title) {
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
+
+  // ---------- guided steps ----------
+  const set1 = o => { Object.assign(d1, o); segOn($("seg1"), d1.s); $("n1").value = d1.N; $("n1v").textContent = String(d1.N); $("anim1").checked = d1.anim; if (!d1.anim) d1.k = d1.N - 1; draw1(); };
+  L1 = lesson("jitter", { next: { id: "reproject", title: "Reuse last frame, or throw it away" }, steps: [
+    { say: "The GPU is drawing the village lane at half size, so it draws <b>one sample for every 2 by 2 screen pixels</b>. This is a zoomed-in patch of 8 by 8 screen pixels on the player's head; the small picture on the right shows where the patch sits. Amber dots are the samples drawn this frame, blue dots are samples from earlier frames, and the number in each square counts how many have landed in it so far.", enter: () => set1({ s: 2, N: 16, anim: false, hover: -1 }) },
+    { say: "<b>Hover any square.</b> Its number is how many samples it holds, and the bar chart at the bottom counts how many squares hold 0, 1, 2 or more.", todo: "hover a square", goal: () => d1.hover >= 0, try: () => { d1.hover = 27; draw1(); },
+      done: "Some squares hold more than others. The samples fall wherever the sliding grid puts them, not on a tidy pattern." },
+    { say: "<b>Drag Frames collected so far down to 1</b> to see a single frame on its own.", todo: "drag the frames slider to 1", goal: () => d1.N <= 2, try: () => { $("n1").value = 1; $("n1").dispatchEvent(new Event("input")); },
+      done: "Only one square in four gets a sample. The other 48 turn red: nothing was drawn there. Stretch this one frame to full size and those 48 pixels are guesses." },
+    { say: "Each new frame, the whole grid of samples <b>slides by a fraction of a pixel</b>. The dashed blue lines show where the grid sits this frame, and the small square at the top right shows the list of shift positions.", quiz: { q: "After 16 frames, about how many samples has each screen pixel collected?", options: [
+        { t: "Still one in four; the grid always lands in the same spots", why: "The grid slides every frame, so each frame's samples land in new squares." },
+        { t: "About four", ok: true, why: "Each frame gives every square a quarter of a sample on average, and 16 quarters make four." },
+        { t: "Sixteen, one per frame", why: "One frame has a sample for only one square in four, so each square gets a quarter of a sample per frame, not a whole one." } ] },
+      todo: "drag the frames slider back up to 16 or more", goal: () => d1.N >= 14, try: () => { $("n1").value = 16; $("n1").dispatchEvent(new Event("input")); },
+      done: "Every square holds several samples and the bar chart bunches up around 4. These are real drawn samples that happen to sit at slightly different spots, not guesses." },
+    { say: "<b>Tick keep advancing frames</b> and watch the grid slide.", todo: "tick the box below", goal: () => d1.anim, try: () => { if (!$("anim1").checked) $("anim1").click(); },
+      done: "The amber samples land somewhere new each frame. The list of shift positions is fixed and repeats after 32 frames at 2×, so the pattern never lines up with itself for long." },
+    { say: "Now shrink harder. At 3× one drawn sample covers 3 by 3 screen pixels.", quiz: { q: "At 3× with 16 frames collected, about how many samples per screen pixel?", options: [
+        { t: "About four, the same as before", why: "Each frame now covers one square in nine, not one in four, so 16 frames give less." },
+        { t: "About 1.8", ok: true, why: "One square in nine per frame, so 16 frames give 16 ÷ 9, about 1.8. The readout under the picture shows it." },
+        { t: "About 12", why: "Shrinking harder means fewer samples per frame, not more." } ] },
+      todo: "click 3× below", goal: () => d1.s === 3, try: () => $("seg1").querySelector('[data-v="3"]').click(), enter: () => set1({ s: 2, N: 16 }),
+      done: "The average falls to about 1.8 and some squares are back to one or two samples. The harder the shrink, the more frames it takes to fill every pixel, and the longer the picture takes to settle after anything changes." },
+    { say: "That is the trick: draw fewer samples, slide them a little each frame, and let them pile up. The upscaler only has to know the shift used on each frame. The shift list and the one line that applies it are under the hood." } ] });
+
+  const set2 = o => { Object.assign(d2, o); segOn($("seg2"), d2.view); $("v2").value = d2.v; $("v2v").textContent = d2.v.toFixed(2) + " px / frame"; $("rej2").checked = d2.reject; $("play2").checked = d2.play; draw2(); };
+  L2 = lesson("reproject", { next: { id: "accumulate", title: "Add the frames up, then sharpen" }, steps: [
+    { say: "The player runs right past a house and a fence. The picture is 64 by 32 screen pixels, built from a half-size drawing plus last frame's finished picture, the <b>history</b>. To reuse history each pixel must know where it was last frame, and the <b>white arrows</b> on the player point from each of his pixels back to where it was one frame ago. The house and fence do not move, so their pixels look in the same place.", enter: () => set2({ view: "out", v: 1.5, reject: true, play: true }) },
+    { say: "He has just moved right, so the grass where he was standing a frame ago is visible again.", quiz: { q: "Where does that grass's history come from?", options: [
+        { t: "From the grass itself, last frame", why: "Last frame that spot showed the player, not grass. The grass was hidden behind him." },
+        { t: "From the player: last frame that spot showed his shirt and trousers", ok: true, why: "The grass does not move, so it looks up history at its own position, and that position held the player. Reused as it is, that history would paint a ghost of him onto the grass." },
+        { t: "There is no history for things that do not move", why: "Still things reuse history most of all; the house and fence do it every frame." } ] } },
+    { say: "So each pixel also checks <b>how far away</b> the old pixel was. The <b>red squares</b> behind the player are pixels whose history sat at a different distance, so they threw it away and started fresh. <b>Untick the box</b> that throws history away.", todo: "untick the box below", goal: () => !d2.reject, try: () => { if ($("rej2").checked) $("rej2").click(); },
+      done: "The red squares vanish and a faint smear of his colours trails behind him, fading over about ten frames. That smear is a ghost, the most common upscaler bug." },
+    { say: "<b>Tick it back on</b>, then <b>push Run speed up to 3</b> pixels per frame.", todo: "tick the box and drag Run speed to 3", goal: () => d2.reject && d2.v >= 2.75, try: () => { if (!$("rej2").checked) $("rej2").click(); $("v2").value = 3; $("v2").dispatchEvent(new Event("input")); }, enter: () => set2({ reject: false, v: 1.5 }),
+      done: "He uncovers twice as much grass every step, so twice as many pixels throw their history away each frame, and the count under the picture goes up. Fast motion means more starting over, which is why fast scenes look a little rougher." },
+    { say: "<b>Switch the view to the small drawing.</b>", todo: "click the small drawing below", goal: () => d2.view === "in", try: () => $("seg2").querySelector('[data-v="in"]').click(),
+      done: "This is everything the GPU drew this frame: 32 by 16 amber samples, on a grid that sits slightly shifted from last frame. Every other pixel in the finished picture came from history." },
+    { say: "Each pixel follows its motion arrow back to find its history, then checks the distance. Same distance: keep it. Different: start fresh. The distance test and its tolerance are under the hood.", enter: () => set2({ view: "out" }) } ] });
+
+  const set3 = o => { const re = o.s != null && o.s !== d3.s; Object.assign(d3, o); segOn($("seg3"), d3.s); $("sh3").value = d3.sharp; $("sh3v").textContent = d3.sharp.toFixed(2); $("play3").checked = d3.play; if (re) { setup3(); step3(); } else if (d3.hist.length) { d3.hist[d3.hist.length - 1] = eval3(); draw3(); } };
+  L3 = lesson("accumulate", { next: { id: "failures", title: "Where it breaks" }, steps: [
+    { say: "The same view of the lane three ways. <b>Left</b>: drawn at full size, the picture we want. <b>Middle</b>: one small 50 by 50 frame stretched to 100 by 100 by blending each pixel with its neighbours; the fence pickets and the thin power line go soft or vanish. <b>Right</b>: built from the last several small frames the way the first two sections showed, then sharpened. The number under each is its error against the left picture; lower is better.", enter: () => set3({ s: 2, sharp: 0.4, play: true }) },
+    { say: "A <b>camera cut</b> makes the upscaler forget everything, since none of the old history belongs to the new view.", quiz: { q: "Right after a cut, how good is the right panel?", options: [
+        { t: "As poor as the stretched one; there is only one frame to work with", ok: true, why: "With no history, the first frame is exactly the stretched result. The picture sharpens up again over the next frames as samples pile up." },
+        { t: "Still good; the sharpen pass makes up for it", why: "Sharpening can only push around what is there, and one frame holds a quarter of the samples." },
+        { t: "Worse than the stretched one", why: "The first frame after a cut is the stretched frame; it cannot be worse than itself." } ] },
+      todo: "press camera cut below", goal: () => d3.frames <= 3, try: () => $("cut3").click(),
+      done: "The amber line on the graph jumps up to meet the blue one, then falls over the next frames as samples pile up. On a real screen this shows as a brief softening after every cut and every fast turn." },
+    { say: "<b>Drag Sharpen amount down to 0.</b>", todo: "drag the sharpen slider to 0", goal: () => d3.sharp <= 0.05, try: () => { $("sh3").value = 0; $("sh3").dispatchEvent(new Event("input")); }, enter: () => set3({ sharp: 0.4 }),
+      done: "The pickets and the power line in the right panel go softer and its error rises a little. Averaging samples that landed at slightly different spots blurs the picture, so a sharpen pass runs last to bring the edges back." },
+    { say: "Each pixel keeps a count of how much it has collected, and that count is <b>capped at 32</b>.", quiz: { q: "Why cap it?", options: [
+        { t: "To save memory", why: "The count is one number per pixel whatever the cap." },
+        { t: "So old samples keep fading out and the picture can still change when something moves", ok: true, why: "With no cap, a pixel that had collected a thousand samples would barely notice a new one, and anything that changed would take ages to show." },
+        { t: "Because more than 32 frames would come out sharper than the full-size picture", why: "More frames make the average smoother, not sharper; that blur is what the sharpen pass is for." } ] } },
+    { say: "<b>Click 3×</b> so the GPU draws a 33 by 33 frame instead.", todo: "click 3× below", goal: () => d3.s === 3, try: () => $("seg3").querySelector('[data-v="3"]').click(), enter: () => set3({ s: 2, sharp: 0.4 }),
+      done: "Both upscales get worse, and the right panel takes longer to settle, because each frame now brings one ninth of the samples instead of a quarter." },
+    { say: "The picture is a running average of samples from many frames, capped so it can still change, then sharpened. The weights, the cap and the sharpen formula are under the hood.", enter: () => set3({ s: 2, sharp: 0.4 }) } ] });
+
+  const set4 = o => { Object.assign(d4, o); $("minw4").checked = d4.minWidth; $("pmv4").checked = d4.pmv; $("ui4").checked = d4.uiAfter; $("mip4").checked = d4.mipBias; $("cv4").value = d4.camV; $("cv4v").textContent = d4.camV.toFixed(2) + " px / frame"; $("play4").checked = d4.play; if (d4.play) draw4(); else step4(); };
+  L4 = lesson("failures", { next: { id: "cost", title: "What it costs" }, steps: [
+    { say: "The camera follows the player along the lane, so the houses, the tree and the fence slide left. All four fixes are off. Look for four faults: the <b>fence pickets flicker</b>, the <b>firefly</b> (the yellow glow) <b>leaves a smear</b>, the <b>health bar</b> at the top left <b>looks soft</b>, and the <b>paving stones</b> are a <b>blurry grey band</b>.", enter: () => set4({ minWidth: false, pmv: false, uiAfter: false, mipBias: false, camV: 1, play: true }) },
+    { say: "The pickets are half a screen pixel wide, thinner than one drawn sample.", quiz: { q: "Why do they flicker?", options: [
+        { t: "Because the fence is moving", why: "It slides with the camera, and the upscaler knows that motion exactly. Things whose motion is known reuse history fine." },
+        { t: "On many frames no sample lands on a picket, so this frame says grass while the history says picket, and the mismatch throws the history away", ok: true, why: "The picket is there one frame and gone the next, and the distance check treats each change as something new to start over on." },
+        { t: "The wood is too dark to see", why: "Colour is not the problem; the pickets are simply too thin for the drawing grid." } ] },
+      todo: "tick the first box below", goal: () => d4.minWidth, try: () => { if (!$("minw4").checked) $("minw4").click(); },
+      done: "Every frame now hits each picket at least once, so the new frame and the history agree and the pickets stay solid. Engines keep wires and railings at least one drawn pixel wide." },
+    { say: "The firefly is see-through, and see-through things usually report no motion at all. <b>Tick the box</b> so the firefly reports its motion.", todo: "tick the firefly box", goal: () => d4.pmv, try: () => { if (!$("pmv4").checked) $("pmv4").click(); },
+      done: "The smear goes. Without its own motion, the firefly's pixels borrowed the background's motion, looked up history in the wrong place, and dragged old glow along the path." },
+    { say: "<b>Tick draw the health bar after the upscale.</b>", todo: "tick the health bar box", goal: () => d4.uiAfter, try: () => { if (!$("ui4").checked) $("ui4").click(); },
+      done: "Crisp edges. The bar and crosshair had been drawn into the small frame and rebuilt through the averaging, which softens everything a little. Anything flat on the screen belongs after the upscaler." },
+    { say: "Now the paving stones. A <b>texture</b> is a picture wrapped onto a surface, and it is stored in several sizes, each half the last, called <b>mip levels</b>. The GPU picks the size that suits how big the surface is on screen.", quiz: { q: "The frame is drawn at half size. Which copy does the GPU pick for the road?", options: [
+        { t: "The same one as at full size", why: "The road covers half as many drawn pixels as it would at full size, and the GPU picks by that." },
+        { t: "One step blurrier, because the road covers half as many drawn pixels", ok: true, why: "The GPU sees a smaller road and picks the smaller, blurrier copy. That blur is then carried into the full-size picture." },
+        { t: "One step sharper", why: "A smaller drawing pushes the GPU the other way, toward blurrier copies." } ] },
+      todo: "tick the last tick box", goal: () => d4.mipBias, try: () => { if (!$("mip4").checked) $("mip4").click(); },
+      done: "The stones separate into slabs. One nudge on every texture lookup, by the log of the scale, points the GPU back at the copy that full-size drawing would have used." },
+    { say: "Ghost, flicker, blur and a soft health bar: all things the engine forgot to tell the upscaler, and each fix is a line or two on the engine side. The mip formula and the flags are under the hood." } ] });
+
+  const set5 = o => { Object.assign(d5, o); segOn($("seg5r"), d5.res); segOn($("seg5m"), d5.mode); $("tn5").value = d5.tn; $("tn5v").textContent = d5.tn.toFixed(1) + " ms"; $("dep5").value = Math.round(d5.dep * 100); $("dep5v").textContent = Math.round(d5.dep * 100) + " %"; $("up5").value = d5.up; $("up5v").textContent = d5.up.toFixed(1) + " ms"; draw5(); };
+  L5 = lesson("cost", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "A 4K screen is 3840 by 2160 pixels, 8.3 million of them. On the right, the top picture is what the player sees and the bottom one is the smaller frame the GPU draws in the chosen mode. On the left, one bar per mode: an estimate of the time to make one frame. <b>Grey</b> is work that costs the same whatever the size, <b>blue</b> is work that shrinks with pixel count, <b>amber</b> is the upscaler itself.", enter: () => set5({ res: 2160, mode: 2, tn: 24, dep: 0.75, up: 1.2 }) },
+    { say: "Performance mode draws at half the width and half the height.", quiz: { q: "What happens to the blue part of the bar?", options: [
+        { t: "It halves", why: "Half the width and half the height is a quarter of the pixels." },
+        { t: "It drops to a quarter", ok: true, why: "Half times half. The pixel work follows the pixel count, and so does the saving." },
+        { t: "It stays the same", why: "Pixel work is exactly the part that shrinks; that is the point of drawing smaller." } ] },
+      todo: "click Performance below", goal: () => d5.mode === 3, try: () => $("seg5m").querySelector('[data-v="3"]').click(),
+      done: "Blue drops to a quarter, and the saved tile jumps. The GPU now draws 1920 by 1080, a quarter of the pixels, and the upscaler makes up the rest." },
+    { say: "<b>Drag the share that shrinks with pixel count down to 40 %.</b>", todo: "drag the share slider to 40 %", goal: () => d5.dep <= 0.45, try: () => { $("dep5").value = 40; $("dep5").dispatchEvent(new Event("input")); }, enter: () => set5({ dep: 0.75 }),
+      done: "Most of each bar turns grey and the saving shrinks. Shadows, physics, deciding what is on screen and the HUD cost the same at any size, so the upscaler can only help with pixel work." },
+    { say: "<b>Set the full-size frame time to 40 ms</b>, then find the first mode whose bar dips under the dashed 60 Hz line, the 16.7 ms a game running at 60 frames per second gets for each frame.", todo: "drag the frame time to 40 ms and pick a mode under the 60 Hz line", goal: () => d5.tn >= 38 && d5.stats && d5.stats.total <= 16.7, try: () => { $("tn5").value = 40; $("tn5").dispatchEvent(new Event("input")); $("seg5m").querySelector('[data-v="4"]').click(); }, enter: () => set5({ res: 2160, mode: 3, tn: 24, dep: 0.75, up: 1.2 }),
+      done: "Only Ultra Performance gets under the line here, drawing at a third of the width and height. That is why heavy games fall back to a lower mode on weaker hardware, and why many pick the size fresh every frame." },
+    { say: "The upscaler's own slice is about 1.2 ms at 4K.", quiz: { q: "Does it get cheaper when the GPU draws a smaller frame?", options: [
+        { t: "Yes, there is less to work with", why: "It still has to produce every one of the 8.3 million screen pixels, however few were drawn." },
+        { t: "No, it follows the screen size, because it has to fill every screen pixel", ok: true, why: "The amber slice is the same height in every mode. Only the screen size changes it." },
+        { t: "It gets more expensive", why: "Fewer drawn pixels do not add work for the upscaler; it fills the same screen either way." } ] },
+      todo: "switch the screen size to 1080p", goal: () => d5.res === 1080, try: () => $("seg5r").querySelector('[data-v="1080"]').click(),
+      done: "At 1080p the amber slice shrinks to about 0.3 ms, a quarter of the 4K cost, because there are a quarter as many screen pixels to fill." },
+    { say: "Temporal upscaling only shrinks the pixel-bound part of the frame. Measure that share before counting on a saving. The frame-time model and the loop that picks the size each frame are under the hood.", enter: () => set5({ res: 2160, mode: 2, tn: 24, dep: 0.75, up: 1.2 }) } ] });
 })();
 </script>
