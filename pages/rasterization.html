@@ -819,6 +819,32 @@ function lesson(id, spec) {
     }
     ctx.restore();
   }
+  // the player's view with depth: each prop is a flat sprite at its own distance, and the sunshade's distance changes
+  // across the cloth, so the cloth is drawn in slices between the props, farthest first. u = 1/distance is a straight
+  // ramp across the screen, so a slice between two distances is the triangle cut by two straight lines.
+  function drawProp(ctx, map, p) {
+    const base = map([p.x, -EYE, p.z]), top = map([p.x, -EYE + p.h, p.z]), hpx = base[1] - top[1];
+    if (p.k === "tree") kitTree(ctx, base[0], base[1], hpx / 1.87);
+    else if (p.k === "knight") kitPlayer(ctx, base[0], base[1], hpx, -1);
+    else if (p.k === "fire") kitFire(ctx, base[0], base[1], hpx);
+    else if (p.k === "house") { const l = map([p.x - p.w / 2, -EYE, p.z]), r = map([p.x + p.w / 2, -EYE, p.z]); kitHouse(ctx, l[0], base[1], r[0] - l[0], hpx); }
+  }
+  function drawSceneDepth(ctx, map) {
+    const tri = V1.map(v => ({ p: map(v), u: 1 / -v[2] }));
+    const cut = (poly, f) => { const out = []; for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length], fa = f(a), fb = f(b); if (fa >= 0) out.push(a); if ((fa >= 0) !== (fb >= 0)) { const t = fa / (fa - fb); out.push({ p: [a.p[0] + (b.p[0] - a.p[0]) * t, a.p[1] + (b.p[1] - a.p[1]) * t], u: a.u + (b.u - a.u) * t }); } } return out; };
+    const slice = (uMin, uMax) => {
+      const poly = cut(cut(tri, v => v.u - uMin), v => uMax - v.u); if (poly.length < 3) return;
+      ctx.save(); ctx.beginPath(); poly.forEach((v, i) => i ? ctx.lineTo(v.p[0], v.p[1]) : ctx.moveTo(v.p[0], v.p[1])); ctx.closePath(); ctx.clip();
+      ctx.fillStyle = "rgba(242,163,65,0.35)"; ctx.strokeStyle = AMB; ctx.lineWidth = 2; ctx.beginPath(); tri.forEach((v, i) => i ? ctx.lineTo(v.p[0], v.p[1]) : ctx.moveTo(v.p[0], v.p[1])); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+    };
+    const items = PROPS1.map(p => ({ u: 1 / -p.z, draw: () => drawProp(ctx, map, p) }));
+    const pb = map([V1[2][0], -EYE, V1[2][2]]);
+    items.push({ u: 1 / -V1[2][2], draw: () => { ctx.strokeStyle = KIT.woodLite; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(tri[2].p[0], tri[2].p[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke(); } });
+    items.sort((a, b) => a.u - b.u); // farthest first
+    let uPrev = 0;
+    for (const it of items) { slice(uPrev, it.u); it.draw(); uPrev = it.u; }
+    slice(uPrev, Infinity);
+  }
   function draw1() {
     const pr = V1.map(project);
     // top view of the camp, camera at the bottom looking up the page
@@ -872,10 +898,8 @@ function lesson(id, spec) {
     const v2s = v => [v[0] / 1920 * 512, 112 + v[1] / 1080 * 288];
     x1v.save(); x1v.beginPath(); x1v.rect(0, 112, 512, 288); x1v.clip();
     x1v.translate(0, 112); kitGround(x1v, 512, 288, 144); x1v.translate(0, -112);
-    drawCamp(x1v, v => v2s(project(v).vp), 1);
+    drawSceneDepth(x1v, v => v2s(project(v).vp));
     const vp = pr.map(p => v2s(p.vp));
-    x1v.fillStyle = "rgba(242,163,65,0.35)"; x1v.strokeStyle = AMB; x1v.lineWidth = 2; x1v.beginPath(); x1v.moveTo(vp[0][0], vp[0][1]); x1v.lineTo(vp[1][0], vp[1][1]); x1v.lineTo(vp[2][0], vp[2][1]); x1v.closePath(); x1v.fill(); x1v.stroke();
-    { const pb = v2s(project([V1[2][0], -EYE, V1[2][2]]).vp); x1v.strokeStyle = KIT.woodLite; x1v.lineWidth = 3; x1v.beginPath(); x1v.moveTo(vp[2][0], vp[2][1]); x1v.lineTo(pb[0], pb[1]); x1v.stroke(); }
     x1v.strokeStyle = GRID; x1v.beginPath(); for (let k = 240; k < 1920; k += 240) { const x = k / 1920 * 512 + 0.5; x1v.moveTo(x, 112); x1v.lineTo(x, 400); } for (let k = 270; k < 1080; k += 270) { const y = 112 + k / 1080 * 288 + 0.5; x1v.moveTo(0, y); x1v.lineTo(512, y); } x1v.stroke();
     x1v.restore();
     x1v.strokeStyle = WHT; x1v.lineWidth = 1; x1v.strokeRect(0.5, 112.5, 511, 288);
