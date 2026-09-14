@@ -13,15 +13,18 @@ const base = (argBase > -1 ? process.argv[argBase + 1] : '/how-games-draw').repl
 execSync('node shared/build-index.js', { stdio: 'inherit' });
 
 const hub = fs.readFileSync('index.html', 'utf8');
-const order = [...hub.matchAll(/<h3><a href="pages\/([^"]+)\.html">(.*?)<\/a><\/h3><p>(.*?)<\/p>/g)]
+const order = [...hub.matchAll(/<a class="card" href="pages\/([^"]+)\.html"[^>]*>[\s\S]*?<h3>(.*?)<\/h3><p>(.*?)<\/p>/g)]
   .map(m => ({ slug: m[1], title: m[2], blurb: m[3].replace(/<[^>]+>/g, '') }));
 if (order.length !== 22) throw new Error('expected 22 hub entries, found ' + order.length);
 
 fs.rmSync('dist', { recursive: true, force: true });
 fs.mkdirSync('dist/pages', { recursive: true });
 
-const pagesTag = '<script>window.RL_PAGES=' + JSON.stringify(order.map((p, i) => ({ n: i + 1, slug: p.slug, title: p.title.replace(/&amp;/g, '&') }))) + ';window.RL_BASE=' + JSON.stringify(base) + ';</script>';
-fs.writeFileSync('dist/index.html', hub.replace(/href="pages\//g, 'href="' + base + '/pages/').replace('</head>', pagesTag + '\n</head>'));
+const stagesOf = slug => [...fs.readFileSync('pages/' + slug + '.html', 'utf8').matchAll(/<section id="([^"]+)" class="stage">/g)].map(m => m[1]);
+const pagesTag = '<script>window.RL_PAGES=' + JSON.stringify(order.map((p, i) => ({ n: i + 1, slug: p.slug, title: p.title.replace(/&amp;/g, '&'), stages: stagesOf(p.slug) }))) + ';window.RL_BASE=' + JSON.stringify(base) + ';</script>';
+// card art for the hub, made by shared/build-art.cjs
+if (fs.existsSync('art')) { fs.mkdirSync('dist/art', { recursive: true }); for (const f of fs.readdirSync('art')) fs.copyFileSync('art/' + f, 'dist/art/' + f); }
+fs.writeFileSync('dist/index.html', hub.replace(/href="pages\//g, 'href="' + base + '/pages/').replace(/src="art\//g, 'src="' + base + '/art/').replace('</head>', pagesTag + '\n</head>'));
 
 const esc = s => s.replace(/&(?!amp;|lt;|gt;|quot;|#)/g, '&amp;');
 order.forEach((page, i) => {

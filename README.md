@@ -53,6 +53,7 @@ its `<style>` verbatim and put page rules after it.
 ```
 node shared/build-index.js     rebuild index.html from the template and the pages' section headings
 node shared/apply-theme.js     after editing shared/theme.css: re-paste it into every page, rebuild jump lists
+node shared/build-art.cjs      screenshot each lesson's first demo into art/ (the hub's card pictures; needs PLAYWRIGHT)
 node shared/build-site.js      build dist/ for publishing (see below)
 ```
 
