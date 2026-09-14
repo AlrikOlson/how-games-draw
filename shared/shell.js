@@ -97,6 +97,9 @@
     const phone = window.matchMedia('(max-width: 900px)').matches;
     inner.classList.toggle('stack', inner.classList.contains('row') && W < 480);
     if (phone) { inner.style.width = W + 'px'; return; }
+    // hover readouts under a picture change length as the mouse moves; lock each caption's height so the picture never jumps
+    const caps = $$('.vp .cap', inner); const reserve = c => (parseFloat(getComputedStyle(c).lineHeight) || 19) * 2 * Math.max(1, c.children.length);
+    caps.forEach(c => { c.style.minHeight = reserve(c) + 'px'; });
     let w = W;
     for (let i = 0; i < 3; i++) {
       inner.style.width = Math.max(160, w) + 'px';
@@ -104,6 +107,7 @@
       if (h <= H + 0.5) break;
       w = w * (H / h) * 0.985;
     }
+    caps.forEach(c => { c.style.minHeight = Math.max(reserve(c), c.getBoundingClientRect().height) + 'px'; });
   }
   let raf = 0; const refit = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(fit); };
   window.addEventListener('resize', refit);
