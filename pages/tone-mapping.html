@@ -222,6 +222,7 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 .vp canvas.sq { aspect-ratio: 1; }
 .vp canvas.r169 { aspect-ratio: 16 / 9; }
 .vp canvas.r41 { aspect-ratio: 4 / 1; margin-top: 8px; }
+section#exposure .vp canvas { width: min(100%, calc(var(--stage-free) * 1.23)); }
 .below { margin-top: 26px; }
 .cols.wide .prose p { max-width: 70ch; }
 .chk { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 13px; color: var(--ink); padding-bottom: 6px; }
@@ -242,63 +243,51 @@ button.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">256×144 cave scene · sun 10 000 nits · campfire 2 000 · cave floor 1 · drag the exposure</p>
+    <p class="eyebrow">a campfire inside a cave mouth, the sun outside · six guided demos · nothing to install</p>
     <h1>HDR, Tone Mapping &amp; Color</h1>
-    <p class="lead">Tone mapping is how a game squeezes a view with a blinding sun outside the cave and a near-black cave floor onto a screen that can only show a thin slice of that range. Get it wrong and the sky turns into a white sheet, the cave into black mud, and smooth gradients into visible bands. <b>The thing people get wrong:</b> gamma is not an old-monitor bug to switch off. It is how 8 bits get spent where your eye can see them, and the same buffer without it bands in every shadow.</p>
+    <p class="lead">A game scene can have a blinding sun and a near-black cave floor in the same view, and a screen can show only a thin slice of that range. Tone mapping is how the game squeezes the scene onto the screen, and this page is also about how real amounts of light become the numbers a screen stores. Get it wrong and the sky turns into a white sheet, the cave into black mud, and smooth fades into stripes. <b>The thing people get wrong:</b> the curve that bends light into stored bytes, often called gamma, is not an old-monitor bug to switch off. It is how 256 values get spent where your eye can see them, and without it every shadow shows stripes.</p>
     <div class="key">
-      <span style="--sw:#f2a341">the curve being shown, or the line where white clips</span>
-      <span style="--sw:#4aa3ff">the comparison curve, or the histogram</span>
-      <span style="--sw:#ffffff">cursor readout, drag handle, split line</span>
+      <span style="--sw:#f2a341">the curve being shown, or the line where white is cut off</span>
+      <span style="--sw:#4aa3ff">the comparison curve, or the bar chart of brightness</span>
+      <span style="--sw:#ffffff">readout, drag handle, split line</span>
       <span style="--sw:#5ad48a">blended the right way, or a colour the screen can show</span>
-      <span style="--sw:#ef5d5d">blended the wrong way, clipped, or a colour the screen can't show</span>
+      <span style="--sw:#ef5d5d">blended the wrong way, cut off, or a colour the screen cannot show</span>
     </div>
     <dl class="terms">
-      <dt>linear light</dt><dd>numbers that scale with photons: twice the value is twice the light</dd>
-      <dt>encoded / sRGB</dt><dd>the bent version of those numbers that screens and 8-bit textures store, spaced so equal steps look equal</dd>
-      <dt>OETF / EOTF</dt><dd>the curve from linear to encoded, and the curve back</dd>
-      <dt>nits</dt><dd>a real unit of screen brightness; this scene runs from 1 on the cave floor to 10 000 in the sun</dd>
-      <dt>stop / EV</dt><dd>a doubling of light; +1 EV is twice as bright</dd>
-      <dt>tone curve</dt><dd>the soft squeeze that rolls bright values toward white instead of clipping them</dd>
+      <dt>linear light</dt><dd>numbers that count light: twice the number is twice the light</dd>
+      <dt>encoded / sRGB</dt><dd>the bent version of those numbers that screens and image files store, spaced so equal steps look equal to your eye</dd>
+      <dt>OETF / EOTF</dt><dd>the curve from light to stored value, and the curve back</dd>
+      <dt>nits</dt><dd>a unit of screen brightness; this scene runs from 1 on the cave floor to 10 000 in the sun</dd>
+      <dt>stop / EV</dt><dd>one doubling of light; +1 EV is twice as bright</dd>
+      <dt>tone curve</dt><dd>the soft squeeze that bends bright values toward white instead of cutting them off</dd>
       <dt>gamut</dt><dd>the triangle of colours a given screen can show</dd>
-      <dt>PQ</dt><dd>the HDR encoding where each code means a fixed brightness in nits</dd>
+      <dt>PQ</dt><dd>the HDR code where each value means a fixed brightness in nits</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#encoding"><span class="n">01</span>Real light vs stored numbers</a></li><li><a href="#exposure"><span class="n">02</span>Exposure</a></li><li><a href="#curves"><span class="n">03</span>Tone curves</a></li><li><a href="#banding"><span class="n">04</span>Why 8 bits band, and the fix</a></li><li><a href="#gamut"><span class="n">05</span>Which colours a screen can show</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#encoding"><span class="n">01</span>Real light vs stored numbers</a></li><li><a href="#exposure"><span class="n">02</span>Exposure: picking the slice to show</a></li><li><a href="#curves"><span class="n">03</span>Tone curves: the soft squeeze</a></li><li><a href="#banding"><span class="n">04</span>Why 8 bits band, and the fix</a></li><li><a href="#gamut"><span class="n">05</span>Which colours a screen can show</a></li><li><a href="#hdr"><span class="n">06</span>Writing brightness for an HDR screen</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="encoding">
+  <section id="encoding" class="stage">
     <h2>Real light vs stored numbers</h2>
-    <p class="sub">A player sits by a campfire inside a cave mouth while smoke drifts across the bright doorway. Drag the split line to blend the picture the wrong way and the right way.</p>
-    <div class="cols two">
+    <p class="sub">A player sits by a campfire inside a cave mouth while smoke drifts across the bright doorway. The same smoke is blended two ways, and only one of them is right.</p>
+    <div class="cols three">
       <div class="vp">
-        <canvas id="c1" class="sq grab" width="512" height="512" aria-label="Campfire and player inside a cave mouth with smoke over the bright doorway, split between blending in sRGB bytes and blending in linear light, with a half-the-light test and two floor bars underneath"></canvas>
+        <canvas id="c1" class="sq grab" width="512" height="512" aria-label="Campfire and player inside a cave mouth with smoke over the bright doorway, split between blending in stored bytes and blending in real light, with a half-the-light test and two floor bars underneath"></canvas>
         <div class="cap"><span id="c1-read"></span><span>drag the split line</span></div>
       </div>
       <div class="vp">
-        <canvas id="c1c" class="sq" width="512" height="512" aria-label="sRGB transfer curve with the smoke pixel marked on it"></canvas>
-        <div class="cap"><span id="c1c-read"></span><span>dashed: pure gamma 2.2</span></div>
+        <canvas id="c1c" class="sq" width="512" height="512" aria-label="The curve from light to stored byte and back, with the smoke pixel marked on it"></canvas>
+        <div class="cap"><span id="c1c-read"></span><span>dashed: the older, simpler curve (gamma 2.2)</span></div>
+      </div>
+      <div class="lesson" data-lesson="encoding">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><label for="gray">How much light the smoke lets through <span class="val" id="grayv">0.50</span></label><input type="range" id="gray" min="0.05" max="0.95" step="0.01" value="0.5"></div>
+          <div class="ctl"><span class="lab">How the picture is blended</span><div class="seg" id="segBlend" role="group" aria-label="Blend space shown"><button data-v="both" aria-pressed="true">split, both ways</button><button data-v="srgb">all in bytes (wrong)</button><button data-v="lin">all in real light (right)</button></div></div>
+        </div>
       </div>
     </div>
-    <div class="controls">
-      <div class="ctl"><label for="gray">Light through the smoke v <span class="val" id="grayv">0.50</span></label><input type="range" id="gray" min="0.05" max="0.95" step="0.01" value="0.5"></div>
-      <div class="ctl"><span class="lab">Blend space</span><div class="seg" id="segBlend" role="group" aria-label="Blend space shown"><button data-v="both" aria-pressed="true">split</button><button data-v="srgb">bytes only</button><button data-v="lin">linear only</button></div></div>
-    </div>
-    <div class="cols below">
-      <div class="prose">
-        <p class="plain">Your GPU does its lighting math in <b>linear light</b>, where a number twice as big means twice as many photons. Your screen and your 8-bit textures store a different number, an <b>encoded value</b> where equal steps look equal to your eye. Mix the two up and <b>smoke that lets through half the light comes out far too dark</b>, and every blend between two colours goes muddy.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Left picture, top: the player by the campfire inside the cave, with soot-black smoke drifting across the bright doorway. Left of the white split line the picture is blended in stored bytes; right of it, in linear light. The smoke, the fire's glow on the rock and the lit floor all come out darker on the bytes side.</p>
-        <p>Under it, three patches. The first is a dither where exactly half the pixels are lit, so it is truly half the light. The second is the byte a bytes blend writes for the smoke (128). The third is the byte a linear blend writes (188). Step back and only the third patch matches the dither. The two bars are the cave floor from fire light to daylight, blended each way. The right picture is the sRGB curve: amber turns linear into encoded, blue turns encoded back into linear.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the split line across a smoke puff over the doorway. The same puff is byte 128 on the left and byte 188 on the right, and the readout shows both.</li>
-          <li>Drag Light through the smoke to 0.25. The dither and the linear patch stay matched; the bytes patch goes far darker than either.</li>
-          <li>Hover the curve near the middle. 0.5 linear encodes to 0.735 (byte 188), and byte 128 decodes to only 0.216 linear.</li>
-        </ul>
-      </div>
-      <div class="prose">
-        <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">Do the maths in real light, turn it into bytes once at the end, and every blend comes out right.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The sRGB curve has two halves. The OETF, the opto-electronic transfer function, turns linear light into the encoded value a display stores. The EOTF goes the other way. Both are close to a power of 2.4 with a short straight piece near black; the dashed line is a plain gamma 2.2 for comparison.</p>
         <p>Half of all linear light sits above byte 188, in the top quarter of the encoded range. That is why smoke that passes half the light is a bright gray, not a mid gray, and why the linear half of the cave looks so much brighter than the bytes half.</p>
         <p>The floor bars are the bug you will actually ship. Lerp the encoded bytes (blend them by a straight fraction) and the middle of the floor goes dark and muddy. Lerp in linear and encode after, and it stays bright. The textbook case is red to green: bytes give a midpoint of (128, 128, 0), a dim olive; linear gives (188, 188, 0), the yellow you expected.</p>
@@ -326,46 +315,37 @@ EOTF(128/255) = 0.2159</div>
 <span class="k">vec3</span> a = srgbToLinear(texA), b = srgbToLinear(texB);
 <span class="k">vec3</span> outColor = linearToSrgb(mix(a, b, t));
 <span class="c">// or let the hardware do it: bind an *_SRGB view and write linear</span></pre>
-        <p class="tldr">Do the math in linear, store and display in encoded, and convert exactly once at each boundary.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="exposure">
+  <section id="exposure" class="stage">
     <h2>Exposure: picking the slice to show</h2>
-    <p class="sub">The player stands by the campfire inside the cave and looks out at the sunlit meadow. Slide the exposure to pick which part of that 13-stop view lands on the screen, or let auto exposure choose.</p>
+    <p class="sub">The player stands by the campfire and looks out at the sunlit meadow. The sun is 10 000 times brighter than the cave floor, and the screen can show only a slice of that.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c2" class="r169" width="640" height="360" aria-label="Inside a cave: a campfire and the player on the left, the bright cave mouth with a meadow and the sun on the right, shown at the chosen exposure"></canvas>
-        <canvas id="c2h" class="r41" width="640" height="160" aria-label="Histogram of the scene's brightness on a doubling scale, with the white line and the log average marked"></canvas>
+        <canvas id="c2h" class="r41" width="640" height="160" aria-label="Bar chart of the scene's brightness on a doubling scale, with the white line and the average marked"></canvas>
         <div class="cap"><span id="c2-read"></span><span id="c2-clip"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The player stands by the campfire and looks out of the cave at a <b>sun about 10 000 times brighter than the cave floor</b>. A screen can show roughly 8 stops, about 250 to 1, before the bottom turns to black noise. <b>Exposure is the slider that picks which slice</b> of that huge range gets shown: everything above the slice goes white, everything below goes black.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The picture is a 256×144 scene stored in nits: the cave floor near 1, the player's fire-lit side at 90, the meadow at 300, the sky at 1 000, the flame at 2 000 and the sun at 10 000. Under it is a histogram, a bar chart counting how many pixels sit at each brightness on a doubling scale. The amber line is the brightness that lands exactly on white; everything to the right of it is clipped, and the caption counts how much.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag Exposure up to −6. The doorway turns into a white sheet, the clipped percentage jumps, and the cave wall's texture finally shows.</li>
-          <li>Drag it down to −14. Only the sun and the flame survive; the cave and the player are a black hole.</li>
-          <li>Tick auto exposure, then press walk into the cave. The picture goes dark, as if you stepped in from daylight, and recovers over about a second; Adapt time sets how long that takes.</li>
-        </ul>
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><label for="ev">Exposure <span class="val" id="evv">−9.5 EV</span></label><input type="range" id="ev" min="-16" max="2" step="0.1" value="-9.5"></div>
-          <div class="ctl"><label class="chk" for="auto"><input type="checkbox" id="auto"> auto exposure</label></div>
-          <div class="ctl"><label for="tau">Adapt time <span class="val" id="tauv">0.8 s</span></label><input type="range" id="tau" min="0.1" max="4" step="0.1" value="0.8"></div>
-          <div class="ctl"><button class="btn" id="kick">walk into the cave (−6 EV)</button></div>
-          <div class="ctl"><span class="lab">Output</span><div class="seg" id="segClip" role="group" aria-label="Output mode"><button data-v="clip" aria-pressed="true">clip</button><button data-v="reinhard">Reinhard</button><button data-v="mark">mark clipped</button></div></div>
+      <div class="lesson" data-lesson="exposure">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="ev">Exposure, in doublings <span class="val" id="evv">−9.5 EV</span></label><input type="range" id="ev" min="-16" max="2" step="0.1" value="-9.5"></div>
+          <div class="ctl"><label class="chk" for="auto"><input type="checkbox" id="auto"> let the game pick it (auto exposure)</label></div>
+          <div class="ctl"><label for="tau">How long the eye takes to adapt <span class="val" id="tauv">0.8 s</span></label><input type="range" id="tau" min="0.1" max="4" step="0.1" value="0.8"></div>
+          <div class="ctl"><button class="btn" id="kick">walk into the cave (sudden dark, 6 doublings)</button></div>
+          <div class="ctl"><span class="lab">What happens above white</span><div class="seg" id="segClip" role="group" aria-label="Output mode"><button data-v="clip" aria-pressed="true">hard cut</button><button data-v="reinhard">soft squeeze (Reinhard)</button><button data-v="mark">mark what got cut</button></div></div>
         </div>
-        <div class="tiles">
-          <div class="tile"><div class="n" id="t2-avg">—</div><div class="l">log-avg luminance</div></div>
-          <div class="tile"><div class="n" id="t2-target">—</div><div class="l">target EV</div></div>
-          <div class="tile"><div class="n" id="t2-frames">—</div><div class="l">frames to settle</div></div>
+        <div class="tiles" data-step-min="4">
+          <div class="tile"><div class="n" id="t2-avg">—</div><div class="l">average brightness the game measures</div></div>
+          <div class="tile"><div class="n" id="t2-target">—</div><div class="l">exposure auto aims for</div></div>
+          <div class="tile"><div class="n" id="t2-frames">—</div><div class="l">frames it took to settle</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Exposure picks an 8-doubling slice of a 13-doubling scene; auto exposure aims the average at middle grey and eases there over time.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Exposure scales the scene by 2^EV before the display clips at 1.0. EV is exposure value, a count of stops: each +1 doubles the light. The scene has six stops between the cave floor and the player, three and a half more to the sky, and another three to the sun. That is about 13 stops, 1 : 10 000, and a display shows roughly 8, so any single exposure throws away most of the range.</p>
         <p>Auto exposure picks EV from the image. The usual rule (Reinhard 2002) puts the geometric mean of luminance, the average taken on the log scale, at middle gray, 0.18. Luminance is a pixel's brightness with red, green and blue weighted the way the eye weights them.</p>
         <p>Games compute that mean from a luminance histogram on the GPU and discard the darkest and brightest few percent, so the sun does not drag the average. The eye adapts slowly, so the value is filtered over time. The Adapt time slider sets the time constant, the time it takes to close most of the gap to the target.</p>
@@ -387,47 +367,34 @@ atomicAdd(bins[<span class="k">uint</span>(clamp(t, 0.0, 1.0) * 63.0)], 1u);
 <span class="k">float</span> avgLog2 = sum / n;
 <span class="k">float</span> evTarget = log2(0.18) - avgLog2;      <span class="c">// key value 0.18 on middle gray</span>
 ev = mix(evTarget, evPrev, exp(-dt / tau)); <span class="c">// temporal adaptation</span></pre>
-        <p class="tldr">Exposure picks an 8-stop slice of a 13-stop scene; auto exposure aims the log-average brightness at middle gray and eases there over time.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="curves">
+  <section id="curves" class="stage">
     <h2>Tone curves: the soft squeeze</h2>
-    <p class="sub">Switch between five curves and watch the same cave view, and one red ember at rising brightness, go through each one.</p>
-    <div class="cols two">
+    <p class="sub">The same cave view through five different curves, with one red ember at rising brightness along the bottom to show what each curve does to colour.</p>
+    <div class="cols three">
       <div class="vp">
         <canvas id="c3" class="sq" width="512" height="512" aria-label="Tone curve plot with the cave floor, the player, the sky, the flame and the sun marked along the curve"></canvas>
-        <div class="cap"><span id="c3-read"></span><span>shaded: toe and shoulder</span></div>
+        <div class="cap"><span id="c3-read"></span><span>shaded: the flat ends, toe (dark) and shoulder (bright)</span></div>
       </div>
       <div class="vp">
         <canvas id="c3s" class="r169" width="640" height="360" aria-label="The cave scene through the selected tone curve, with a strip of the same red ember at rising brightness"></canvas>
-        <div class="cap"><span id="c3s-read"></span><span>bottom strip: one ember, × 0.25 … × 64</span></div>
+        <div class="cap"><span id="c3s-read"></span><span>bottom strip: one red ember, from a quarter to 64 times as bright</span></div>
+      </div>
+      <div class="lesson" data-lesson="curves">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">Curve</span><div class="seg" id="segOp" role="group" aria-label="Tone operator"><button data-v="reinhard">Reinhard</button><button data-v="reinhardx">Reinhard with a white point</button><button data-v="hable">Hable (Uncharted 2)</button><button data-v="aces" aria-pressed="true">ACES fit</button><button data-v="agx">AgX-like</button></div></div>
+          <div class="ctl"><span class="lab">Apply the curve to</span><div class="seg" id="segCh" role="group" aria-label="Per channel or luminance"><button data-v="rgb" aria-pressed="true">each colour on its own</button><button data-v="lum">brightness only</button></div></div>
+          <div class="ctl"><label for="ev3">Exposure, in doublings <span class="val" id="ev3v">−9.0 EV</span></label><input type="range" id="ev3" min="-14" max="0" step="0.1" value="-9"></div>
+          <div class="ctl"><label for="white">Input that counts as white (Reinhard with a white point) <span class="val" id="whitev">4.0</span></label><input type="range" id="white" min="1.5" max="16" step="0.5" value="4"></div>
+        </div>
       </div>
     </div>
-    <div class="controls">
-      <div class="ctl"><span class="lab">Operator</span><div class="seg" id="segOp" role="group" aria-label="Tone operator"><button data-v="reinhard">Reinhard</button><button data-v="reinhardx">Reinhard ext.</button><button data-v="hable">Hable</button><button data-v="aces" aria-pressed="true">ACES fit</button><button data-v="agx">AgX-like</button></div></div>
-      <div class="ctl"><span class="lab">Apply to</span><div class="seg" id="segCh" role="group" aria-label="Per channel or luminance"><button data-v="rgb" aria-pressed="true">per channel</button><button data-v="lum">luminance</button></div></div>
-      <div class="ctl"><label for="ev3">Exposure <span class="val" id="ev3v">−9.0 EV</span></label><input type="range" id="ev3" min="-14" max="0" step="0.1" value="-9"></div>
-      <div class="ctl"><label for="white">White point W <span class="val" id="whitev">4.0</span></label><input type="range" id="white" min="1.5" max="16" step="0.5" value="4"></div>
-    </div>
-    <div class="cols below">
-      <div class="prose">
-        <p class="plain">Clipping is brutal: every value above white becomes the same flat white. A <b>tone curve is a softer squeeze</b>. It leaves the mid-tones mostly alone and <b>bends the bright end gently toward white</b> instead of slamming into it. The shape of that bend is <b>most of what people mean by a game's "look"</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Left: the five curves, with input brightness along the bottom on a doubling scale and output up the side. White dots mark where the cave floor, the player, the sky, the flame and the sun land on the chosen curve at the current exposure. The shaded areas mark the toe (the shadow end) and the shoulder (the highlight end).</p>
-        <p>Right: the cave through the chosen curve. The strip along the bottom is one red ember at rising brightness, ×0.25 up to ×64. It is the test for how a curve treats colour as it gets brighter.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Click Reinhard, then ACES fit. Reinhard leaves the cave flat and gray; the S shape of ACES puts the contrast back.</li>
-          <li>Switch Apply to from per channel to luminance. Per channel, the ember strip goes red, then pink, then white, and the flame's core goes white. On luminance it stays red until it clips.</li>
-          <li>Pick Reinhard ext. and drag White point W from 4 to 16. The sun dot slides down the curve: a brighter input is needed to reach white, so the highlights flatten out.</li>
-        </ul>
-      </div>
-      <div class="prose">
-        <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">A tone curve bends bright values toward white instead of cutting them, and doing it per colour makes them fade to white like film.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>A tone curve is a function from scene-linear (the light in the scene) to display-linear (the light the screen will make), applied before the sRGB encoding from the first section. It goes through 0.18 at about the middle and approaches 1.0 without ever getting there. The toe decides what happens to shadows, the shoulder how gently highlights roll off.</p>
         <p>Plain Reinhard has no toe and a very long shoulder: 0.5 maps to 0.33, and it needs a scene value of 9 to reach 0.9, so everything looks flat. The extended version adds a white point W, the input that maps to exactly 1.0, and that restores contrast. Hable's curve from Uncharted 2 and the ACES fit both have an S shape, which is what "filmic" means in practice.</p>
         <p>Where you apply the curve matters as much as its shape. Per channel, each of R, G and B saturates on its own, so a bright red gains green and blue and turns white, the way film does. Applied to luminance only, the hue is kept and a bright red stays red until it clips, which reads as a flat neon patch.</p>
@@ -456,44 +423,35 @@ luminance mode y_rgb = rgb · T(Y) / Y</div>
   mapped = hdr * (aces(<span class="k">vec3</span>(y)).x / max(y, 1e-5)); <span class="c">// hue kept, may clip</span>
 }
 fragColor = <span class="k">vec4</span>(linearToSrgb(mapped), 1.0);     <span class="c">// or write to an _SRGB target</span></pre>
-        <p class="tldr">A tone curve trades a hard clip for a soft roll-off, and running it per channel is what makes bright colours fade to white like film.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="banding">
+  <section id="banding" class="stage">
     <h2>Why 8 bits band, and the fix</h2>
-    <p class="sub">The campfire's glow fades along the cave wall into black. Compare that one dark gradient stored four ways, and switch the dither on and off.</p>
+    <p class="sub">The campfire's glow fades along the cave wall into black. One smooth fade, stored four ways, and only some of them stay smooth.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" class="sq" width="512" height="512" aria-label="Four copies of the cave wall lit by the campfire at its right end, stored as 8-bit linear, 8-bit sRGB, 10-bit sRGB and dithered 8-bit sRGB"></canvas>
+        <canvas id="c4" class="sq" width="512" height="512" aria-label="Four copies of the cave wall lit by the campfire at its right end, stored with 256 values spread evenly, 256 values spread with the byte curve, 1024 values, and 256 values with grain added"></canvas>
         <div class="cap"><span id="c4-read"></span><span>hover a wall for its stored value</span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The campfire's glow fades along the cave wall into black. A fade like that, stored with too few steps, shows <b>visible bands</b>, a staircase where you wanted a smooth gradient. Storing <b>8-bit values in linear wastes almost every step on the bright end</b>; the sRGB encoding moves them to where your eye can see them. <b>Dithering hides the rest</b>: a sprinkle of noise before rounding turns bands into fine grain.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Four copies of the same wall, the fire at the right end and the glow fading to black on the left. Top to bottom the wall is stored as 8-bit linear, 8-bit sRGB, 10-bit sRGB, and 8-bit sRGB with dither. Display gain brightens all four so you can see the steps; the tile numbers are what each buffer really holds.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Set Dither to none. The bottom wall gets the same bands as the 8-bit sRGB wall above it.</li>
-          <li>Drag Glow at the fire down. Fewer codes fit under the brightest point, and even the 10-bit wall starts to step.</li>
-          <li>Switch Dither from triangular to interleaved gradient. Both hide the bands; the grain has a different texture.</li>
-        </ul>
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><label for="top">Glow at the fire <span class="val" id="topv">0.05</span></label><input type="range" id="top" min="-9" max="0" step="0.1" value="-4.3"></div>
-          <div class="ctl"><label for="gain">Display gain <span class="val" id="gainv">×4</span></label><input type="range" id="gain" min="0" max="6" step="1" value="2"></div>
-          <div class="ctl"><span class="lab">Dither</span><div class="seg" id="segDith" role="group" aria-label="Dither type"><button data-v="tpdf" aria-pressed="true">triangular</button><button data-v="ign">interleaved gradient</button><button data-v="none">none</button></div></div>
+      <div class="lesson" data-lesson="banding">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="top">Brightness next to the fire, 1 = white <span class="val" id="topv">0.05</span></label><input type="range" id="top" min="-9" max="0" step="0.1" value="-4.3"></div>
+          <div class="ctl"><label for="gain">Brighten the picture so the steps show <span class="val" id="gainv">×4</span></label><input type="range" id="gain" min="0" max="6" step="1" value="2"></div>
+          <div class="ctl"><span class="lab">Grain added before rounding (bottom wall)</span><div class="seg" id="segDith" role="group" aria-label="Dither type"><button data-v="tpdf" aria-pressed="true">random grain</button><button data-v="ign">patterned grain</button><button data-v="none">none</button></div></div>
         </div>
         <div class="tiles four">
-          <div class="tile"><div class="n" id="t4-a">—</div><div class="l">8-bit linear</div></div>
-          <div class="tile"><div class="n" id="t4-b">—</div><div class="l">8-bit sRGB</div></div>
-          <div class="tile"><div class="n" id="t4-c">—</div><div class="l">10-bit sRGB</div></div>
-          <div class="tile"><div class="n" id="t4-d">—</div><div class="l">8-bit sRGB + dither</div></div>
+          <div class="tile"><div class="n" id="t4-a">—</div><div class="l">values used: 256, spread evenly</div></div>
+          <div class="tile"><div class="n" id="t4-b">—</div><div class="l">values used: 256, byte curve</div></div>
+          <div class="tile"><div class="n" id="t4-c">—</div><div class="l">values used: 1024, byte curve</div></div>
+          <div class="tile"><div class="n" id="t4-d">—</div><div class="l">values used: 256, byte curve, grain</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Spend 8-bit values with the byte curve and add a little noise before rounding; evenly spread values band no matter what.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The wall runs from black to a linear value of <code>top</code> next to the fire. An 8-bit linear target, a buffer with 256 values per channel spaced evenly in linear light, has 255 steps between 0 and 1. The dark end gets almost none of them: the whole range below 1 % of white is two codes.</p>
         <p>An 8-bit sRGB target spends its codes where the eye can see them, and the same 1 % gets 25 codes. That is the entire reason the encoding exists, and why "linear render target" and "8-bit" do not belong in the same sentence.</p>
         <p>Ten bits give four times the codes, enough that the steps are below the eye's threshold in most of the range. Dithering fixes banding at any depth by adding noise of about one code before rounding. The average is then exact and the error becomes fine grain.</p>
@@ -515,70 +473,71 @@ codes below linear 0.01:
 <span class="k">float</span> codes = 255.0;                        <span class="c">// 1023.0 for a 10-bit swapchain</span>
 <span class="k">vec3</span> e = linearToSrgb(mapped);              <span class="c">// dither in the encoded domain</span>
 fragColor.rgb = floor(e * codes + 0.5 + tri) / codes;</pre>
-        <p class="tldr">Store 8-bit data with the sRGB curve and dither before rounding; linear 8-bit will band no matter what you do.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="gamut">
+  <section id="gamut" class="stage">
     <h2>Which colours a screen can show</h2>
-    <p class="sub">A green crystal glows in the cave. Drag its colour around the horseshoe to see what an sRGB screen does with it, and how a game writes SDR and HDR10 output.</p>
-    <div class="cols two">
+    <p class="sub">A green crystal glows in the cave. Drag its colour around the map of every colour you can see, and watch what a normal screen does with it.</p>
+    <div class="cols">
       <div class="vp">
-        <canvas id="c5" class="sq grab" width="512" height="512" aria-label="Chromaticity horseshoe with gamut triangles, the crystal's colour as a drag handle, and two insets of the crystal beside the player as an sRGB screen shows it, clipped and gamut mapped"></canvas>
-        <div class="cap"><span id="c5-read"></span><span>crystal at Y = 0.3</span></div>
+        <canvas id="c5" class="sq grab" width="512" height="512" aria-label="Map of every colour a human can see, with three screen triangles, the crystal's colour as a drag handle, and two insets of the crystal beside the player as a normal screen shows it, cut to fit and pulled in to fit"></canvas>
+        <div class="cap"><span id="c5-read"></span><span>crystal at 30 % brightness</span></div>
       </div>
-      <div class="vp">
-        <canvas id="c5p" class="sq" width="512" height="512" aria-label="sRGB and PQ transfer curves against nits, with the cave floor, the campfire and the sun marked"></canvas>
-        <div class="cap"><span id="c5p-read"></span><span>hover for nits → code</span></div>
-      </div>
+      <div class="lesson" data-lesson="gamut"></div>
     </div>
-    <div class="controls">
-      <div class="ctl"><label for="paper">SDR white in HDR mode <span class="val" id="paperv">200 nits</span></label><input type="range" id="paper" min="80" max="400" step="10" value="200"></div>
-    </div>
-    <div class="tbl-wrap">
-    <table class="stats" id="gamutTbl">
-      <thead><tr><th>Space (D65 white)</th><th>R</th><th>G</th><th>B</th><th>Status</th></tr></thead>
-      <tbody>
-        <tr><td>sRGB / Rec.709</td><td id="g-709r"></td><td id="g-709g"></td><td id="g-709b"></td><td id="g-709s"></td></tr>
-        <tr><td>DCI-P3 (D65)</td><td id="g-p3r"></td><td id="g-p3g"></td><td id="g-p3b"></td><td id="g-p3s"></td></tr>
-        <tr><td>Rec.2020</td><td id="g-2020r"></td><td id="g-2020g"></td><td id="g-2020b"></td><td id="g-2020s"></td></tr>
-        <tr><td>sRGB, clipped</td><td id="g-clipr"></td><td id="g-clipg"></td><td id="g-clipb"></td><td id="g-clips"></td></tr>
-        <tr><td>sRGB, gamut mapped</td><td id="g-mapr"></td><td id="g-mapg"></td><td id="g-mapb"></td><td id="g-maps"></td></tr>
-      </tbody>
-    </table>
-    </div>
-    <div class="cols below">
-      <div class="prose">
-        <p class="plain">A green crystal glows in the cave. Every screen can show only a <b>triangle of colours</b> out of everything your eye can see, and this green sits outside it. A colour outside that triangle has to be <b>clipped or pulled inward</b>, and the two choices look different. <b>HDR output is a separate problem</b>: a new encoding, PQ, where each code means a fixed brightness in nits, so the game has to decide how bright "white" is.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Left: the CIE 1931 horseshoe, the map of every colour a human can see, with three display triangles on it: sRGB, P3 and Rec.2020. The white handle is the crystal's colour. The two insets at the top right show the crystal beside the player as an sRGB screen would show it, clipped and gamut mapped. Each row of the table is that colour written in one space; a channel outside 0..1 means that screen cannot show it.</p>
-        <p>Right: the two curves a game writes to the screen buffer, plotted against real nits, with the cave floor, the campfire and the sun marked along the bottom. Blue is sRGB for normal (SDR) output, amber is PQ for HDR10.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the handle outside the sRGB triangle but inside P3. The sRGB row gets a negative channel; the P3 row still fits.</li>
-          <li>Compare the two insets. The clipped crystal has shifted hue and looks brighter; the mapped one keeps the hue and loses some saturation.</li>
-          <li>Drag SDR white in HDR mode from 200 to 400 nits. The blue sRGB curve slides right: UI white now lands higher up the PQ curve.</li>
-        </ul>
-      </div>
-      <div class="prose">
-        <h3>The real version</h3>
+    <div class="foot">
+    <p class="tldr">A screen shows only the triangle between its three lights; pull a colour toward white to fit and it keeps its hue.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>A color space is three primaries (its purest red, green and blue) and a white point. The triangle they span is the gamut, everything the display can show. Rec.709 and sRGB share primaries and cover about 35 % of the visible horseshoe. P3 pushes red and green out. Rec.2020 goes almost to the spectral locus, the curved edge of pure single-wavelength colours, where no real display reaches.</p>
         <p>Drag the handle outside the sRGB triangle and one of the sRGB channels goes negative. Clipping it to 0 shifts the hue and brightens the crystal. Gamut mapping instead pulls the color toward white along a straight line until it fits, which keeps the hue and loses saturation.</p>
-        <p>Between spaces you multiply by a 3×3 matrix built from the primaries: RGB → XYZ for the source, XYZ → RGB for the destination. XYZ is the device-independent middle space the horseshoe is drawn from. The Rec.709 to Rec.2020 matrix below is computed from the primaries on this page and matches the published one to four digits.</p>
+        <p>Each row of this table is the crystal's colour written as the red, green and blue amounts one kind of screen would need. An amount below 0 or above 1 means that screen cannot make it.</p>
+        <div class="tbl-wrap">
+        <table class="stats" id="gamutTbl">
+          <thead><tr><th>Screen (D65 white)</th><th>red</th><th>green</th><th>blue</th><th>Can it show it</th></tr></thead>
+          <tbody>
+            <tr><td>normal: sRGB / Rec.709</td><td id="g-709r"></td><td id="g-709g"></td><td id="g-709b"></td><td id="g-709s"></td></tr>
+            <tr><td>wide: DCI-P3 (D65)</td><td id="g-p3r"></td><td id="g-p3g"></td><td id="g-p3b"></td><td id="g-p3s"></td></tr>
+            <tr><td>widest: Rec.2020</td><td id="g-2020r"></td><td id="g-2020g"></td><td id="g-2020b"></td><td id="g-2020s"></td></tr>
+            <tr><td>sRGB, cut to fit</td><td id="g-clipr"></td><td id="g-clipg"></td><td id="g-clipb"></td><td id="g-clips"></td></tr>
+            <tr><td>sRGB, pulled in to fit</td><td id="g-mapr"></td><td id="g-mapg"></td><td id="g-mapb"></td><td id="g-maps"></td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p style="margin-top:14px">Between spaces you multiply by a 3×3 matrix built from the primaries: RGB → XYZ for the source, XYZ → RGB for the destination. XYZ is the device-independent middle space the horseshoe is drawn from. The Rec.709 to Rec.2020 matrix below is computed from the primaries on this page and matches the published one to four digits.</p>
         <p>A wide-gamut pipeline renders in one working space, usually sRGB-linear or ACEScg, and converts once at output.</p>
+        <p class="words">In words: the matrix converts a Rec.709 colour to Rec.2020.</p>
+        <div class="math">Rec.709 → Rec.2020 (computed from primaries):
+<span id="m709"></span></div>
+    </div></details>
+    </div>
+  </section>
+
+  <section id="hdr" class="stage">
+    <h2>Writing brightness for an HDR screen</h2>
+    <p class="sub">A normal screen's bytes mean a fraction of its own white. An HDR screen uses a code where each value means a real brightness, so the game has to decide how bright white is.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5p" class="sq" width="512" height="512" aria-label="The normal screen curve and the HDR PQ curve against nits, with the cave floor, the campfire and the sun marked"></canvas>
+        <div class="cap"><span id="c5p-read"></span><span>hover the plot for nits → code</span></div>
+      </div>
+      <div class="lesson" data-lesson="hdr">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><label for="paper">How bright normal white is on the HDR screen <span class="val" id="paperv">200 nits</span></label><input type="range" id="paper" min="80" max="400" step="10" value="200"></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">HDR output uses PQ codes that mean real nits, so the game must choose how bright white is.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The HDR output path replaces the sRGB OETF with PQ. PQ is absolute: code 0.5 always means about 92 nits, code 1.0 means 10 000. So the game has to decide how many nits its UI white is (the slider), scale the scene to match, and tone-map to the display's peak, which it reads from the EDID, the display's self-description, often 600 to 1 000 nits.</p>
         <p>Then it converts to Rec.2020 primaries and encodes into a 10-bit swapchain, the buffer handed to the screen. Dolby Vision on consoles adds per-frame metadata on top of the same PQ signal.</p>
-        <p class="words">In words: PQ divides nits by 10 000, then bends that through two fixed fractions and a power so the codes follow how the eye sees brightness. The matrix converts a Rec.709 colour to Rec.2020.</p>
+        <p class="words">In words: PQ divides nits by 10 000, then bends that through two fixed fractions and a power so the codes follow how the eye sees brightness.</p>
         <div class="math">PQ (ST.2084) OETF, Y = nits / 10 000:
   m1 = 2610/16384 = 0.1593   m2 = 2523/4096 · 128 = 78.84
   c1 = 3424/4096  = 0.8359   c2 = 2413/4096 · 32 = 18.85   c3 = 2392/4096 · 32 = 18.69
-  E = ( (c1 + c2 · Y^m1) / (1 + c3 · Y^m1) )^m2
-
-Rec.709 → Rec.2020 (computed from primaries):
-<span id="m709"></span></div>
+  E = ( (c1 + c2 · Y^m1) / (1 + c3 · Y^m1) )^m2</div>
         <p>Y is nits over 10 000, E is the encoded PQ value in 0..1, and m1, m2, c1, c2 and c3 are the fixed constants from the ST.2084 standard.</p>
         <p class="words">What this code does: tone-maps, scales white to the chosen nits, changes primaries to Rec.2020, then PQ-encodes into a 10-bit buffer.</p>
         <pre class="code"><span class="c">// HDR10 output: scene-linear Rec.709 → tone map → Rec.2020 → PQ, 10-bit swapchain</span>
@@ -589,8 +548,7 @@ c = rec709ToRec2020 * c;                         <span class="c">// primaries ch
 <span class="k">vec3</span> ym = pow(y, <span class="k">vec3</span>(0.1593017578125));
 fragColor.rgb = pow((0.8359375 + 18.8515625 * ym) / (1.0 + 18.6875 * ym), <span class="k">vec3</span>(78.84375));
 <span class="c">// swapchain: R10G10B10A2_UNORM with the ST2084 color space flag</span></pre>
-        <p class="tldr">A gamut is the triangle a screen can show; HDR10 output means Rec.2020 primaries, PQ encoding, and a paper-white brightness the game has to choose.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
@@ -610,7 +568,7 @@ fragColor.rgb = pow((0.8359375 + 18.8515625 * ym) / (1.0 + 18.6875 * ym), <span 
       </tbody>
     </table>
     </div>
-    <p class="note" style="margin-top:28px">The second table is about the buffer that holds the scene before tone mapping. You are choosing between memory and bandwidth (bytes per pixel, and the total at two resolutions) and what breaks when the format is too small. Memory is for one colour target with no MSAA.</p>
+    <p class="note" style="margin-top:28px">The second table is about the buffer (the block of memory) that holds the scene before tone mapping. You are choosing between memory and bandwidth (bytes per pixel, and the total at two resolutions) and what breaks when the format is too small. Memory is for one colour target with no MSAA.</p>
     <div class="tbl-wrap">
     <table class="stats">
       <thead><tr><th>Buffer format</th><th>Bytes per pixel</th><th>1920×1080</th><th>3840×2160</th><th>What goes wrong</th></tr></thead>
@@ -762,8 +720,78 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; b.className = 'ok'; quiz.querySelectorAll('button').forEach(x => x.disabled = true); why.innerHTML = '<b>Right.</b> ' + o.why; save(); render(); }
+          else { b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; }
+          quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   // ---------- shared helpers ----------
+  let L1, L2, L3, L4, L5, L6;
+  const $ = id => document.getElementById(id);
   const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
   const oetf = c => c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
   const eotf = e => e <= 0.04045 ? e / 12.92 : Math.pow((e + 0.055) / 1.055, 2.4);
@@ -802,7 +830,7 @@ function kitInset(ctx, x, y, w, h, title) {
   // ---------- 1. linear vs sRGB: the camp inside the cave mouth, blended two ways ----------
   const c1 = document.getElementById("c1"), x1 = c1.getContext("2d");
   const c1c = document.getElementById("c1c"), x1c = c1c.getContext("2d");
-  const s1 = { v: 0.5, blend: "both", split: 0.5 };
+  const s1 = { v: 0.5, blend: "both", split: 0.5, maxSplit: 0, hx: null, hovDark: false };
   const BAYER = (() => { let m = [[0]]; for (let n = 1; n < 8; n *= 2) { const o = []; for (let j = 0; j < n * 2; j++) { o.push([]); for (let i = 0; i < n * 2; i++) o[j][i] = 4 * m[j % n][i % n] + [[0, 2], [3, 1]][j / n | 0][i / n | 0]; } m = o; } return m; })();
   // the scene is 256×150, display-linear colour per pixel plus two blend layers: the fire's glow and the smoke
   const W1 = 256, H1 = 150, N1 = W1 * H1;
@@ -862,6 +890,7 @@ function kitInset(ctx, x, y, w, h, title) {
     x1.fillStyle = GROUND; x1.fillRect(0, 0, 512, 512);
     x1.imageSmoothingEnabled = false;
     const mode = s1.blend, sx = mode === "both" ? Math.round(s1.split * W1) : mode === "srgb" ? W1 : 0;
+    if (mode === "both") s1.maxSplit = Math.max(s1.maxSplit, s1.split);
     if (sx > 0) x1.drawImage(off1s, 0, 0, sx, H1, 0, 0, sx * 2, 300);
     if (sx < W1) x1.drawImage(off1l, sx, 0, W1 - sx, H1, sx * 2, 0, (W1 - sx) * 2, 300);
     if (mode === "both") {
@@ -900,7 +929,8 @@ function kitInset(ctx, x, y, w, h, title) {
       kitLabel(x1, "cave floor, fire light → daylight, blended in " + kind, 12, by + 17, "left", col);
       kitLabel(x1, "mid (" + mids[mids.length - 1].join(", ") + ")", 500, by + 17, "right", col);
     }
-    document.getElementById("c1-read").innerHTML = `smoke passes v = <strong>${v.toFixed(2)}</strong> of the light → byte <strong>${right}</strong> · a bytes blend writes ${wrong}, which shows only ${eotf(wrong / 255).toFixed(3)} of the light`;
+    document.getElementById("c1-read").innerHTML = `the smoke lets through <strong>${Math.round(v * 100)} %</strong> of the light · the right byte is <strong>${right}</strong> · the bytes blend writes ${wrong}, which shows only ${Math.round(eotf(wrong / 255) * 100)} % of the light`;
+    L1 && L1.check();
   }
   const P1 = { l: 54, r: 14, t: 14, b: 38 };
   function plotXY(ctx, W, H, P, fx, fy) { return [P.l + fx * (W - P.l - P.r), H - P.b - fy * (H - P.t - P.b)]; }
@@ -925,16 +955,18 @@ function kitInset(ctx, x, y, w, h, title) {
     curve(x1c, W, H, P, x => Math.pow(x, 1 / 2.2), "rgba(255,255,255,0.3)", [4, 5]);
     curve(x1c, W, H, P, eotf, BLUE);
     curve(x1c, W, H, P, oetf, AMBER);
-    const [ax, ay] = plotXY(x1c, W, H, P, 0.3, oetf(0.3) + 0.08); label(x1c, "linear → byte: what the GPU writes", ax, ay, "left", AMBER);
-    const [bx, by] = plotXY(x1c, W, H, P, 0.99, 0.3); label(x1c, "byte → linear: what the screen shows", bx, by, "right", BLUE);
+    const [ax, ay] = plotXY(x1c, W, H, P, 0.3, oetf(0.3) + 0.08); label(x1c, "light → byte: what gets stored", ax, ay, "left", AMBER);
+    const [bx, by] = plotXY(x1c, W, H, P, 0.99, 0.3); label(x1c, "byte → light: what the screen shows", bx, by, "right", BLUE);
     const x = hx == null ? s1.v : hx;
+    if (hx != null) { s1.hx = hx; if (hx <= 0.1) s1.hovDark = true; }
     const e = oetf(x), l = eotf(x);
     const [px, py] = plotXY(x1c, W, H, P, x, e), [qx, qy] = plotXY(x1c, W, H, P, x, l);
     x1c.strokeStyle = "rgba(255,255,255,0.5)"; x1c.lineWidth = 1; x1c.setLineDash([3, 4]); x1c.beginPath();
     x1c.moveTo(px, H - P.b); x1c.lineTo(px, Math.min(py, qy)); x1c.moveTo(P.l, py); x1c.lineTo(px, py); x1c.moveTo(P.l, qy); x1c.lineTo(qx, qy); x1c.stroke(); x1c.setLineDash([]);
     for (const [cx, cy] of [[px, py], [qx, qy]]) { x1c.beginPath(); x1c.arc(cx, cy, 4.5, 0, Math.PI * 2); x1c.fillStyle = WHITE; x1c.fill(); }
     if (hx == null) label(x1c, "the smoke pixel: " + Math.round(x * 100) + " % of the light = byte " + Math.round(e * 255), P.l + 8, P.t + 12, "left");
-    document.getElementById("c1c-read").innerHTML = `linear ${x.toFixed(3)} → encoded <strong>${e.toFixed(3)}</strong> (byte ${Math.round(e * 255)}) · encoded ${x.toFixed(3)} → linear <strong>${l.toFixed(3)}</strong>`;
+    document.getElementById("c1c-read").innerHTML = `${Math.round(x * 100)} % of the light is stored as <strong>${e.toFixed(3)}</strong> (byte ${Math.round(e * 255)}) · a stored ${x.toFixed(3)} shows <strong>${Math.round(l * 100)} %</strong> of the light`;
+    L1 && L1.check();
   }
   const grayEl = document.getElementById("gray");
   grayEl.addEventListener("input", () => { s1.v = +grayEl.value; document.getElementById("grayv").textContent = s1.v.toFixed(2); render1(); draw1(); draw1c(null); });
@@ -1003,7 +1035,7 @@ function kitInset(ctx, x, y, w, h, title) {
   })();
   const c2 = document.getElementById("c2"), x2 = c2.getContext("2d"), c2h = document.getElementById("c2h"), x2h = c2h.getContext("2d");
   const off2 = offscreen(SW, SH), ox2 = off2.getContext("2d"), img2 = new ImageData(SW, SH);
-  const s2 = { ev: -9.5, auto: false, tau: 0.8, mode: "clip", frames: 0, settled: true, lastT: 0 };
+  const s2 = { ev: -9.5, auto: false, tau: 0.8, mode: "clip", frames: 0, settled: true, lastT: 0, kicked: false };
   function renderScene(ctx, ev, mode, perChan, tm, img, off, offctx) {
     const k = Math.pow(2, ev), p = img.data; let clipped = 0, black = 0;
     for (let i = 0; i < SW * SH; i++) {
@@ -1043,27 +1075,28 @@ function kitInset(ctx, x, y, w, h, title) {
     for (let i = 0; i < HB; i++) { const h = hist[i] / histMax * ph; x2h.fillRect(L + i / HB * pw + 1, T + ph - h, pw / HB - 2, h); }
     x2h.strokeStyle = GRID; x2h.beginPath(); for (let l2 = HMIN; l2 <= HMAX; l2 += 2) { const x = Math.round(xOf(l2)) + 0.5; x2h.moveTo(x, T); x2h.lineTo(x, T + ph); } x2h.stroke();
     x2h.font = MONO; x2h.fillStyle = "rgba(255,255,255,0.55)"; x2h.textAlign = "center"; x2h.textBaseline = "top";
-    for (let l2 = HMIN; l2 <= HMAX; l2 += 2) x2h.fillText(l2 === 0 ? "1 nit" : "2^" + l2, Math.min(xOf(l2), W - 16), T + ph + 6);
+    for (let l2 = HMIN; l2 <= HMAX; l2 += 2) x2h.fillText(l2 === 0 ? "1 nit" : l2 < 0 ? "1/" + Math.pow(2, -l2) : l2 >= 10 ? Math.round(Math.pow(2, l2) / 1000) + "k" : String(Math.pow(2, l2)), Math.min(xOf(l2), W - 16), T + ph + 6);
     // where the scene's things sit
     for (const [name, n] of [["cave", NITS.floor], ["player", NITS.player], ["sky", NITS.sky], ["sun", NITS.sun]]) { const x = xOf(Math.log2(n)); x2h.fillStyle = "rgba(255,255,255,0.5)"; x2h.fillRect(x - 0.5, T, 1, 8); label(x2h, name, x, T + 14, "center", "rgba(255,255,255,0.7)"); }
-    x2h.fillStyle = AMBER; x2h.fillRect(wx - 1, T, 2, ph); label(x2h, "→ white", wx + 4, T + 34, "left", AMBER);
-    const gx = xOf(Math.log2(0.18) - ev); x2h.fillStyle = WHITE; x2h.fillRect(gx - 1, T, 2, ph); label(x2h, "0.18", gx, T + ph - 10, "center");
+    x2h.fillStyle = AMBER; x2h.fillRect(wx - 1, T, 2, ph); label(x2h, "→ shows as white", wx + 4, T + 34, "left", AMBER);
+    const gx = xOf(Math.log2(0.18) - ev); x2h.fillStyle = WHITE; x2h.fillRect(gx - 1, T, 2, ph); label(x2h, "mid grey", gx, T + ph - 10, "center");
     const ax = xOf(meter.avgLog2); x2h.strokeStyle = "rgba(255,255,255,0.7)"; x2h.setLineDash([3, 3]); x2h.beginPath(); x2h.moveTo(ax + 0.5, T); x2h.lineTo(ax + 0.5, T + ph); x2h.stroke(); x2h.setLineDash([]);
-    label(x2h, "L̄ " + meter.lavg.toFixed(0) + " nits", ax, T + ph - 30, "center");
+    label(x2h, "average " + meter.lavg.toFixed(0) + " nits", ax, T + ph - 30, "center");
   }
   function draw2() {
     const ev = s2.ev, tm = s2.mode === "reinhard" ? (x => x / (1 + x)) : null;
     const st = renderScene(x2, ev, s2.mode, true, tm, img2, off2, ox2);
     sceneLabels(x2, true);
-    label(x2, "EV " + ev.toFixed(1) + (s2.auto ? " · auto" : ""), 8, 14);
+    label(x2, "exposure " + ev.toFixed(1) + (s2.auto ? " · auto" : ""), 8, 14);
     drawHist(ev);
     const white = Math.pow(2, -ev);
-    document.getElementById("c2-read").innerHTML = `EV <strong>${ev.toFixed(1)}</strong> · white at ${white >= 10 ? white.toFixed(0) : white.toFixed(2)} nits · 0.18 gray at ${(0.18 * white).toFixed(1)} nits`;
-    document.getElementById("c2-clip").innerHTML = `clipped <strong>${(st.clipped * 100).toFixed(1)} %</strong> · below 1/255: ${(st.black * 100).toFixed(1)} %`;
+    document.getElementById("c2-read").innerHTML = `exposure <strong>${ev.toFixed(1)}</strong> · anything above ${white >= 10 ? white.toFixed(0) : white.toFixed(2)} nits shows as white · middle grey at ${(0.18 * white).toFixed(1)} nits`;
+    document.getElementById("c2-clip").innerHTML = `cut to white: <strong>${(st.clipped * 100).toFixed(1)} %</strong> of pixels · black: ${(st.black * 100).toFixed(1)} %`;
     document.getElementById("evv").textContent = (ev < 0 ? "−" : "+") + Math.abs(ev).toFixed(1) + " EV";
     document.getElementById("t2-avg").innerHTML = meter.lavg.toFixed(0) + ' <small>nits</small>';
     document.getElementById("t2-target").textContent = (meter.target < 0 ? "−" : "+") + Math.abs(meter.target).toFixed(1);
     document.getElementById("t2-frames").textContent = s2.settled ? (s2.frames ? String(s2.frames) : "—") : s2.frames + " …";
+    L2 && L2.check();
   }
   const evEl = document.getElementById("ev"), autoEl = document.getElementById("auto"), tauEl = document.getElementById("tau");
   let loop2 = false;
@@ -1081,7 +1114,7 @@ function kitInset(ctx, x, y, w, h, title) {
   evEl.addEventListener("input", () => { s2.ev = +evEl.value; s2.auto = false; autoEl.checked = false; s2.settled = true; s2.frames = 0; draw2(); });
   autoEl.addEventListener("change", () => { s2.auto = autoEl.checked; if (s2.auto) { s2.frames = 0; s2.settled = false; startLoop2(); } draw2(); });
   tauEl.addEventListener("input", () => { s2.tau = +tauEl.value; document.getElementById("tauv").textContent = s2.tau.toFixed(1) + " s"; });
-  document.getElementById("kick").addEventListener("click", () => { s2.ev = clamp(s2.ev - 6, -16, 2); s2.auto = true; autoEl.checked = true; s2.frames = 0; s2.settled = false; startLoop2(); });
+  document.getElementById("kick").addEventListener("click", () => { s2.kicked = true; s2.ev = clamp(s2.ev - 6, -16, 2); s2.auto = true; autoEl.checked = true; s2.frames = 0; s2.settled = false; startLoop2(); });
   seg("segClip", v => { s2.mode = v; draw2(); });
   draw2();
 
@@ -1118,10 +1151,10 @@ function kitInset(ctx, x, y, w, h, title) {
     x3.font = MONO; x3.fillStyle = "rgba(255,255,255,0.6)"; x3.textAlign = "center"; x3.textBaseline = "top";
     for (let l = X3MIN; l <= X3MAX; l += 2) { const [px] = plotXY(x3, W, H, P, lx(l), 0); x3.fillText(l < 0 ? "1/" + Math.pow(2, -l) : String(Math.pow(2, l)), px, H - P.b + 6); }
     x3.textAlign = "right"; x3.textBaseline = "middle"; for (const t of [0, 0.25, 0.5, 0.75, 1]) { const [, py] = plotXY(x3, W, H, P, 0, t); x3.fillText(t.toFixed(2), P.l - 6, py); }
-    x3.textAlign = "center"; x3.textBaseline = "top"; x3.fillText("scene-linear input (log scale)", (P.l + W - P.r) / 2, H - 16);
-    x3.save(); x3.translate(10, (P.t + H - P.b) / 2); x3.rotate(-Math.PI / 2); x3.fillText("display-linear output", 0, 0); x3.restore();
+    x3.textAlign = "center"; x3.textBaseline = "top"; x3.fillText("brightness in, 1 = white (each tick doubles)", (P.l + W - P.r) / 2, H - 16);
+    x3.save(); x3.translate(10, (P.t + H - P.b) / 2); x3.rotate(-Math.PI / 2); x3.fillText("brightness out, 1 = white", 0, 0); x3.restore();
     // 0.18 and 1.0 markers
-    for (const [v, t] of [[0.18, "0.18"], [1, "1.0"]]) { const [px] = plotXY(x3, W, H, P, lx(Math.log2(v)), 0); x3.strokeStyle = "rgba(255,255,255,0.35)"; x3.setLineDash([3, 4]); x3.beginPath(); x3.moveTo(px + 0.5, P.t); x3.lineTo(px + 0.5, H - P.b); x3.stroke(); x3.setLineDash([]); label(x3, t, px, P.t + 10, "center"); }
+    for (const [v, t] of [[0.18, "mid grey"], [1, "white"]]) { const [px] = plotXY(x3, W, H, P, lx(Math.log2(v)), 0); x3.strokeStyle = "rgba(255,255,255,0.35)"; x3.setLineDash([3, 4]); x3.beginPath(); x3.moveTo(px + 0.5, P.t); x3.lineTo(px + 0.5, H - P.b); x3.stroke(); x3.setLineDash([]); label(x3, t, px, P.t + 10, "center"); }
     for (const k in OPS) if (k !== s3.op) curve(x3, W, H, P, l => OPS[k].f(Math.pow(2, l)), "rgba(74,163,255,0.45)", null, 260, X3MIN, X3MAX);
     curve(x3, W, H, P, l => f(Math.pow(2, l)), AMBER, null, 260, X3MIN, X3MAX);
     label(x3, "toe", (P.l + ax) / 2, H - P.b - 14, "center"); label(x3, "shoulder", (bx + W - P.r) / 2, H - P.b - 14, "center");
@@ -1140,7 +1173,8 @@ function kitInset(ctx, x, y, w, h, title) {
     x3.strokeStyle = "rgba(255,255,255,0.5)"; x3.setLineDash([3, 4]); x3.beginPath(); x3.moveTo(px, H - P.b); x3.lineTo(px, py); x3.moveTo(P.l, py); x3.lineTo(px, py); x3.stroke(); x3.setLineDash([]);
     x3.beginPath(); x3.arc(px, py, 4.5, 0, Math.PI * 2); x3.fillStyle = hl == null ? AMBER : WHITE; x3.fill();
     const others = Object.keys(OPS).filter(k => k !== s3.op).map(k => `${OPS[k].name} ${OPS[k].f(x).toFixed(3)}`).join(" · ");
-    document.getElementById("c3-read").innerHTML = `in ${x < 0.01 ? x.toFixed(4) : x.toFixed(3)} → <strong>${OPS[s3.op].name} ${y.toFixed(3)}</strong> · ${others}`;
+    document.getElementById("c3-read").innerHTML = `brightness in ${x < 0.01 ? x.toFixed(4) : x.toFixed(3)} → out <strong>${y.toFixed(3)} with ${OPS[s3.op].name}</strong> · ${others}`;
+    L3 && L3.check();
   }
   function draw3s() {
     const f = OPS[s3.op].f, per = s3.ch === "rgb";
@@ -1157,8 +1191,9 @@ function kitInset(ctx, x, y, w, h, title) {
     }
     x3s.fillStyle = GROUND; x3s.fillRect(0, y0 - 2, 640, 2);
     kitLabel(x3s, "one red ember, brighter and brighter →", 8, y0 + 12, "left");
-    label(x3s, OPS[s3.op].name + (per ? " · per channel" : " · luminance"), 8, 14);
-    document.getElementById("c3s-read").innerHTML = `EV ${s3.ev.toFixed(1)} · clipped <strong>${(st.clipped * 100).toFixed(1)} %</strong> · ember ×64 → (${last.join(", ")})`;
+    label(x3s, OPS[s3.op].name + (per ? " · each colour on its own" : " · brightness only"), 8, 14);
+    document.getElementById("c3s-read").innerHTML = `exposure ${s3.ev.toFixed(1)} · cut to white: <strong>${(st.clipped * 100).toFixed(1)} %</strong> of pixels · the ×64 ember shows as red, green, blue (${last.join(", ")})`;
+    L3 && L3.check();
   }
   seg("segOp", v => { s3.op = v; draw3(null); draw3s(); });
   seg("segCh", v => { s3.ch = v; draw3s(); });
@@ -1175,10 +1210,10 @@ function kitInset(ctx, x, y, w, h, title) {
   const img4 = new ImageData(512, 512);
   const ign = (x, y) => { const f = 0.06711056 * x + 0.00583715 * y; const g = 52.9829189 * (f - Math.floor(f)); return g - Math.floor(g); };
   const STRIPS = [
-    { id: "t4-a", name: "8-bit linear target", q: v => { const c = Math.round(v * 255); return { code: c, codes: 255, disp: oetf(c / 255), lin: c / 255 }; } },
-    { id: "t4-b", name: "8-bit sRGB target", q: v => { const c = Math.round(oetf(v) * 255); return { code: c, codes: 255, disp: c / 255, lin: eotf(c / 255) }; } },
-    { id: "t4-c", name: "10-bit sRGB target", q: v => { const c = Math.round(oetf(v) * 1023); return { code: c, codes: 1023, disp: c / 1023, lin: eotf(c / 1023) }; } },
-    { id: "t4-d", name: "8-bit sRGB + dither", q: (v, x, y) => { const n = s4.dith === "none" ? 0 : s4.dith === "ign" ? ign(x, y) - 0.5 : hash2(x, y) + hash2(x + 7.1, y + 3.3) - 1; const c = clamp(Math.round(oetf(v) * 255 + n), 0, 255); return { code: c, codes: 255, disp: c / 255, lin: eotf(c / 255) }; } }
+    { id: "t4-a", name: "8-bit, 256 values spread evenly", q: v => { const c = Math.round(v * 255); return { code: c, codes: 255, disp: oetf(c / 255), lin: c / 255 }; } },
+    { id: "t4-b", name: "8-bit, 256 values spread with the byte curve", q: v => { const c = Math.round(oetf(v) * 255); return { code: c, codes: 255, disp: c / 255, lin: eotf(c / 255) }; } },
+    { id: "t4-c", name: "10-bit, 1024 values, byte curve", q: v => { const c = Math.round(oetf(v) * 1023); return { code: c, codes: 1023, disp: c / 1023, lin: eotf(c / 1023) }; } },
+    { id: "t4-d", name: "8-bit, byte curve, grain added before rounding", q: (v, x, y) => { const n = s4.dith === "none" ? 0 : s4.dith === "ign" ? ign(x, y) - 0.5 : hash2(x, y) + hash2(x + 7.1, y + 3.3) - 1; const c = clamp(Math.round(oetf(v) * 255 + n), 0, 255); return { code: c, codes: 255, disp: c / 255, lin: eotf(c / 255) }; } }
   ];
   const SH4 = 118, GAP4 = 13;
   function draw4() {
@@ -1203,20 +1238,24 @@ function kitInset(ctx, x, y, w, h, title) {
       label(x4, st.name, 6, y0 + 12);
       if (s === 0) { kitLabel(x4, "← black cave wall … the fire's glow →", 256, y0 + SH4 - 14, "center"); }
     });
-    label(x4, "gain ×" + s4.gain + " · top " + s4.top.toFixed(4), 440, 12, "right");
+    label(x4, "shown ×" + s4.gain + " brighter", 440, 12, "right");
+    s4.stats = { used: counts.map(c => c.size) };
+    STRIPS.forEach((st, s) => { $(st.id).textContent = String(counts[s].size); });
+    L4 && L4.check();
   }
   const topEl = document.getElementById("top"), gainEl = document.getElementById("gain");
   let pend4 = false; const req4 = () => { if (pend4) return; pend4 = true; requestAnimationFrame(() => { pend4 = false; draw4(); }); };
-  topEl.addEventListener("input", () => { s4.top = Math.pow(2, +topEl.value); document.getElementById("topv").textContent = s4.top.toFixed(4); req4(); });
+  topEl.addEventListener("input", () => { s4.top = Math.pow(2, +topEl.value); document.getElementById("topv").textContent = s4.top.toFixed(3); document.getElementById("c4-read").innerHTML = read4(); req4(); });
   gainEl.addEventListener("input", () => { s4.gain = Math.pow(2, +gainEl.value); document.getElementById("gainv").textContent = "×" + s4.gain; req4(); });
   seg("segDith", v => { s4.dith = v; req4(); });
   hover(c4, p => {
     const r = document.getElementById("c4-read");
-    if (!p) { r.innerHTML = `top ${s4.top.toFixed(4)} linear = OETF ${oetf(s4.top).toFixed(3)} · ${Math.floor(s4.top * 255)} linear codes vs ${Math.floor(oetf(s4.top) * 255)} sRGB codes`; return; }
+    if (!p) { r.innerHTML = read4(); return; }
     const s = clamp(Math.floor(p[1] / (SH4 + GAP4)), 0, 3), x = clamp(p[0] | 0, 0, 511), v = s4.top * x / 511, q = STRIPS[s].q(v, x, p[1] | 0);
-    r.innerHTML = `${STRIPS[s].name} · linear ${v.toFixed(5)} → code <strong>${q.code}/${q.codes}</strong> → shows ${q.lin.toFixed(5)}`;
+    r.innerHTML = `${STRIPS[s].name} · light ${v.toFixed(5)} → stored value <strong>${q.code} of ${q.codes}</strong> → shows ${q.lin.toFixed(5)}`;
   });
-  draw4(); document.getElementById("c4-read").innerHTML = `top ${s4.top.toFixed(4)} linear = OETF ${oetf(s4.top).toFixed(3)} · ${Math.floor(s4.top * 255)} linear codes vs ${Math.floor(oetf(s4.top) * 255)} sRGB codes`;
+  function read4() { return `next to the fire the wall is <strong>${s4.top.toFixed(3)}</strong> of white · spread evenly, only ${Math.floor(s4.top * 255)} of the 256 values sit below that brightness; with the byte curve, ${Math.floor(oetf(s4.top) * 255)}`; }
+  draw4(); document.getElementById("c4-read").innerHTML = read4();
 
   // ---------- 5. color spaces, gamut, PQ: the glowing crystal ----------
   const c5 = document.getElementById("c5"), x5 = c5.getContext("2d"), c5p = document.getElementById("c5p"), x5p = c5p.getContext("2d");
@@ -1255,7 +1294,7 @@ function kitInset(ctx, x, y, w, h, title) {
     }
     const off = offscreen(512, 512); off.getContext("2d").putImageData(img, 0, 0); return off;
   })();
-  const s5 = { x: 0.27, y: 0.64, paper: 200 };
+  const s5 = { x: 0.27, y: 0.64, paper: 200, out: false, p3only: false, hovBright: false, hn: null };
   function fmtRgb(v) { return v.map(c => (c < 0 ? "−" : "") + Math.abs(c).toFixed(3)).join(", "); }
   // "what the player sees" inset: the crystal beside the player in the cave, in one output colour
   function crystalInset(x, y, title, rgb) {
@@ -1277,12 +1316,14 @@ function kitInset(ctx, x, y, w, h, title) {
     x5.textAlign = "right"; x5.textBaseline = "middle"; for (let t = 0; t <= 0.9; t += 0.2) { const [, py] = toPx(0, t); x5.fillText(t.toFixed(1), P5.l - 6, py); }
     x5.textAlign = "center"; x5.textBaseline = "top"; x5.fillText("x", (P5.l + 512 - P5.r) / 2, 512 - 16);
     for (const k in SPACES) { const sp = SPACES[k]; x5.strokeStyle = sp.color; x5.lineWidth = k === "709" ? 2 : 1.5; x5.setLineDash(k === "709" ? [] : [5, 4]); x5.beginPath(); sp.prim.forEach(([x, y], i) => { const [px, py] = toPx(x, y); i ? x5.lineTo(px, py) : x5.moveTo(px, py); }); x5.closePath(); x5.stroke(); x5.setLineDash([]); }
-    label(x5, "sRGB", ...toPx(0.31, 0.585), "left", WHITE); label(x5, "P3", ...toPx(0.19, 0.72), "left", BLUE); label(x5, "Rec.2020", ...toPx(0.18, 0.82), "left", AMBER);
-    const [wx, wy] = toPx(D65[0], D65[1]); x5.beginPath(); x5.arc(wx, wy, 3.5, 0, Math.PI * 2); x5.fillStyle = WHITE; x5.fill(); label(x5, "D65", wx + 8, wy + 8);
+    label(x5, "normal screen (sRGB)", ...toPx(0.31, 0.585), "left", WHITE); label(x5, "wide screen (P3)", ...toPx(0.19, 0.72), "left", BLUE); label(x5, "widest (Rec.2020)", ...toPx(0.18, 0.82), "left", AMBER);
+    const [wx, wy] = toPx(D65[0], D65[1]); x5.beginPath(); x5.arc(wx, wy, 3.5, 0, Math.PI * 2); x5.fillStyle = WHITE; x5.fill(); label(x5, "white", wx + 8, wy + 8);
     // swatch math
     const Y = 0.3, res = {};
     for (const k in SPACES) res[k] = xyToRgb(SPACES[k].fromXYZ, s5.x, s5.y, Y);
     const r709 = res["709"], mn = Math.min(...r709), mx = Math.max(...r709);
+    const p3ok = res["p3"].every(c => c >= 0 && c <= 1);
+    if (mn < 0) { s5.out = true; if (p3ok) s5.p3only = true; }
     const clipped = r709.map(v => clamp(v, 0, 1));
     let t = 0; if (mn < 0) t = -mn / (Y - mn);
     let mapped = r709.map(v => v + (Y - v) * t); const mm = Math.max(...mapped); if (mm > 1) mapped = mapped.map(v => v / mm);
@@ -1291,13 +1332,14 @@ function kitInset(ctx, x, y, w, h, title) {
     const [hx, hy] = toPx(s5.x, s5.y); x5.beginPath(); x5.arc(hx, hy, 7, 0, Math.PI * 2); x5.fillStyle = WHITE; x5.fill(); x5.lineWidth = 2; x5.strokeStyle = mn < 0 || mx > 1 ? RED : GREEN; x5.stroke();
     kitLabel(x5, "the crystal's colour", hx + 12, hy - 14, "left");
     // the crystal as an sRGB screen shows it, two ways
-    crystalInset(300, 14, "clipped", clipped.map(enc8));
-    crystalInset(404, 14, "mapped", mapped.map(enc8));
-    kitLabel(x5, "on an sRGB screen", 401, 110, "center", "#c7cdd8");
+    crystalInset(300, 14, "cut", clipped.map(enc8));
+    crystalInset(404, 14, "pulled in", mapped.map(enc8));
+    kitLabel(x5, "the crystal on a normal screen", 401, 110, "center", "#c7cdd8");
     const setRow = (id, v, status, ok) => { ["r", "g", "b"].forEach((ch, i) => document.getElementById("g-" + id + ch).textContent = (v[i] < 0 ? "−" : "") + Math.abs(v[i]).toFixed(3)); const s = document.getElementById("g-" + id + "s"); s.textContent = status; s.style.color = ok ? "#3aa564" : "#d64545"; };
-    for (const k in SPACES) { const v = res[k], bad = v.filter(c => c < 0 || c > 1); setRow(k, v, bad.length ? "outside, " + bad.length + " channel" + (bad.length > 1 ? "s" : "") : "inside", !bad.length); }
-    setRow("clip", clipped, mn < 0 ? "hue shifted" : "unchanged", mn >= 0); setRow("map", mapped, t > 0 ? "chroma −" + (t * 100).toFixed(0) + " %" : "unchanged", true);
-    document.getElementById("c5-read").innerHTML = `x = ${s5.x.toFixed(3)}, y = ${s5.y.toFixed(3)} · sRGB (${fmtRgb(r709)}) · ${mn < 0 ? '<strong style="color:#ef5d5d">outside sRGB</strong>' : '<strong style="color:#5ad48a">inside sRGB</strong>'}`;
+    for (const k in SPACES) { const v = res[k], bad = v.filter(c => c < 0 || c > 1); setRow(k, v, bad.length ? "no, " + bad.length + " amount" + (bad.length > 1 ? "s" : "") + " outside 0..1" : "yes", !bad.length); }
+    setRow("clip", clipped, mn < 0 ? "yes, but the hue shifted" : "unchanged", mn >= 0); setRow("map", mapped, t > 0 ? "yes, " + (t * 100).toFixed(0) + " % less vivid" : "unchanged", true);
+    document.getElementById("c5-read").innerHTML = `a normal screen would need red, green, blue = (${fmtRgb(r709)}) · ${mn < 0 ? '<strong style="color:#ef5d5d">outside what it can show</strong>' : '<strong style="color:#5ad48a">inside what it can show</strong>'}${mn < 0 && p3ok ? " · a wide (P3) screen can" : ""}`;
+    L5 && L5.check();
   }
   let drag5 = false;
   c5.addEventListener("pointerdown", ev => { drag5 = true; c5.setPointerCapture(ev.pointerId); move5(ev); });
@@ -1321,25 +1363,121 @@ function kitInset(ctx, x, y, w, h, title) {
     const nl = ["0.001", "0.01", "0.1", "1", "10", "100", "1k", "10k"];
     for (let d = NMIN; d <= NMAX; d++) { const [px] = plotXY(x5p, W, H, P, (d - NMIN) / (NMAX - NMIN), 0); x5p.fillText(nl[d - NMIN], px, H - P.b + 6); }
     x5p.textAlign = "right"; x5p.textBaseline = "middle"; for (const t of [0, 0.25, 0.5, 0.75, 1]) { const [, py] = plotXY(x5p, W, H, P, 0, t); x5p.fillText(t.toFixed(2), P.l - 6, py); }
-    x5p.textAlign = "center"; x5p.textBaseline = "top"; x5p.fillText("display luminance, nits (log scale)", (P.l + W - P.r) / 2, H - 16);
-    x5p.save(); x5p.translate(10, (P.t + H - P.b) / 2); x5p.rotate(-Math.PI / 2); x5p.fillText("encoded signal", 0, 0); x5p.restore();
-    for (const [n, t, ty] of [[100, "SDR 100", 28], [1000, "HDR 1000", 10]]) { const [px] = plotXY(x5p, W, H, P, lx(n), 0); x5p.strokeStyle = "rgba(255,255,255,0.3)"; x5p.setLineDash([3, 4]); x5p.beginPath(); x5p.moveTo(px + 0.5, P.t); x5p.lineTo(px + 0.5, H - P.b); x5p.stroke(); x5p.setLineDash([]); label(x5p, t, px, P.t + ty, "center"); }
+    x5p.textAlign = "center"; x5p.textBaseline = "top"; x5p.fillText("screen brightness in nits (each tick is 10 times)", (P.l + W - P.r) / 2, H - 16);
+    x5p.save(); x5p.translate(10, (P.t + H - P.b) / 2); x5p.rotate(-Math.PI / 2); x5p.fillText("stored value", 0, 0); x5p.restore();
+    for (const [n, t, ty] of [[100, "typical monitor 100", 28], [1000, "HDR screen 1000", 10]]) { const [px] = plotXY(x5p, W, H, P, lx(n), 0); x5p.strokeStyle = "rgba(255,255,255,0.3)"; x5p.setLineDash([3, 4]); x5p.beginPath(); x5p.moveTo(px + 0.5, P.t); x5p.lineTo(px + 0.5, H - P.b); x5p.stroke(); x5p.setLineDash([]); label(x5p, t, px, P.t + ty, "center"); }
     // where the cave's things sit in nits
     for (const [name, n, al, row] of [["cave floor", NITS.floor, "center", 1], ["campfire", NITS.fire, "right", 2], ["sun", NITS.sun, "right", 1]]) { const [px] = plotXY(x5p, W, H, P, lx(n), 0); x5p.fillStyle = "rgba(255,255,255,0.6)"; x5p.fillRect(px - 0.5, H - P.b - 10 - (row - 1) * 16, 1, 10 + (row - 1) * 16); label(x5p, name, px + (al === "right" ? 4 : 0), H - P.b - 2 - row * 16, al, "rgba(255,255,255,0.7)"); }
     const paper = s5.paper;
     curve(x5p, W, H, P, d => { const n = Math.pow(10, d); return n >= paper ? 1 : oetf(n / paper); }, BLUE, null, 300, NMIN, NMAX);
     curve(x5p, W, H, P, d => pq(Math.pow(10, d)), AMBER, null, 300, NMIN, NMAX);
-    label(x5p, "sRGB, white = " + paper + " nits", ...plotXY(x5p, W, H, P, lx(paper) - 0.02, 0.88), "right", BLUE);
-    label(x5p, "PQ / ST.2084", ...plotXY(x5p, W, H, P, lx(400), pq(400) + 0.07), "left", AMBER);
+    label(x5p, "normal screen, white = " + paper + " nits", ...plotXY(x5p, W, H, P, lx(paper) - 0.02, 0.88), "right", BLUE);
+    label(x5p, "HDR code (PQ)", ...plotXY(x5p, W, H, P, lx(400), pq(400) + 0.07), "left", AMBER);
     const n = hn == null ? 100 : hn, e = pq(n), s = n >= paper ? 1 : oetf(n / paper);
+    if (hn != null) { s5.hn = hn; if (hn >= 1000) s5.hovBright = true; }
     const [px, py] = plotXY(x5p, W, H, P, lx(n), e), [, qy] = plotXY(x5p, W, H, P, lx(n), s);
     x5p.strokeStyle = "rgba(255,255,255,0.5)"; x5p.setLineDash([3, 4]); x5p.beginPath(); x5p.moveTo(px, H - P.b); x5p.lineTo(px, Math.min(py, qy)); x5p.moveTo(P.l, py); x5p.lineTo(px, py); x5p.moveTo(P.l, qy); x5p.lineTo(px, qy); x5p.stroke(); x5p.setLineDash([]);
     for (const cy of [py, qy]) { x5p.beginPath(); x5p.arc(px, cy, 4.5, 0, Math.PI * 2); x5p.fillStyle = WHITE; x5p.fill(); }
-    document.getElementById("c5p-read").innerHTML = `${n < 1 ? n.toFixed(3) : n.toFixed(n < 10 ? 2 : 0)} nits → PQ <strong>${e.toFixed(3)}</strong> (code ${Math.round(e * 1023)}/1023) · sRGB ${s.toFixed(3)} (byte ${Math.round(s * 255)})`;
+    document.getElementById("c5p-read").innerHTML = `${n < 1 ? n.toFixed(3) : n.toFixed(n < 10 ? 2 : 0)} nits → HDR code <strong>${e.toFixed(3)}</strong> (${Math.round(e * 1023)} of 1023) · normal screen ${s.toFixed(3)} (byte ${Math.round(s * 255)})`;
+    L6 && L6.check();
   }
   const paperEl = document.getElementById("paper");
   paperEl.addEventListener("input", () => { s5.paper = +paperEl.value; document.getElementById("paperv").textContent = s5.paper + " nits"; draw5p(null); });
   hover(c5p, p => { if (!p) return draw5p(null); draw5p(Math.pow(10, NMIN + clamp((p[0] - P5p.l) / (512 - P5p.l - P5p.r), 0, 1) * (NMAX - NMIN))); });
   draw5(); draw5p(null);
+
+  // ---------- guided steps ----------
+  const set1 = o => { Object.assign(s1, o); grayEl.value = s1.v; $("grayv").textContent = s1.v.toFixed(2); segOn($("segBlend"), s1.blend); render1(); draw1(); draw1c(null); };
+  L1 = lesson("encoding", { next: { id: "exposure", title: "Exposure: picking the slice to show" }, steps: [
+    { say: "A screen stores each colour as a number from 0 to 255, a <b>byte</b>. But a byte does not count light: byte 128 is not half the light, it is about a fifth. The GPU does its maths in <b>real light</b>, where twice the number is twice the light, and turns that into bytes only at the very end. Here a campfire burns inside a cave, with smoke over the bright doorway. Left of the white line the smoke was blended using bytes; right of it, using real light.", enter: () => set1({ v: 0.5, blend: "both", split: 0.5, maxSplit: 0 }) },
+    { say: "<b>Drag the split line to the right</b>, past the smoke over the doorway.", todo: "drag the split line to the right", goal: () => s1.maxSplit >= 0.75, try: () => { s1.split = 0.85; draw1(); }, enter: () => set1({ blend: "both", split: 0.5, maxSplit: 0 }),
+      done: "Blended in bytes, the smoke and the fire's glow on the rock go much darker. Same smoke, same maths, wrong kind of number." },
+    { say: "Under the picture are three grey patches. The first is truly half the light: exactly half of its pixels are lit white. The other two are the byte each blend writes for the smoke.", quiz: { q: "Step back a little. Which byte matches the half-lit patch?", options: [
+        { t: "Byte 128, half of 255", why: "Byte 128 shows only about a fifth of the light. Bytes are spaced the way your eye sees brightness, not the way light adds up." },
+        { t: "Byte 188", ok: true, why: "Half the light is stored as byte 188, in the top quarter of the range. The curve on the right says the same: half way along the bottom lands at 0.735 up the side." },
+        { t: "Neither, both are too dark", why: "One of them matches. Step back so the lit pixels blur together, then compare." } ] } },
+    { say: "<b>Drag the smoke slider down to 0.25</b>, so the smoke lets a quarter of the light through.", todo: "drag the slider to 0.25", goal: () => s1.v <= 0.3, try: () => { $("gray").value = 0.25; $("gray").dispatchEvent(new Event("input")); }, enter: () => set1({ v: 0.5 }),
+      done: "The half-lit patch and the real-light patch still match each other. The bytes patch is far darker than either. On the curve, the dot slid down: a quarter of the light is still byte 137." },
+    { say: "The curve is steep at the dark end and flat at the bright end. <b>Hover the curve near its left edge</b>, below 0.10 along the bottom.", todo: "hover the curve near its left edge", goal: () => s1.hovDark, try: () => draw1c(0.05),
+      done: "The first 10 % of the light gets the first 35 % of the bytes. That is on purpose: your eye tells dark greys apart far better than bright ones, so the bytes are spent where you can see the difference." },
+    { say: "Do the maths in real light, turn it into bytes once at the end. Every fade, every soft edge and every see-through thing goes wrong otherwise. The two curves and the code are under the hood below." } ] });
+
+  const set2 = o => { Object.assign(s2, o); s2.settled = true; s2.frames = 0; evEl.value = s2.ev; autoEl.checked = s2.auto; segOn($("segClip"), s2.mode); draw2(); };
+  L2 = lesson("exposure", { next: { id: "curves", title: "Tone curves: the soft squeeze" }, steps: [
+    { say: "The sun outside is about 10 000 times brighter than the cave floor. A screen can show a range of only about 250 to 1 before the dark end turns to mud. So the game picks a slice of the scene's range to show, and that pick is called <b>exposure</b>. Anything above the slice shows as white; anything below, black. The bar chart underneath counts the pixels at each brightness, doubling with each tick, and the amber line is where white lands.", enter: () => set2({ ev: -9.5, auto: false, mode: "clip", kicked: false }) },
+    { say: "<b>Drag Exposure up to −6.</b>", todo: "drag Exposure up to −6", goal: () => s2.ev >= -6.5, try: () => { $("ev").value = -6; $("ev").dispatchEvent(new Event("input")); }, enter: () => set2({ ev: -9.5, auto: false, mode: "clip" }),
+      done: "The doorway is now a white sheet, and the caption says how much of the picture got cut to white. But the cave wall's texture finally shows. A higher exposure slides the amber line left, so more of the scene lands above white." },
+    { say: "Now the other way.", quiz: { q: "If you drag Exposure down to −14, what happens to the player by the fire?", options: [
+        { t: "Nothing, only the sun and sky change", why: "The slice moves for the whole picture at once. Everything darker than its bottom edge turns black." },
+        { t: "The player turns black, along with the whole cave", ok: true, why: "At −14 the slice sits up around the sun and the flame. The player, at 90 nits, is far below its bottom edge." },
+        { t: "The player gets brighter, to make up for it", why: "Exposure has no favourites. It scales every pixel by the same amount." } ] },
+      todo: "now drag Exposure down to −14", goal: () => s2.ev <= -13.5, try: () => { $("ev").value = -14; $("ev").dispatchEvent(new Event("input")); },
+      done: "Only the sun and the flame are left. The slice is about 8 doublings wide and the scene spans 13, so no single setting shows both the sun and the floor." },
+    { say: "<b>Tick auto exposure</b> and let the game choose.", todo: "tick auto exposure", goal: () => s2.auto, try: () => $("auto").click(), enter: () => set2({ ev: -14, auto: false, mode: "clip" }),
+      done: "The picture eases to an exposure the game picked itself. It averages the brightness of every pixel, skipping the darkest and brightest few percent so the sun does not drag it, and aims that average at a middle grey. The tiles show the average and the setting it chose." },
+    { say: "<b>Press walk into the cave.</b> Watch the picture, then the frames tile.", todo: "press the walk into the cave button", goal: () => s2.kicked, try: () => $("kick").click(),
+      done: "The picture went dark, the way your eyes do when you step in from daylight, then recovered over about a second. The adapt slider sets how long that takes. Games do this on purpose: an instant jump looks wrong." },
+    { say: "The doorway is still a white sheet. <b>Switch what happens above white to the soft squeeze.</b>", todo: "switch to the soft squeeze below", goal: () => s2.mode === "reinhard", try: () => $("segClip").querySelector('[data-v="reinhard"]').click(), enter: () => set2({ mode: "clip" }),
+      done: "Some of the doorway's detail comes back. Instead of a hard cut, bright values are bent gently toward white. That bend is a tone curve, and it is the next stage." },
+    { say: "Exposure picks an 8-doubling slice of a 13-doubling scene. Auto exposure aims the average at middle grey and eases there over time. The formulas and the bar-chart code are under the hood." } ] });
+
+  const set3 = o => { Object.assign(s3, o); segOn($("segOp"), s3.op); segOn($("segCh"), s3.ch); ev3El.value = s3.ev; $("ev3v").textContent = (s3.ev < 0 ? "−" : "+") + Math.abs(s3.ev).toFixed(1) + " EV"; whiteEl.value = s3.W; $("whitev").textContent = s3.W.toFixed(1); draw3(null); draw3s(); };
+  L3 = lesson("curves", { next: { id: "banding", title: "Why 8 bits band, and the fix" }, steps: [
+    { say: "A hard cut turns everything above white into the same flat white. A <b>tone curve</b> is a softer squeeze. Left: the five curves games use, with brightness in along the bottom (each tick doubles) and brightness out up the side. The amber one is chosen, and white dots mark where the cave floor, the player, the sky, the flame and the sun land on it. Right: the cave through that curve, with one red ember at rising brightness along the bottom.", enter: () => set3({ op: "aces", ch: "rgb", ev: -9, W: 4 }) },
+    { say: "<b>Switch the curve to Reinhard.</b>", todo: "switch the curve to Reinhard", goal: () => s3.op === "reinhard", try: () => $("segOp").querySelector('[data-v="reinhard"]').click(), enter: () => set3({ op: "aces", ch: "rgb", ev: -9 }),
+      done: "The cave goes flat and grey. Reinhard starts bending right away and takes forever to reach white, so nothing gets real contrast. On the left it is a long lazy arc with no S in it." },
+    { say: "ACES fit is an S: flat at the dark end, steep in the middle, flat again near white.", quiz: { q: "Which part of the picture does the steep middle help?", options: [
+        { t: "The sun", why: "The sun sits on the flat top of the S, where the curve is squeezing it toward white." },
+        { t: "The player and the rock, the middle brightnesses", ok: true, why: "The steep middle spreads middle brightnesses apart, so the player and the rock get their contrast back. The two flat ends are called the toe (shadows) and the shoulder (highlights)." },
+        { t: "Nothing, the S only changes the sky", why: "The sky sits near the shoulder. The steep part is where the player and the rock are." } ] },
+      todo: "now switch back to ACES fit", goal: () => s3.op === "aces", try: () => $("segOp").querySelector('[data-v="aces"]').click(),
+      done: "Contrast is back. The shaded bands on the plot mark the toe and the shoulder, the two flat ends." },
+    { say: "<b>Drag Exposure down to −12</b> and watch the white dots.", todo: "drag Exposure down to −12", goal: () => s3.ev <= -11.5, try: () => { $("ev3").value = -12; $("ev3").dispatchEvent(new Event("input")); }, enter: () => set3({ op: "aces", ev: -9 }),
+      done: "The dots slide down the curve together. Exposure moves the scene along the curve; the curve decides what happens where each thing lands. The sun drops off the shoulder, and the cave floor falls into the toe and goes black." },
+    { say: "Look at the ember strip. <b>Switch Apply the curve to brightness only.</b>", todo: "switch to brightness only below", goal: () => s3.ch === "lum", try: () => $("segCh").querySelector('[data-v="lum"]').click(), enter: () => set3({ op: "aces", ch: "rgb", ev: -9 }),
+      done: "With each colour on its own, the ember went red, then pink, then white as it got brighter, the way a photo of a flame does. With brightness only, it stays red until it hits white and becomes a flat neon patch. Most games pick the first, because it looks like film." },
+    { say: "<b>Pick Reinhard with a white point</b>, then <b>drag the white slider up to 16</b>.", todo: "pick Reinhard with a white point and drag white to 16", goal: () => s3.op === "reinhardx" && s3.W >= 14, try: () => { $("segOp").querySelector('[data-v="reinhardx"]').click(); $("white").value = 16; $("white").dispatchEvent(new Event("input")); }, enter: () => set3({ ch: "rgb", W: 4 }),
+      done: "The sun's dot slides down the curve: a brighter input is now needed to reach white, so the highlights flatten out. That one number is the knob artists turn most." },
+    { say: "A tone curve trades a hard cut for a soft bend. An S shape gives the middle its contrast back, and applying the curve to each colour on its own is what makes bright colours fade to white like film. The five formulas are under the hood." } ] });
+
+  const set4 = o => { if (o.topLog != null) { topEl.value = o.topLog; s4.top = Math.pow(2, o.topLog); $("topv").textContent = s4.top.toFixed(3); } if (o.gainLog != null) { gainEl.value = o.gainLog; s4.gain = Math.pow(2, o.gainLog); $("gainv").textContent = "×" + s4.gain; } if (o.dith) { s4.dith = o.dith; segOn($("segDith"), o.dith); } $("c4-read").innerHTML = read4(); draw4(); };
+  L4 = lesson("banding", { next: { id: "gamut", title: "Which colours a screen can show" }, steps: [
+    { say: "The fire's glow fades along the cave wall into black: one smooth fade, stored four ways. A byte has 256 possible values, so a fade has to jump from value to value, and big enough jumps show as <b>bands</b>. The picture is shown 4 times brighter so the jumps show, and the tiles count how many different values each wall uses.", enter: () => set4({ topLog: -4.3, gainLog: 2, dith: "tpdf" }) },
+    { say: "Top wall: 256 values spread evenly over the light. Second wall: the same 256 values spread with the byte curve from the first stage.", quiz: { q: "Which of the two has more bands?", options: [
+        { t: "The top one, spread evenly", ok: true, why: "Spread evenly, almost all 256 values sit at the bright end, where your eye cannot tell them apart. This dark wall gets only a handful, and the tile says how few. The byte curve puts 25 values below 1 % of white instead of 2." },
+        { t: "The second one, the byte curve", why: "The byte curve spends the values where your eye can see them, so the dark wall gets far more of them." },
+        { t: "The same, both are 8-bit", why: "Same number of values, but very different places for them. Compare the two tiles." } ] } },
+    { say: "The bottom wall has grain added before rounding. <b>Set the grain to none.</b>", todo: "set the grain to none below", goal: () => s4.dith === "none", try: () => $("segDith").querySelector('[data-v="none"]').click(), enter: () => set4({ dith: "tpdf" }),
+      done: "The bottom wall now bands exactly like the second one. The third wall, with 1024 values instead of 256, still looks smooth." },
+    { say: "<b>Drag the brightness next to the fire down to 0.008</b>, a darker glow.", todo: "drag the brightness slider down to 0.008", goal: () => s4.top <= 0.01, try: () => { $("top").value = -7; $("top").dispatchEvent(new Event("input")); }, enter: () => set4({ topLog: -4.3 }),
+      done: "Now even the 1024-value wall steps. A darker fade has fewer values to work with, whatever the count." },
+    { say: "<b>Switch the grain back on</b>, random or patterned.", todo: "switch the grain back on", goal: () => s4.dith !== "none", try: () => $("segDith").querySelector('[data-v="tpdf"]').click(), enter: () => set4({ dith: "none" }),
+      done: "The bands turn into fine grain. Before rounding, a little noise is added to each pixel, so the average over any patch comes out exact and the steps blur away. That is called dithering, and it works at any bit count." },
+    { say: "Spend 8-bit values with the byte curve, never evenly, and sprinkle noise before rounding. The count of values below 1 % of white for each format, and the noise code, are under the hood." } ] });
+
+  const set5 = o => { Object.assign(s5, o); paperEl.value = s5.paper; $("paperv").textContent = s5.paper + " nits"; draw5(); draw5p(null); };
+  L5 = lesson("gamut", { next: { id: "hdr", title: "Writing brightness for an HDR screen" }, steps: [
+    { say: "The horseshoe is every colour a human can see, with the purest colours around its curved edge. A screen makes colour by mixing a red, a green and a blue light, so it can only show the <b>triangle</b> between those three. The solid white triangle is a normal screen. The white handle is a green crystal in the cave, and the two insets show it as a normal screen would: cut to fit, and pulled in to fit.", enter: () => set5({ x: 0.3, y: 0.5, out: false, p3only: false }) },
+    { say: "<b>Drag the handle out of the white triangle</b>, toward the green edge of the horseshoe.", todo: "drag the handle outside the white triangle", goal: () => s5.out, try: () => { s5.x = 0.2; s5.y = 0.75; draw5(); }, enter: () => set5({ x: 0.3, y: 0.5, out: false, p3only: false }),
+      done: "The handle's ring turns red: this green is outside what a normal screen can make. One of its three lights would have to be less than zero, and a light cannot be. The caption shows the three amounts." },
+    { say: "The screen still has to show something. Compare the two insets.", quiz: { q: "Which way keeps the crystal's colour?", options: [
+        { t: "Cut to fit: set the impossible amount to zero", why: "Cutting one amount to zero shifts the hue and makes the crystal brighter. Compare the two insets." },
+        { t: "Pull in to fit: slide the colour toward white until it fits", ok: true, why: "Sliding toward white along a straight line keeps the hue and loses a little vividness. The green dashed line on the map is that slide." },
+        { t: "Both look the same", why: "Look again at the two crystals. One has changed colour, the other has only gone a little paler." } ] } },
+    { say: "The dashed blue triangle is a wider screen, the kind in most phones and newer TVs. <b>Drag the handle inside the dashed triangle but outside the white one.</b>", todo: "drag the handle between the two triangles", goal: () => s5.p3only, try: () => { s5.x = 0.27; s5.y = 0.64; draw5(); },
+      done: "Now the wide screen can show this green and the normal one cannot. The caption says so, and the table under the hood gives the three amounts for each kind of screen." },
+    { say: "A screen shows the triangle between its three lights. Outside it, cut or pull in, and pulling in keeps the colour. The 3×3 matrix that moves a colour between two screens' triangles is under the hood, with the table of amounts." } ] });
+
+  L6 = lesson("hdr", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "A normal screen's bytes mean a fraction of the screen's own white. An HDR screen uses a different code, called <b>PQ</b>, where each value means a fixed real brightness in <b>nits</b> (a typical monitor is about 100 to 300 nits). Along the bottom: nits from a thousandth up to 10 000, with the cave floor, the campfire and the sun marked. Blue is the normal screen's curve, amber is PQ.", enter: () => set5({ paper: 200, hovBright: false }) },
+    { say: "<b>Hover the plot near the campfire's 2 000 nits</b>, toward the right.", todo: "hover the plot near 2 000 nits", goal: () => s5.hovBright, try: () => draw5p(2000),
+      done: "The blue curve is already pinned at the top: a normal screen calls anything above its white simply white. PQ still has room. 2 000 nits is code 0.83, and the sun's 10 000 is exactly 1.0." },
+    { say: "", quiz: { q: "With PQ, what does the game have to decide that a normal screen never asked?", options: [
+        { t: "How many colours to use", why: "That is the triangle from the previous stage. This is about brightness." },
+        { t: "How bright white should be, in nits", ok: true, why: "A PQ code is an absolute brightness, so a white menu or a white wall has no natural place. The game picks a number, often 200 nits, and scales everything around it." },
+        { t: "Nothing, it just sends bigger numbers", why: "Bigger numbers mean real brightness now, so something has to say how bright plain white is." } ] } },
+    { say: "<b>Drag the white slider up to 400 nits.</b>", todo: "drag the white slider to 400 nits", goal: () => s5.paper >= 380, try: () => { $("paper").value = 400; $("paper").dispatchEvent(new Event("input")); }, enter: () => set5({ paper: 200 }),
+      done: "The blue curve slides right: normal white now sits higher up the PQ curve, and the whole picture gets brighter on the HDR screen. That is the slider HDR games ask you to set in their options." },
+    { say: "HDR output swaps the byte curve for PQ, where codes mean real nits, and the game has to choose how bright white is. The PQ formula and the output code are under the hood." } ] });
 })();
 </script>

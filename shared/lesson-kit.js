@@ -41,9 +41,8 @@ function lesson(id, spec) {
         if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
         b.addEventListener('click', () => {
           quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
-          if (o.ok) { answered[i] = true; b.className = 'ok'; quiz.querySelectorAll('button').forEach(x => x.disabled = true); why.innerHTML = '<b>Right.</b> ' + o.why; save(); render(); }
-          else { b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; }
-          quiz.appendChild(why);
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
         });
         quiz.appendChild(b);
       });

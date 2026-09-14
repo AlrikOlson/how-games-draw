@@ -236,61 +236,66 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 .uses td:first-child { white-space: normal; min-width: 11ch; }
 .stats.gen td:first-child { white-space: nowrap; }
 .prose .math + p { margin-top: 10px; }
+.vp3 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; max-width: min(720px, 50vw); min-width: 0; }
+.vp3 .tiles.four { margin-top: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); align-self: start; }
+.vp3 .tiles.four.row { grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+section.stage .cols:has(.vp3) { align-items: start; }
+@media (max-width: 900px) { .vp3 { max-width: none; } }
+@media (max-width: 820px) { .vp3 .tiles.four.row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .vp3 { grid-template-columns: minmax(0, 1fr); } }
 </style>
 
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a castle roof, a rope and a picket fence · 160×90 frame · D3D sample patterns · Halton(2,3) jitter · drag the handles</p>
+    <p class="eyebrow">a castle roof, a rope and a picket fence · five guided demos · nothing to install</p>
     <h1>Anti-Aliasing</h1>
-    <p class="lead">Your screen is a grid of small squares, and the GPU picks each square's colour by checking one point inside it. Anti-aliasing fixes the jagged edges and shimmer that one point per pixel produces, and each fix pays differently: MSAA in memory, FXAA in blur, TAA in ghost trails. <b>The thing people get wrong:</b> MSAA does not fix all jaggies. It only smooths triangle edges; shimmer inside a surface, like a far-off picket fence, needs the shader itself to run more than once per pixel.</p>
+    <p class="lead">Your screen is a grid of small squares, and a game picks each square's colour by checking one point inside it. That is why slanted edges come out as staircases and fine patterns shimmer. Anti-aliasing is the family of fixes, and each one pays in its own way: MSAA with memory, FXAA with blur, TAA with ghost trails. <b>The thing people get wrong:</b> MSAA does not fix every jaggy. It only smooths the edges of triangles. Shimmer inside a surface, like a far-off picket fence, needs the shader, the program that picks each pixel's colour, to run more than once per pixel, or a fix that works over time.</p>
     <div class="key">
-      <span style="--sw:#f2a341">the roof triangle · edges that run sideways · colour pictures in memory</span>
-      <span style="--sw:#4aa3ff">edges that run up and down · depth pictures in memory</span>
+      <span style="--sw:#f2a341">the roof triangle · edges that run sideways · colour copies in memory</span>
+      <span style="--sw:#4aa3ff">edges that run up and down · depth copies in memory</span>
       <span style="--sw:#ffffff">test point · drag handle · the rope · motion arrows</span>
       <span style="--sw:#5ad48a">test point that landed on the roof</span>
-      <span style="--sw:#ef5d5d">rope pixel the raster missed · history that got clamped</span>
+      <span style="--sw:#ef5d5d">rope pixel that was missed · old colour that got corrected</span>
     </div>
     <dl class="terms">
-      <dt>pixel</dt><dd>one square of the screen; it has area, but the GPU tests a point inside it</dd>
-      <dt>sample</dt><dd>one test point inside a pixel; more samples, smoother edges</dd>
-      <dt>rasterizer</dt><dd>the GPU stage that decides which pixels a triangle touches</dd>
-      <dt>fragment shader</dt><dd>the program that works out a pixel's colour; usually the expensive part</dd>
-      <dt>resolve</dt><dd>averaging a pixel's samples into one final colour</dd>
-      <dt>luma</dt><dd>a pixel's brightness, a weighted mix of its red, green and blue</dd>
-      <dt>history buffer</dt><dd>last frame's finished picture, kept so this frame can blend with it</dd>
+      <dt>pixel</dt><dd>one square of the screen; it has area, but the GPU checks a point inside it</dd>
+      <dt>test point</dt><dd>one spot inside a pixel where the GPU checks what is there; engines call it a sample</dd>
+      <dt>jaggies</dt><dd>the stair steps a slanted edge turns into when each pixel is all in or all out</dd>
+      <dt>shader</dt><dd>the small program that works out a pixel's colour; usually the slow part</dd>
+      <dt>resolve</dt><dd>averaging a pixel's test points into one final colour</dd>
+      <dt>MSAA</dt><dd>several test points per pixel, shader run once; smooths triangle edges</dd>
+      <dt>SSAA</dt><dd>several test points per pixel, shader run at each one; smooths everything, costs everything</dd>
+      <dt>FXAA</dt><dd>a clean-up pass that finds sharp edges in the finished picture and blurs across them</dd>
+      <dt>TAA</dt><dd>one test point per frame, moved each frame and blended with the frames before</dd>
       <dt>motion vector</dt><dd>how far each pixel moved since last frame, in pixels</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#samples"><span class="n">01</span>One pixel, many test points</a></li><li><a href="#shading"><span class="n">02</span>Two kinds of jaggies</a></li><li><a href="#fxaa"><span class="n">03</span>FXAA</a></li><li><a href="#taa"><span class="n">04</span>TAA</a></li><li><a href="#cost"><span class="n">05</span>What each method costs</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#samples"><span class="n">01</span>One pixel, many test points</a></li><li><a href="#shading"><span class="n">02</span>Two kinds of jaggies</a></li><li><a href="#fxaa"><span class="n">03</span>FXAA: clean up the finished picture</a></li><li><a href="#taa"><span class="n">04</span>TAA: spread the test points over time</a></li><li><a href="#cost"><span class="n">05</span>What each method costs</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="samples">
+  <section id="samples" class="stage">
     <h2>One pixel, many test points</h2>
-    <p class="sub">The castle roof is one triangle. Drag its corners and hover a pixel to see how many of that pixel's test points land on the roof.</p>
+    <p class="sub">The castle roof is one triangle, zoomed in until you can see every pixel. Watch how the GPU decides which pixels it covers.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c1" width="640" height="360" class="grab r169" aria-label="A 16 by 9 pixel patch of a castle roof triangle zoomed 40 times, with multisample test points in each pixel and an inset showing where the patch sits in the village"></canvas>
+        <canvas id="c1" width="640" height="360" class="grab r169" aria-label="A 16 by 9 pixel patch of a castle roof triangle zoomed 40 times, with the test points in each pixel and an inset showing where the patch sits in the village"></canvas>
         <div class="cap"><span id="c1-read"></span><span id="c1-pat"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">A pixel is a small square, but the GPU decides whether a triangle covers it by <b>checking a single point</b> in the middle. That is why the slanted edge of a roof turns into a <b>staircase</b>. MSAA (multisample anti-aliasing) checks <b>several points per pixel</b> and averages them, so a pixel half covered by the roof comes out half roof-coloured. The <b>shader still runs once per pixel</b>, which is what keeps it cheap.</p>
-
-        <h3>What you're seeing</h3>
-        <p>A 16 by 9 pixel patch of sky where the castle roof sits, zoomed 40 times. The inset shows where that patch is in the village. The white outline is the roof triangle. Each small dot is a test point, and it turns green when it lands on the roof.</p>
-        <p>A pixel's amber brightness is the share of its dots that are green. The readout under the picture shows that share for the outlined pixel.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Click 1×. Every pixel is either fully amber or black, and the roof's edges are stair steps.</li>
-          <li>Click 8×. Edge pixels now take in-between shades instead of jumping straight from black to amber.</li>
-          <li>Drag a corner slowly. The "partially covered pixels" tile counts the only pixels where the extra points changed anything.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><span class="lab">Samples per pixel</span><div class="seg" id="seg1" role="group" aria-label="Sample count"><button data-v="1">1×</button><button data-v="2">2×</button><button data-v="4" aria-pressed="true">4×</button><button data-v="8">8×</button></div></div>
+      <div class="lesson" data-lesson="samples">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">Test points per pixel</span><div class="seg" id="seg1" role="group" aria-label="Test points per pixel"><button data-v="1">1×</button><button data-v="2">2×</button><button data-v="4" aria-pressed="true">4×</button><button data-v="8">8×</button></div></div>
         </div>
-
-        <h3>The real version</h3>
+        <div class="tiles four" data-step-min="4">
+          <div class="tile on"><div class="n" id="t1-inv">—</div><div class="l">shader runs (MSAA)</div></div>
+          <div class="tile"><div class="n" id="t1-samp">—</div><div class="l">test points stored</div></div>
+          <div class="tile"><div class="n" id="t1-ssaa">—</div><div class="l">shader runs if SSAA</div></div>
+          <div class="tile"><div class="n" id="t1-part">—</div><div class="l">pixels the edge crosses</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">Several test points per pixel, one shader run, then an average: edges smooth out for far less than the cost of the extra points.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The rasterizer, the GPU stage that decides which pixels a triangle touches, tests coverage at points, not areas. With one sample per pixel that point is the pixel center. An edge either covers it or does not, so the edge renders as a staircase of whole pixels.</p>
         <p>Multisampling adds more test points per pixel and stores a colour and a depth for each one. The resolve, the step that averages a pixel's samples into one colour, turns 3 of 4 covered into 3/4 roof colour.</p>
         <p>What runs once and what runs N times is the whole trick. Coverage and the depth test run per sample. The fragment shader, the program that computes the colour, runs once per pixel per triangle at the pixel center, and its one result is copied into every covered sample.</p>
@@ -316,58 +321,43 @@ vec4 resolve(ivec2 p) {
   <span class="k">for</span> (<span class="k">int</span> i = 0; i &lt; N; i++) sum += texelFetch(msaaColor, p, i);
   <span class="k">return</span> sum / <span class="k">float</span>(N);
 }</pre>
-        <p class="tldr">MSAA tests several points per pixel but shades once, so edges smooth out for much less than the full cost of the extra samples.</p>
-      </div>
-    </div>
-    <div class="tiles four">
-      <div class="tile on"><div class="n" id="t1-inv">—</div><div class="l">shader invocations (MSAA)</div></div>
-      <div class="tile"><div class="n" id="t1-samp">—</div><div class="l">color samples stored</div></div>
-      <div class="tile"><div class="n" id="t1-ssaa">—</div><div class="l">invocations if SSAA</div></div>
-      <div class="tile"><div class="n" id="t1-part">—</div><div class="l">partially covered pixels</div></div>
+      </div></details>
     </div>
   </section>
 
-  <section id="shading">
+  <section id="shading" class="stage">
     <h2>Two kinds of jaggies</h2>
-    <p class="sub">The village at one sample per pixel and at four. The roof edge and the rope are edges; the far fence is a picket texture. Drag the rope's ends.</p>
-    <div class="cols two">
+    <p class="sub">The whole village, drawn with one test point per pixel and with four. The roof edge and the rope are one kind of jaggy; the far fence is the other.</p>
+    <div class="cols">
+      <div class="vp3">
       <div class="vp">
-        <canvas id="c2a" width="640" height="360" class="grab r169" aria-label="The village at one sample per pixel: a castle with a stair-stepped roof edge, a thin rope, a player, and a picket fence receding into moire bands, with a zoomed inset of the far fence"></canvas>
-        <div class="cap"><strong>1 sample / px</strong><span id="c2a-cap"></span></div>
+        <canvas id="c2a" width="640" height="360" class="grab r169" aria-label="The village at one test point per pixel: a castle with a stair-stepped roof edge, a thin rope, a player, and a picket fence receding into wavy bands, with a zoomed inset of the far fence"></canvas>
+        <div class="cap"><strong>1 test point per pixel</strong><span id="c2a-cap"></span></div>
       </div>
       <div class="vp">
-        <canvas id="c2b" width="640" height="360" class="grab r169" aria-label="The same village at 4x multisampling or supersampling: the roof edge and rope are smooth, the far fence still shimmers under MSAA and softens under SSAA"></canvas>
+        <canvas id="c2b" width="640" height="360" class="grab r169" aria-label="The same village at 4 test points per pixel with the shader run once or at every point: the roof edge and rope are smooth, the far fence still shimmers under MSAA and softens under SSAA"></canvas>
         <div class="cap"><strong id="c2b-lab">MSAA 4×</strong><span id="c2b-cap"></span></div>
       </div>
+        <div class="tiles four row">
+          <div class="tile"><div class="n" id="t2-1x">—</div><div class="l">shader runs, 1 test point</div></div>
+          <div class="tile on"><div class="n" id="t2-ms">—</div><div class="l">shader runs, MSAA 4×</div></div>
+          <div class="tile"><div class="n" id="t2-ss">—</div><div class="l">shader runs, SSAA 4×</div></div>
+          <div class="tile"><div class="n" id="t2-drop">—</div><div class="l">rope pixels missed at 1 point</div></div>
+        </div>
+      </div>
+      <div class="lesson" data-lesson="shading">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">Right picture</span><div class="seg" id="seg2" role="group" aria-label="Right picture"><button data-v="msaa" aria-pressed="true">MSAA 4×: shader once per pixel</button><button data-v="ssaa">SSAA 4×: shader at every point</button></div></div>
+          <div class="ctl"><label for="freq2">How close the pickets sit <span class="val" id="freq2v">1.0×</span></label><input type="range" id="freq2" min="0.5" max="3" step="0.1" value="1"></div>
+          <div class="ctl"><label for="lw2">Rope width <span class="val" id="lw2v">0.6 px</span></label><input type="range" id="lw2" min="0.2" max="2.5" step="0.1" value="0.6"></div>
+          <div class="ctl"><label class="chk"><input type="checkbox" id="drop2" checked> mark pixels the rope crossed but missed</label></div>
+        </div>
+      </div>
     </div>
-    <div class="controls">
-      <div class="ctl"><span class="lab">Right view</span><div class="seg" id="seg2" role="group" aria-label="Anti-aliasing mode"><button data-v="msaa" aria-pressed="true">MSAA 4×</button><button data-v="ssaa">SSAA 4×</button></div></div>
-      <div class="ctl"><label for="freq2">Fence picket density <span class="val" id="freq2v">1.0×</span></label><input type="range" id="freq2" min="0.5" max="3" step="0.1" value="1"></div>
-      <div class="ctl"><label for="lw2">Rope width <span class="val" id="lw2v">0.6 px</span></label><input type="range" id="lw2" min="0.2" max="2.5" step="0.1" value="0.6"></div>
-      <div class="ctl"><label class="chk"><input type="checkbox" id="drop2" checked> mark rope pixels the 1× raster dropped</label></div>
-    </div>
-    <div class="tiles four">
-      <div class="tile"><div class="n" id="t2-1x">—</div><div class="l">invocations, 1×</div></div>
-      <div class="tile on"><div class="n" id="t2-ms">—</div><div class="l">invocations, MSAA 4×</div></div>
-      <div class="tile"><div class="n" id="t2-ss">—</div><div class="l">invocations, SSAA 4×</div></div>
-      <div class="tile"><div class="n" id="t2-drop">—</div><div class="l">rope pixels missed at 1×</div></div>
-    </div>
-    <div class="prose below">
-      <p class="plain">Jaggies come in two kinds. <b>Edge jaggies</b> live where one triangle stops and another starts, like the slanted roof edge against the sky and the thin rope. <b>Shading jaggies</b> live inside a surface, where the pattern the shader draws is finer than a pixel, like the pickets of the fence as it runs off into the distance. <b>MSAA fixes the first kind only.</b> The second kind needs the shader itself to run more than once per pixel, which is what supersampling does.</p>
-
-      <h3>What you're seeing</h3>
-      <p>Left is the frame at one sample per pixel: the castle, a rope strung from the tower, a player, and a picket fence that runs from the bottom-right corner toward the horizon. The fence is one flat quad with a picket texture, the way most games draw fences, so its pickets are shader work, not geometry. Red boxes mark pixels where the rope passed through but missed the pixel's centre, so nothing was drawn.</p>
-      <p>Right is the same frame at 4× MSAA or 4× SSAA. Near the horizon the pickets get thinner than a pixel and turn into wavy bands. Those bands are called moiré. The inset in each view zooms the far fence 8 times.</p>
-
-      <h3>Try this</h3>
-      <ul class="try">
-        <li>Compare the rope and the roof edge on both sides. MSAA smooths both, because they are edges.</li>
-        <li>Look at the far fence in the zoom insets. The bands are the same on the MSAA side. Click SSAA 4× and they soften.</li>
-        <li>Push picket density to 3×. The bands creep toward the camera at 1× and under MSAA; only SSAA holds up, at four times the shader work in the tiles above.</li>
-      </ul>
-
-      <h3>The real version</h3>
-      <p>Geometric aliasing lives on triangle edges. The rope drops out wherever its 0.6 px width misses the pixel center, and the roof's slanted edge is a staircase.</p>
+    <div class="foot">
+      <p class="tldr">MSAA smooths edges. Shimmer inside a surface needs the shader to run more than once per pixel, or a fix that works over time.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+        <p>Geometric aliasing lives on triangle edges. The rope drops out wherever its 0.6 px width misses the pixel center, and the roof's slanted edge is a staircase.</p>
       <p>Shading aliasing lives inside triangles. The fence's pickets shrink toward the horizon until a picket and its gap are smaller than a pixel, and the shader, run at one point, returns whichever of the two happens to sit under that point. The result is the moiré band across the far fence.</p>
       <p>With MSAA 4× the rope and the roof edge get coverage-blended, because coverage is tested per sample. The moiré does not move: the shader still ran once per pixel at the center, and all four samples inside the fence quad received that one colour. SSAA 4× runs the shader at each sample, and the moiré softens at four times the shading cost.</p>
       <p>Anything a shader computes can alias this way: specular highlights on normal-mapped surfaces, procedural patterns, foliage and fences drawn with a cut-out mask (alpha test), shadow-map edges. Textures escape only because mipmapping, which keeps pre-shrunk copies of every texture, has already averaged them down to the pixel's size.</p>
@@ -388,54 +378,46 @@ SSAA: color(p, i) = covered_i ? shade(c_p + o_i) : clear    <span class="c">// N
 <span class="c">// D3D: read SV_SampleIndex in the pixel shader</span>
 <span class="k">in int</span> gl_SampleID;                             <span class="c">// reading this alone forces one invocation per sample</span>
 vec3 c = shadeFloor(uv);                        <span class="c">// now evaluated at sample i, not at the center</span></pre>
-      <p class="tldr">MSAA smooths edges. Shimmer inside a surface needs the shader to run more than once per pixel, or a temporal method.</p>
+      </div></details>
     </div>
   </section>
 
-  <section id="fxaa">
-    <h2>FXAA: fix it after the fact</h2>
-    <p class="sub">No extra samples. FXAA takes the finished frame of the village, HUD text and all, finds edges in it and blurs across them. Drag the rope's ends in the left view.</p>
-    <div class="tri">
-      <div class="vp">
-        <canvas id="c3a" width="640" height="360" class="grab r169" aria-label="Source frame of the village at one sample per pixel with small HUD text in the corner and a thin rope"></canvas>
-        <div class="cap"><strong>Source, 1×</strong><span id="c3a-cap"></span></div>
+  <section id="fxaa" class="stage">
+    <h2>FXAA: clean up the finished picture</h2>
+    <p class="sub">No extra test points. FXAA takes the finished frame, health readout and all, finds the edges in it and blends across them.</p>
+    <div class="cols">
+      <div class="vp3">
+        <div class="vp">
+          <canvas id="c3a" width="640" height="360" class="grab r169" aria-label="The finished frame of the village at one test point per pixel, with small health text in the corner and a thin rope"></canvas>
+          <div class="cap"><strong>Finished frame, 1 test point</strong><span id="c3a-cap"></span></div>
+        </div>
+        <div class="vp">
+          <canvas id="c3b" width="640" height="360" class="r169" aria-label="The pixels FXAA calls an edge: edges running sideways in amber, up and down in blue"></canvas>
+          <div class="cap"><strong>Pixels FXAA calls an edge</strong><span id="c3b-cap"></span></div>
+        </div>
+        <div class="vp">
+          <canvas id="c3c" width="640" height="360" class="r169" aria-label="The frame after FXAA: smoothed edges and softened health text"></canvas>
+          <div class="cap"><strong>After FXAA</strong><span id="c3c-cap"></span></div>
+        </div>
+        <div class="tiles four">
+          <div class="tile on"><div class="n" id="t3-edge">—</div><div class="l">pixels called an edge</div></div>
+          <div class="tile"><div class="n" id="t3-pct">—</div><div class="l">of the picture</div></div>
+          <div class="tile"><div class="n" id="t3-taps">—</div><div class="l">picture reads, whole pass</div></div>
+          <div class="tile"><div class="n" id="t3-ms">—</div><div class="l">time in this browser</div></div>
+        </div>
       </div>
-      <div class="vp">
-        <canvas id="c3b" width="640" height="360" class="r169" aria-label="FXAA edge mask over the village: horizontal edges in amber, vertical in blue"></canvas>
-        <div class="cap"><strong>Edge mask</strong><span id="c3b-cap"></span></div>
-      </div>
-      <div class="vp">
-        <canvas id="c3c" width="640" height="360" class="r169" aria-label="FXAA output: the village with smoothed edges and softened HUD text"></canvas>
-        <div class="cap"><strong>FXAA output</strong><span id="c3c-cap"></span></div>
+      <div class="lesson" data-lesson="fxaa">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="thr3">Brightness jump that counts as an edge <span class="val" id="thr3v">0.125</span></label><input type="range" id="thr3" min="0.03" max="0.5" step="0.005" value="0.125"></div>
+          <div class="ctl"><label for="sub3">How much to soften lone bright pixels <span class="val" id="sub3v">0.75</span></label><input type="range" id="sub3" min="0" max="1" step="0.05" value="0.75"></div>
+          <div class="ctl"><label for="lw3">Rope width <span class="val" id="lw3v">0.5 px</span></label><input type="range" id="lw3" min="0.2" max="2.5" step="0.1" value="0.5"></div>
+        </div>
       </div>
     </div>
-    <div class="controls">
-      <div class="ctl"><label for="thr3">Edge threshold <span class="val" id="thr3v">0.125</span></label><input type="range" id="thr3" min="0.03" max="0.5" step="0.005" value="0.125"></div>
-      <div class="ctl"><label for="sub3">Sub-pixel blend <span class="val" id="sub3v">0.75</span></label><input type="range" id="sub3" min="0" max="1" step="0.05" value="0.75"></div>
-      <div class="ctl"><label for="lw3">Rope width <span class="val" id="lw3v">0.5 px</span></label><input type="range" id="lw3" min="0.2" max="2.5" step="0.1" value="0.5"></div>
-    </div>
-    <div class="tiles four">
-      <div class="tile on"><div class="n" id="t3-edge">—</div><div class="l">edge pixels</div></div>
-      <div class="tile"><div class="n" id="t3-pct">—</div><div class="l">of the frame</div></div>
-      <div class="tile"><div class="n" id="t3-taps">—</div><div class="l">texture taps, whole pass</div></div>
-      <div class="tile"><div class="n" id="t3-ms">—</div><div class="l">this JS pass</div></div>
-    </div>
-    <div class="prose below">
-      <p class="plain">FXAA does not touch the rendering at all. It takes the <b>finished picture</b>, looks for <b>sharp jumps in brightness</b> between neighbouring pixels, and <b>blends across them</b>. It is nearly free and works on any image. The catch is that it <b>cannot tell a jaggy from real detail</b>, so the HUD text softens, and it cannot bring back parts of the thin rope that were never drawn.</p>
-
-      <h3>What you're seeing</h3>
-      <p>Left is the source frame at one sample per pixel: the village, a health readout in 9 px text and a 7 px prompt under it, and a 0.5 px rope from the tower. Middle is the edge mask: the pixels FXAA decided are edges, amber where the edge runs sideways and blue where it runs up and down. The roof's slanted edge, the rope and the letters all light up.</p>
-      <p>Right is the output after the blend. The tiles above count how many pixels were treated and how many texture reads (taps) the whole pass used.</p>
-
-      <h3>Try this</h3>
-      <ul class="try">
-        <li>Drag the edge threshold down to 0.03. More pixels light up in the mask and the HUD text on the right goes soft.</li>
-        <li>Look at the 0.5 px rope on the right. The gaps stay: where the rasterizer skipped it, there is nothing to blend.</li>
-        <li>Raise the rope width to 1.5 px. Now the rope survives the raster and FXAA smooths it well.</li>
-      </ul>
-
-      <h3>The real version</h3>
-      <p>FXAA (Lottes, NVIDIA, 2009) never sees a triangle. It reads the finished frame and converts each pixel to luma, its brightness as a weighted mix of red, green and blue. It flags a pixel as an edge when its contrast to the four neighbors exceeds a threshold that scales with local brightness. Most pixels fail that test and exit in a few instructions.</p>
+    <div class="foot">
+      <p class="tldr">FXAA is a cheap blur that fires only on sharp edges; it fixes the jaggies it can see and nothing that was never drawn.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+        <p>FXAA (Lottes, NVIDIA, 2009) never sees a triangle. It reads the finished frame and converts each pixel to luma, its brightness as a weighted mix of red, green and blue. It flags a pixel as an edge when its contrast to the four neighbors exceeds a threshold that scales with local brightness. Most pixels fail that test and exit in a few instructions.</p>
       <p>For each edge pixel it decides whether the edge runs horizontally or vertically from a 3×3 second-derivative estimate, a measure of how sharply brightness bends across the block. It picks the steeper side, then walks along the edge in both directions until the luma changes, to find the edge's ends.</p>
       <p>The distance to the nearer end sets how far to shift the texture fetch across the edge. The bilinear filter, the GPU's built-in blend between neighbouring pixels, does the mixing.</p>
       <p>It is one full-screen pass, well under a millisecond at 1080p on any GPU from the last decade, and it works on any image, including deferred output where MSAA is expensive. The cost is that it cannot tell an aliased edge from wanted detail. Lower the threshold and the HUD text softens.</p>
@@ -465,53 +447,45 @@ offset = 0.5 − d_near / (d_near + d_far)           px, across the edge toward 
 <span class="c">// ... pick the steeper side, walk along the edge to both ends, compute offset ...</span>
 vec2 n = horizontal ? vec2(0.0, side) : vec2(side, 0.0);
 <span class="k">return</span> tex(uv + n * offset * px);              <span class="c">// bilinear filtering is the blend</span></pre>
-      <p class="tldr">FXAA is a cheap blur that only fires on high-contrast edges; it fixes the jaggies it can see and cannot fix detail that was never drawn.</p>
+      </div></details>
     </div>
   </section>
 
-  <section id="taa">
-    <h2>TAA: spread the samples over time</h2>
-    <p class="sub">One sample per pixel per frame, nudged to a new spot each frame and blended with the frames before it. Watch the player walk past the castle and the fence.</p>
-    <div class="cols two">
+  <section id="taa" class="stage">
+    <h2>TAA: spread the test points over time</h2>
+    <p class="sub">One test point per pixel per frame, moved to a new spot each frame and blended with the frames before it. Watch the player walk past the castle and the fence.</p>
+    <div class="cols">
+      <div class="vp3">
       <div class="vp">
-        <canvas id="c4a" width="640" height="360" class="r169" aria-label="Current jittered frame of the village with the player walking, and an inset showing the eight sub-pixel jitter positions"></canvas>
-        <div class="cap"><strong>Current frame</strong><span id="c4a-cap"></span></div>
+        <canvas id="c4a" width="640" height="360" class="r169" aria-label="This frame of the village with the player walking, and an inset showing the eight spots the test point moves through inside one pixel"></canvas>
+        <div class="cap"><strong>This frame</strong><span id="c4a-cap"></span></div>
       </div>
       <div class="vp">
-        <canvas id="c4b" width="640" height="360" class="r169" aria-label="TAA resolved output of the village: the still castle and fence sharpen while the walking player leaves a ghost trail, with motion vector arrows drawn on the player"></canvas>
-        <div class="cap"><strong>History after resolve</strong><span id="c4b-cap"></span></div>
+        <canvas id="c4b" width="640" height="360" class="r169" aria-label="The running blend: the still castle and fence sharpen while the walking player leaves a ghost trail, with motion arrows drawn on the player"></canvas>
+        <div class="cap"><strong>The running blend</strong><span id="c4b-cap"></span></div>
+      </div>
+        <div class="tiles four row">
+          <div class="tile on"><div class="n" id="t4-eff">—</div><div class="l">test points per pixel, in effect</div></div>
+          <div class="tile"><div class="n" id="t4-conv">—</div><div class="l">frames until 90 % settled</div></div>
+          <div class="tile"><div class="n" id="t4-clamp">—</div><div class="l">pixels corrected this frame</div></div>
+          <div class="tile"><div class="n" id="t4-err">—</div><div class="l">gap to a 4-point reference</div></div>
+        </div>
+      </div>
+      <div class="lesson" data-lesson="taa">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="speed4">Player speed <span class="val" id="speed4v">2.0 px / frame</span></label><input type="range" id="speed4" min="0" max="6" step="0.5" value="2"></div>
+          <div class="ctl"><label class="chk"><input type="checkbox" id="rep4"> look up the old picture where things were</label></div>
+          <div class="ctl"><span class="lab">Fix for stale colours</span><div class="seg" id="seg4r" role="group" aria-label="Fix for stale colours"><button data-v="none" aria-pressed="true">none</button><button data-v="rgb">pull to neighbours (RGB)</button><button data-v="ycocg">brightness first (YCoCg)</button></div></div>
+          <div class="ctl"><label class="chk"><input type="checkbox" id="clm4"> tint the corrected pixels</label></div>
+          <div class="ctl"><span class="lab">Playback</span><div class="seg" id="seg4p" role="group" aria-label="Playback"><button data-v="play" aria-pressed="true">play</button><button data-v="pause">pause</button><button data-v="step">one frame</button></div></div>
+          <div class="ctl"><label for="alpha4">New frame's share of the blend <span class="val" id="alpha4v">0.10</span></label><input type="range" id="alpha4" min="0.05" max="0.5" step="0.01" value="0.1"></div>
+        </div>
       </div>
     </div>
-    <div class="controls">
-      <div class="ctl"><span class="lab">Playback</span><div class="seg" id="seg4p" role="group" aria-label="Playback"><button data-v="play" aria-pressed="true">play</button><button data-v="pause">pause</button><button data-v="step">step 1 frame</button></div></div>
-      <div class="ctl"><label for="alpha4">Blend α <span class="val" id="alpha4v">0.10</span></label><input type="range" id="alpha4" min="0.05" max="0.5" step="0.01" value="0.1"></div>
-      <div class="ctl"><label for="speed4">Player speed <span class="val" id="speed4v">2.0 px / frame</span></label><input type="range" id="speed4" min="0" max="6" step="0.5" value="2"></div>
-      <div class="ctl"><span class="lab">History rejection</span><div class="seg" id="seg4r" role="group" aria-label="History rejection"><button data-v="none" aria-pressed="true">none</button><button data-v="rgb">clamp RGB</button><button data-v="ycocg">clamp YCoCg</button></div></div>
-      <div class="ctl"><label class="chk"><input type="checkbox" id="rep4"> reproject with motion vectors</label></div>
-      <div class="ctl"><label class="chk"><input type="checkbox" id="clm4"> tint clamped pixels</label></div>
-    </div>
-    <div class="tiles four">
-      <div class="tile on"><div class="n" id="t4-eff">—</div><div class="l">effective samples (2−α)/α</div></div>
-      <div class="tile"><div class="n" id="t4-conv">—</div><div class="l">frames to 90 % converged</div></div>
-      <div class="tile"><div class="n" id="t4-clamp">—</div><div class="l">pixels clamped this frame</div></div>
-      <div class="tile"><div class="n" id="t4-err">—</div><div class="l">mean error vs 4× SSAA</div></div>
-    </div>
-    <div class="prose below">
-      <p class="plain">TAA takes the extra samples MSAA would put inside one pixel and <b>spreads them across frames</b>. Each frame the camera is <b>nudged by a fraction of a pixel</b>, and the result is <b>blended into last frame's picture</b>. After a few frames the castle and the fence, which hold still, look like they were rendered with many samples, for the price of one. The catch is <b>movement</b>: last frame's picture is out of date wherever the player walked, and blending it in leaves a <b>ghost trail</b> behind them.</p>
-
-      <h3>What you're seeing</h3>
-      <p>Left is the current frame. The inset shows the eight positions the sample moves through inside one pixel; the amber dot is this frame's position.</p>
-      <p>Right is the blended history. White arrows on the player are motion vectors, which record how far each pixel moved since last frame. Red tint, when you turn it on, marks pixels where the history had to be corrected.</p>
-
-      <h3>Try this</h3>
-      <ul class="try">
-        <li>Set player speed to 0. The still scene sharpens over a few frames, the roof edge and the far fence smooth out, and the "mean error" tile drops.</li>
-        <li>Set speed back to 2. The player leaves a trail. Turn on "reproject with motion vectors" and the front of the trail goes away.</li>
-        <li>Set history rejection to "clamp YCoCg". The rest of the trail disappears. Turn on "tint clamped pixels" to see where the fix is doing its work.</li>
-      </ul>
-
-      <h3>The real version</h3>
-      <p>Each frame the projection matrix is offset by a sub-pixel jitter, so the one sample per pixel lands somewhere new. The offsets come from the Halton(2,3) sequence, a fixed list of points that fills the pixel evenly no matter how many of them you have used so far.</p>
+    <div class="foot">
+      <p class="tldr">TAA gets many test points per pixel for the price of one by blending frames; motion arrows and the correction stop old frames from ghosting.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+        <p>Each frame the projection matrix is offset by a sub-pixel jitter, so the one sample per pixel lands somewhere new. The offsets come from the Halton(2,3) sequence, a fixed list of points that fills the pixel evenly no matter how many of them you have used so far.</p>
       <p>The frame is blended into a history buffer, last frame's finished picture, with weight α. After eight frames the history holds a weighted average of eight sample positions: close to 8× supersampling for the price of 1×, plus one full-screen resolve.</p>
       <p>The catch is that the history was rendered from the previous camera with the previous object positions. Reprojection handles anything that moved coherently: each pixel writes a motion vector, and the resolve reads history at <code>uv − motion</code> instead of <code>uv</code>. The player's leading edge stops smearing, because the pixels they newly cover now fetch history from where the player was.</p>
       <p>What reprojection cannot fix is disocclusion, the grass and fence that were hidden behind the player a frame ago. That history is wrong, and blending it in leaves the trail.</p>
@@ -540,37 +514,34 @@ hist = ycocg2rgb(clamp(rgb2ycocg(hist), mn, mx));   <span class="c">// reject wh
 <span class="k">float</span> a = alpha;
 <span class="k">if</span> (any(lessThan(uv - mv, vec2(0))) || any(greaterThan(uv - mv, vec2(1)))) a = 1.0; <span class="c">// off screen: no history</span>
 outColor = mix(hist, cur, a);</pre>
-      <p class="tldr">TAA gets many samples per pixel for the price of one by blending frames; motion vectors and clamping are what stop the old frames from ghosting.</p>
+      </div></details>
     </div>
   </section>
 
-  <section id="cost">
+  <section id="cost" class="stage">
     <h2>What each method costs</h2>
-    <p class="sub">Memory each method needs per frame, counted as copies of the village picture the GPU has to keep, at the output size you choose.</p>
+    <p class="sub">The memory each method needs, counted as copies of the frame the GPU has to keep, at the screen size you choose.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="640" height="360" class="r169" aria-label="One row per anti-aliasing method showing how many full-size pictures of the village it keeps in memory: colour pictures framed in amber, depth pictures in blue, history and other targets in white, with megabytes at the chosen output size"></canvas>
-        <div class="cap"><span id="c5-cap"></span><span>RGBA8 color, D24S8 depth, RGBA16F for TAA</span></div>
+        <canvas id="c5" width="640" height="360" class="r169" aria-label="One row per anti-aliasing method showing how many full-size copies of the village frame it keeps in memory: colour copies framed in amber, depth copies in blue, kept frames and other extras in white, with megabytes at the chosen screen size"></canvas>
+        <div class="cap"><span id="c5-cap"></span><span>4-byte colour, 4-byte depth, 8-byte colour for TAA</span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Every method pays somewhere. <b>MSAA pays in memory</b>: four colours and four depths per pixel. <b>TAA pays in history</b>: two extra full-size pictures plus motion vectors. <b>FXAA pays almost nothing</b>, one pass over the finished picture. SSAA pays four times for everything.</p>
-
-        <h3>What you're seeing</h3>
-        <p>One row per method. Each small picture is one plain 8-bit frame's worth of memory, 4 bytes per pixel. Amber-framed pictures are colour, blue are depth, and white are everything else the method adds: resolve target, history, motion vectors, edge textures. The numbers are megabytes at the chosen output size, with 1 MB = 10⁶ bytes.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Click 4K. MSAA 4× reaches 265 MB while FXAA barely moves.</li>
-          <li>Compare TAA with TAA + upscale. The history stays at output size, so the memory hardly shrinks even though the render is smaller.</li>
-          <li>Read the table below. The "shader invocations" column is where SSAA's cost shows; the byte columns are what hits your memory budget.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><label for="res5">Output width <span class="val" id="res5v">1920 × 1080</span></label><input type="range" id="res5" min="1280" max="3840" step="128" value="1920"></div>
-          <div class="ctl"><span class="lab">Preset</span><div class="seg" id="seg5" role="group" aria-label="Resolution preset"><button data-v="1920" aria-pressed="true">1080p</button><button data-v="2560">1440p</button><button data-v="3840">4K</button></div></div>
+      <div class="lesson" data-lesson="cost">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="res5">Screen size <span class="val" id="res5v">1920 × 1080</span></label><input type="range" id="res5" min="1280" max="3840" step="128" value="1920"></div>
+          <div class="ctl"><span class="lab">Common sizes</span><div class="seg" id="seg5" role="group" aria-label="Common screen sizes"><button data-v="1920" aria-pressed="true">1080p</button><button data-v="2560">1440p</button><button data-v="3840">4K</button></div></div>
         </div>
-
-        <h3>The real version</h3>
+        <div class="tiles four" data-step-min="3">
+          <div class="tile on"><div class="n" id="t5-msaa">—</div><div class="l">MSAA 4×, colour + depth</div></div>
+          <div class="tile"><div class="n" id="t5-taa">—</div><div class="l">TAA, kept frames + motion</div></div>
+          <div class="tile"><div class="n" id="t5-fxaa">—</div><div class="l">FXAA pass, read + write</div></div>
+          <div class="tile"><div class="n" id="t5-samp">—</div><div class="l">test points per frame, MSAA 4×</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">MSAA costs memory, TAA costs kept frames, FXAA costs one cheap pass, and SSAA costs four of everything.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>MSAA spends memory and rasterizer bandwidth: N colour and N depth samples per pixel, so a 4× target at 4K with 32-bit colour and depth is 265 MB before the resolve target. Hardware compresses samples that share a colour, so real bandwidth is lower than the allocation, but the allocation is real.</p>
         <p>On a tile-based mobile GPU, which renders the screen in small blocks kept on chip, the samples stay on chip and never touch that memory.</p>
         <p>TAA spends memory on history: two RGBA16F buffers (16 bits per colour channel) to swap between, a motion-vector target, and a resolve pass that reads all of them plus a 3×3 neighbourhood every frame. FXAA spends almost nothing: one pass, one input, five taps for the early-out and up to about thirty on an edge pixel. SSAA spends everything four times.</p>
@@ -581,23 +552,16 @@ MSAA 4× at 1080p: 1920·1080·4·(4 + 4) = 66.4 MB, + 8.3 MB resolve target
 TAA history:      1920·1080·2·8       = 33.2 MB, + 8.3 MB RG16F motion
 FXAA:             1 pass, reads 8.3 MB, writes 8.3 MB, 0 extra allocations</div>
         <p>W and H are the output size in pixels. bytes_per_sample is 4 for colour plus 4 for depth in the MSAA line, and 8 per RGBA16F pixel in the TAA line.</p>
-        <p class="tldr">MSAA costs memory, TAA costs history buffers, FXAA costs one cheap pass, and SSAA costs four of everything.</p>
-      </div>
-    </div>
-    <div class="tiles four">
-      <div class="tile on"><div class="n" id="t5-msaa">—</div><div class="l">MSAA 4× color + depth</div></div>
-      <div class="tile"><div class="n" id="t5-taa">—</div><div class="l">TAA history + motion</div></div>
-      <div class="tile"><div class="n" id="t5-fxaa">—</div><div class="l">FXAA pass, read + write</div></div>
-      <div class="tile"><div class="n" id="t5-samp">—</div><div class="l">samples / frame at MSAA 4×</div></div>
-    </div>
-    <p class="note">How to read the table: bytes per pixel counts colour, depth and anything extra the method adds. The 1080p, 4K and custom columns multiply that by the pixel count, and the custom column plus the last three follow the slider.</p>
+        <p class="note">How to read the table: bytes per pixel counts colour, depth and anything extra the method adds. The 1080p, 4K and custom columns multiply that by the pixel count, and the custom column plus the last three follow the slider.</p>
     <div class="tbl-wrap">
     <table class="stats gen">
-      <thead><tr><th>Method</th><th>Bytes / px</th><th>1080p</th><th>4K</th><th id="th5-custom">Custom</th><th>Shader invocations</th><th>Samples tested</th><th>Passes</th></tr></thead>
+      <thead><tr><th>Method</th><th>Bytes / px</th><th>1080p</th><th>4K</th><th id="th5-custom">Custom</th><th>Shader runs</th><th>Test points</th><th>Passes</th></tr></thead>
       <tbody id="tb5"></tbody>
     </table>
     </div>
-    <p class="note">Assumptions: RGBA8 colour and D24S8 depth for the non-temporal methods. TAA uses RGBA16F colour and history plus RG16F motion vectors, because it runs before tone mapping, the step that converts the high-range lit image to screen colours. SMAA adds an RG8 edge texture and an RGBA8 weight texture. Invocation counts ignore overdraw, pixels drawn more than once.</p>
+    <p class="note">Assumptions: 4-byte colour (RGBA8) and 4-byte depth (D24S8) for the methods that work within one frame. TAA uses 8-byte colour (RGBA16F) for the frame and the kept frames plus 4-byte motion vectors (RG16F), because it runs before tone mapping, the step that converts the high-range lit image to screen colours. SMAA adds a 2-byte edge map (RG8) and a 4-byte weight map (RGBA8). Shader-run counts ignore overdraw, pixels drawn more than once.</p>
+      </div></details>
+    </div>
   </section>
 
   <section id="tradeoffs">
@@ -608,12 +572,12 @@ FXAA:             1 pass, reads 8.3 MB, writes 8.3 MB, 0 extra allocations</div>
     <table class="uses wide">
       <thead><tr><th>Method</th><th>Shader cost</th><th>Extra memory</th><th>Blur</th><th>Ghosting</th><th>Works with deferred</th><th>Pick it when</th></tr></thead>
       <tbody>
-        <tr><td>SSAA 4×</td><td>4× everything</td><td>+28 B (4× colour, 4× depth, downsample target)</td><td>None</td><td>None</td><td>Yes</td><td>Screenshots, a reference image, or a target so small you can afford it</td></tr>
-        <tr><td>MSAA 4×</td><td>1×, plus a second shader run on edge pixels; 4× depth and coverage tests</td><td>+28 B (4× colour, 4× depth, resolve target); near zero on tile GPUs</td><td>None on edges; none inside triangles either, which is the problem</td><td>None</td><td>Painful: every intermediate image must be multisampled, and edges get lit per sample</td><td>Forward renderers, mobile, VR, anything where edge quality and zero delay matter more than shading shimmer</td></tr>
-        <tr><td>FXAA</td><td>1 pass, 5 to ~30 taps</td><td>+4 B output target</td><td>Mild everywhere, worst on text and thin lines</td><td>None</td><td>Yes</td><td>Lowest budget, no motion vectors available, last resort</td></tr>
-        <tr><td>SMAA 1x</td><td>3 passes</td><td>+10 B (edges RG8, weights RGBA8, output), plus 0.2 MB of lookup tables</td><td>Low</td><td>None</td><td>Yes</td><td>When a temporal pass is unavailable and FXAA is too soft</td></tr>
-        <tr><td>TAA</td><td>1 pass, ~10 taps, plus motion vectors from the geometry pass</td><td>+20 B (2× RGBA16F history, RG16F motion)</td><td>Depends on the clamp and how history is filtered; needs a sharpening step</td><td>Yes, where things were hidden a frame ago and on transparent objects and particles</td><td>Yes, and it fixes shading shimmer too</td><td>Deferred or physically based renderers; the default almost everywhere since 2015</td></tr>
-        <tr><td>TAA + upscale</td><td>Shading × scale², resolve at output size</td><td>+20 B at output resolution</td><td>As TAA; every shipped version includes sharpening</td><td>As TAA, worse at low scales</td><td>Yes</td><td>GPU-bound at native resolution; 4K output from a 1440p render</td></tr>
+        <tr><td>SSAA 4×</td><td>4× everything</td><td>+28 bytes (4 colour copies, 4 depth copies, one averaged copy)</td><td>None</td><td>None</td><td>Yes</td><td>Screenshots, a reference image, or a target so small you can afford it</td></tr>
+        <tr><td>MSAA 4×</td><td>1×, plus extra shader runs on edge pixels; 4 depth and coverage tests per pixel</td><td>+28 bytes (4 colour copies, 4 depth copies, one averaged copy); near zero on phone GPUs, which keep them on chip</td><td>None on edges; none inside triangles either, which is the problem</td><td>None</td><td>Painful: every intermediate image must be multisampled, and edges get lit per sample</td><td>Forward renderers, mobile, VR, anything where edge quality and zero delay matter more than shading shimmer</td></tr>
+        <tr><td>FXAA</td><td>1 pass, 5 to about 30 picture reads per pixel</td><td>+4 bytes, one output copy</td><td>Mild everywhere, worst on text and thin lines</td><td>None</td><td>Yes</td><td>Lowest budget, no motion vectors available, last resort</td></tr>
+        <tr><td>SMAA 1x</td><td>3 passes</td><td>+10 bytes (an edge map, a blend-weight map, one output copy), plus 0.2 MB of lookup tables</td><td>Low</td><td>None</td><td>Yes</td><td>When a temporal pass is unavailable and FXAA is too soft</td></tr>
+        <tr><td>TAA</td><td>1 pass, about 10 picture reads per pixel, plus motion vectors written while drawing</td><td>+20 bytes (two kept frames at 8 bytes per pixel, motion vectors at 4)</td><td>Depends on how tight the correction is and how the kept frame is read; needs a sharpening step</td><td>Yes, where things were hidden a frame ago and on transparent objects and particles</td><td>Yes, and it fixes shading shimmer too</td><td>Deferred or physically based renderers; the default almost everywhere since 2015</td></tr>
+        <tr><td>TAA + upscale</td><td>Shader work shrinks with the drawn frame; the blend runs at screen size</td><td>+20 bytes at screen size</td><td>As TAA; every shipped version includes sharpening</td><td>As TAA, worse at low scales</td><td>Yes</td><td>GPU-bound at native resolution; 4K output from a 1440p render</td></tr>
       </tbody>
     </table>
     </div>
@@ -627,16 +591,16 @@ FXAA:             1 pass, reads 8.3 MB, writes 8.3 MB, 0 extra allocations</div>
     <table class="uses">
       <thead><tr><th>Use</th><th>What it does per pixel</th><th>What it stores</th><th>Seen in</th></tr></thead>
       <tbody>
-        <tr><td>MSAA in forward renderers</td><td>Tests coverage per sample in the rasterizer, shades once per pixel, averages at the end of the pass. On tile-based GPUs the samples live on chip and are averaged before write-out, so 4× is close to free in bandwidth.</td><td>N-sample colour and depth images</td><td>Most mobile titles on Unity and Unreal's forward paths, most VR titles, where TAA's motion smear is uncomfortable</td></tr>
-        <tr><td>FXAA</td><td>Compares brightness against four neighbours, gets the edge direction from a 3×3 block, searches for the end of the edge, then does one shifted bilinear read.</td><td>The final LDR image only</td><td>Lottes, NVIDIA (2009); Battlefield 3 and Skyrim (2011) shipped it as the cheap option; still the fallback in many engines</td></tr>
-        <tr><td>SMAA</td><td>Same edge detection, then matches the edge shape against a lookup table and computes a blend weight per pixel, applied in a third pass.</td><td>Edge texture, blend-weight texture, area and search lookup tables</td><td>Jimenez et al. (2012); Crysis 3 (2013) and Crytek and Frostbite titles of that era, often as the temporal SMAA T2x variant</td></tr>
-        <tr><td>TAA</td><td>Jitters the projection, reprojects history through motion vectors, clamps it to the neighbourhood (or clips it by variance), then blends a small share of the new frame.</td><td>Two history buffers, motion vectors, depth for reprojection</td><td>Unreal Engine 4 default since 2014 (Karis, SIGGRAPH 2014), Inside (Playdead, 2016 GDC talk), Unity HDRP, Frostbite, most engines since</td></tr>
-        <tr><td>TAA as upscaler</td><td>Same accumulation with the rendered frame smaller than the history, so the jitter fills in the missing output pixels over time.</td><td>Low-res colour, depth and motion; full-res history</td><td>DLSS 2 (NVIDIA, 2020), FSR 2 (AMD, 2022), XeSS (Intel, 2022), Unreal Engine 5 TSR</td></tr>
-        <tr><td>Alpha-to-coverage</td><td>Turns the transparency of cut-out foliage into an MSAA coverage mask, so a leaf edge gets partial coverage instead of a hard cutout.</td><td>An MSAA target</td><td>Forward renderers with foliage; many engines</td></tr>
+        <tr><td>MSAA in forward renderers</td><td>Tests each test point for coverage, runs the shader once per pixel, averages at the end. On phone GPUs, which draw the screen in small blocks kept on chip, the points never leave the chip, so 4× is close to free.</td><td>Colour and depth with several test points per pixel</td><td>Most mobile titles on Unity and Unreal's forward paths, most VR titles, where TAA's motion smear is uncomfortable</td></tr>
+        <tr><td>FXAA</td><td>Compares brightness against four neighbours, gets the edge direction from a 3×3 block, searches for the end of the edge, then reads the picture once, shifted slightly across the edge so the GPU's built-in blend does the mixing.</td><td>The finished picture only</td><td>Lottes, NVIDIA (2009); Battlefield 3 and Skyrim (2011) shipped it as the cheap option; still the fallback in many engines</td></tr>
+        <tr><td>SMAA</td><td>Same edge detection, then matches the edge shape against a lookup table and computes a blend weight per pixel, applied in a third pass.</td><td>An edge map, a blend-weight map, and two lookup tables</td><td>Jimenez et al. (2012); Crysis 3 (2013) and Crytek and Frostbite titles of that era, often as the temporal SMAA T2x variant</td></tr>
+        <tr><td>TAA</td><td>Moves the test point each frame, uses the motion vectors to look up the old picture where each pixel came from, pulls that old colour toward the current neighbours, then blends in a small share of the new frame.</td><td>Two kept frames, motion vectors, depth for the look-up</td><td>Unreal Engine 4 default since 2014 (Karis, SIGGRAPH 2014), Inside (Playdead, 2016 GDC talk), Unity HDRP, Frostbite, most engines since</td></tr>
+        <tr><td>TAA as upscaler</td><td>The same blend with the drawn frame smaller than the kept one, so the moving test point fills in the missing pixels over time.</td><td>Small colour, depth and motion; a kept frame at full screen size</td><td>DLSS 2 (NVIDIA, 2020), FSR 2 (AMD, 2022), XeSS (Intel, 2022), Unreal Engine 5 TSR</td></tr>
+        <tr><td>Alpha-to-coverage</td><td>Turns the see-through parts of a leaf texture into which test points count as covered, so a leaf edge gets a soft edge instead of a hard cutout.</td><td>A frame with several test points per pixel</td><td>Forward renderers with foliage; many engines</td></tr>
       </tbody>
     </table>
     </div>
-    <p class="note">People say temporal AA is blurry. That describes a bad implementation, not the method: the softness comes from three fixable places, bilinear resampling of the history every frame (use a Catmull-Rom or similar fetch), a clamp that is too loose and lets stale history in, and a missing sharpening pass after the resolve. Every shipped upscaler includes all three fixes, which is why DLSS 2 output at 67 % scale often looks sharper than a naive native-resolution TAA.</p>
+    <p class="note">People say temporal AA is blurry. That describes a bad implementation, not the method: the softness comes from three fixable places, reading the kept frame with the GPU's plain built-in blend every frame (a sharper read, called Catmull-Rom, fixes it), a correction that is too loose and lets stale colours in, and a missing sharpening pass after the blend. Every shipped upscaler includes all three fixes, which is why DLSS 2 output at 67 % scale often looks sharper than a naive native-resolution TAA.</p>
   </section>
 </div>
 
@@ -755,9 +719,78 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; b.className = 'ok'; quiz.querySelectorAll('button').forEach(x => x.disabled = true); why.innerHTML = '<b>Right.</b> ' + o.why; save(); render(); }
+          else { b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; }
+          quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   "use strict";
   const $ = id => document.getElementById(id);
+  let L1, L2, L3, L4, L5;
   const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
   const AMB = "#f2a341", BLU = "#4aa3ff", WHT = "#ffffff", GRN = "#5ad48a", RED = "#ef5d5d", GND = "#0b0e13", GRID = "rgba(255,255,255,0.12)";
   const AMBv = [242 / 255, 163 / 255, 65 / 255], GNDv = [11 / 255, 14 / 255, 19 / 255];
@@ -769,7 +802,7 @@ function kitInset(ctx, x, y, w, h, title) {
   function onSeg(id, fn) { const el = $(id); el.addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; segOn(el, b.dataset.v); fn(b.dataset.v); }); }
   function ptr(cv, ev) { const r = cv.getBoundingClientRect(); return [(ev.clientX - r.left) * cv.width / r.width, (ev.clientY - r.top) * cv.height / r.height]; }
   function drag(cv, handles, onMove, onHover) {
-    let active = -1;
+    let active = -1, last = null;
     cv.addEventListener("pointerdown", ev => {
       const [x, y] = ptr(cv, ev); const hs = handles(); let best = -1, bd = 26;
       hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
@@ -778,10 +811,10 @@ function kitInset(ctx, x, y, w, h, title) {
     });
     cv.addEventListener("pointermove", ev => {
       const [x, y] = ptr(cv, ev);
-      if (active >= 0) onMove(active, clamp(x, 0, cv.width), clamp(y, 0, cv.height));
+      if (active >= 0) { last = [clamp(x, 0, cv.width), clamp(y, 0, cv.height)]; onMove(active, last[0], last[1]); }
       else if (onHover) onHover(x, y, false);
     });
-    const end = ev => { if (active >= 0) { active = -1; try { cv.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    const end = ev => { if (active >= 0) { if (last) onMove(active, last[0], last[1]); active = -1; last = null; try { cv.releasePointerCapture(ev.pointerId); } catch (e) {} } };
     cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
     cv.addEventListener("pointerleave", () => { if (onHover) onHover(-1, -1, false); });
   }
@@ -884,7 +917,7 @@ function kitInset(ctx, x, y, w, h, title) {
       const n = cnt[pick[1] * GW + pick[0]], c = n / N;
       x1.strokeStyle = WHT; x1.lineWidth = 2; x1.strokeRect(pick[0] * CS + 1, pick[1] * CS + 1, CS - 2, CS - 2);
       const r = Math.round((GNDv[0] + (AMBv[0] - GNDv[0]) * c) * 255), g = Math.round((GNDv[1] + (AMBv[1] - GNDv[1]) * c) * 255), b = Math.round((GNDv[2] + (AMBv[2] - GNDv[2]) * c) * 255);
-      read = `pixel (${pick[0]}, ${pick[1]}): <strong>${n} / ${N} inside · coverage ${(c * 100).toFixed(0)} %</strong> · resolved rgb(${r}, ${g}, ${b})`;
+      read = `pixel (${pick[0]}, ${pick[1]}): <strong>${n} of ${N} test points on the roof · ${(c * 100).toFixed(0)} % roof</strong> · final colour rgb(${r}, ${g}, ${b})`;
     }
     for (const v of d1.v) handleDot(x1, v[0] * CS, v[1] * CS);
     // plain-word callouts
@@ -898,11 +931,12 @@ function kitInset(ctx, x, y, w, h, title) {
     kitLabel(x1, "green dot = test point that landed on the roof", 8, 346, "left", GRN);
     drawWhere(x1, 482, 8, 150, 92);
     $("c1-read").innerHTML = read;
-    $("c1-pat").textContent = N === 1 ? "1 sample at the center" : `${N} samples · D3D rotated grid`;
+    $("c1-pat").textContent = N === 1 ? "1 test point per pixel, at the centre" : `${N} test points per pixel, standard Direct3D pattern`;
     $("t1-inv").textContent = fmtN(inv);
-    $("t1-samp").innerHTML = `${fmtN(GW * GH * N)} <small>${(GW * GH * N * 4 / 1024).toFixed(1)} KB RGBA8</small>`;
+    $("t1-samp").innerHTML = `${fmtN(GW * GH * N)} <small>${(GW * GH * N * 4 / 1024).toFixed(1)} KB of colour</small>`;
     $("t1-ssaa").textContent = fmtN(covered);
     $("t1-part").textContent = fmtN(part);
+    L1 && L1.check();
   }
   drag(c1, () => d1.v.map(v => [v[0] * CS, v[1] * CS]),
     (i, x, y) => { d1.v[i][0] = clamp(x / CS, 0.1, GW - 0.1); d1.v[i][1] = clamp(y / CS, 0.1, GH - 0.1); draw1(); },
@@ -1008,7 +1042,7 @@ function kitInset(ctx, x, y, w, h, title) {
     kitArrow(ctx, 96, 40, 118, 84, WHT);
     kitLabel(ctx, "rope, " + sc.line.w.toFixed(1) + " px", clamp(mx + 14, 40, 600), clamp(my - 16, 12, 348), mx > 400 ? "right" : "left");
     kitLabel(ctx, "player", STAND.x * 4, (STAND.y - STAND.h) * 4 - 12, "center");
-    kitLabel(ctx, right ? (d2.mode === "msaa" ? "far fence: still shimmers" : "far fence: softened, 4× shader") : "far fence: pickets thinner than a pixel", 190, 332, "left", right ? BLU : AMB);
+    kitLabel(ctx, right ? (d2.mode === "msaa" ? "far fence: still shimmers" : "far fence: softened, shader ran 4×") : "far fence: pickets thinner than a pixel", 190, 332, "left", right ? BLU : AMB);
     kitArrow(ctx, 410, 322, 446, 240, right ? BLU : AMB);
   }
   function draw2() {
@@ -1032,10 +1066,11 @@ function kitInset(ctx, x, y, w, h, title) {
     zoomInset(x2b, bl2b.off, 102, 52, 20, 11.25, 8, 240, 168, 112, "far fence, 8× zoom");
     sceneLabels(x2a, sc2, false); sceneLabels(x2b, sc2, true);
     for (const ctx of [x2a, x2b]) { handleDot(ctx, sc2.line.a[0] * 4, sc2.line.a[1] * 4); handleDot(ctx, sc2.line.b[0] * 4, sc2.line.b[1] * 4); }
-    $("c2a-cap").innerHTML = `<strong>${fmtN(inv1)}</strong> shader invocations`;
-    $("c2b-lab").textContent = d2.mode === "msaa" ? "MSAA 4×" : "SSAA 4×";
-    $("c2b-cap").innerHTML = `<strong>${fmtN(d2.mode === "msaa" ? invM : invS)}</strong> invocations · ${fmtN(SN * 4)} samples`;
+    $("c2a-cap").innerHTML = `<strong>${fmtN(inv1)}</strong> shader runs`;
+    $("c2b-lab").textContent = d2.mode === "msaa" ? "MSAA 4×, shader once per pixel" : "SSAA 4×, shader at every point";
+    $("c2b-cap").innerHTML = `<strong>${fmtN(d2.mode === "msaa" ? invM : invS)}</strong> shader runs · ${fmtN(SN * 4)} test points`;
     $("t2-1x").textContent = fmtN(inv1); $("t2-ms").textContent = fmtN(invM); $("t2-ss").textContent = fmtN(invS); $("t2-drop").textContent = fmtN(nd);
+    L2 && L2.check();
   }
   const req2 = throttle(draw2);
   for (const cv of [c2a, c2b]) drag(cv, () => [[sc2.line.a[0] * 4, sc2.line.a[1] * 4], [sc2.line.b[0] * 4, sc2.line.b[1] * 4]],
@@ -1114,7 +1149,7 @@ function kitInset(ctx, x, y, w, h, title) {
     toRGBA(src3, bl3a.data, SN); bl3a.put(x3a);
     const mx = (sc3.line.a[0] + sc3.line.b[0]) * 2, my = (sc3.line.a[1] + sc3.line.b[1]) * 2;
     const rl = mx > 380, rx = clamp(rl ? mx - 16 : mx + 16, 20, 620), ry = clamp(my + 36, 20, 340);
-    bigLabel(x3a, "HUD text, 9 px and 7 px", 16, 306, "left", WHT, 1.5); kitArrow(x3a, 40, 290, 40, 108, WHT, 2);
+    bigLabel(x3a, "health readout, 9 px and 7 px text", 16, 306, "left", WHT, 1.5); kitArrow(x3a, 40, 290, 40, 108, WHT, 2);
     bigLabel(x3a, "rope, " + sc3.line.w.toFixed(1) + " px", rx, ry, rl ? "right" : "left", WHT, 1.5);
     handleDot(x3a, sc3.line.a[0] * 4, sc3.line.a[1] * 4); handleDot(x3a, sc3.line.b[0] * 4, sc3.line.b[1] * 4);
     const d = bl3b.data;
@@ -1130,13 +1165,14 @@ function kitInset(ctx, x, y, w, h, title) {
     toRGBA(out3, bl3c.data, SN); bl3c.put(x3c);
     bigLabel(x3c, "text went soft", 16, 306, "left", WHT, 1.5); kitArrow(x3c, 40, 290, 40, 108, WHT, 2);
     bigLabel(x3c, sc3.line.w < 1 ? "gaps in the rope stay" : "rope smoothed", rx, ry, rl ? "right" : "left", WHT, 1.5);
-    $("c3a-cap").textContent = `luma = 0.299 r + 0.587 g + 0.114 b`;
-    $("c3b-cap").innerHTML = `<strong>${fmtN(st.edges)}</strong> edge px · amber horizontal, blue vertical`;
-    $("c3c-cap").innerHTML = `threshold <strong>${d3.thr.toFixed(3)}</strong> · ${(st.taps / SN).toFixed(1)} taps / px avg`;
+    $("c3a-cap").textContent = `brightness = 0.299 red + 0.587 green + 0.114 blue`;
+    $("c3b-cap").innerHTML = `<strong>${fmtN(st.edges)}</strong> pixels called an edge · amber run sideways, blue up and down`;
+    $("c3c-cap").innerHTML = `threshold <strong>${d3.thr.toFixed(3)}</strong> · ${(st.taps / SN).toFixed(1)} picture reads per pixel on average`;
     $("t3-edge").textContent = fmtN(st.edges);
     $("t3-pct").textContent = (100 * st.edges / SN).toFixed(1) + " %";
-    $("t3-taps").innerHTML = `${fmtN(st.taps)} <small>${(st.taps / SN).toFixed(1)} / px</small>`;
+    $("t3-taps").textContent = fmtN(st.taps);
     $("t3-ms").textContent = ms.toFixed(2) + " ms";
+    L3 && L3.check();
   }
   const req3 = throttle(draw3);
   drag(c3a, () => [[sc3.line.a[0] * 4, sc3.line.a[1] * 4], [sc3.line.b[0] * 4, sc3.line.b[1] * 4]],
@@ -1224,7 +1260,7 @@ function kitInset(ctx, x, y, w, h, title) {
       x4a.beginPath(); x4a.arc(px, py, on ? 5 : 3, 0, Math.PI * 2); x4a.fillStyle = on ? AMB : "rgba(255,255,255,0.7)"; x4a.fill();
       x4a.fillStyle = on ? AMB : "rgba(255,255,255,0.55)"; x4a.textAlign = "left"; x4a.fillText(String(i + 1), px + 7, py - 1);
     }
-    x4a.fillStyle = "rgba(255,255,255,0.75)"; x4a.textAlign = "left"; x4a.fillText(`halton ${k + 1}/8`, bx, by + bs + 12);
+    x4a.fillStyle = "rgba(255,255,255,0.75)"; x4a.textAlign = "left"; x4a.fillText(`spot ${k + 1} of 8`, bx, by + bs + 12);
     kitLabel(x4a, "one pixel at 96×: this frame's nudge", 634, 148, "right", "#c7cdd8");
     // output
     const d = bl4b.data; toRGBA(out4, d, SN);
@@ -1244,21 +1280,22 @@ function kitInset(ctx, x, y, w, h, title) {
     }
     if (t4.speed > 0) {
       const ghosting = t4.mode === "none";
-      kitLabel(x4b, ghosting ? "ghost trail behind the player" : "trail clamped away", clamp(walker.x * 4 - walker.dir * 90, 100, 540), (walker.y + 3) * 4, "center", ghosting ? RED : GRN);
+      kitLabel(x4b, ghosting ? "ghost trail behind the player" : "trail corrected away", clamp(walker.x * 4 - walker.dir * 90, 110, 500), (walker.y + 3) * 4, "center", ghosting ? RED : GRN);
     }
     kitLabel(x4b, "white arrows = how far each pixel moved, ×3", 8, 346, "left", "#c7cdd8");
     kitLabel(x4b, "castle and fence hold still: they sharpen", 8, 14, "left", "#c7cdd8");
-    $("c4a-cap").innerHTML = `frame <strong>${t4.n}</strong> · jitter (${j[0] >= 0 ? "+" : "−"}${Math.abs(j[0]).toFixed(3)}, ${j[1] >= 0 ? "+" : "−"}${Math.abs(j[1]).toFixed(3)}) px`;
-    $("c4b-cap").innerHTML = `α <strong>${t4.alpha.toFixed(2)}</strong> · reprojection ${t4.reproj ? "on" : "off"} · ${t4.mode === "none" ? "no rejection" : "clamp " + (t4.mode === "rgb" ? "RGB" : "YCoCg")} · arrows ×3`;
+    $("c4a-cap").innerHTML = `frame <strong>${t4.n}</strong> · test point moved (${j[0] >= 0 ? "+" : "−"}${Math.abs(j[0]).toFixed(3)}, ${j[1] >= 0 ? "+" : "−"}${Math.abs(j[1]).toFixed(3)}) of a pixel`;
+    $("c4b-cap").innerHTML = `new frame share <strong>${t4.alpha.toFixed(2)}</strong> · old-picture look-up ${t4.reproj ? "on" : "off"} · stale-colour fix: ${t4.mode === "none" ? "none" : t4.mode === "rgb" ? "pull to neighbours" : "brightness first"} · arrows drawn 3× long`;
     $("t4-eff").textContent = ((2 - t4.alpha) / t4.alpha).toFixed(1);
     $("t4-conv").textContent = String(Math.ceil(Math.log(0.1) / Math.log(1 - t4.alpha)));
     $("t4-clamp").innerHTML = `${fmtN(stats4.clamped)} <small>${(100 * stats4.clamped / SN).toFixed(1)} %</small>`;
-    $("t4-err").innerHTML = `${stats4.err.toFixed(4)} <small>Δ frame ${stats4.change.toFixed(4)}</small>`;
+    $("t4-err").innerHTML = `${stats4.err.toFixed(4)} <small>changed ${stats4.change.toFixed(4)} this frame</small>`;
+    L4 && L4.check();
   }
   function loop(ts) { if (t4.playing && ts - t4.last >= 48) { t4.last = ts; tick(); draw4(); } requestAnimationFrame(loop); }
   onSeg("seg4p", v => { if (v === "step") { t4.playing = false; tick(); draw4(); segOn($("seg4p"), "pause"); } else t4.playing = v === "play"; });
   $("alpha4").addEventListener("input", ev => { t4.alpha = +ev.target.value; $("alpha4v").textContent = t4.alpha.toFixed(2); if (!t4.playing) { resolve4(); draw4(); } });
-  $("speed4").addEventListener("input", ev => { t4.speed = +ev.target.value; $("speed4v").textContent = t4.speed.toFixed(1) + " px / frame"; });
+  $("speed4").addEventListener("input", ev => { t4.speed = +ev.target.value; $("speed4v").textContent = t4.speed.toFixed(1) + " px / frame"; if (!t4.playing) draw4(); });
   onSeg("seg4r", v => { t4.mode = v; if (!t4.playing) { resolve4(); draw4(); } });
   $("rep4").addEventListener("change", ev => { t4.reproj = ev.target.checked; if (!t4.playing) { resolve4(); draw4(); } });
   $("clm4").addEventListener("change", ev => { t4.showClamp = ev.target.checked; draw4(); });
@@ -1313,9 +1350,9 @@ function kitInset(ctx, x, y, w, h, title) {
       x5.fillStyle = WHT; x5.fillText(fmtMB(memAt(t, px)), xx + 6, y + FH / 2);
     });
     const ly = top + TECH.length * rh + 6;
-    kitLabel(x5, "each small picture = one plain 8-bit frame of the village, 4 bytes per pixel", 14, ly, "left", "#c7cdd8");
+    kitLabel(x5, "each small picture = one plain copy of the frame, 4 bytes per pixel", 14, ly, "left", "#c7cdd8");
     let lx = 14; const ly2 = ly + 26;
-    for (const [lab, kind] of [["colour", "color"], ["depth", "depth"], ["resolve · history · motion · edges", "extra"]]) {
+    for (const [lab, kind] of [["colour", "color"], ["depth", "depth"], ["averaged copy · kept frames · motion · edge maps", "extra"]]) {
       frameIcon(x5, lx, ly2 - FH / 2, 1, kind); x5.fillStyle = "rgba(255,255,255,0.7)"; x5.textAlign = "left"; x5.fillText(lab, lx + FW + 8, ly2); lx += FW + 8 + x5.measureText(lab).width + 22;
     }
     $("c5-cap").innerHTML = `<strong>${W} × ${H}</strong> · ${fmtN(px)} px`;
@@ -1327,9 +1364,115 @@ function kitInset(ctx, x, y, w, h, title) {
     $("t5-taa").textContent = fmtMB(px * 20);
     $("t5-fxaa").textContent = fmtMB(px * 8);
     $("t5-samp").textContent = fmtN(px * 4);
+    L5 && L5.check();
   }
   $("res5").addEventListener("input", ev => { st5.w = +ev.target.value; segOn($("seg5"), st5.w); draw5(); });
   onSeg("seg5", v => { st5.w = +v; $("res5").value = v; draw5(); });
   draw5();
+
+  // ---------- guided steps ----------
+  const V1 = () => [[7.6, 1.2], [14.9, 7.2], [0.9, 7.8]];
+  const set1 = o => { Object.assign(d1, o); segOn($("seg1"), d1.N); draw1(); };
+  L1 = lesson("samples", { next: { id: "shading", title: "Two kinds of jaggies" }, steps: [
+    { say: "The screen is a grid of tiny squares called <b>pixels</b>. This is a patch of 16 by 9 of them, zoomed 40 times, where the castle roof meets the sky; the inset shows where. The white outline is the roof, one triangle. The GPU never measures how much of a square the roof covers. It checks a few <b>test points</b> inside each square. Each small dot is one, and it turns green when it lands on the roof.", enter: () => set1({ N: 4, v: V1(), hover: null }) },
+    { say: "<b>Switch to 1×</b>: one test point per pixel, right in the centre. That is a game with anti-aliasing turned off.", todo: "switch to 1× below", goal: () => d1.N === 1, try: () => $("seg1").querySelector('[data-v="1"]').click(), enter: () => set1({ N: 4 }),
+      done: "Every pixel is now all roof or all sky, nothing in between, so the slanted edge turns into a staircase. Those steps are the jaggies." },
+    { say: "Back at 4×. Look at the outlined pixel on the roof's edge and count its green dots.", enter: () => set1({ N: 4, hover: null }), quiz: { q: "If 3 of a pixel's 4 test points land on the roof, what colour does it get?", options: [
+        { t: "Roof colour, because most of its points hit", why: "The points are averaged, not voted on. Three of four means three parts roof to one part sky." },
+        { t: "Three parts roof to one part sky", ok: true, why: "The pixel's colour is the average of its test points, and that in-between shade is what hides the staircase. Averaging the points is called the resolve." },
+        { t: "Sky colour, because one point missed", why: "One miss only pulls the average a quarter of the way toward sky." } ] },
+      todo: "now switch to 8×", goal: () => d1.N === 8, try: () => $("seg1").querySelector('[data-v="8"]').click(),
+      done: "Eight points per pixel means nine possible shades from sky to roof, so the edge fades more gently. The readout under the picture gives the share for the outlined pixel; hover any pixel to check another." },
+    { say: "<b>Drag the roof's top corner</b> down toward the middle of the patch and watch the last tile.", todo: "drag the top corner down", goal: () => d1.v[0][1] >= 3.5, try: () => { d1.v[0][1] = 4.5; draw1(); }, enter: () => set1({ N: 8, v: V1() }),
+      done: "Only the pixels the edge passes through change, and the last tile counts them. Every other pixel is all in or all out, so the extra points change nothing there." },
+    { say: "One more thing the tiles show. A small program called the <b>shader</b> works out each pixel's colour, and it is the slow part of drawing.", quiz: { q: "With 8 test points per pixel, how many times does the shader run for a pixel the roof covers?", options: [
+        { t: "8, once per test point", why: "That is supersampling, SSAA: eight times the work. The third tile shows that count. MSAA is cheaper." },
+        { t: "Once", ok: true, why: "MSAA runs the shader once, at the pixel's centre, and copies that colour to every point that hit. The points only decide how much of the colour to keep. The first tile counts shader runs; the third shows what SSAA would cost." },
+        { t: "As many times as points hit", why: "Any hit at all means one run; more hits do not add more." } ] } },
+    { say: "Several test points per pixel, one shader run, then an average. That is MSAA, and it smooths edges for a fraction of the cost of the extra points. The exact point positions and the loop are under the hood." } ] });
+
+  const set2 = o => {
+    if (o.mode) { d2.mode = o.mode; segOn($("seg2"), d2.mode); }
+    if (o.freq != null) { sc2.freq = o.freq; $("freq2").value = o.freq; $("freq2v").textContent = o.freq.toFixed(1) + "×"; }
+    if (o.w != null) { sc2.line.w = o.w; $("lw2").value = o.w; $("lw2v").textContent = o.w.toFixed(1) + " px"; }
+    if (o.rope) { sc2.line.a = o.rope[0]; sc2.line.b = o.rope[1]; }
+    if (o.drop != null) { d2.drop = o.drop; $("drop2").checked = o.drop; }
+    draw2();
+  };
+  L2 = lesson("shading", { next: { id: "fxaa", title: "FXAA: clean up the finished picture" }, steps: [
+    { say: "Now the whole village, 160 by 90 pixels. Left: one test point per pixel. Right: four, with the shader run once, as in the last stage. Find the roof's slanted edge on both sides: stair steps on the left, smooth on the right. The rope from the tower is only 0.6 pixels wide, and the red boxes on the left mark pixels it crossed without touching the centre point, so nothing was drawn there.", enter: () => set2({ mode: "msaa", freq: 1, w: 0.6, rope: [[72, 16], [156, 60]], drop: true }) },
+    { say: "<b>Drag the rope's lower end</b> left, over to the player, and watch the red boxes and the last tile.", todo: "drag the rope's lower end to the player", goal: () => sc2.line.b[0] < 110, try: () => { sc2.line.b[0] = 96; sc2.line.b[1] = 60; draw2(); }, enter: () => set2({ rope: [[72, 16], [156, 60]], drop: true }),
+      done: "The gaps move with the rope. Wherever it misses a centre point the pixel stays sky, and on the right, four points per pixel catch it almost everywhere. A missing sliver is an edge problem, and extra test points fix it." },
+    { say: "Now the picket fence, running off toward the horizon. Far away, a picket and the gap next to it are thinner than one pixel. The insets zoom the far fence 8 times: on the left it has broken into wavy bands, called moiré.", quiz: { q: "The right side has four test points per pixel. Are the bands gone there?", options: [
+        { t: "Yes, four points catch the pickets", why: "Look at the right inset: the bands are still there. The fence is one flat rectangle with the pickets painted on by the shader, and the shader ran once per pixel." },
+        { t: "No, the bands are the same", ok: true, why: "The fence is one flat rectangle, and its pickets are painted by the shader. MSAA ran that shader once per pixel, so all four points got the same colour and the bands stay. Extra points only help where one triangle ends and another begins." },
+        { t: "They get worse", why: "They stay the same: the extra points did not change what the shader painted." } ] } },
+    { say: "<b>Switch the right picture to SSAA 4×</b>, which runs the shader at every test point.", todo: "switch to SSAA 4× below", goal: () => d2.mode === "ssaa", try: () => $("seg2").querySelector('[data-v="ssaa"]').click(), enter: () => set2({ mode: "msaa" }),
+      done: "The far fence softens into an even grey, and the shader-run count under the right picture jumps to four times. That is the price of fixing shimmer inside a surface." },
+    { say: "<b>Push the picket slider up to 3×</b> so the pickets sit closer together.", todo: "drag the picket slider to 3×", goal: () => sc2.freq >= 2.8, try: () => { $("freq2").value = 3; $("freq2").dispatchEvent(new Event("input")); },
+      done: "Closer pickets get thinner than a pixel sooner, so the bands creep toward the camera on the left. Anything the shader paints can do this: fences, grass, shiny highlights, shadow edges." },
+    { say: "Edge jaggies live where one triangle ends, and MSAA fixes them with extra test points. Shimmer inside a surface comes from the shader itself, and only running it more often, or the trick in the TAA stage, fixes that. The formulas are under the hood." } ] });
+
+  const set3 = o => {
+    if (o.thr != null) { d3.thr = o.thr; $("thr3").value = o.thr; $("thr3v").textContent = o.thr.toFixed(3); }
+    if (o.sub != null) { d3.subpix = o.sub; $("sub3").value = o.sub; $("sub3v").textContent = o.sub.toFixed(2); }
+    if (o.w != null) { sc3.line.w = o.w; $("lw3").value = o.w; $("lw3v").textContent = o.w.toFixed(1) + " px"; }
+    if (o.rope) { sc3.line.a = o.rope[0]; sc3.line.b = o.rope[1]; }
+    draw3();
+  };
+  L3 = lesson("fxaa", { next: { id: "taa", title: "TAA: spread the test points over time" }, steps: [
+    { say: "A different idea: draw the frame with one test point per pixel, then clean it up afterwards. Top left is that finished frame, with the game's health readout in tiny text. FXAA never sees a triangle. It compares each pixel's brightness with its four neighbours, and where the jump is big it calls the pixel an <b>edge</b>. Top right shows those pixels: amber where the edge runs sideways, blue where it runs up and down. Bottom left is the frame after FXAA blends across every edge it found.", enter: () => set3({ thr: 0.125, sub: 0.75, w: 0.5, rope: [[74, 15], [150, 64]] }) },
+    { say: "Look at the letters of the health readout in the edge picture.", quiz: { q: "What does FXAA do to the text?", options: [
+        { t: "Leaves it alone, text is not a jaggy", why: "FXAA cannot tell text from a jaggy: both are sharp jumps in brightness. Look at the bottom left: the letters went soft." },
+        { t: "Blurs it, because it looks like an edge", ok: true, why: "Every letter is a sharp jump in brightness, exactly what FXAA looks for, and it has no way to know the text was meant to be sharp. Games draw the health bar after FXAA for this reason." },
+        { t: "Sharpens it", why: "FXAA only ever blends across edges. It never sharpens." } ] } },
+    { say: "<b>Drag the brightness-jump slider down to 0.03</b>, so smaller jumps count as edges.", todo: "drag the slider to 0.03", goal: () => d3.thr <= 0.04, try: () => { $("thr3").value = 0.03; $("thr3").dispatchEvent(new Event("input")); }, enter: () => set3({ thr: 0.125, w: 0.5 }),
+      done: "The edge picture fills up, the pixel count in the tiles climbs, and the result goes softer everywhere, grass included. A low threshold treats faint detail as jaggies." },
+    { say: "The rope is half a pixel wide, so it missed most centre points and came out as dashes, and FXAA can only blend the dashes it finds. <b>Raise the rope width to 1.5 px.</b>", todo: "drag the rope width to 1.5 px", goal: () => sc3.line.w >= 1.4, try: () => { $("lw3").value = 1.5; $("lw3").dispatchEvent(new Event("input")); }, enter: () => set3({ thr: 0.125, w: 0.5 }),
+      done: "Now the rope reached every pixel it crosses, and FXAA smooths it well. Before, the gaps were pixels nothing was drawn on, and there is nothing to blend into a gap. FXAA can only fix what made it into the picture." },
+    { say: "Now the cost. The tiles count how many pixels were called an edge and how many times the pass read the picture.", quiz: { q: "Most pixels are plain sky or grass. What does FXAA do on those?", options: [
+        { t: "The full edge search, like everywhere else", why: "It reads the four neighbours, sees a small jump, and stops. That early stop is what makes it cheap." },
+        { t: "Reads the four neighbours, sees a small jump, and stops", ok: true, why: "Five reads and out. Only the few per cent of pixels on an edge get the full search, which is why the whole pass averages a handful of reads per pixel." },
+        { t: "Skips them without reading anything", why: "It has to read the neighbours to know the jump is small. Five reads, then it stops." } ] } },
+    { say: "FXAA costs one quick pass over the finished picture and works whatever way the frame was drawn, which is why it shipped everywhere for years. It softens text and thin lines, and it cannot bring back anything that was never drawn. The brightness test and the edge search are under the hood." } ] });
+
+  const set4 = o => {
+    if (o.speed != null) { t4.speed = o.speed; $("speed4").value = o.speed; $("speed4v").textContent = o.speed.toFixed(1) + " px / frame"; }
+    if (o.alpha != null) { t4.alpha = o.alpha; $("alpha4").value = o.alpha; $("alpha4v").textContent = o.alpha.toFixed(2); }
+    if (o.mode) { t4.mode = o.mode; segOn($("seg4r"), o.mode); }
+    if (o.reproj != null) { t4.reproj = o.reproj; $("rep4").checked = o.reproj; }
+    if (o.showClamp != null) { t4.showClamp = o.showClamp; $("clm4").checked = o.showClamp; }
+    t4.playing = true; segOn($("seg4p"), "play"); draw4();
+  };
+  L4 = lesson("taa", { next: { id: "cost", title: "What each method costs" }, steps: [
+    { say: "The last idea: instead of several test points per pixel in one frame, use <b>one point, moved a little each frame</b>, and blend every new frame into the picture so far. Left is this frame, and the inset shows the eight spots the point cycles through inside one pixel, this frame's in amber. Right is the running blend. The castle and fence hold still, so after a few frames they look as if they had eight test points each. The player is walking, and a <b>ghost trail</b> follows them.", enter: () => set4({ speed: 2, alpha: 0.1, mode: "none", reproj: false, showClamp: false }) },
+    { say: "<b>Set the player's speed to 0.</b>", todo: "drag the speed slider to 0", goal: () => t4.speed === 0, try: () => { $("speed4").value = 0; $("speed4").dispatchEvent(new Event("input")); }, enter: () => set4({ speed: 2, mode: "none", reproj: false }),
+      done: "The trail fades in a second or two and the still village sharpens: the roof edge smooth, the far fence smooth, the last tile dropping. For anything that holds still, TAA gives many test points for the price of one." },
+    { say: "Speed is back at 2, and so is the trail.", enter: () => set4({ speed: 2, mode: "none", reproj: false }), quiz: { q: "Where does the ghost trail come from?", options: [
+        { t: "The player is drawn twice each frame", why: "Drawn once. The extra copies are old frames still in the blend." },
+        { t: "The blend still holds the last few frames, and the player was somewhere else in them", ok: true, why: "Each frame keeps 90 % of the previous result. The player has moved on, but their old positions are still mixed in and take a few frames to fade." },
+        { t: "The test point moved too far", why: "It moves under half a pixel. The trail is many pixels long." } ] } },
+    { say: "The game knows how far every pixel moved since last frame; the white arrows show it, drawn three times longer than life. <b>Tick the box to look up the old picture where things were.</b>", todo: "tick the look-up box below", goal: () => t4.reproj, try: () => $("rep4").click(), enter: () => set4({ speed: 2, mode: "none", reproj: false }),
+      done: "The front of the trail is gone. Pixels the player just stepped onto now fetch the old picture from where the player came from, so they blend with the player, not the grass. The back of the trail stays: the grass there was hidden a frame ago, so there is no old picture of it." },
+    { say: "<b>Switch the fix for stale colours to 'brightness first'</b>, then tick 'tint the corrected pixels' to see where it works.", todo: "switch the stale-colour fix below", goal: () => t4.mode === "ycocg", try: () => $("seg4r").querySelector('[data-v="ycocg"]').click(), enter: () => set4({ speed: 2, mode: "none", reproj: true, showClamp: false }),
+      done: "The trail is gone. Before blending, each old colour is pulled into the range of colours around that pixel right now. A ghost of the player on green grass is far outside that range, so it gets pulled to grass. Brightness first means the pull is tightest along brightness, where ghosts show most." },
+    { say: "One moved test point per frame plus a blend gives the quality of many, and the motion arrows plus the correction keep old frames from ghosting. Nearly every game since 2015 does this. The blend formula and the correction are under the hood." } ] });
+
+  const set5 = w => { st5.w = w; $("res5").value = w; segOn($("seg5"), w); draw5(); };
+  L5 = lesson("cost", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "Every method pays somewhere, and this chart shows the memory side. Each row is one method, and each small picture is one plain copy of the frame in memory, 4 bytes per pixel. Amber-framed copies hold colour, blue ones hold <b>depth</b>, how far away each pixel is, and white ones are the extras a method adds: kept frames, motion arrows, edge maps. The numbers are megabytes at the screen size you pick.", enter: () => set5(1920) },
+    { say: "Look at the MSAA 4× row.", quiz: { q: "MSAA 4× keeps four test points per pixel. Why does it need eight copies' worth of memory?", options: [
+        { t: "One copy per test point, colour only", why: "Depth is stored per test point too, so it is four colour copies plus four depth copies." },
+        { t: "Four copies of colour and four of depth, one of each per test point", ok: true, why: "Each test point needs its own colour and its own depth, so the memory is a plain frame's eight times over, plus one more copy for the averaged result." },
+        { t: "Because the picture is drawn four times", why: "It is drawn once. The memory is per test point, not per drawing." } ] } },
+    { say: "<b>Choose 4K.</b>", todo: "choose 4K below", goal: () => st5.w === 3840, try: () => $("seg5").querySelector('[data-v="3840"]').click(), enter: () => set5(1920),
+      done: "The MSAA 4× row climbs to about 300 megabytes, and every row grew fourfold, because 4K has four times the pixels of 1080p. Memory follows the pixel count." },
+    { say: "Look at the last two rows. TAA + upscale draws the frame at 67 % of the screen size and lets the moving test point fill in the rest over time.", quiz: { q: "Does its memory shrink by the same amount?", options: [
+        { t: "Yes, a smaller frame means less memory", why: "Only the drawn frame is smaller. The blended picture it keeps between frames stays at full screen size, and that is most of its memory." },
+        { t: "Only a little: the kept frames stay at full screen size", ok: true, why: "The kept frames live at screen size, so memory drops by about a quarter while the drawn frame has under half the pixels. Shader work drops with the frame, and that is what upscaling is for." },
+        { t: "It needs more, because of the upscaling", why: "Upscaling adds no new copies. It only shrinks the drawn frame." } ] } },
+    { say: "<b>Drag the screen size slider down to 1280 wide.</b>", todo: "drag the slider to 1280", goal: () => st5.w <= 1408, try: () => { $("res5").value = 1280; $("res5").dispatchEvent(new Event("input")); }, enter: () => set5(3840),
+      done: "Every row shrinks together. The pixel count scales all of them the same way; what separates the methods is how many copies each keeps." },
+    { say: "MSAA pays in memory, TAA in kept frames, FXAA in blur, SSAA in everything. The full table, with shader runs and test points per frame, is under the hood." } ] });
 })();
 </script>

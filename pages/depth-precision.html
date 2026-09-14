@@ -222,7 +222,10 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .tiles .n { font-size: 22px; }
 @media (max-width: 480px) { .tiles.four { grid-template-columns: 1fr; } }
-.vp canvas.wide16 { aspect-ratio: 16 / 9; }
+.vp canvas.r169 { aspect-ratio: 16 / 9; }
+.vp canvas.sq { aspect-ratio: 1; }
+/* the caption may not widen the picture column: it wraps to the canvas width instead */
+section.stage .vp .cap { width: 0; min-width: 100%; }
 .chk { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 14px; font-family: var(--font-mono); font-size: 13px; }
 .chk label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .sw { display: inline-block; width: 18px; height: 3px; background: var(--sw); }
@@ -236,64 +239,54 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">one road at night · lamp posts at 1, 10, 100 and 1000 m · near 0.1 m · far 1000 m · 24-bit integer vs float32 depth · every number is computed live</p>
+    <p class="eyebrow">one road at night · five guided demos · nothing to install</p>
     <h1>Depth Precision</h1>
-    <p class="lead">A depth buffer is the GPU's per-pixel record of how far away the nearest surface is, and it decides which object draws in front. It stores a function of <b>1/z</b>, not the distance itself, so with a 0.1 m near plane <b>90% of a 24-bit buffer describes the first metre</b> and far objects get scraps. <b>Reverse-Z</b> flips the mapping so far objects land near 0.0, which is where a float32 has its densest values. The part people get wrong: the flip only pays off with a float buffer, and on a 24-bit integer buffer it changes almost nothing.</p>
+    <p class="lead">A game keeps, for every pixel on the screen, a number saying how far away the thing drawn there is. That set of numbers is the <b>depth buffer</b>, and it is how a wall hides what stands behind it. The number is not the distance in metres. It is squashed so that most of the buffer's accuracy lands in the first metre in front of the camera, and far things get scraps. <b>The thing people get wrong:</b> flipping the buffer around, called reverse-Z, only helps when the number is stored as a float; on the usual 24-bit whole-number buffer it changes almost nothing.</p>
     <div class="key">
-      <span style="--sw:#4aa3ff">standard Z, 0 at the near plane</span>
-      <span style="--sw:#f2a341">reverse Z, 1 at the near plane</span>
-      <span style="--sw:#ffffff">near and far planes, handles, the player's view</span>
+      <span style="--sw:#4aa3ff">standard: 0 at the near plane, 1 at the far plane</span>
+      <span style="--sw:#f2a341">reversed: 1 at the near plane, 0 at the far plane</span>
+      <span style="--sw:#ffffff">near and far planes, drag handles, the player's view</span>
       <span style="--sw:#5ad48a">the poster wins the pixel</span>
       <span style="--sw:#ef5d5d">the wall shows through the poster</span>
     </div>
     <dl class="terms">
-      <dt>depth buffer</dt><dd>one number per pixel saying how far the nearest surface is; a new pixel only draws if it is closer</dd>
-      <dt>near, far plane</dt><dd>the closest and farthest distances the camera will draw; nothing outside them is drawn</dd>
-      <dt>code</dt><dd>one of the distinct values the buffer can store; a 24-bit buffer has 16,777,215 of them</dd>
+      <dt>depth buffer</dt><dd>one number per pixel saying how far away the nearest thing drawn there is; a new pixel only draws if it is closer</dd>
+      <dt>near, far plane</dt><dd>the closest and farthest distances the camera will draw; nothing outside them appears</dd>
+      <dt>value, code</dt><dd>one of the distinct numbers the buffer can hold; a 24-bit buffer has 16,777,215 of them</dd>
       <dt>step</dt><dd>the smallest change in distance the buffer can tell apart at a given range</dd>
-      <dt>z-fighting</dt><dd>two surfaces so close that they share a code, so pixels flicker between them</dd>
-      <dt>float32</dt><dd>a 32-bit number with a sliding decimal point; its values are packed tightest near 0</dd>
-      <dt>reverse-Z</dt><dd>storing 1 at the near plane and 0 at the far plane, so far objects land where floats are densest</dd>
+      <dt>z-fighting</dt><dd>two surfaces so close that they round to the same stored number, so pixels flicker between them</dd>
+      <dt>float</dt><dd>a 32-bit number with a sliding decimal point, like scientific notation; its values are packed tightest near 0</dd>
+      <dt>reverse-Z</dt><dd>storing 1 at the near plane and 0 at the far plane, so far objects land where a float is most precise</dd>
       <dt>decal</dt><dd>a flat detail, like a poster or a bullet hole, drawn a hair above a surface</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#codes"><span class="n">01</span>Where the codes go</a></li><li><a href="#near"><span class="n">02</span>The near plane sets everything</a></li><li><a href="#reverse"><span class="n">03</span>Reverse-Z</a></li><li><a href="#fight"><span class="n">04</span>Z-fighting</a></li><li><a href="#readback"><span class="n">05</span>Reading the buffer back</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#codes"><span class="n">01</span>Where the buffer spends its values</a></li><li><a href="#near"><span class="n">02</span>The near plane sets everything</a></li><li><a href="#reverse"><span class="n">03</span>Reverse-Z: flip it and use floats</a></li><li><a href="#fight"><span class="n">04</span>Z-fighting: the flickering poster</a></li><li><a href="#readback"><span class="n">05</span>Turning the number back into metres</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="codes">
-    <h2>Where the codes go</h2>
-    <p class="sub">A player stands at the start of a night road with lamp posts at 1, 10, 100 and 1000 m. Move the near and far planes and see which stretch of road gets the buffer's 16,777,215 steps.</p>
+  <section id="codes" class="stage">
+    <h2>Where the buffer spends its values</h2>
+    <p class="sub">A player at the start of a night road with lamps at 1, 10, 100 and 1000 m. The demo shows which stretch of road gets the buffer's 16 million values.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c1" width="512" height="512" aria-label="A night road seen from the side with a player and lamp posts at 1, 10, 100 and 1000 metres on a log distance axis, the depth buffer as a grey strip under the road, the stored depth curve, and bars counting codes per decade of distance"></canvas>
+        <canvas id="c1" width="512" height="512" class="sq" aria-label="A night road seen from the side with a player and lamp posts at 1, 10, 100 and 1000 metres on a log distance axis, the depth buffer as a grey strip under the road, the stored depth curve, and bars counting values per decade of distance"></canvas>
         <div class="cap"><span id="c1-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The depth buffer doesn't store distance. It stores a value that <b>rises fast near the camera and then flattens out</b>, so <b>half of its codes are used up by twice the near distance</b>. Move the near plane in and the first few centimetres eat everything. <b>Every 10× further out gets a tenth as many codes</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The top band is the road seen from the side, with distance squashed onto a log scale so 1 m and 1 km both fit. The white dashed lines are the near and far planes, and each lamp post carries the smallest distance step the buffer can tell apart there. The grey strip under the road is the depth buffer itself: black is 0, white is 1. It is bright white by the 10 m lamp, because the value has nearly nowhere left to go.</p>
-        <p>The middle plot is that same stored value as a graph. The bars at the bottom count how many codes land in each decade of the road: 1 cm to 10 cm, 10 cm to 1 m, and so on out to 10 km. Bar height is on a log scale, so a bar half as tall has far fewer than half the codes.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag Near down to 1 cm. The step on the 1000 m lamp gets 10× worse, and the 1 cm to 10 cm bar fills up.</li>
-          <li>Drag Far up to 10 km. The lamp steps barely move. The far plane hardly matters.</li>
-          <li>Switch to D16. Every step gets about 256× worse, which is what dropping from 24 bits to 16 costs.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><label for="n1">Near <span class="val" id="n1v"></span></label><input type="range" id="n1" min="-2" max="0" step="0.01" value="-1"></div>
-          <div class="ctl"><label for="f1">Far <span class="val" id="f1v"></span></label><input type="range" id="f1" min="2" max="4" step="0.01" value="3"></div>
-          <div class="ctl"><span class="lab">Buffer</span><div class="seg" id="seg1" role="group" aria-label="Depth buffer bits"><button data-v="16">D16</button><button data-v="24" aria-pressed="true">D24</button></div></div>
+      <div class="lesson" data-lesson="codes">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="n1">Near plane, the closest distance drawn <span class="val" id="n1v"></span></label><input type="range" id="n1" min="-2" max="0" step="0.01" value="-1"></div>
+          <div class="ctl"><label for="f1">Far plane, the farthest distance drawn <span class="val" id="f1v"></span></label><input type="range" id="f1" min="2" max="4" step="0.01" value="3"></div>
+          <div class="ctl"><span class="lab">How each number is stored</span><div class="seg" id="seg1" role="group" aria-label="Depth buffer bits"><button data-v="16">16-bit</button><button data-v="24" aria-pressed="true">24-bit</button></div></div>
         </div>
         <div class="tiles four">
-          <div class="tile"><div class="n" id="t1-1">—</div><div class="l">step at 1 m</div></div>
-          <div class="tile"><div class="n" id="t1-10">—</div><div class="l">step at 10 m</div></div>
-          <div class="tile"><div class="n" id="t1-100">—</div><div class="l">step at 100 m</div></div>
-          <div class="tile"><div class="n" id="t1-1000">—</div><div class="l">step at 1000 m</div></div>
+          <div class="tile"><div class="n" id="t1-1">—</div><div class="l">smallest step at the 1 m lamp</div></div>
+          <div class="tile"><div class="n" id="t1-10">—</div><div class="l">at the 10 m lamp</div></div>
+          <div class="tile"><div class="n" id="t1-100">—</div><div class="l">at the 100 m lamp</div></div>
+          <div class="tile"><div class="n" id="t1-1000">—</div><div class="l">at the 1000 m lamp</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Half the buffer's values are spent by twice the near distance, and every ten times farther out gets a tenth as many.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The vertex shader outputs a clip-space z and a w, where w is the view depth: the straight-line distance in front of the camera. The rasterizer divides z by w, and that divide is what bends the curve. What lands in the buffer is a hyperbola in z, steep at the near plane and flat for the rest of the scene. Half of the codes sit below <code>2n</code> no matter where far is.</p>
         <p>The smallest step the buffer can tell apart at distance z is the slope of that curve divided by the code count, and it grows with z². At the 1 m lamp you resolve fractions of a micrometre. At the 1000 m lamp two surfaces must be half a metre apart to get different codes.</p>
         <p class="words">In words: stored depth is a 1/z curve, and the step at any distance is that curve's slope there divided by the number of codes.</p>
@@ -312,44 +305,33 @@ dz_view/dz_ndc = z²·(f − n) / (n·f)       metres per unit of stored depth
   <span class="k">return</span> <span class="k">uint</span>((zNdc(b) - zNdc(a)) * 16777215.0);
 }
 <span class="c">// zNdc(2n) = f / (2(f - n)) ≈ 0.5: half the codes are gone by twice the near distance</span></pre>
-
-        <p class="tldr">Depth is stored as a 1/z curve, so half the codes are gone by twice the near distance and each decade further out gets a tenth as many.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="near">
+  <section id="near" class="stage">
     <h2>The near plane sets everything</h2>
-    <p class="sub">The same road. The near plane is the white line just in front of the player, the far plane the one past the last lamp. Slide each and watch the step at the 100 m lamp.</p>
+    <p class="sub">The same road on a 24-bit buffer. Slide the near and far planes and watch the smallest step the buffer can tell apart at the 100 m lamp.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" width="512" height="512" aria-label="The night road from the side with the near and far planes marked and the 100 metre lamp highlighted, above two plots of the depth step at 100 metres as the near plane and then the far plane sweep"></canvas>
+        <canvas id="c2" width="512" height="512" class="sq" aria-label="The night road from the side with the near and far planes marked and the 100 metre lamp highlighted, above two plots of the depth step at 100 metres as the near plane and then the far plane sweep"></canvas>
         <div class="cap"><span id="c2-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">If your scene flickers in the distance, the fix is to <b>push the near plane out</b>, not pull the far plane in. <b>Halving the near plane halves your precision everywhere.</b> Multiplying the far plane by 100 costs under 1%. <b>The far slider is close to a placebo.</b></p>
-
-        <h3>What you're seeing</h3>
-        <p>The road band shows where the two planes sit and rings the 100 m lamp in amber with its current step. Both plots below show that step on a D24 buffer, on log axes. The top one sweeps the near plane from 1 cm to 1 m; the bottom one sweeps the far plane from 100 m to 100 km. The white handle marks your current setting on each.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag Near from 10 cm to 1 m. The near line walks past the 1 m lamp, the step at 50 m tile drops by 10× and the codes-below-1-m tile falls.</li>
-          <li>Drag Far across its whole range. The far line runs off past the village and the handle on the bottom plot rides an almost flat line.</li>
-          <li>Read the third tile: the near plane you would need for a 1 mm step at 100 m. It is 0.6 m, too far out for a first-person camera.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><label for="n2">Near <span class="val" id="n2v"></span></label><input type="range" id="n2" min="-2" max="0" step="0.01" value="-1"></div>
-          <div class="ctl"><label for="f2">Far <span class="val" id="f2v"></span></label><input type="range" id="f2" min="2" max="5" step="0.01" value="3"></div>
+      <div class="lesson" data-lesson="near">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="n2">Near plane <span class="val" id="n2v"></span></label><input type="range" id="n2" min="-2" max="0" step="0.01" value="-1"></div>
+          <div class="ctl"><label for="f2">Far plane <span class="val" id="f2v"></span></label><input type="range" id="f2" min="2" max="5" step="0.01" value="3"></div>
         </div>
         <div class="tiles">
-          <div class="tile"><div class="n" id="t2-50">—</div><div class="l">step at 50 m, D24</div></div>
-          <div class="tile"><div class="n" id="t2-1m">—</div><div class="l">codes spent below 1 m</div></div>
-          <div class="tile"><div class="n" id="t2-need">—</div><div class="l">near needed for 1 mm at 100 m</div></div>
+          <div class="tile"><div class="n" id="t2-50">—</div><div class="l">smallest step at 50 m, 24-bit</div></div>
+          <div class="tile"><div class="n" id="t2-1m">—</div><div class="l">share of values spent inside 1 m</div></div>
+          <div class="tile"><div class="n" id="t2-need">—</div><div class="l">near plane needed for a 1 mm step at 100 m</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Precision follows the near plane: push it out and every step shrinks; the far plane is close to free.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The step formula has n in the denominator and f only inside <code>(f − n)/f</code>, which is 0.999 for any far plane worth having. So the near plane controls the answer and the far plane is a rounding error. That is why "push the near plane out" is the first fix for z-fighting and "pull the far plane in" almost never helps.</p>
         <p>The practical rule for a 24-bit buffer: to hold a 1 mm step at distance z you need a near plane of about <code>z² / (0.001 · 2²⁴)</code>. For 100 m that is 0.6 m, which a first-person camera cannot afford. This is the gap reverse-Z closes in the next section.</p>
         <p class="words">In words: the step is distance squared divided by the near plane and the code count; turn it around to get the near plane you need.</p>
@@ -367,52 +349,40 @@ n_needed = z² / (Δz_wanted · 2²⁴)   near plane that keeps Δz at z</div>
 <span class="k">float</span> nearFor(<span class="k">float</span> z, <span class="k">float</span> stepM, <span class="k">int</span> bits) {
   <span class="k">return</span> z * z / (stepM * <span class="k">float</span>((1u &lt;&lt; bits) - 1u));   <span class="c">// (f - n)/f dropped: it is ~1</span>
 }</pre>
-
-        <p class="tldr">Precision scales with 1 over the near plane; the far plane is close to free.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="reverse">
-    <h2>Reverse-Z: flip it, then use floats</h2>
-    <p class="sub">The same road stored two ways. Under the road are two depth buffers, standard and reverse; below them, the step size for integer and float buffers.</p>
+  <section id="reverse" class="stage">
+    <h2>Reverse-Z: flip it and use floats</h2>
+    <p class="sub">The same road stored two ways, standard and reversed, as whole numbers and as floats. The demo shows which way gives the finest steps down the road.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c3" width="512" height="512" aria-label="The night road from the side with two depth buffer strips under it, blue for standard and amber for reverse Z, then a plot of both stored values over float32 exponent bands and a plot of metres per code for four buffer setups"></canvas>
+        <canvas id="c3" width="512" height="512" class="sq" aria-label="The night road from the side with two depth buffer strips under it, blue for standard and amber for reverse Z, then a plot of both stored values over float32 exponent bands and a plot of metres per code for four buffer setups"></canvas>
         <div class="cap"><span id="c3-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">A <b>float32 packs its values tightest near zero</b>. Standard Z puts almost the whole scene near 1.0, where floats are no denser than a 24-bit integer. <b>Reverse-Z sends far objects toward 0.0</b>, where the float's tightening cancels the curve's flattening. The result is <b>steps that grow with z instead of z²</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The two strips under the road are the depth buffer for the same road. Blue is standard Z: solid by the first lamp, because everything past a metre stores almost 1.0. Amber is reverse Z, which fades to black down the road, and 0 is where a float32 packs its values tightest. The upper plot draws both as curves; each shaded band is one float32 exponent, and every band holds the same 2²³ codes, so the narrow bands near 0 are where values are dense.</p>
-        <p>The bottom plot is metres per code for four buffer setups. The amber sawtooth is float reverse-Z.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Untick D24 standard. D24 reverse was hiding underneath it on the same line. The flip does nothing for an integer buffer.</li>
-          <li>Compare the D32F std and D32F rev tiles at 100 m. Same bits, same memory, and the reverse one is far smaller.</li>
-          <li>Drag Near from 10 cm to 1 cm. The float reverse-Z curve barely moves; the integer curves get 10× worse.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><label for="n3">Near <span class="val" id="n3v"></span></label><input type="range" id="n3" min="-2" max="0" step="0.01" value="-1"></div>
-          <div class="ctl"><label for="f3">Far <span class="val" id="f3v"></span></label><input type="range" id="f3" min="2" max="4" step="0.01" value="3"></div>
+      <div class="lesson" data-lesson="reverse">
+        <div class="chk" id="chk3" data-step-min="3">
+          <label><input type="checkbox" id="t-d24s" checked><span class="sw" style="--sw:#4aa3ff"></span>24-bit, standard</label>
+          <label><input type="checkbox" id="t-d24r" checked><span class="sw dash" style="--sw:#4aa3ff"></span>24-bit, reversed</label>
+          <label><input type="checkbox" id="t-d32s" checked><span class="sw dash" style="--sw:#f2a341"></span>32-bit float, standard</label>
+          <label><input type="checkbox" id="t-d32r" checked><span class="sw" style="--sw:#f2a341"></span>32-bit float, reversed</label>
         </div>
-        <div class="chk" id="chk3">
-          <label><input type="checkbox" id="t-d24s" checked><span class="sw" style="--sw:#4aa3ff"></span>D24 standard</label>
-          <label><input type="checkbox" id="t-d24r" checked><span class="sw dash" style="--sw:#4aa3ff"></span>D24 reverse</label>
-          <label><input type="checkbox" id="t-d32s" checked><span class="sw dash" style="--sw:#f2a341"></span>D32F standard</label>
-          <label><input type="checkbox" id="t-d32r" checked><span class="sw" style="--sw:#f2a341"></span>D32F reverse</label>
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><label for="n3">Near plane <span class="val" id="n3v"></span></label><input type="range" id="n3" min="-2" max="0" step="0.01" value="-1"></div>
+          <div class="ctl"><label for="f3">Far plane <span class="val" id="f3v"></span></label><input type="range" id="f3" min="2" max="4" step="0.01" value="3"></div>
         </div>
         <div class="tiles four">
-          <div class="tile" id="tile-d24s"><div class="n">—</div><div class="l">D24 std, 100 m</div></div>
-          <div class="tile" id="tile-d24r"><div class="n">—</div><div class="l">D24 rev, 100 m</div></div>
-          <div class="tile" id="tile-d32s"><div class="n">—</div><div class="l">D32F std, 100 m</div></div>
-          <div class="tile" id="tile-d32r"><div class="n">—</div><div class="l">D32F rev, 100 m</div></div>
+          <div class="tile" id="tile-d24s"><div class="n">—</div><div class="l">24-bit standard: step at 100 m</div></div>
+          <div class="tile" id="tile-d24r"><div class="n">—</div><div class="l">24-bit reversed: step at 100 m</div></div>
+          <div class="tile" id="tile-d32s"><div class="n">—</div><div class="l">float standard: step at 100 m</div></div>
+          <div class="tile" id="tile-d32r"><div class="n">—</div><div class="l">float reversed: step at 100 m</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Reversing the buffer only pays off with a float, and then the steps grow with distance instead of distance squared.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>A float32 spends 8 bits on an exponent and 23 on a mantissa. The exponent picks a power-of-two band; the mantissa picks one of 2²³ evenly spaced values inside it. So every band has the same number of codes, and the bands get narrower toward 0.</p>
         <p>Standard Z puts almost the whole scene in [0.5, 1), a single band where the spacing is 2⁻²⁴: no better than a 24-bit integer. Reverse-Z maps the far end of the scene toward 0, so the range 100 m to 1000 m alone gets four bands. The hyperbola's flattening is cancelled by the float's tightening.</p>
         <p>On the bottom plot that is the amber sawtooth. The step halves every time the stored value crosses a power of two, and the trend is linear in z instead of quadratic. The two D24 curves lie on top of each other, because flipping 1 − z inside an integer buffer keeps the same code spacing.</p>
@@ -438,48 +408,36 @@ clear.depthStencil = { 0.0f, 0 };
 <span class="c">// OpenGL 4.5: without this the [-1,1] to [0,1] remap throws the float precision away</span>
 glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
 glDepthFunc(GL_GREATER);  glClearDepth(0.0);</pre>
-
-        <p class="tldr">Reverse-Z works because float spacing tightens toward 0 as fast as the 1/z curve flattens; it needs a float buffer to do anything.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="fight">
+  <section id="fight" class="stage">
     <h2>Z-fighting: the flickering poster</h2>
-    <p class="sub">A poster is glued to a wall down the street, 1 mm in front of it. Drag the wall away from the player and watch the poster start flickering through the wall.</p>
+    <p class="sub">A poster is glued to a wall down the street, 1 mm in front of it. Drag the wall away from the player and the poster starts flickering through the wall.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" width="640" height="360" class="grab wide16" aria-label="A street seen from above with a player on the left, lamp posts along the road, and a wall carrying a poster on a log distance axis that you can drag; below it a 64 by 16 pixel strip of what the player sees, green where the poster wins the depth test and red where the wall shows through"></canvas>
+        <canvas id="c4" width="640" height="360" class="grab r169" aria-label="A street seen from above with a player on the left, lamp posts along the road, and a wall carrying a poster on a log distance axis that you can drag; below it a 64 by 16 pixel strip of what the player sees, green where the poster wins the depth test and red where the wall shows through"></canvas>
         <div class="cap"><span id="c4-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain"><b>Z-fighting</b> is two surfaces closer together than one depth step, so they <b>share a code and the pixels flicker</b> between them. Here a poster sits 1 mm in front of a wall. <b>Move the wall away and the fight starts</b> where the step size reaches 1 mm. <b>Depth bias</b> is the usual patch: nudge the poster toward the camera before the test.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The top is the street from above: the player on the left, lamp posts along the kerb, and the wall on a log distance axis with a white handle you drag. The green line on the wall is the poster, pushed forward far more than its real 1 mm so you can see it. The grazing angle turns the wall so the player sees it at a slant. The red dashed line marks the distance where the fight begins.</p>
-        <p>The strip below is what the player sees: 64×16 pixels of the poster cut from the centre of a 1920×1080 frame with a 60° field of view, tested exactly as the buffer would test them. Green means the poster won the pixel. Red means both surfaces got the same code and the wall kept it, so the wall shows through.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the wall to the right until the strip goes red. The "fight starts at" tile told you the distance in advance.</li>
-          <li>Switch to D32F rev. The fight distance moves past the far plane, and the strip stays green all the way down the street.</li>
-          <li>Raise Grazing angle to 80°. The wall turns almost edge-on, the gap along the view axis grows and the fight starts further out. Under reverse-Z, a bias with the wrong sign moves the poster the wrong way.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><span class="lab">Buffer</span><div class="seg" id="seg4" role="group" aria-label="Depth buffer configuration"><button data-v="d24s" aria-pressed="true">D24 std</button><button data-v="d24r">D24 rev</button><button data-v="d32s">D32F std</button><button data-v="d32r">D32F rev</button></div></div>
-          <div class="ctl"><label for="a4">Grazing angle <span class="val" id="a4v"></span></label><input type="range" id="a4" min="0" max="80" step="1" value="45"></div>
-          <div class="ctl"><label for="n4">Near <span class="val" id="n4v"></span></label><input type="range" id="n4" min="-2" max="0" step="0.01" value="-1"></div>
-          <div class="ctl"><label for="bc4">Constant bias <span class="val" id="bc4v"></span></label><input type="range" id="bc4" min="0" max="8" step="0.5" value="0"></div>
-          <div class="ctl"><label for="bs4">Slope bias <span class="val" id="bs4v"></span></label><input type="range" id="bs4" min="0" max="4" step="0.25" value="0"></div>
+      <div class="lesson" data-lesson="fight">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><span class="lab">How each number is stored</span><div class="seg" id="seg4" role="group" aria-label="Depth buffer configuration"><button data-v="d24s" aria-pressed="true">24-bit</button><button data-v="d24r">24-bit, reversed</button><button data-v="d32s">32-bit float</button><button data-v="d32r">32-bit float, reversed</button></div></div>
+          <div class="ctl"><label for="bc4">Bias: test the poster this many steps nearer <span class="val" id="bc4v"></span></label><input type="range" id="bc4" min="0" max="8" step="0.5" value="0"></div>
+          <div class="ctl"><label for="bs4">Extra bias for a tilted wall <span class="val" id="bs4v"></span></label><input type="range" id="bs4" min="0" max="4" step="0.25" value="0"></div>
+          <div class="ctl"><label for="a4">How far the wall is turned away <span class="val" id="a4v"></span></label><input type="range" id="a4" min="0" max="80" step="1" value="45"></div>
+          <div class="ctl"><label for="n4">Near plane <span class="val" id="n4v"></span></label><input type="range" id="n4" min="-2" max="0" step="0.01" value="-1"></div>
         </div>
         <div class="tiles">
-          <div class="tile"><div class="n" id="t4-step">—</div><div class="l">step at the wall</div></div>
-          <div class="tile"><div class="n" id="t4-gap">—</div><div class="l">gap along the view axis</div></div>
-          <div class="tile"><div class="n" id="t4-fight">—</div><div class="l">fight starts at</div></div>
+          <div class="tile"><div class="n" id="t4-step">—</div><div class="l">smallest step at the wall</div></div>
+          <div class="tile"><div class="n" id="t4-gap">—</div><div class="l">poster-to-wall gap, along the line of sight</div></div>
+          <div class="tile"><div class="n" id="t4-fight">—</div><div class="l">flicker starts at</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Flicker starts where the buffer's step grows past the gap between two surfaces; bias buys a little, a reversed float buys far more.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Both surfaces are rasterized, projected and quantized per pixel exactly as the buffer would store them. The wall is drawn first, the poster (a decal) second with the same test. Green pixels are where the decal's code is strictly closer; red pixels are where the two codes are equal and the wall keeps the pixel. The stripes are the two 1/z curves crossing code boundaries at slightly different places.</p>
         <p>Depth bias moves the decal before the test. The constant part is in units of the smallest step r. The slope part scales with how fast depth changes across one pixel, which is what a grazing angle does to the gap. Under reverse-Z "toward the camera" is +z, so both factors change sign, which is the most common bug when a renderer switches.</p>
         <p class="words">In words: the bias is a slope term for tilted triangles plus a constant term counted in depth steps.</p>
@@ -497,45 +455,33 @@ rs.DepthBiasClamp       = 0.0;
 
 <span class="c">// decals with no bias at all: same vertex math as the wall, then</span>
 dss.DepthFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL;   <span class="c">// ties go to the later draw</span></pre>
-
-        <p class="tldr">The fight starts where the step size reaches the gap; bias buys some distance, and a float reverse-Z buffer buys far more.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="readback">
-    <h2>Reading the buffer back</h2>
-    <p class="sub">Hover over a pixel of the road's depth buffer, as the player sees it, and turn its stored value back into metres, with the right formula and the wrong one.</p>
+  <section id="readback" class="stage">
+    <h2>Turning the number back into metres</h2>
+    <p class="sub">The depth buffer of the road as the player sees it. Hover a pixel and turn its stored number back into a distance, with the right formula and the wrong one.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="512" height="512" aria-label="The depth buffer of the night road from the player's eye, with lamp posts, a parked car and houses out to a kilometre, amber float exponent contours, a small colour inset of the same view, and a plot of the error from linearizing with the wrong convention"></canvas>
+        <canvas id="c5" width="512" height="512" class="sq" aria-label="The depth buffer of the night road from the player's eye, with lamp posts, a parked car and houses out to a kilometre, amber float exponent contours, a small colour inset of the same view, and a plot of the error from linearizing with the wrong convention"></canvas>
         <div class="cap"><span id="c5-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Effects like ambient occlusion, fog and reflections need to <b>turn a stored depth back into a real distance</b>. That only works if you <b>use the same convention the buffer was written with</b>. Mix them up and the result looks almost right, with near and far swapped. The <b>error tile shows the buffer's precision</b> at the pixel under your cursor, measured directly.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The big image is the depth buffer of the road from the player's eye: lamp posts, a parked car and houses out to 1 km, drawn as the raw stored value and brightened so reverse-Z's tiny numbers show up. The small inset in the sky is the same view in colour, so you can tell what each shape is. The amber contours mark where the float32 exponent changes; under reverse-Z each one is a doubling of distance.</p>
-        <p>The bottom plot compares the right formula (white) and the wrong-convention formula (red) across the whole depth range.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover from the car to the far houses. The linearized tile gives the distance in metres; the wrong-formula tile gives a confident, wrong number.</li>
-          <li>Switch to D32F standard. The contours collapse to one line hugging the near plane: the whole road shares one exponent band.</li>
-          <li>Switch to reverse, f = ∞. The reconstruction error barely changes. Dropping the far plane costs almost nothing.</li>
-        </ul>
-
-        <div class="controls">
-          <div class="ctl"><span class="lab">Buffer written as</span><div class="seg" id="seg5" role="group" aria-label="Depth convention"><button data-v="std">D32F standard</button><button data-v="rev" aria-pressed="true">D32F reverse</button><button data-v="inf">reverse, f = ∞</button></div></div>
+      <div class="lesson" data-lesson="readback">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><span class="lab">How the buffer was written</span><div class="seg" id="seg5" role="group" aria-label="Depth convention"><button data-v="std">32-bit float, standard</button><button data-v="rev" aria-pressed="true">32-bit float, reversed</button><button data-v="inf">reversed, no far plane</button></div></div>
         </div>
         <div class="tiles four">
-          <div class="tile"><div class="n" id="t5-stored">—</div><div class="l">stored value</div></div>
-          <div class="tile"><div class="n" id="t5-lin">—</div><div class="l">linearized, right formula</div></div>
-          <div class="tile"><div class="n" id="t5-wrong">—</div><div class="l">linearized, wrong formula</div></div>
-          <div class="tile"><div class="n" id="t5-err">—</div><div class="l">reconstruction error</div></div>
+          <div class="tile"><div class="n" id="t5-stored">—</div><div class="l">stored number</div></div>
+          <div class="tile"><div class="n" id="t5-lin">—</div><div class="l">distance, right formula</div></div>
+          <div class="tile"><div class="n" id="t5-wrong">—</div><div class="l">distance, wrong formula</div></div>
+          <div class="tile"><div class="n" id="t5-err">—</div><div class="l">how far off the buffer's rounding is</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Undo the curve with the formula that matches how the buffer was written, or near and far come out swapped.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The image brightens the raw value with a 0.25 power. Under reverse-Z the region between two contours has 2²³ codes to itself. Under standard Z there is one contour, hugging the near plane, and the whole scene shares a single band.</p>
         <p>Linearizing means undoing the 1/z curve to get view depth in metres, and it needs the same convention the buffer was written with. The bottom plot shows what happens otherwise: the reverse formula applied to standard data, or the other way round, maps near to far and far to near through a curve that looks plausible for one frame. The reconstruction error tile is the true view depth minus the linearized one, which is the buffer's precision at that pixel measured directly.</p>
         <p class="words">In words: each convention has its own formula for turning a stored value back into metres, and with an infinite far plane the reverse one collapses to n divided by the stored value.</p>
@@ -556,9 +502,7 @@ infinite far, standard: z_clip = z_view − n,  w_clip = z_view</div>
   <span class="k">vec4</span> v = invProj * ndc;
   <span class="k">return</span> v.xyz / v.w;                          <span class="c">// the divide undoes the perspective</span>
 }</pre>
-
-        <p class="tldr">Linearize with the formula that matches how the buffer was written, or you get a plausible picture with near and far swapped.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
@@ -721,8 +665,77 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; b.className = 'ok'; quiz.querySelectorAll('button').forEach(x => x.disabled = true); why.innerHTML = '<b>Right.</b> ' + o.why; save(); render(); }
+          else { b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; }
+          quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   const $ = id => document.getElementById(id);
+  let L1, L2, L3, L4, L5;
   const P24 = 16777215;
   const AMB = "#f2a341", BLU = "#4aa3ff", WHT = "#ffffff", GRN = "#5ad48a", RED = "#ef5d5d";
   const GRID = "rgba(255,255,255,0.12)", DIM = "rgba(255,255,255,0.5)", GND = "#0b0e13";
@@ -737,10 +750,10 @@ function kitInset(ctx, x, y, w, h, title) {
   function jac(z, n, f) { return z * z * (f - n) / (n * f); } // |dz_view / dz_ndc|
   function ulp32(x) { x = Math.abs(x); if (x === 0) return 2 ** -149; return 2 ** (Math.max(Math.floor(Math.log2(x)), -126) - 23); }
   const CFG = {
-    d24s: { name: "D24 standard", bits: 24, rev: false, col: BLU, dash: [] },
-    d24r: { name: "D24 reverse", bits: 24, rev: true, col: BLU, dash: [6, 5] },
-    d32s: { name: "D32F standard", bits: 32, rev: false, col: AMB, dash: [6, 5] },
-    d32r: { name: "D32F reverse", bits: 32, rev: true, col: AMB, dash: [] },
+    d24s: { name: "24-bit standard", bits: 24, rev: false, col: BLU, dash: [] },
+    d24r: { name: "24-bit reversed", bits: 24, rev: true, col: BLU, dash: [6, 5] },
+    d32s: { name: "32-bit float standard", bits: 32, rev: false, col: AMB, dash: [6, 5] },
+    d32r: { name: "32-bit float reversed", bits: 32, rev: true, col: AMB, dash: [] },
   };
   function stored(cfg, z, n, f) { return cfg.rev ? ndcRev(z, n, f) : ndcStd(z, n, f); }
   function quant(cfg, d) {
@@ -905,12 +918,12 @@ function kitInset(ctx, x, y, w, h, title) {
     P.curve(z => inR(z) ? ndcStd(z, n, f) : NaN, BLU, [], 400);
     for (const z of LAMPS) if (inR(z)) dot(x1, P.fx(z), P.fy(ndcStd(z, n, f)), WHT, 3.5);
     text(x1, "what the buffer stores at each distance (0 = near, 1 = far)", P.r.x, 180, DIM);
-    text(x1, "half of all codes", P.fx(2 * n) + 5, P.fy(0.5) - 4, DIM, "left", "bottom");
+    text(x1, "half of all values", P.fx(2 * n) + 5, P.fy(0.5) - 4, DIM, "left", "bottom");
     x1.setLineDash([3, 4]); x1.strokeStyle = "rgba(255,255,255,0.35)"; x1.beginPath(); x1.moveTo(P.fx(2 * n), P.fy(0.5)); x1.lineTo(P.fx(2 * n), P.r.y + P.r.h); x1.moveTo(P.r.x, P.fy(0.5)); x1.lineTo(P.fx(2 * n), P.fy(0.5)); x1.stroke(); x1.setLineDash([]);
 
     // histogram: codes per decade of road, bar height on a log scale
     const H = { x: 50, y: 344, w: 446, h: 136 }, bw = H.w / DEC.length;
-    text(x1, `codes per decade of road, ${bits}-bit buffer (bar height is log scale)`, H.x, 320, DIM);
+    text(x1, `values per stretch of road, ${bits}-bit buffer, log-scale bars`, H.x, 320, DIM);
     x1.strokeStyle = GRID; x1.lineWidth = 1;
     for (let e = 0; e <= log10(codes); e += 2) { const py = Math.round(H.y + H.h - e / log10(codes) * H.h * 0.86) + 0.5; x1.beginPath(); x1.moveTo(H.x, py); x1.lineTo(H.x + H.w, py); x1.stroke(); text(x1, e === 0 ? "1" : "10^" + e, H.x - 5, py, DIM, "right", "middle"); }
     DEC.forEach(([a, b], i) => {
@@ -924,7 +937,8 @@ function kitInset(ctx, x, y, w, h, title) {
       text(x1, fmtTick(a) + "–" + fmtTick(b), bx + (bw - 16) / 2, H.y + H.h + 5, DIM, "center", "top");
     });
     for (const z of LAMPS) $("t1-" + z).textContent = inR(z) ? fmtM(stepAt(cfg, z, n, f)) : "outside";
-    $("c1-cap").innerHTML = `near <strong>${fmtM(n)}</strong> · far <strong>${fmtM(f)}</strong> · ${codes.toLocaleString("en-US")} codes · half of them below <strong>${fmtM(2 * n)}</strong>`;
+    $("c1-cap").innerHTML = `near plane <strong>${fmtM(n)}</strong> · far plane <strong>${fmtM(f)}</strong> · ${codes.toLocaleString("en-US")} values · half of them spent inside <strong>${fmtM(2 * n)}</strong>`;
+    L1 && L1.check();
   }
   logSlider("n1", s1, "n", draw1); logSlider("f1", s1, "f", draw1);
   seg("seg1", s1, "bits", draw1, v => +v);
@@ -957,7 +971,8 @@ function kitInset(ctx, x, y, w, h, title) {
     $("t2-50").textContent = (s50 * 100).toFixed(s50 * 100 >= 1 ? 2 : 3) + " cm";
     $("t2-1m").textContent = n < 1 ? fmtPct(100 * ndcStd(Math.min(1, f), n, f)) : "0%";
     $("t2-need").textContent = fmtM(100 * 100 / (0.001 * P24));
-    $("c2-cap").innerHTML = `D24, near <strong>${fmtM(n)}</strong>, far <strong>${fmtM(f)}</strong> · step at 50 m <strong>${fmtM(s50)}</strong> · at the 100 m lamp <strong>${fmtM(sN)}</strong>`;
+    $("c2-cap").innerHTML = `24-bit buffer · near plane <strong>${fmtM(n)}</strong> · far plane <strong>${fmtM(f)}</strong> · smallest step at 50 m <strong>${fmtM(s50)}</strong> · at the 100 m lamp <strong>${fmtM(sN)}</strong>`;
+    L2 && L2.check();
   }
   logSlider("n2", s2, "n", draw2); logSlider("f2", s2, "f", draw2);
   draw2();
@@ -989,11 +1004,11 @@ function kitInset(ctx, x, y, w, h, title) {
     T.frame(); T.shade(n, f);
     T.curve(z => inR(z) ? ndcStd(z, n, f) : NaN, BLU, [], 400);
     T.curve(z => inR(z) ? ndcRev(z, n, f) : NaN, AMB, [], 400);
-    text(x3, "stored value; each shaded band is one float32 exponent, 2^23 codes", T.r.x, 158, DIM);
+    text(x3, "stored number; shaded bands are float zones, 8 million values each", T.r.x, 158, DIM);
     const S = plot(x3, { x: 50, y: 292, w: 446, h: 178 }, { min: 0.01, max: 10000, log: true }, { min: 1e-9, max: 10, log: true, skip: 2 });
     S.frame(); S.shade(n, f);
     for (const id in CFG) if ($("t-" + id).checked) { const c = CFG[id]; S.curve(z => inR(z) ? stepAt(c, z, n, f) : NaN, c.col, c.dash, 700); }
-    text(x3, "metres per depth code at each distance down the road", S.r.x, 276, DIM);
+    text(x3, "smallest step in metres at each distance down the road", S.r.x, 276, DIM);
     let best = null;
     for (const id in CFG) {
       const v = stepAt(CFG[id], 100, n, f);
@@ -1002,7 +1017,8 @@ function kitInset(ctx, x, y, w, h, title) {
     }
     for (const id in CFG) $("tile-" + id).classList.toggle("on", best && best.id === id);
     const a = stepAt(CFG.d24s, 100, n, f), b = stepAt(CFG.d32r, 100, n, f);
-    $("c3-cap").innerHTML = `at the 100 m lamp: D24 <strong>${fmtM(a)}</strong> · D32F reverse <strong>${fmtM(b)}</strong> · <strong>${(a / b).toFixed(0)}×</strong> finer`;
+    $("c3-cap").innerHTML = `smallest step at the 100 m lamp: 24-bit standard <strong>${fmtM(a)}</strong> · float reversed <strong>${fmtM(b)}</strong> · <strong>${(a / b).toFixed(0)}×</strong> finer`;
+    L3 && L3.check();
   }
   logSlider("n3", s3, "n", draw3); logSlider("f3", s3, "f", draw3);
   $("chk3").addEventListener("change", draw3);
@@ -1010,7 +1026,7 @@ function kitInset(ctx, x, y, w, h, title) {
 
   // ================= 4. z-fighting: a poster on a wall down the street =================
   const c4 = $("c4"), x4 = c4.getContext("2d");
-  const s4 = { D: 55, alpha: 45, n: 0.1, f: 1000, cfg: "d24s", bc: 0, bs: 0 };
+  const s4 = { D: 20, alpha: 45, n: 0.1, f: 1000, cfg: "d24s", bc: 0, bs: 0 };
   const STRIP_W = 64, STRIP_H = 16, DPX = 2 * Math.tan(Math.PI / 6) / 1920; // ndc-ish slope per pixel, 60° hfov
   const PSI = 25 * Math.PI / 180, CP = Math.cos(PSI), SP = Math.sin(PSI);
   const img4 = new ImageData(STRIP_W, STRIP_H), off4 = document.createElement("canvas"); off4.width = STRIP_W; off4.height = STRIP_H;
@@ -1095,7 +1111,8 @@ function kitInset(ctx, x, y, w, h, title) {
     $("t4-step").textContent = fmtM(stp);
     $("t4-gap").textContent = fmtM(gap);
     $("t4-fight").textContent = isFinite(Df) ? fmtM(Df) : "past far (" + fmtM(f) + ")";
-    $("c4-cap").innerHTML = `${cfg.name} · near ${fmtM(n)} · wall at <strong>${fmtM(D)}</strong> · step <strong>${fmtM(stp)}</strong> vs gap <strong>${fmtM(gap)}</strong> · poster wins <strong>${(100 * pass / (STRIP_W * STRIP_H)).toFixed(1)}%</strong>`;
+    $("c4-cap").innerHTML = `${cfg.name} · near plane ${fmtM(n)} · wall at <strong>${fmtM(D)}</strong> · buffer step <strong>${fmtM(stp)}</strong> against a <strong>${fmtM(gap)}</strong> gap · poster wins <strong>${(100 * pass / (STRIP_W * STRIP_H)).toFixed(1)}%</strong> of its pixels`;
+    L4 && L4.check();
   }
   const req4 = throttle(draw4);
   let drag4 = false;
@@ -1104,13 +1121,14 @@ function kitInset(ctx, x, y, w, h, title) {
     if (Math.abs(py - AX4.y) < 40 && py < 190) { drag4 = true; c4.setPointerCapture(ev.pointerId); s4.D = Math.max(1, Math.min(s4.f * 0.99, ax4.ix(px))); req4(); }
   });
   c4.addEventListener("pointermove", ev => { if (!drag4) return; const [px] = canvasPos(c4, ev); s4.D = Math.max(1, Math.min(s4.f * 0.99, ax4.ix(px))); req4(); });
-  const end4 = ev => { if (drag4) { drag4 = false; try { c4.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+  const end4 = ev => { if (drag4) { const [px] = canvasPos(c4, ev); if (isFinite(px)) s4.D = Math.max(1, Math.min(s4.f * 0.99, ax4.ix(px))); drag4 = false; draw4(); try { c4.releasePointerCapture(ev.pointerId); } catch (e) {} } };
   c4.addEventListener("pointerup", end4); c4.addEventListener("pointercancel", end4);
   seg("seg4", s4, "cfg", draw4);
-  linSlider("a4", s4, "alpha", v => v + "°", draw4);
+  const fmtA4 = v => v + "°", fmtBc4 = v => v.toFixed(1) + " steps", fmtBs4 = v => v.toFixed(2) + " × tilt";
+  linSlider("a4", s4, "alpha", fmtA4, draw4);
   logSlider("n4", s4, "n", draw4);
-  linSlider("bc4", s4, "bc", v => v.toFixed(1) + " × r", draw4);
-  linSlider("bs4", s4, "bs", v => v.toFixed(2) + " × m", draw4);
+  linSlider("bc4", s4, "bc", fmtBc4, draw4);
+  linSlider("bs4", s4, "bs", fmtBs4, draw4);
   draw4();
 
   // ================= 5. reading the buffer back =================
@@ -1207,13 +1225,13 @@ function kitInset(ctx, x, y, w, h, title) {
     x5.strokeStyle = WHT; x5.lineWidth = 1; x5.strokeRect(hi * 3.2 - 1, hj * 3.2 - 1, 5.2, 5.2);
     x5.beginPath(); x5.arc(cx, cy, 9, 0, Math.PI * 2); x5.stroke();
     kitLabel(x5, "this pixel", cx < 400 ? cx + 14 : cx - 14, cy, cx < 400 ? "left" : "right");
-    text(x5, `raw value^0.25 · amber = float exponent changes · ${cfg === "std" ? "standard" : cfg === "rev" ? "reverse" : "reverse, f = ∞"}`, 8, 284, DIM, "left", "bottom");
+    text(x5, `stored number, brightened · amber = the float changes zone · ${cfg === "std" ? "standard" : cfg === "rev" ? "reversed" : "reversed, no far plane"}`, 8, 284, DIM, "left", "bottom");
     // wrong-convention plot
     const P = plot(x5, { x: 54, y: 318, w: 442, h: 156 }, { min: 0.1, max: 1000, log: true }, { min: 0.01, max: 1000, log: true, skip: 2 });
     P.frame();
     P.curve(z => z, "rgba(255,255,255,0.35)", [4, 4]);
     P.curve(z => lin5(store5(z), false), RED, [], 400);
-    text(x5, "linearized distance against true distance: white = right formula, red = wrong convention", P.r.x, 300, DIM);
+    text(x5, "back to metres: white = right formula, red = wrong formula", P.r.x, 300, DIM);
     if (isFinite(zt)) { dot(x5, P.fx(zt), P.fy(Math.max(0.01, Math.min(1000, zw))), RED, 4); handle(x5, P.fx(zt), P.fy(zt), 5); }
     // readouts
     const xv = ((hi + 0.5) / RW * 2 - 1) * TANH * zl, yv = (1 - (hj + 0.5) / RH * 2) * TANV * zl;
@@ -1222,8 +1240,10 @@ function kitInset(ctx, x, y, w, h, title) {
     $("t5-wrong").textContent = isFinite(zt) ? fmtM(zw) : (isFinite(zw) ? fmtM(zw) : "∞");
     $("t5-err").textContent = isFinite(zt) ? fmtM(Math.abs(zt - zl)) : "—";
     $("c5-cap").innerHTML = isFinite(zt)
-      ? `pixel (${hi * 12}, ${hj * 12}) of 1920×1080 · true z <strong>${fmtM(zt)}</strong> · view pos <strong>(${xv.toFixed(2)}, ${yv.toFixed(2)}, ${zl.toFixed(2)}) m</strong>`
-      : `pixel (${hi * 12}, ${hj * 12}) of 1920×1080 · sky: cleared to <strong>${d}</strong>`;
+      ? `pixel (${hi * 12}, ${hj * 12}) of 1920×1080 · true distance <strong>${fmtM(zt)}</strong> · position from the camera <strong>(${xv.toFixed(2)}, ${yv.toFixed(2)}, ${zl.toFixed(2)}) m</strong>`
+      : `pixel (${hi * 12}, ${hj * 12}) of 1920×1080 · sky, cleared to <strong>${d}</strong>`;
+    s5.stats = { zt, d, zl, zw };
+    L5 && L5.check();
   }
   const req5 = throttle(draw5);
   c5.addEventListener("pointermove", ev => { const [px, py] = canvasPos(c5, ev); if (py < 288) { s5.hover = [Math.max(0, Math.min(RW - 1, Math.floor(px / 3.2))), Math.max(0, Math.min(RH - 1, Math.floor(py / 3.2)))]; req5(); } });
@@ -1244,5 +1264,91 @@ function kitInset(ctx, x, y, w, h, title) {
     };
     for (const id in rows) for (const z of [1, 100, 1000]) $(`tr-${id}-${z}`).textContent = fmtM(rows[id](z));
   })();
+
+  // ---------- guided steps ----------
+  const segOn = (el, v) => el.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v))));
+  const setLog = (id, v) => { $(id).value = log10(v); $(id + "v").textContent = fmtM(v); };
+
+  const set1 = o => { Object.assign(s1, o); setLog("n1", s1.n); setLog("f1", s1.f); segOn($("seg1"), s1.bits); draw1(); };
+  L1 = lesson("codes", { next: { id: "near", title: "The near plane sets everything" }, steps: [
+    { say: "A game keeps a second picture next to the one you see: for every pixel, a number saying how far away the thing drawn there is. That is the <b>depth buffer</b>, and it is how a wall hides what stands behind it. This is a road at night seen from the side, the player at the left, lamps at 1, 10, 100 and 1000 m, with distance squashed so 1 m and 1 km both fit. The grey strip under the road is the number the buffer stores at each distance: black is 0, white is 1.", enter: () => set1({ n: 0.1, f: 1000, bits: 24 }) },
+    { say: "The strip is nearly white by the 10 m lamp already. A 24-bit buffer can hold about 16 million different numbers, and the bars at the bottom count how many of them land on each stretch of road.", quiz: { q: "Which stretch of road gets the most of the buffer's 16 million values?", options: [
+        { t: "100 m to 1000 m, the longest stretch", why: "That stretch gets under one percent of them. Read the tallest bar." },
+        { t: "10 cm to 1 m, right in front of the player", ok: true, why: "About 90 percent of all the values are spent inside the first metre. Everything from 1 m to 1 km shares the rest, and the strip shows why: past the first lamp the stored number has almost nowhere left to climb." },
+        { t: "Every stretch gets the same share", why: "The bar heights are on a log scale, so each bar to the right has about a tenth as many values as the one before." } ] } },
+    { say: "The white dashed line just in front of the player is the <b>near plane</b>: the closest distance the camera bothers to draw. Anything nearer is cut off. It sits at 10 cm. <b>Drag the near plane down to 1 cm.</b>", todo: "drag the near plane to 1 cm", goal: () => s1.n <= 0.015, try: () => { $("n1").value = -2; $("n1").dispatchEvent(new Event("input")); }, enter: () => set1({ n: 0.1, f: 1000, bits: 24 }),
+      done: "A new bar fills up between 1 cm and 10 cm, every other bar drops, and the step at the 1000 m lamp got about ten times bigger. The buffer now spends most of itself on the few centimetres in front of the player's nose." },
+    { say: "The other dashed line, past the last lamp, is the <b>far plane</b>: the farthest distance drawn. It sits at 1 km.", quiz: { q: "If you push the far plane out to 10 km, what happens to the step at the 1000 m lamp?", options: [
+        { t: "It gets about ten times bigger, like moving the near plane did", why: "The far plane barely appears in the formula. Try it and watch the tiles." },
+        { t: "It hardly changes", ok: true, why: "The near plane sets the scale for the whole road; the far plane only trims where the road ends. The extra 1 km to 10 km stretch costs almost nothing." },
+        { t: "It gets smaller, because the road is longer", why: "A longer road cannot make the buffer finer anywhere. The step stays about the same." } ] },
+      todo: "now drag the far plane to 10 km", goal: () => s1.f >= 8000, try: () => { $("f1").value = 4; $("f1").dispatchEvent(new Event("input")); },
+      done: "The lamp tiles barely moved, and a small bar appeared for 1 km to 10 km. Whatever the far plane does, it does cheaply." },
+    { say: "<b>Switch the buffer to 16-bit</b>: about 65 thousand values instead of 16 million.", todo: "switch to 16-bit below", goal: () => s1.bits === 16, try: () => $("seg1").querySelector('[data-v="16"]').click(), enter: () => set1({ n: 0.1, f: 1000, bits: 24 }),
+      done: "Every tile got about 256 times worse, because each of the 65 thousand values now covers 256 of the old ones. More bits help, but only by that flat factor; the near plane changes the shape of the whole curve." },
+    { say: "The buffer does not store metres. It stores a number between 0 and 1 that climbs fast in the first metre and then flattens, so half its values are gone by twice the near distance and each ten times farther gets a tenth as many. The curve and the counting formula are under the hood." } ] });
+
+  const set2 = o => { Object.assign(s2, o); setLog("n2", s2.n); setLog("f2", s2.f); draw2(); };
+  L2 = lesson("near", { next: { id: "reverse", title: "Reverse-Z: flip it and use floats" }, steps: [
+    { say: "The road again, on a 24-bit buffer. The 100 m lamp is ringed in amber, and the label over it says how far apart two things must be there before the buffer can tell them apart: its <b>step</b>. Right now that is about 6 mm. The two graphs below plot that step: the top one as the near plane moves, the bottom one as the far plane moves. The white dot on each graph is your current setting.", enter: () => set2({ n: 0.1, f: 1000 }) },
+    { say: "<b>Drag the near plane from 10 cm out to 1 m.</b> Watch the near line walk out to the first lamp and the dot slide down the top graph.", todo: "drag the near plane to 1 m", goal: () => s2.n >= 0.8, try: () => { $("n2").value = 0; $("n2").dispatchEvent(new Event("input")); }, enter: () => set2({ n: 0.1, f: 1000 }),
+      done: "The step at the 100 m lamp fell from about 6 mm to 0.6 mm. Moving the near plane out ten times made every distance ten times finer, and the share of values wasted inside 1 m dropped to nothing." },
+    { say: "Now the bottom graph.", quiz: { q: "Drag the far plane from 1 km all the way out to 100 km. Does the step at the 100 m lamp get 100 times worse?", options: [
+        { t: "Yes, the far plane is 100 times farther", why: "Look at the bottom graph before you drag: it is almost flat from end to end." },
+        { t: "No, it barely moves", ok: true, why: "The far plane enters the step formula only as a fraction that is already 0.999. Pulling it in or pushing it out changes almost nothing." },
+        { t: "It gets better, the buffer has more room", why: "The buffer has the same 16 million values whatever the far plane. The step stays about the same." } ] },
+      todo: "now drag the far plane to 100 km", goal: () => s2.f >= 50000, try: () => { $("f2").value = 5; $("f2").dispatchEvent(new Event("input")); }, enter: () => set2({ f: 1000 }),
+      done: "The dot rode an almost flat line. Pulling the far plane in never fixes distant flicker; pushing the near plane out does." },
+    { say: "The third tile says what near plane you would need for a 1 mm step at 100 m: about 0.6 m. <b>Drag the near plane to 0.6 m</b> and look where the near line ends up.", todo: "drag the near plane to about 0.6 m", goal: () => s2.n >= 0.5 && s2.n <= 0.8, try: () => { $("n2").value = -0.22; $("n2").dispatchEvent(new Event("input")); }, enter: () => set2({ n: 0.1, f: 1000 }),
+      done: "The lamp label reads about 1 mm, and the near line now sits 60 cm in front of the player. In a first-person game the player's own hands and weapon would be cut off. That is the gap the next section closes." },
+    { say: "The step at any distance is that distance squared, divided by the near plane and the number of values. The far plane hardly counts. The formula and the near-plane-you-need rule are under the hood." } ] });
+
+  const set3 = o => { Object.assign(s3, o); setLog("n3", s3.n); setLog("f3", s3.f); for (const id in CFG) $("t-" + id).checked = true; draw3(); };
+  L3 = lesson("reverse", { next: { id: "fight", title: "Z-fighting: the flickering poster" }, steps: [
+    { say: "Under the road are two depth buffers for the same road. Blue is the <b>standard</b> way: 0 at the near plane, 1 at the far plane. It is solid past the first lamp, because everything beyond a metre stores almost exactly 1. Amber is <b>reversed</b>: 1 at the near plane, 0 at the far plane, so it fades to black down the road.", enter: () => set3({ n: 0.1, f: 1000 }) },
+    { say: "A buffer can hold its number as a whole number out of 16 million (24-bit), or as a <b>float</b>: a 32-bit format with a sliding decimal point, like scientific notation. A float's values are packed tightest near zero. The shaded bands on the upper graph are the float's zones: each holds the same 8 million values, and the bands get thinner toward 0.", quiz: { q: "Which way of storing the road gets more out of a float?", options: [
+        { t: "Standard, because its numbers are bigger", why: "Bigger is worse here. Near 1 a float's values are spread as far apart as a 24-bit whole number's." },
+        { t: "Reversed, because it puts the far road where the float's values are packed tightest", ok: true, why: "The far road is where the buffer was starving. Reversed, it lands near 0, in the thin bands, and the float's tightening cancels the curve's flattening." },
+        { t: "Neither, the flip only changes which end is 0", why: "True for a whole-number buffer, whose values are evenly spaced. Not true for a float. The next two steps show both." } ] } },
+    { say: "The bottom graph plots the step, in metres, at every distance for four buffers. The two blue lines, solid and dashed, run on top of each other. <b>Untick 24-bit, standard.</b>", todo: "untick 24-bit, standard", goal: () => !$("t-d24s").checked, try: () => $("t-d24s").click(), enter: () => set3({}),
+      done: "The dashed line, 24-bit reversed, sits exactly where the solid one was. Flipping a whole-number buffer changes nothing: its values are evenly spaced whichever end is 0." },
+    { say: "Now the dashed amber line: a 32-bit float, standard, not flipped.", quiz: { q: "Where does the float standard line sit on the bottom graph?", options: [
+        { t: "Far below the blue line: floats are more precise", why: "Not here. Look at the tiles: float standard and 24-bit standard read the same step at 100 m." },
+        { t: "On top of the blue line: no better than 24-bit", ok: true, why: "Standard puts the whole road between 0.5 and 1, a single float zone, where the values are spaced no finer than a 24-bit whole number's. Same memory, same steps." },
+        { t: "Above the blue line: floats are worse", why: "Not worse, just no better. The two lines lie on top of each other." } ] } },
+    { say: "Only the solid amber line, <b>float reversed</b>, is different, and by a lot. <b>Drag the near plane from 10 cm down to 1 cm</b> and watch which lines move.", todo: "drag the near plane to 1 cm", goal: () => s3.n <= 0.015, try: () => { $("n3").value = -2; $("n3").dispatchEvent(new Event("input")); }, enter: () => set3({ n: 0.1, f: 1000 }),
+      done: "The blue lines jumped ten times worse. The solid amber line barely moved. Reversed float steps grow with the distance, not the distance squared, and they hardly care where the near plane sits." },
+    { say: "Reversing the buffer only pays off with a float, and a float only pays off when reversed. Together they turn a distance-squared problem into a distance problem. The switch is three lines of code, listed under the hood." } ] });
+
+  const set4 = o => { Object.assign(s4, o); segOn($("seg4"), s4.cfg); setLog("n4", s4.n); $("a4").value = s4.alpha; $("a4v").textContent = fmtA4(s4.alpha); $("bc4").value = s4.bc; $("bc4v").textContent = fmtBc4(s4.bc); $("bs4").value = s4.bs; $("bs4v").textContent = fmtBs4(s4.bs); draw4(); };
+  const reset4 = { alpha: 45, n: 0.1, cfg: "d24s", bc: 0, bs: 0 };
+  L4 = lesson("fight", { next: { id: "readback", title: "Turning the number back into metres" }, steps: [
+    { say: "The top is the street from above: the player on the left, lamps along the kerb, and a wall you can drag along the road. The green line on the wall is a poster, 1 mm in front of it, drawn far thicker than that so you can see it. The strip below is what the player sees: 64 by 16 pixels of the poster, magnified. Green means the poster won the pixel, red means the wall showed through.", enter: () => set4({ ...reset4, D: 20 }) },
+    { say: "<b>Drag the wall to the right</b>, away from the player, until the strip turns red.", todo: "drag the wall away until the strip goes red", goal: () => s4.D >= 60, try: () => { s4.D = 80; draw4(); }, enter: () => set4({ ...reset4, D: 20 }),
+      done: "Past about 49 m the strip goes red in stripes. Out there one step of the buffer is bigger than the 1 mm gap, so wall and poster round to the same stored number. The tie goes to whichever was drawn first, and that flips from pixel to pixel. This flicker is called <b>z-fighting</b>, and the red dashed line marked where it would start." },
+    { say: "The wall is flickering at 80 m.", quiz: { q: "Which change stops the flicker without moving the wall?", options: [
+        { t: "Pull the far plane in", why: "The far plane barely changes the step anywhere. The second section showed the graph." },
+        { t: "Switch to 32-bit float, reversed", ok: true, why: "The step out at the wall drops from millimetres to a few micrometres, far under the 1 mm gap." },
+        { t: "Move the near plane in, closer to the player", why: "That makes every step bigger, and the flicker starts even nearer." } ] },
+      todo: "now switch to 32-bit float, reversed", goal: () => s4.cfg === "d32r", try: () => $("seg4").querySelector('[data-v="d32r"]').click(), enter: () => set4({ ...reset4, D: 80 }),
+      done: "All green, and the red line is gone: the flicker would now start past the far plane. The first tile says the step at the wall is under a hundredth of a millimetre." },
+    { say: "Back on the 24-bit buffer. The usual patch is <b>depth bias</b>: before the test, pretend the poster is a little nearer than it is, so it wins the ties. <b>Raise the bias to 2 steps.</b>", todo: "raise the bias slider to 2 steps", goal: () => s4.bc >= 2, try: () => { $("bc4").value = 2; $("bc4").dispatchEvent(new Event("input")); }, enter: () => set4({ ...reset4, D: 80 }),
+      done: "Green again. The poster is tested two steps nearer than it really is, which is enough to beat the rounding. Too much bias and posters float in front of things they should be behind, so engines keep it small." },
+    { say: "Flicker starts where the buffer's step grows past the gap between two surfaces. Bias buys a little distance, and a reversed float buffer buys far more. The bias formula and the sign trap when a renderer switches to reverse-Z are under the hood." } ] });
+
+  const set5 = o => { Object.assign(s5, o); segOn($("seg5"), s5.cfg); build5(); draw5(); };
+  L5 = lesson("readback", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "This is the depth buffer of the road from the player's eye: lamp posts, a parked car and houses out to a kilometre, drawn as the stored number and brightened so the tiny reversed values show up. The inset at the top right is the same view in colour. The amber lines are where the float changes zone; reversed, each one is a doubling of distance.", enter: () => set5({ cfg: "rev", hover: [74, 52] }) },
+    { say: "Fog, reflections and shadows need the distance in metres back, not the stored number. <b>Hover the far houses</b>, near the middle of the picture, or the far end of the road.", todo: "hover the far houses or the far end of the road", goal: () => s5.stats && s5.stats.zt >= 150, try: () => { s5.hover = [84, 44]; draw5(); },
+      done: "The second tile turns the stored number back into hundreds of metres, and the stored number itself is tiny: reversed, far things sit near 0. Undoing the curve is one line of maths, but it has to be the line that matches how the buffer was written." },
+    { say: "The third tile uses the wrong line: the standard formula on reversed data. It still gives a confident number.", quiz: { q: "What is wrong with that number?", options: [
+        { t: "Nothing, the two formulas agree", why: "Compare the two tiles. They can differ by a factor of a thousand or more." },
+        { t: "Near and far are swapped: the far houses come out about 10 cm away and the near plane comes out at 1 km", ok: true, why: "The red curve on the bottom graph shows it: a smooth, believable line running the wrong way. The picture looks fine for a frame, then fog and shadows land in the wrong places." },
+        { t: "It gives infinity", why: "Only the sky does. Everything else comes out as a plausible, wrong distance." } ] } },
+    { say: "<b>Switch the buffer to 32-bit float, standard</b>, the unflipped way.", todo: "switch to 32-bit float, standard", goal: () => s5.cfg === "std", try: () => $("seg5").querySelector('[data-v="std"]').click(), enter: () => set5({ cfg: "rev" }),
+      done: "The amber lines collapse to one, hugging the near plane: the whole road now sits in a single float zone. Hover the far houses again and the stored number is crammed up against 1, with the last tile, the buffer's own rounding error, hundreds of times bigger than before." },
+    { say: "<b>Switch to reversed with no far plane at all.</b>", todo: "switch to reversed, no far plane", goal: () => s5.cfg === "inf", try: () => $("seg5").querySelector('[data-v="inf"]').click(),
+      done: "Almost nothing changed. Once the buffer is reversed, the far plane can be dropped entirely: nothing far away is ever cut off, and the formula back to metres becomes just the near plane divided by the stored number." },
+    { say: "Undo the curve with the formula that matches how the buffer was written. The three one-line formulas and the full position rebuild are under the hood." } ] });
 })();
 </script>

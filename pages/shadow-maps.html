@@ -220,69 +220,64 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 
 /* page-specific */
 .vp canvas { aspect-ratio: 1; }
-.vp canvas.c16 { aspect-ratio: 16 / 9; }
+.vp canvas.sq { aspect-ratio: 1; }
+.vp canvas.r169 { aspect-ratio: 16 / 9; }
+/* the picture column may not grow past its canvas, so long captions wrap instead of squeezing the steps */
+section.stage .vp:has(canvas.sq) { max-width: var(--stage-free); }
+section.stage .vp:has(canvas.r169) { max-width: min(calc(var(--stage-free) * 1.7778), 54vw); }
+.vp .cap span { min-width: 0; overflow-wrap: anywhere; }
 .tile .n { font-size: 22px; }
 .tiles.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .stats td.c0 { color: #f2a341; } .stats td.c1 { color: #4aa3ff; } .stats td.c2 { color: #e7eaef; } .stats td.c3 { color: #b98cf5; }
 .stats.small { font-size: 12px; margin-top: 14px; }
-.stats.small th, .stats.small td { padding: 5px 8px; }
+.stats.small th, .stats.small td { padding: 5px 6px; }
 .uses td:first-child { white-space: normal; min-width: 9ch; }
 </style>
 
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a 10 m × 10 m village square at night · one lantern with a 60° beam · its photo has 256 cells · drag the lantern and the player</p>
+    <p class="eyebrow">a village square at night, then the same village at sunrise · five guided demos · nothing to install</p>
     <h1>Shadow Maps &amp; Cascades</h1>
-    <p class="lead">A shadow map is a photo of the scene taken from where the light sits, except each pixel stores distance instead of colour. Games use it because it turns "is this pixel in shadow" into one texture read per pixel. That read compares a smooth surface against a grid of stored distances, and every artifact on this page comes from that mismatch. <b>The thing people get wrong:</b> "shadow bias" is not one number. Acne, peter-panning and grazing-angle leaks are three different failures with three different fixes.</p>
+    <p class="lead">A game cannot afford to ask, for every pixel, whether anything stands between it and the light. So it takes a photo from where the light sits, except every pixel of that photo stores a distance instead of a colour. That photo is a shadow map. Then each pixel on your screen looks up its own spot in the photo and compares: if the photo saw something nearer, the pixel is in shadow. One look-up and one comparison per pixel, and every artifact on this page comes from the photo being a grid of cells. <b>The thing people get wrong:</b> "shadow bias" is not one number. A wall shadowing itself, a shadow floating off its object and light leaking at a slant are three different failures with three different fixes.</p>
     <div class="key">
       <span style="--sw:#f2a341">ground the lantern lights</span>
       <span style="--sw:#101e16">ground in shadow, or outside the beam</span>
-      <span style="--sw:#4aa3ff">one cell of the lantern's photo, or the cells a filter reads</span>
-      <span style="--sw:#ffffff">drag handles and the ray to your cursor</span>
+      <span style="--sw:#4aa3ff">one cell of the lantern's photo, or the cells a blur reads</span>
+      <span style="--sw:#ffffff">drag handles, and the line from the lantern to your cursor</span>
       <span style="--sw:#5ad48a">the test says lit</span>
-      <span style="--sw:#ef5d5d">the test says shadow; on a lit wall face, acne</span>
+      <span style="--sw:#ef5d5d">the test says shadow; on a lit wall, a false shadow</span>
     </div>
     <dl class="terms">
-      <dt>shadow map</dt><dd>a photo taken from the light that stores distance, not colour; on this page, the lantern's photo</dd>
-      <dt>depth</dt><dd>how far a point is from the light, measured along the light's view</dd>
-      <dt>texel</dt><dd>one cell of a texture; here, one stored distance</dd>
-      <dt>light space</dt><dd>the scene as the light sees it; the frame the map is drawn in</dd>
-      <dt>bias</dt><dd>a small slack added to the compare so a surface does not shadow itself</dd>
+      <dt>shadow map</dt><dd>a photo taken from where the light sits that stores distance, not colour; on this page, the lantern's photo</dd>
+      <dt>depth</dt><dd>how far a point is from the light</dd>
+      <dt>texel</dt><dd>one cell of the photo, holding one stored distance; called a cell on this page</dd>
+      <dt>light space</dt><dd>the scene as the light sees it; the view the photo is taken in</dd>
+      <dt>bias</dt><dd>a small slack added to the comparison so a surface does not shadow itself</dd>
       <dt>acne</dt><dd>stripes of false shadow on a surface that should be lit</dd>
       <dt>peter-panning</dt><dd>a shadow that floats away from the object casting it</dd>
-      <dt>cascade</dt><dd>one shadow map fitted to one slice of the camera's view</dd>
+      <dt>cascade</dt><dd>one photo fitted to one slice of the camera's view, used for the sun</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#passes"><span class="n">01</span>Two passes</a></li><li><a href="#aliasing"><span class="n">02</span>Resolution</a></li><li><a href="#bias"><span class="n">03</span>Bias</a></li><li><a href="#filtering"><span class="n">04</span>Soft edges</a></li><li><a href="#cascades"><span class="n">05</span>Cascades</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#passes"><span class="n">01</span>How a light finds its shadows</a></li><li><a href="#aliasing"><span class="n">02</span>Why shadow edges go blocky</a></li><li><a href="#bias"><span class="n">03</span>When a wall shadows itself</a></li><li><a href="#filtering"><span class="n">04</span>Softening the edge</a></li><li><a href="#cascades"><span class="n">05</span>Shadows from the sun</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="passes">
-    <h2>Two passes: write depth, then compare</h2>
-    <p class="sub">A lantern lights a village square at night and the player stands behind a tree. Is the player in shadow? Drag the lantern, its aim handle or the player, and hover the ground to follow one pixel through the check.</p>
+  <section id="passes" class="stage">
+    <h2>How a light finds its shadows</h2>
+    <p class="sub">A lantern lights a village square at night and the player stands behind a tree. The demo follows one patch of ground through the shadow check.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c1" width="512" height="512" class="grab" aria-label="Village square seen from above at night: a lantern with a 60 degree beam lights a house, a tree, a garden wall and the player; the lantern's one-row shadow map is a strip along the top and a side-view inset shows whether the player is lit"></canvas>
+        <canvas id="c1" width="512" height="512" class="grab sq" aria-label="Village square seen from above at night: a lantern with a 60 degree beam lights a house, a tree, a garden wall and the player; the lantern's one-row photo is a strip along the top and a side-view inset shows whether the player is lit"></canvas>
         <div class="cap"><span id="c1-read">hover the ground</span><span id="c1-map"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The light takes a <b>distance photo</b> of the scene first. Then, for every pixel the camera sees, the shader checks whether <b>something closer to the light</b> shows up in that photo at the same spot. If so, the pixel is in shadow. That is the whole trick, and it costs <b>one texture read per pixel</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The square from above: a lantern at the left, a house, a tree, a garden wall and the player. The strip across the top is the lantern's photo, <span id="c1-n">256</span> cells spread across its 60° beam, bright where the nearest thing is close. On the ground, amber is lit and dark green is shadow.</p>
-        <p>Hover a ground point and a blue wedge shows which cell it falls in, with a blue dot at the stored distance. The point turns green if it passes the test and red if it fails. The inset at the bottom right is the same line from the side, lantern to player, so you can see the player standing in the tree's shadow.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover just behind the house. The white ray from the lantern hits the house first, so the stored distance is shorter than yours and the dot turns red.</li>
-          <li>Drag the player out from behind the tree. The label flips from red "in shadow" to green "lit" and the inset shows the figure lit up.</li>
-          <li>Push the photo down to 32 cells. The shadow edges turn into steps, one step per cell.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="n1">Map texels N <span class="val" id="n1v">256</span></label><input type="range" id="n1" min="5" max="10" step="1" value="8"></div>
+      <div class="lesson" data-lesson="passes">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><label for="n1">Cells in the photo <span class="val" id="n1v">256</span></label><input type="range" id="n1" min="5" max="10" step="1" value="8"></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">A shadow map is a distance photo taken from the light; every screen pixel looks itself up in it once and compares.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Pass 1 renders the scene from the lantern with no colour at all. Each texel, one cell of the map, keeps the depth of the nearest surface along its ray, where depth means distance from the light measured along the light's forward direction. In this top-down world the map is a single row; in a game it is a full 2D texture.</p>
         <p>Pass 2 renders from the camera. For each ground pixel, transform its position into light space using the light's view-projection matrix, which gives a texture coordinate u and a depth z. Read the texel at u and compare: a stored depth smaller than z means something sits in front, so the pixel is shadowed. There is no ray cast and no geometry lookup, only one texture fetch.</p>
         <p class="words">In words: measure how far the point is from the light, find the cell it lands in, and compare against the distance stored there.</p>
@@ -305,43 +300,33 @@ vec2 uv  = ndc.xy * 0.5 + 0.5;               <span class="c">// [-1,1] to textur
 <span class="k">float</span> zMap = texture(uShadowMap, uv).r;       <span class="c">// nearest surface the light saw</span>
 <span class="k">float</span> shadow = zLit &gt; zMap + uBias ? 0.0 : 1.0;</pre>
 
-        <p class="tldr">A shadow map is a distance photo from the light; shading a pixel is one lookup and one compare.</p>
-      </div>
+        
+      </div></details>
     </div>
   </section>
 
-  <section id="aliasing">
-    <h2>Resolution: one cell covers many pixels</h2>
-    <p class="sub">The lantern shines past a house onto the long wall at the far side of the square. Drag the lantern away from the wall, or drag the wall's ends so the light grazes it, and watch each cell of the photo grow.</p>
+  <section id="aliasing" class="stage">
+    <h2>Why shadow edges go blocky</h2>
+    <p class="sub">The lantern shines past a house onto a long wall. Each cell of the photo widens as it travels, and the wall shows by how much.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" width="512" height="512" class="grab" aria-label="Village square from above: a lantern lights a house whose shadow has a stepped edge, and the long wall on the right is striped blue to show how wide each shadow-map cell lands on it"></canvas>
+        <canvas id="c2" width="512" height="512" class="grab sq" aria-label="Village square from above: a lantern lights a house whose shadow has a stepped edge, and the long wall on the right is striped blue to show how wide each cell of the photo lands on it"></canvas>
         <div class="cap"><span id="c2-read">hover the ground or the wall</span><span id="c2-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Each cell of the shadow map covers a <b>wedge of space</b> that gets wider the farther it travels from the light. Far from the light, <b>one stored distance</b> ends up spread over many screen pixels, so shadow edges go blocky. Surfaces that <b>lean away from the light</b> make it worse: a cell lands on a long strip of surface instead of a short one.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The long wall on the right is striped. Each blue stripe is one cell of the lantern's photo landing on the wall, in alternating shades so you can count them. The house casts a shadow on the ground behind it, and the amber arrow points at the edge of that shadow, which is stepped, one step per cell.</p>
-        <p>Hover anywhere in the beam and a blue wedge shows the cell you are in. The thick blue segment on the wall is how much wall that one cell covers.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the lantern to the far left. The stripes on the wall get wider and the shadow edge behind the house gets blockier.</li>
-          <li>Drag the bottom end of the wall to the right so the wall leans away from the lantern. The footprint tile jumps while the texel width tile barely moves.</li>
-          <li>Push the photo up to 1024 cells. The stripes shrink to a few pixels each and the edge looks smooth.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><label for="n2">Map texels N <span class="val" id="n2v">64</span></label><input type="range" id="n2" min="5" max="10" step="1" value="6"></div>
+      <div class="lesson" data-lesson="aliasing">
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><label for="n2">Cells in the photo <span class="val" id="n2v">64</span></label><input type="range" id="n2" min="5" max="10" step="1" value="6"></div>
         </div>
-        <div class="tiles">
-          <div class="tile" id="t2-w"><div class="n">–</div><div class="l">texel width at hover</div></div>
-          <div class="tile" id="t2-f"><div class="n">–</div><div class="l">footprint on wall</div></div>
-          <div class="tile" id="t2-p"><div class="n">–</div><div class="l">screen px per texel</div></div>
+        <div class="tiles" data-step-min="2">
+          <div class="tile" id="t2-w"><div class="n">–</div><div class="l">one cell's width where you hover</div></div>
+          <div class="tile" id="t2-f"><div class="n">–</div><div class="l">how much wall one cell covers</div></div>
+          <div class="tile" id="t2-p"><div class="n">–</div><div class="l">screen pixels per cell</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">Cells of the photo widen with distance and smear across tilted surfaces; every blocky shadow edge comes from one of the two.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>A texel is a wedge of light directions. Its width in metres grows with depth from the light, so a far receiver gets one depth value spread over many screen pixels. That stretch is called perspective aliasing, and it is why the shadow edge behind the house gets blockier as the lantern moves away.</p>
         <p>Projective aliasing is the other stretch. When a surface tilts away from the light, a texel of width <code>w</code> lands on a strip of surface <code>w / cos θ</code> long, where θ is the angle between the surface normal (the direction the surface faces) and the direction to the light. At 80° that strip is six times the texel width. The wall stripes show it directly.</p>
         <p class="words">In words: cell width grows with distance, then stretches again by how much the surface leans away.</p>
@@ -351,47 +336,37 @@ footprint on surface = w_texel / cos θ
 px per texel = footprint · screen px per metre</div>
         <p>z is depth from the light, fov the 60° cone, N the texel count and θ the angle between the surface normal and the light direction.</p>
 
-        <p class="tldr">Shadow-map cells grow with distance and stretch on tilted surfaces, and every blocky shadow edge comes from that.</p>
-      </div>
+        
+      </div></details>
     </div>
   </section>
 
-  <section id="bias">
-    <h2>Bias: acne, peter-panning, and the fixes</h2>
-    <p class="sub">A stone wall in the square both blocks the lantern and gets lit by it. Tilt the wall so the light grazes its face, switch bias modes, and hover the face for the numbers.</p>
+  <section id="bias" class="stage">
+    <h2>When a wall shadows itself</h2>
+    <p class="sub">A stone wall both blocks the lantern and is lit by it. Its lit face shows stripes of false shadow, and each fix trades them for a different problem.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c3" width="512" height="512" class="grab" aria-label="Village square from above: a lantern lights a stone wall whose lit face shows red stripes of false shadow, and behind the wall an arrow shows how far the shadow has floated away under the chosen bias"></canvas>
+        <canvas id="c3" width="512" height="512" class="grab sq" aria-label="Village square from above: a lantern lights a stone wall whose lit face shows red stripes of false shadow, and behind the wall an arrow shows how far the shadow has floated away under the chosen slack"></canvas>
         <div class="cap"><span id="c3-read">hover the wall face</span><span id="c3-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">A surface can <b>shadow itself by mistake</b>. The map stores one distance per cell, but a surface point half a cell to the side is slightly farther away, so it fails its own test and gets a stripe of false shadow: that is <b>acne</b>. The fix is a small <b>bias</b>, a slack added to the compare, but push it too far and shadows <b>float away from their objects</b>, which is peter-panning.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The stone wall blocks the lantern and gets lit by it. Its lit face is drawn as a band: pale amber where the depth test says lit, red where the face wrongly shadows itself. The dotted white lines through the wall's ends are where the true shadow edge should be; when the dark ground starts past them, an amber arrow measures how far the shadow has floated off the wall.</p>
-        <p>The three tiles report how much of the face is in acne, how far the shadow has detached from the wall, and the angle between the face and the lantern.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>With bias set to none, drag the bottom wall handle to the right so the face grazes the lantern. The red band grows and the acne tile climbs.</li>
-          <li>Switch to constant and push c up. Watch the acne tile drop and the detach tile rise at the same time.</li>
-          <li>Switch to normal offset with k at 1 texel. The acne goes at grazing angles without a big constant term, so the detach gap stays small.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><span class="lab">Bias</span><div class="seg" id="seg3" role="group" aria-label="Bias mode"><button data-v="none" aria-pressed="true">none</button><button data-v="const">constant</button><button data-v="slope">slope-scaled</button><button data-v="normal">normal offset</button></div></div>
-          <div class="ctl"><span class="lab">Map texels</span><div class="seg" id="seg3n" role="group" aria-label="Shadow map resolution"><button data-v="32" aria-pressed="true">32</button><button data-v="64">64</button><button data-v="128">128</button></div></div>
-          <div class="ctl"><label for="b3c">Constant c <span class="val" id="b3cv">0.08 m</span></label><input type="range" id="b3c" min="0" max="0.5" step="0.01" value="0.08"></div>
-          <div class="ctl"><label for="b3s">Slope s <span class="val" id="b3sv">1.0</span></label><input type="range" id="b3s" min="0" max="3" step="0.1" value="1.0"></div>
-          <div class="ctl"><label for="b3k">Normal offset k <span class="val" id="b3kv">1.0 texel</span></label><input type="range" id="b3k" min="0" max="3" step="0.1" value="1.0"></div>
+      <div class="lesson" data-lesson="bias">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><span class="lab">Slack (bias)</span><div class="seg" id="seg3" role="group" aria-label="Bias mode"><button data-v="none" aria-pressed="true">none</button><button data-v="const">constant</button><button data-v="slope">scaled by tilt (slope-scaled)</button><button data-v="normal">nudge off the surface (normal offset)</button></div></div>
+          <div class="ctl"><label for="b3c">Constant slack <span class="val" id="b3cv">0.08 m</span></label><input type="range" id="b3c" min="0" max="0.5" step="0.01" value="0.08"></div>
+          <div class="ctl"><label for="b3s">Tilt scale <span class="val" id="b3sv">1.0</span></label><input type="range" id="b3s" min="0" max="3" step="0.1" value="1.0"></div>
+          <div class="ctl"><label for="b3k">Nudge, in cells <span class="val" id="b3kv">1.0 cell</span></label><input type="range" id="b3k" min="0" max="3" step="0.1" value="1.0"></div>
+          <div class="ctl"><span class="lab">Cells in the photo</span><div class="seg" id="seg3n" role="group" aria-label="Shadow map resolution"><button data-v="32" aria-pressed="true">32</button><button data-v="64">64</button><button data-v="128">128</button></div></div>
         </div>
         <div class="tiles">
-          <div class="tile" id="t3-acne"><div class="n">–</div><div class="l">face samples in acne</div></div>
-          <div class="tile" id="t3-gap"><div class="n">–</div><div class="l">shadow detaches by</div></div>
-          <div class="tile" id="t3-th"><div class="n">–</div><div class="l">angle at face center</div></div>
+          <div class="tile" id="t3-acne"><div class="n">–</div><div class="l">of the lit face in false shadow</div></div>
+          <div class="tile" id="t3-gap"><div class="n">–</div><div class="l">shadow floats off the wall by</div></div>
+          <div class="tile" id="t3-th"><div class="n">–</div><div class="l">wall's tilt from facing the lantern</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">Too little slack and a wall shadows itself, too much and its shadow comes loose; scale the slack by tilt or nudge the tested point.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Each texel stores the depth at its center ray. A face point half a texel to one side is a little farther from the light than that stored value, so with zero bias it fails its own test. The stripe period is exactly one texel. Depth precision is not the cause; a 32-bit float map shows the same stripes.</p>
         <p>A constant bias pushes every comparison back by c metres. Large enough to cover the grazing-angle case, it also pushes the shadow away from the wall's back face: peter-panning. Slope-scaled bias grows the offset with tan θ, so flat-on faces get almost none and grazing faces get a lot.</p>
         <p>Normal offset moves the lookup position off the surface along its normal instead of changing the depth. That is why it survives grazing angles where depth bias alone needs a huge value.</p>
@@ -415,46 +390,38 @@ vec3 ndc  = lp.xyz / lp.w;
 <span class="k">float</span> zMap = texture(uShadowMap, ndc.xy * 0.5 + 0.5).r;
 <span class="k">float</span> lit  = (ndc.z * 0.5 + 0.5) &gt; zMap + bias ? 0.0 : 1.0;</pre>
 
-        <p class="tldr">Acne and peter-panning are the two ends of one slider; slope-scaled and normal-offset bias let you avoid both.</p>
-      </div>
+        
+      </div></details>
     </div>
   </section>
 
-  <section id="filtering">
-    <h2>Soft edges: PCF, PCSS and variance maps</h2>
-    <p class="sub">The player stands right at the edge of a tree's shadow in the lantern light. Hover a shadowed spot to see which cells the filter reads, on the strip and in the scene, then switch filter modes and watch the edge under the player go soft.</p>
+  <section id="filtering" class="stage">
+    <h2>Softening the edge</h2>
+    <p class="sub">The player stands right on the edge of a tree's shadow. Reading several cells of the photo instead of one blurs the edge, and smarter versions size the blur.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" width="512" height="512" class="grab" aria-label="Village square from above: a lantern lights a crate and a tree, the player stands on the edge of the tree's shadow, and a side-view inset shows how lit the player is under the current filter"></canvas>
+        <canvas id="c4" width="512" height="512" class="grab sq" aria-label="Village square from above: a lantern lights a crate and a tree, the player stands on the edge of the tree's shadow, and a side-view inset shows how lit the player is under the current blur"></canvas>
         <div class="cap"><span id="c4-read">hover the ground</span><span id="c4-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">A single lookup gives a <b>hard, jagged edge</b>. The fix is to <b>read several neighbouring cells</b>, test each one, and average the yes/no answers, which blurs the edge. Fancier versions <b>size the blur to match the geometry</b>, so a shadow is sharp where the object touches the ground and softer farther away, like a real one.</p>
-
-        <h3>What you're seeing</h3>
-        <p>A crate and a tree stand in the lantern's beam, and the player stands on the upper edge of the tree's shadow. Hover the shadow behind either one. On the strip, the blue band is the set of cells the filter reads, with a green dot for each cell that says lit and a red dot for each that says shadow. In the scene the same band is drawn as a blue fan from the lantern.</p>
-        <p>The hover dot's colour is the averaged result, from red (fully shadowed) to green (fully lit). The inset shows the player from the side with a percentage: how lit the filter says they are.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Switch between hard and PCF 5. The shadow edge under the player goes from a staircase to a smooth ramp five cells wide, and the player's percentage stops being 0 or 100.</li>
-          <li>Pick PCSS and hover just behind the tree, then far behind it. The kernel readout in the caption grows with distance from the blocker.</li>
-          <li>Pick VSM and raise the blur. Where the tree's shadow meets the crate's, the shadow goes grey: that is light bleeding.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><span class="lab">Filter</span><div class="seg" id="seg4" role="group" aria-label="Filter mode"><button data-v="hard">hard</button><button data-v="pcf3">PCF 3</button><button data-v="pcf5" aria-pressed="true">PCF 5</button><button data-v="poisson">Poisson 8</button><button data-v="pcss">PCSS</button><button data-v="vsm">VSM</button></div></div>
-          <div class="ctl"><label for="n4">Map texels N <span class="val" id="n4v">256</span></label><input type="range" id="n4" min="5" max="10" step="1" value="8"></div>
-          <div class="ctl"><label for="ls4">Light size <span class="val" id="ls4v">0.6 m</span></label><input type="range" id="ls4" min="0.1" max="1.5" step="0.1" value="0.6"></div>
-          <div class="ctl"><label for="bl4">VSM blur <span class="val" id="bl4v">±4 texels</span></label><input type="range" id="bl4" min="1" max="12" step="1" value="4"></div>
+      <div class="lesson" data-lesson="filtering">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">Cells each pixel reads</span><div class="seg" id="seg4" role="group" aria-label="Filter mode"><button data-v="hard">1 (hard)</button><button data-v="pcf3">3 (PCF)</button><button data-v="pcf5" aria-pressed="true">5 (PCF)</button><button data-v="poisson">8 scattered (Poisson)</button><button data-v="pcss">sized by distance (PCSS)</button><button data-v="vsm">pre-blurred photo (VSM)</button></div></div>
         </div>
-        <div class="tiles">
-          <div class="tile" id="t4-taps"><div class="n">–</div><div class="l">fetches per pixel, 1D</div></div>
-          <div class="tile" id="t4-taps2"><div class="n">–</div><div class="l">fetches per pixel, 2D</div></div>
-          <div class="tile" id="t4-val"><div class="n">–</div><div class="l">lit fraction at hover</div></div>
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><label for="ls4">Lantern size <span class="val" id="ls4v">0.6 m</span></label><input type="range" id="ls4" min="0.1" max="1.5" step="0.1" value="0.6"></div>
+          <div class="ctl"><label for="bl4">Pre-blur width <span class="val" id="bl4v">±4 cells</span></label><input type="range" id="bl4" min="1" max="12" step="1" value="4"></div>
+          <div class="ctl"><label for="n4">Cells in the photo <span class="val" id="n4v">256</span></label><input type="range" id="n4" min="5" max="10" step="1" value="8"></div>
         </div>
-
-        <h3>The real version</h3>
+        <div class="tiles" data-step-min="3">
+          <div class="tile" id="t4-taps"><div class="n">–</div><div class="l">cells read per pixel, this one-row photo</div></div>
+          <div class="tile" id="t4-taps2"><div class="n">–</div><div class="l">cells read per pixel, a real 2D photo</div></div>
+          <div class="tile" id="t4-val"><div class="n">–</div><div class="l">how lit, where you hover (0 to 1)</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">Average the yes-or-no answers, never the distances; size the blur from the blocker's distance, or pre-blur the photo and accept some leaking.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Percentage-closer filtering, PCF, does the depth test at several neighbouring texels and averages the results. Averaging the depths first and testing once would be wrong: the mean of two surfaces is a surface that does not exist. The averaged verdict is a coverage fraction, so the edge blurs over the kernel width, the span of texels the filter reads. The blur is the same width everywhere, which real shadows are not.</p>
         <p>PCSS, percentage-closer soft shadows, makes the kernel depend on geometry. First a blocker search averages the depths of the map texels that are closer than the receiver, the surface being shaded. That average blocker depth and the light's size give a penumbra width, the width of the soft edge, by similar triangles, and the PCF kernel is sized to it. The shadow is sharp where the receiver touches the tree trunk and widens with distance.</p>
         <p>Variance shadow maps, VSM, store depth and depth squared, blur the map itself once, and bound the lit fraction with Chebyshev's inequality, a rule that turns a mean and a variance into a worst-case probability. One bilinear fetch gives a soft edge. The cost is light bleeding: where two occluders at different depths land in one blurred texel, the variance is large, the bound is loose, and light leaks into the shadow behind the far one.</p>
@@ -487,47 +454,37 @@ dBlocker /= <span class="k">float</span>(n);
 <span class="k">float</span> penumbra = (zLit - dBlocker) / dBlocker * uLightSize;
 <span class="k">return</span> pcfPoisson(uv, zLit, penumbra * uNear / zLit);</pre>
 
-        <p class="tldr">Average the test results, never the depths; PCSS sizes the blur from the blocker distance, and VSM pre-blurs the map but pays in light bleeding.</p>
-      </div>
+        
+      </div></details>
     </div>
   </section>
 
-  <section id="cascades">
-    <h2>Cascades: one map per slice of view</h2>
-    <p class="sub">Morning sun over the same village, seen from the side, with the camera floating behind the player. Drag the camera or the sun to see how the view gets split into near, mid and far slices, and how big each slice's shadow cells are.</p>
+  <section id="cascades" class="stage">
+    <h2>Shadows from the sun</h2>
+    <p class="sub">Morning sun over the village, seen from the side. The camera's view is cut into slices by distance, and each slice gets its own photo.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="640" height="360" class="c16 grab" aria-label="Side view of the village in daylight: the sun top left, the camera behind the player, trees and houses along the ground casting shadows, and the camera's view wedge split into coloured cascade slices with a strip under the ground showing which cascade each point uses"></canvas>
+        <canvas id="c5" width="640" height="360" class="r169 grab" aria-label="Side view of the village in daylight: the sun top left, the camera behind the player, trees and houses along the ground casting shadows, and the camera's view wedge cut into coloured slices with a strip under the ground showing which slice's photo each point uses"></canvas>
         <div class="cap"><span id="c5-read">hover the ground</span><span id="c5-cap"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The sun lights the whole world at once, so <b>one shadow map for the sun</b> has to cover hundreds of metres, and its cells end up 15 cm wide at your feet. Cascades fix that by <b>splitting the view into slices by distance</b> and giving each slice its own map. The <b>near slice gets small cells</b>; the far slice gets big ones nobody looks at closely.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Side view of the village, in metres: trees and houses along the ground with their sun shadows, the player near the camera. The white lines are the camera's frustum, which is just the wedge of space the camera can see. Dashed lines split it into slices, and each coloured box is one cascade's shadow map fitted around a slice, tilted to face the sun.</p>
-        <p>The coloured stripe under the ground shows which cascade each ground point uses. The number at each seam is how much the cell size jumps there, and the bars at the bottom show one cell of each map, magnified.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the sun low, toward 15°. The tree shadows stretch along the ground, the cascade boxes stretch with them, and every cell gets bigger.</li>
-          <li>Switch split to uniform. The near cascade grows to an equal share of the range and its cell size jumps in the table.</li>
-          <li>Push the far plane to 300 m with 3 cascades. Read the far cascade's cell size: that is what a distant hill gets.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:14px">
-          <div class="ctl"><span class="lab">Split</span><div class="seg" id="seg5" role="group" aria-label="Split scheme"><button data-v="0">uniform</button><button data-v="1">logarithmic</button><button data-v="p" aria-pressed="true">practical λ</button></div></div>
-          <div class="ctl"><label for="lam5">λ <span class="val" id="lam5v">0.75</span></label><input type="range" id="lam5" min="0" max="1" step="0.05" value="0.75"></div>
-          <div class="ctl"><span class="lab">Cascades</span><div class="seg" id="segK5" role="group" aria-label="Cascade count"><button data-v="3">3</button><button data-v="4" aria-pressed="true">4</button></div></div>
-          <div class="ctl"><label for="far5">Far plane <span class="val" id="far5v">120 m</span></label><input type="range" id="far5" min="50" max="300" step="10" value="120"></div>
+      <div class="lesson" data-lesson="cascades">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><span class="lab">How the view is cut</span><div class="seg" id="seg5" role="group" aria-label="Split scheme"><button data-v="0">even</button><button data-v="1">doubling (logarithmic)</button><button data-v="p" aria-pressed="true">a blend of both</button></div></div>
+          <div class="ctl"><label for="lam5">Blend: 0 even, 1 doubling <span class="val" id="lam5v">0.75</span></label><input type="range" id="lam5" min="0" max="1" step="0.05" value="0.75"></div>
+          <div class="ctl"><span class="lab">Slices</span><div class="seg" id="segK5" role="group" aria-label="Cascade count"><button data-v="3">3</button><button data-v="4" aria-pressed="true">4</button></div></div>
+          <div class="ctl"><label for="far5">How far the camera draws <span class="val" id="far5v">120 m</span></label><input type="range" id="far5" min="50" max="300" step="10" value="120"></div>
         </div>
         <div class="tbl-wrap">
         <table class="stats small" id="tbl5">
-          <thead><tr><th>Cascade, 2048² each</th><th>z range</th><th>ortho width</th><th>texel</th><th>D16</th><th>D32</th></tr></thead>
+          <thead><tr><th>photo</th><th>covers</th><th>box</th><th>one cell</th><th>16-bit</th><th>32-bit</th></tr></thead>
           <tbody id="tbl5b"></tbody>
         </table>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">The sun gets one photo per slice of the view, sharp near the player and coarse far away, with a seam at every hand-off.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>A sun has no position, only a direction, so its shadow map is an orthographic box, a projection with no perspective where every ray is parallel, wrapped around the camera frustum. One 2048² map over a 300 m view distance gives 15 cm texels at the player's feet. Cascades split the view depth into slices and fit a map to each, and the coloured stripe under the ground shows which cascade each point samples from.</p>
         <p>The split scheme decides where texel size jumps. Uniform splits waste the near map. Logarithmic splits match the perspective texel growth exactly but leave the far cascades huge. The practical split blends the two with λ, a weight from 0 (uniform) to 1 (logarithmic).</p>
         <p>At each boundary the texel size steps by the ratio shown. That seam is visible in a shipped game unless the boundary is dithered or the two cascades are blended over a metre or two.</p>
@@ -548,8 +505,8 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
 <span class="k">float</span> shadow = pcf(uShadowArray, vec3(uvz.xy, <span class="k">float</span>(c)), uvz.z - uBias[c]);
 <span class="c">// uBias[c] scales with the cascade's texel size</span></pre>
 
-        <p class="tldr">Cascades give the sun several maps at once, sharp near the camera and coarse far away, at the price of visible seams.</p>
-      </div>
+        
+      </div></details>
     </div>
   </section>
 
@@ -576,7 +533,7 @@ vec3 uvz = lp.xyz * 0.5 + 0.5;
   <section id="uses">
     <h2>Where it shows up in shipped games</h2>
     <p class="sub">Every row uses the same two passes; what changes is how the map is fitted, filtered and stored.</p>
-    <p class="plain">Read down the first column for the technique, then across for what the shader asks per pixel, what it keeps in memory, and where it shipped. Every one of these is <b>the same two passes</b> from the top of the page with a different way of <b>fitting, filtering or storing</b> the map.</p>
+    <p class="plain">Read down the first column for the technique, then across for what each pixel asks, what it keeps in memory, and where it shipped. Every one of these is <b>the same two passes</b> from the top of the page with a different way of <b>fitting, filtering or storing</b> the map.</p>
     <div class="tbl-wrap">
     <table class="uses">
       <thead><tr><th>Technique</th><th>What each pixel asks</th><th>What it keeps in memory</th><th>Seen in</th></tr></thead>
@@ -708,8 +665,78 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; b.className = 'ok'; quiz.querySelectorAll('button').forEach(x => x.disabled = true); why.innerHTML = '<b>Right.</b> ' + o.why; save(); render(); }
+          else { b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; }
+          quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   // ---------- shared: 10 m × 10 m village square seen from above, coords 0..1, 1 unit = 10 m ----------
+  let L1, L2, L3, L4, L5;
+  const $ = id => document.getElementById(id);
   const M = 10, W = 512, FAR = 2.0, NEAR = 0.02;       // far 20 m, near 0.2 m
   const HALF = Math.PI / 6, TANH = Math.tan(HALF);      // 60° beam
   const LIT = [214, 160, 78], DARK = [16, 30, 22], OUTSIDE = [12, 21, 16], SHAPE = [58, 63, 74];
@@ -904,24 +931,24 @@ function kitInset(ctx, x, y, w, h, title) {
     ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.font = MONO; ctx.textAlign = "left"; ctx.fillText(label, x, y + h + 13);
     ctx.textAlign = "right"; ctx.fillText("bright = close", x + w, y + h + 13); ctx.textAlign = "left";
   }
-  function label(ctx, text, x, y, color = "rgba(255,255,255,0.85)") { ctx.font = MONO; ctx.fillStyle = color; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.fillText(text, x, y); }
+  function label(ctx, text, x, y, color = "rgba(255,255,255,0.85)", align = "left") { ctx.font = MONO; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "alphabetic"; ctx.fillText(text, x, y); ctx.textAlign = "left"; }
 
   const worldOf = (canvas, ev) => { const r = canvas.getBoundingClientRect(); return [(ev.clientX - r.left) / r.width * (canvas.width / W), (ev.clientY - r.top) / r.height * (canvas.height / W)]; };
   function drag(canvas, getHandles, onMove, onHover, radius = 0.045) {
-    let active = -1;
+    let active = -1, last = null;
     canvas.addEventListener("pointerdown", ev => {
       const [x, y] = worldOf(canvas, ev);
       const hs = getHandles(); let best = -1, bd = radius;
       hs.forEach((h, i) => { const d = Math.hypot(h[0] - x, h[1] - y); if (d < bd) { bd = d; best = i; } });
-      if (best >= 0) { active = best; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); }
+      if (best >= 0) { active = best; last = [x, y]; canvas.setPointerCapture(ev.pointerId); onMove(best, x, y); }
       else if (onHover) onHover(x, y);
     });
     canvas.addEventListener("pointermove", ev => {
       const [x, y] = worldOf(canvas, ev);
-      if (active >= 0) onMove(active, Math.max(0.01, Math.min(0.99, x)), Math.max(0.01, Math.min(0.99, y)));
+      if (active >= 0) { last = [Math.max(0.01, Math.min(0.99, x)), Math.max(0.01, Math.min(0.99, y))]; onMove(active, last[0], last[1]); }
       else if (onHover) onHover(x, y);
     });
-    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    const end = ev => { if (active >= 0) { if (last) onMove(active, last[0], last[1]); active = -1; last = null; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
     canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
     canvas.addEventListener("pointerleave", () => { if (onHover) onHover(-1, -1); });
   }
@@ -953,7 +980,7 @@ function kitInset(ctx, x, y, w, h, title) {
     kitLabel(x1, "house", S1[0].c[0] * W, S1[0].c[1] * W - 46, "center");
     kitLabel(x1, "tree", S1[1].c[0] * W, S1[1].c[1] * W + 54, "center");
     kitLabel(x1, "garden wall", 0.42 * W, 0.83 * W, "center");
-    const litP = lit1(s1.P[0], s1.P[1]);
+    const litP = lit1(s1.P[0], s1.P[1]); s1.litP = litP;
     kitPlayerTop(x1, s1.P[0] * W, s1.P[1] * W, 9, playerFacing(s1.P, s1.L));
     kitLabel(x1, "player · drag", s1.P[0] * W, s1.P[1] * W - 20, "center", litP == null ? "#c7cdd8" : litP ? "#5ad48a" : "#ef5d5d");
     const fr = frame(s1.L), h = s1.hover; let hi = -1;
@@ -965,14 +992,16 @@ function kitInset(ctx, x, y, w, h, title) {
         wedge(x1, s1.L, s1.N, hi, s1.map);
         x1.strokeStyle = "#ffffff"; x1.lineWidth = 1.5; x1.beginPath(); x1.moveTo(s1.L.p[0] * W, s1.L.p[1] * W); x1.lineTo(h[0] * W, h[1] * W); x1.stroke();
         const shadowed = q.z > s1.map[hi];
+        if (shadowed) s1.sawShadow = true; else s1.sawLit = true;
         x1.beginPath(); x1.arc(h[0] * W, h[1] * W, 5, 0, Math.PI * 2); x1.fillStyle = shadowed ? "#ef5d5d" : "#5ad48a"; x1.fill();
-        label(x1, `this pixel: ${m(q.z)} from the lantern`, h[0] * W + 9, h[1] * W + 4);
-        read.innerHTML = `u = ${q.u.toFixed(3)} · cell <strong>${hi}</strong> of ${s1.N} · this pixel <strong>${m(q.z)}</strong> vs photo <strong>${m(s1.map[hi])}</strong> · <strong style="color:${shadowed ? "#ef5d5d" : "#5ad48a"}">${shadowed ? "shadowed" : "lit"}</strong>`;
-      } else read.textContent = "outside the lantern's beam: no cell to read, treat as lit or dark by convention";
+        if (h[0] > 0.6) label(x1, `this patch: ${m(q.z)} from the lantern`, h[0] * W - 9, h[1] * W - 10, undefined, "right"); else label(x1, `this patch: ${m(q.z)} from the lantern`, h[0] * W + 9, h[1] * W - 10);
+        read.innerHTML = `falls in cell <strong>${hi}</strong> of ${s1.N} · this patch is <strong>${m(q.z)}</strong> from the lantern · the photo says <strong>${m(s1.map[hi])}</strong> · <strong style="color:${shadowed ? "#ef5d5d" : "#5ad48a"}">${shadowed ? "something nearer is in the way: shadow" : "nothing nearer: lit"}</strong>`;
+      } else read.textContent = "outside the lantern's beam: no cell to read, so the game picks lit or dark by rule";
     } else read.textContent = "hover the ground";
     insetSide(x1, s1.L, S1, s1.P, lit1, litP);
-    drawStrip(x1, s1.map, s1.N, `pass 1, the lantern's photo: ${s1.N} cells`, hi);
-    document.getElementById("c1-map").textContent = `lantern at ${(s1.L.p[0] * M).toFixed(1)}, ${(s1.L.p[1] * M).toFixed(1)} m · one cell = ${(360 / s1.N * 60 / 360).toFixed(3)}° of beam`;
+    drawStrip(x1, s1.map, s1.N, `the lantern's photo: ${s1.N} cells, one stored distance each`, hi);
+    document.getElementById("c1-map").textContent = `lantern at ${(s1.L.p[0] * M).toFixed(1)}, ${(s1.L.p[1] * M).toFixed(1)} m · one cell = ${(360 / s1.N * 60 / 360).toFixed(3)}° of the beam`;
+    L1 && L1.check();
   }
   const req1 = raf(() => { build1(); draw1(); });
   drag(c1, () => [s1.L.p, aimOf(s1.L), s1.P], (i, x, y) => {
@@ -980,7 +1009,7 @@ function kitInset(ctx, x, y, w, h, title) {
     req1();
   }, (x, y) => { s1.hover = x < 0 ? null : [x, y]; draw1(); });
   const n1 = document.getElementById("n1");
-  n1.addEventListener("input", () => { s1.N = 2 ** +n1.value; document.getElementById("n1v").textContent = s1.N; document.getElementById("c1-n").textContent = s1.N; req1(); });
+  n1.addEventListener("input", () => { s1.N = 2 ** +n1.value; document.getElementById("n1v").textContent = s1.N; req1(); });
   build1(); draw1();
 
   // ---------- 2. resolution and aliasing ----------
@@ -993,6 +1022,10 @@ function kitInset(ctx, x, y, w, h, title) {
   function build2() {
     s2.map = buildMap(s2.N, s2.L, [BOX2]);
     const fr = frame(s2.L), wi = wallInfo(s2.A, s2.B);
+    { // the wall's tilt away from facing the lantern, measured at its middle
+      const cx = (s2.A[0] + s2.B[0]) / 2, cy = (s2.A[1] + s2.B[1]) / 2; let lx = s2.L.p[0] - cx, ly = s2.L.p[1] - cy; const ll = Math.hypot(lx, ly) || 1;
+      s2.theta = Math.acos(Math.min(1, Math.abs((lx * wi.n[0] + ly * wi.n[1]) / ll))) * 180 / Math.PI;
+    }
     s2.off = toCanvas(renderGround(R2, s2.L, [BOX2],
       (x, y, z, u) => z > s2.map[Math.min(s2.N - 1, Math.max(0, Math.floor(u * s2.N)))] ? 0 : 1,
       (x, y) => {
@@ -1021,7 +1054,7 @@ function kitInset(ctx, x, y, w, h, title) {
     blit(x2, s2.off); grid(x2); drawProps(x2, [BOX2]); wallOutline(x2, wallBox(s2.A, s2.B, TH2)); drawLight(x2, s2.L);
     handle(x2, s2.A[0], s2.A[1], 6); handle(x2, s2.B[0], s2.B[1], 6);
     kitLabel(x2, "house", BOX2.c[0] * W, BOX2.c[1] * W - 46, "center");
-    { const T = s2.A[1] < s2.B[1] ? s2.A : s2.B; kitLabel(x2, "long wall: one stripe = one cell", T[0] * W - 12, Math.max(66, T[1] * W), "right"); }
+    { const T = s2.A[1] > s2.B[1] ? s2.A : s2.B; kitLabel(x2, "long wall: one stripe = one cell · drag its ends", Math.min(T[0] * W + 20, W - 6), Math.min(T[1] * W + 22, W - 12), "right"); }
     const E = shadowEdge2();
     if (E && E[0] > 0.05 && E[0] < 0.95 && E[1] > 0.12 && E[1] < 0.95) { kitArrow(x2, E[0] * W - 22, E[1] * W + 28, E[0] * W - 2, E[1] * W + 3, "#f2a341"); kitLabel(x2, "stepped shadow edge", E[0] * W - 20, E[1] * W + 38, "right", "#f2a341"); }
     const fr = frame(s2.L), h = s2.hover, read = document.getElementById("c2-read");
@@ -1033,6 +1066,7 @@ function kitInset(ctx, x, y, w, h, title) {
         hi = Math.min(s2.N - 1, Math.floor(q.u * s2.N));
         wedge(x2, s2.L, s2.N, hi, null);
         const w = texelW(q.z, s2.N);
+        if (q.z < 0.25) s2.sawNear = true; if (q.z > 0.45) s2.sawFar = true;
         // nearest wall point: projective footprint there
         const [qx, qy] = nearestOnSeg(s2.A, s2.B, h[0], h[1]), wi = wallInfo(s2.A, s2.B);
         const qq = project(s2.L, fr, qx, qy), ww = texelW(Math.max(qq.z, NEAR), s2.N);
@@ -1044,13 +1078,14 @@ function kitInset(ctx, x, y, w, h, title) {
         // footprint segment on the wall
         x2.strokeStyle = "#4aa3ff"; x2.lineWidth = 3; x2.beginPath();
         x2.moveTo((qx - wi.t[0] * foot / 2) * W, (qy - wi.t[1] * foot / 2) * W); x2.lineTo((qx + wi.t[0] * foot / 2) * W, (qy + wi.t[1] * foot / 2) * W); x2.stroke(); x2.lineWidth = 1;
-        label(x2, `one cell on the wall · θ ${theta.toFixed(0)}°`, qx * W + 10, qy * W - 6);
-        read.innerHTML = `cell <strong>${hi}</strong> of ${s2.N} · z ${m(q.z)} · <strong>${(1 / (w * M)).toFixed(1)} cells / m</strong> · ${(w * M * 100).toFixed(1)} cm per cell`;
+        if (qx > 0.55) label(x2, `one cell landing on the wall · tilt ${theta.toFixed(0)}°`, qx * W - 10, qy * W - 6, undefined, "right"); else label(x2, `one cell landing on the wall · tilt ${theta.toFixed(0)}°`, qx * W + 10, qy * W - 6);
+        read.innerHTML = `cell <strong>${hi}</strong> of ${s2.N} · ${m(q.z)} from the lantern · one cell is <strong>${(w * M * 100).toFixed(1)} cm</strong> wide here · ${(1 / (w * M)).toFixed(1)} cells per metre`;
         tw.textContent = (w * M * 100).toFixed(1) + " cm"; tf.textContent = `${(foot * M * 100).toFixed(0)} cm · ${(foot * W).toFixed(0)} px`; tp.textContent = (w * W).toFixed(1) + " px";
       } else { read.textContent = "outside the beam"; tw.textContent = tf.textContent = tp.textContent = "–"; }
     } else { read.textContent = "hover the ground or the wall"; tw.textContent = tf.textContent = tp.textContent = "–"; }
-    drawStrip(x2, s2.map, s2.N, `the lantern's photo: ${s2.N} cells · the house casts`, hi);
-    document.getElementById("c2-cap").textContent = `512 px = 10 m · ${(W / M).toFixed(1)} px per metre`;
+    drawStrip(x2, s2.map, s2.N, `the lantern's photo: ${s2.N} cells · the dark patch is the house`, hi);
+    document.getElementById("c2-cap").textContent = `512 px = 10 m · wall tilted ${s2.theta.toFixed(0)}° from facing the lantern`;
+    L2 && L2.check();
   }
   const req2 = raf(() => { build2(); draw2(); });
   drag(c2, () => [s2.L.p, aimOf(s2.L), s2.A, s2.B], (i, x, y) => {
@@ -1064,7 +1099,7 @@ function kitInset(ctx, x, y, w, h, title) {
   // ---------- 3. bias ----------
   const c3 = document.getElementById("c3"), x3 = c3.getContext("2d");
   const s3 = { L: { p: [0.14, 0.5], ang: 0 }, N: 32, A: [0.62, 0.28], B: [0.7, 0.76], mode: "none", c: 0.008, s: 1.0, k: 1.0, map: null, off: null, hover: null, gap: -1 };
-  const TH3 = 0.04, R3 = 320;
+  const TH3 = 0.025, R3 = 320;   // a 25 cm stone wall
   function wall3() {
     const wb = wallBox(s3.A, s3.B, TH3), wi = wallInfo(s3.A, s3.B);
     let n = wi.n; if ((s3.L.p[0] - wb.c[0]) * n[0] + (s3.L.p[1] - wb.c[1]) * n[1] < 0) n = [-n[0], -n[1]];   // normal toward the light
@@ -1106,7 +1141,7 @@ function kitInset(ctx, x, y, w, h, title) {
     const theta = Math.acos(Math.min(1, Math.abs((lx * n[0] + ly * n[1]) / ll))) * 180 / Math.PI;
     document.getElementById("t3-acne").querySelector(".n").textContent = (100 * acne / K).toFixed(0) + " %";
     document.getElementById("t3-gap").querySelector(".n").textContent = gap < 0 ? "> 15 m" : (gap * M * 100).toFixed(0) + " cm";
-    document.getElementById("t3-th").querySelector(".n").textContent = theta.toFixed(0) + "°";
+    document.getElementById("t3-th").querySelector(".n").textContent = theta.toFixed(0) + "°"; s3.theta = theta;
     document.getElementById("t3-acne").classList.toggle("on", acne > 0);
     document.getElementById("t3-gap").classList.toggle("on", gap > 0.005);
     s3.acne = acne / K;
@@ -1127,11 +1162,11 @@ function kitInset(ctx, x, y, w, h, title) {
       if (E[0] < 0.95 && E[1] < 0.97) kitLabel(x3, "shadow should start here", E[0] * W, E[1] * W + 14, "center"); }
     const face = [wb.c[0] + n[0] * TH3 / 2, wb.c[1] + n[1] * TH3 / 2], fl = [face[0] + n[0] * 0.12, face[1] + n[1] * 0.12];
     kitArrow(x3, fl[0] * W, fl[1] * W, face[0] * W + n[0] * 3, face[1] * W + n[1] * 3, s3.acne > 0 ? "#ef5d5d" : "#5ad48a");
-    kitLabel(x3, s3.acne > 0 ? "lit face, red = false shadow (acne)" : "lit face, no acne", fl[0] * W, fl[1] * W + 16, "center", s3.acne > 0 ? "#ef5d5d" : "#5ad48a");
+    kitLabel(x3, s3.acne > 0 ? "lit face, red = false shadow (acne)" : "lit face, no false shadow", fl[0] * W, fl[1] * W - 14, "center", s3.acne > 0 ? "#ef5d5d" : "#5ad48a");
     if (s3.gap > 0.005) {
       const g0 = s3.back, g1 = [s3.back[0] + s3.backDir[0] * s3.gap, s3.back[1] + s3.backDir[1] * s3.gap];
       kitArrow(x3, g0[0] * W, g0[1] * W, g1[0] * W, g1[1] * W, "#f2a341", 2);
-      kitLabel(x3, `shadow floats ${(s3.gap * M * 100).toFixed(0)} cm off the wall`, g1[0] * W, g1[1] * W + 18, "center", "#f2a341");
+      kitLabel(x3, `shadow floats ${(s3.gap * M * 100).toFixed(0)} cm off the wall`, g1[0] * W, g1[1] * W + 30, "center", "#f2a341");
     }
     const h = s3.hover, read = document.getElementById("c3-read"); let hi = -1;
     if (h && h[1] > 0.1) {
@@ -1144,12 +1179,13 @@ function kitInset(ctx, x, y, w, h, title) {
         x3.strokeStyle = "#ffffff"; x3.lineWidth = 1; x3.beginPath(); x3.moveTo(s3.L.p[0] * W, s3.L.p[1] * W); x3.lineTo(q[0] * W, q[1] * W); x3.stroke();
         x3.beginPath(); x3.arc(q[0] * W, q[1] * W, 5, 0, Math.PI * 2); x3.fillStyle = d.lit ? "#5ad48a" : "#ef5d5d"; x3.fill();
         if (nearWall && s3.mode === "normal") { const w = texelW(d.z, s3.N); x3.strokeStyle = "#4aa3ff"; x3.beginPath(); x3.moveTo(q[0] * W, q[1] * W); x3.lineTo((q[0] + n[0] * s3.k * w) * W, (q[1] + n[1] * s3.k * w) * W); x3.stroke(); }
-        const kind = nearWall ? (d.lit ? "lit face" : "acne") : (d.lit ? "lit" : "shadow");
-        read.innerHTML = `${nearWall ? "wall face" : "ground"} z_p <strong>${m(d.z)}</strong> vs cell ${d.i} = <strong>${m(d.stored)}</strong> + bias <strong>${(d.bias * M * 100).toFixed(1)} cm</strong>${nearWall ? ` · tan θ ${d.tanT.toFixed(2)}` : ""} → <strong style="color:${d.lit ? "#5ad48a" : "#ef5d5d"}">${kind}</strong>`;
+        const kind = nearWall ? (d.lit ? "lit face" : "false shadow") : (d.lit ? "lit" : "shadow");
+        read.innerHTML = `${nearWall ? "wall face" : "ground"}: <strong>${m(d.z)}</strong> from the lantern · cell ${d.i} says <strong>${m(d.stored)}</strong> · slack <strong>${(d.bias * M * 100).toFixed(1)} cm</strong> → <strong style="color:${d.lit ? "#5ad48a" : "#ef5d5d"}">${kind}</strong>`;
       } else read.textContent = "outside the beam";
     } else read.textContent = "hover the wall face";
-    drawStrip(x3, s3.map, s3.N, `the lantern's photo: ${s3.N} cells · wall casts + receives`, hi);
+    drawStrip(x3, s3.map, s3.N, `the lantern's photo: ${s3.N} cells · bright band = the wall`, hi);
     document.getElementById("c3-cap").textContent = `one cell at the wall ≈ ${(texelW(project(s3.L, fr, wb.c[0], wb.c[1]).z, s3.N) * M * 100).toFixed(0)} cm`;
+    L3 && L3.check();
   }
   const req3 = raf(() => { build3(); draw3(); });
   drag(c3, () => [s3.L.p, aimOf(s3.L), s3.A, s3.B], (i, x, y) => {
@@ -1161,7 +1197,7 @@ function kitInset(ctx, x, y, w, h, title) {
   const b3c = document.getElementById("b3c"), b3s = document.getElementById("b3s"), b3k = document.getElementById("b3k");
   b3c.addEventListener("input", () => { s3.c = +b3c.value / M; document.getElementById("b3cv").textContent = (+b3c.value).toFixed(2) + " m"; req3(); });
   b3s.addEventListener("input", () => { s3.s = +b3s.value; document.getElementById("b3sv").textContent = (+b3s.value).toFixed(1); req3(); });
-  b3k.addEventListener("input", () => { s3.k = +b3k.value; document.getElementById("b3kv").textContent = (+b3k.value).toFixed(1) + " texel"; req3(); });
+  b3k.addEventListener("input", () => { s3.k = +b3k.value; document.getElementById("b3kv").textContent = (+b3k.value).toFixed(1) + " cell"; req3(); });
   build3(); draw3();
 
   // ---------- 4. filtering ----------
@@ -1223,7 +1259,7 @@ function kitInset(ctx, x, y, w, h, title) {
     const a = Math.atan2(vy, vx) + Math.asin(T.r / dc), t = dc + 0.14;
     return [s4.L.p[0] + Math.cos(a) * t, s4.L.p[1] + Math.sin(a) * t];
   }
-  const TAPS2D = { hard: "1", pcf3: "9", pcf5: "25", poisson: "8 to 16", pcss: "16 + 16 to 64", vsm: "4 (one bilinear)" };
+  const TAPS2D = { hard: "1", pcf3: "9", pcf5: "25", poisson: "8 to 16", pcss: "16 + 16 to 64", vsm: "4 in 1 read" };
   function draw4() {
     blit(x4, s4.off); grid(x4); drawProps(x4, S4); drawLight(x4, s4.L);
     kitLabel(x4, "crate", S4[0].c[0] * W, S4[0].c[1] * W - 36, "center");
@@ -1240,23 +1276,25 @@ function kitInset(ctx, x, y, w, h, title) {
       const q = project(s4.L, fr, h[0], h[1]);
       if (q.z > NEAR && Math.abs(q.lx / q.z) <= TANH) {
         const d = shade4(h[0], h[1], q.z, q.u, true); hi = clampI(Math.floor(q.u * s4.N)); kernel = d;
+        if (d.v > 0.05 && d.v < 0.95) s4.sawMixed = true;
         const range = (lo, hi2, fill) => { const fr2 = frame(s4.L), s0 = (2 * lo / s4.N - 1) * TANH, s1 = (2 * (hi2 + 1) / s4.N - 1) * TANH; x4.beginPath(); x4.moveTo(s4.L.p[0] * W, s4.L.p[1] * W); x4.lineTo((s4.L.p[0] + (fr2.fwd[0] + fr2.right[0] * s0) * FAR) * W, (s4.L.p[1] + (fr2.fwd[1] + fr2.right[1] * s0) * FAR) * W); x4.lineTo((s4.L.p[0] + (fr2.fwd[0] + fr2.right[0] * s1) * FAR) * W, (s4.L.p[1] + (fr2.fwd[1] + fr2.right[1] * s1) * FAR) * W); x4.closePath(); x4.fillStyle = fill; x4.fill(); };
         if (d.search) range(d.search[0], d.search[1], "rgba(74,163,255,0.08)");
         range(d.lo, d.hi, "rgba(74,163,255,0.16)");
         wedge(x4, s4.L, s4.N, hi, null, "rgba(74,163,255,0.25)");
         x4.strokeStyle = "#ffffff"; x4.lineWidth = 1; x4.beginPath(); x4.moveTo(s4.L.p[0] * W, s4.L.p[1] * W); x4.lineTo(h[0] * W, h[1] * W); x4.stroke();
         x4.beginPath(); x4.arc(h[0] * W, h[1] * W, 5, 0, Math.PI * 2); x4.fillStyle = `rgb(${Math.round(239 + (90 - 239) * d.v)},${Math.round(93 + (212 - 93) * d.v)},${Math.round(93 + (138 - 93) * d.v)})`; x4.fill();
-        let txt = `cell ${hi} · z_p ${m(q.z)} · `;
-        if (s4.mode === "pcss") txt += d.db ? `d_blocker <strong>${m(d.db)}</strong> · penumbra <strong>${(d.pen * M * 100).toFixed(0)} cm</strong> · kernel ±${d.rF} cells` : `no blocker in ±${(d.search[1] - d.search[0]) / 2} cells`;
-        else if (s4.mode === "vsm") txt += `μ <strong>${m(d.mu)}</strong> · σ² ${(d.va * M * M).toFixed(3)} m² · p = <strong>${d.v.toFixed(2)}</strong>`;
-        else txt += `${d.taps.filter(t => t.lit).length} of ${d.taps.length} taps lit`;
-        read.innerHTML = txt + ` → lit <strong>${d.v.toFixed(2)}</strong>`;
+        let txt = `cell ${hi} · ${m(q.z)} from the lantern · `;
+        if (s4.mode === "pcss") txt += d.db ? `blocker found <strong>${m(d.db)}</strong> from the lantern · soft edge <strong>${(d.pen * M * 100).toFixed(0)} cm</strong> wide · reads ±${d.rF} cells` : `no blocker within ±${(d.search[1] - d.search[0]) / 2} cells`;
+        else if (s4.mode === "vsm") txt += `blurred photo says <strong>${m(d.mu)}</strong> on average, give or take ${(Math.sqrt(d.va) * M).toFixed(2)} m`;
+        else txt += `${d.taps.filter(t => t.lit).length} of ${d.taps.length} cells say lit`;
+        read.innerHTML = txt + ` → <strong>${Math.round(d.v * 100)} % lit</strong>`;
         tv.textContent = d.v.toFixed(2); tt.textContent = d.n;
       } else { read.textContent = "outside the beam"; tv.textContent = "–"; tt.textContent = "–"; }
     } else { read.textContent = "hover the ground"; tv.textContent = "–"; tt.textContent = { hard: 1, pcf3: 3, pcf5: 5, poisson: 8, pcss: "16 + k", vsm: 2 }[s4.mode]; }
     insetSide(x4, s4.L, S4, s4.P, lit4, litP);
-    drawStrip(x4, s4.mode === "vsm" ? s4.m1 : s4.map, s4.N, s4.mode === "vsm" ? `VSM: photo mean after ±${s4.blur} cell blur` : `the lantern's photo: ${s4.N} cells`, hi, kernel);
-    document.getElementById("c4-cap").textContent = `light size ${(s4.ls * M).toFixed(1)} m · one cell at 5 m = ${(texelW(0.5, s4.N) * M * 100).toFixed(1)} cm`;
+    drawStrip(x4, s4.mode === "vsm" ? s4.m1 : s4.map, s4.N, s4.mode === "vsm" ? `the photo, pre-blurred ±${s4.blur} cells: average distance` : `the lantern's photo: ${s4.N} cells`, hi, kernel);
+    document.getElementById("c4-cap").textContent = `lantern size ${(s4.ls * M).toFixed(1)} m · one cell at 5 m = ${(texelW(0.5, s4.N) * M * 100).toFixed(1)} cm`;
+    L4 && L4.check();
   }
   const req4 = raf(() => { build4(); draw4(); });
   drag(c4, () => [s4.L.p, aimOf(s4.L), s4.P], (i, x, y) => { if (i === 0) s4.L.p = [x, y]; else if (i === 1) s4.L.ang = Math.atan2(y - s4.L.p[1], x - s4.L.p[0]); else s4.P = [x, y]; req4(); }, (x, y) => { s4.hover = x < 0 ? null : [x, y]; draw4(); });
@@ -1264,7 +1302,7 @@ function kitInset(ctx, x, y, w, h, title) {
   const n4 = document.getElementById("n4"), ls4 = document.getElementById("ls4"), bl4 = document.getElementById("bl4");
   n4.addEventListener("input", () => { s4.N = 2 ** +n4.value; document.getElementById("n4v").textContent = s4.N; req4(); });
   ls4.addEventListener("input", () => { s4.ls = +ls4.value / M; document.getElementById("ls4v").textContent = (+ls4.value).toFixed(1) + " m"; req4(); });
-  bl4.addEventListener("input", () => { s4.blur = +bl4.value; document.getElementById("bl4v").textContent = "±" + bl4.value + " texels"; req4(); });
+  bl4.addEventListener("input", () => { s4.blur = +bl4.value; document.getElementById("bl4v").textContent = "±" + bl4.value + " cells"; req4(); });
   build4(); draw4();
 
   // ---------- 5. cascades (side view of the village in daylight, metres) ----------
@@ -1307,9 +1345,9 @@ function kitInset(ctx, x, y, w, h, title) {
     const tb = document.getElementById("tbl5b"); let rows = "";
     s5.casc.forEach((c, i) => {
       const jump = i > 0 ? ` (×${(c.texel / s5.casc[i - 1].texel).toFixed(1)})` : "";
-      rows += `<tr><td class="c${i}">Cascade ${i}</td><td>${c.z0 < 1 ? c.z0.toFixed(1) : c.z0.toFixed(0)} to ${c.z1.toFixed(0)} m</td><td>${c.width.toFixed(0)} m</td><td class="hi">${(c.texel * 100).toFixed(1)} cm${jump}</td><td>${fmtMiB(2048 * 2048 * 2)}</td><td>${fmtMiB(2048 * 2048 * 4)}</td></tr>`;
+      rows += `<tr><td class="c${i}">Photo ${i}</td><td>${c.z0 < 1 ? c.z0.toFixed(1) : c.z0.toFixed(0)} to ${c.z1.toFixed(0)} m</td><td>${c.width.toFixed(0)} m</td><td class="hi">${(c.texel * 100).toFixed(1)} cm${jump}</td><td>${fmtMiB(2048 * 2048 * 2)}</td><td>${fmtMiB(2048 * 2048 * 4)}</td></tr>`;
     });
-    rows += `<tr><td>Total, ${s5.K} cascades</td><td></td><td></td><td></td><td class="hi">${fmtMiB(s5.K * 2048 * 2048 * 2)}</td><td class="hi">${fmtMiB(s5.K * 2048 * 2048 * 4)}</td></tr>`;
+    rows += `<tr><td>Total</td><td></td><td></td><td></td><td class="hi">${fmtMiB(s5.K * 2048 * 2048 * 2)}</td><td class="hi">${fmtMiB(s5.K * 2048 * 2048 * 4)}</td></tr>`;
     tb.innerHTML = rows;
   }
   function cascadeOfGround(x) { const { r } = s5.axes, pr = x * r[0]; for (let i = 0; i < s5.casc.length; i++) { const c = s5.casc[i]; if (pr >= c.rmin && pr <= c.rmax) return i; } return -1; }
@@ -1333,7 +1371,7 @@ function kitInset(ctx, x, y, w, h, title) {
     sunShadow(pX, playerH / sc5);
     for (const hx of HOUSES5) { const [p] = px(hx, 0); kitHouse(x5, p, GY, houseW, houseH); }
     for (const t of TREES5) { const [p] = px(t, 0); kitTree(x5, p, GY, treeS); }
-    { const [p] = px(pX, 0); kitPlayer(x5, p, GY, playerH, 1); kitLabel(x5, "player", p, GY - playerH - 14, "center"); }
+    { const [p] = px(pX, 0); kitPlayer(x5, p, GY, playerH, 1); const zc = splits5(); const near = zc.slice(1, s5.K).some(zz => Math.abs(px(...corner(zz, 1))[0] - p) < 70); kitLabel(x5, "player", p, GY - playerH - (near ? 32 : 14), "center"); }
     // clipped slices, faint
     s5.casc.forEach((c, i) => {
       x5.beginPath(); c.poly.forEach((q, k) => { const p = px(q[0], q[1]); k ? x5.lineTo(p[0], p[1]) : x5.moveTo(p[0], p[1]); }); x5.closePath();
@@ -1358,22 +1396,23 @@ function kitInset(ctx, x, y, w, h, title) {
     x5.setLineDash([4, 4]); x5.strokeStyle = "rgba(255,255,255,0.5)"; x5.lineWidth = 1; x5.beginPath();
     for (let i = 1; i <= s5.K; i++) seg(corner(z[i], -1), corner(z[i], 1));
     x5.stroke(); x5.setLineDash([]);
-    for (let i = 1; i <= s5.K; i++) { const a = px(...corner(z[i], 1)); label(x5, i < s5.K ? `split ${i}` : "far", a[0] - 6, a[1] - 6, "rgba(255,255,255,0.75)"); }
+    for (let i = 1; i <= s5.K; i++) { const a = px(...corner(z[i], 1)); if (i < s5.K) label(x5, `cut ${i}`, a[0] + 5, a[1] - 6, "rgba(255,255,255,0.75)"); else label(x5, "far end", a[0] - 5, a[1] - 6, "rgba(255,255,255,0.75)", "right"); }
     // ground: colored by the cascade a point samples from, seams marked with the texel-size jump
     let prev = -2; const seams = [];
     for (let p = 0; p < W5; p++) { const c = cascadeOfGround(p / sc5 + xmin5); x5.fillStyle = c < 0 ? "#2a2f3a" : CCOL[c]; x5.fillRect(p, GY + 3, 1, 7); if (c !== prev && prev !== -2) seams.push({ p, from: prev, to: c }); prev = c; }
+    let lastLab = -1e9, row = 0;
     for (const s of seams) {
       x5.strokeStyle = "#ffffff"; x5.beginPath(); x5.moveTo(s.p + 0.5, GY - 4); x5.lineTo(s.p + 0.5, GY + 14); x5.stroke();
-      if (s.from >= 0 && s.to >= 0) label(x5, `seam ×${(s5.casc[s.to].texel / s5.casc[s.from].texel).toFixed(1)}`, s.p + 4, GY + 26);
+      if (s.from >= 0 && s.to >= 0) { row = s.p - lastLab < 90 ? 1 - row : 0; label(x5, `cells ×${(s5.casc[s.to].texel / s5.casc[s.from].texel).toFixed(1)}`, s.p + 4, GY + 26 + row * 11); lastLab = s.p; }
     }
     // legend row: one texel of each cascade, magnified 300×
     s5.casc.forEach((c, i) => {
       const x0 = 10 + i * 152, L = Math.min(130, Math.max(2, c.texel * 300));
       x5.fillStyle = CCOL[i]; x5.fillRect(x0, GY + 42, L, 5);
-      label(x5, `map ${i}: ${(c.texel * 100).toFixed(1)} cm cells`, x0, GY + 62, "rgba(255,255,255,0.85)");
+      label(x5, `photo ${i}: ${(c.texel * 100).toFixed(1)} cm cells`, x0, GY + 62, "rgba(255,255,255,0.85)");
       label(x5, `${c.z0 < 1 ? c.z0.toFixed(1) : c.z0.toFixed(0)} to ${c.z1.toFixed(0)} m away`, x0, GY + 76, "rgba(255,255,255,0.55)");
     });
-    label(x5, "bars: one cell of each map, magnified 300× · small near the player, big far away", 10, GY + 94, "rgba(255,255,255,0.5)");
+    label(x5, "bars: one cell of each photo, magnified 300× · small near the player, big far away", 10, GY + 94, "rgba(255,255,255,0.5)");
     // sun: a disc on an arc you can drag, plus parallel rays
     x5.strokeStyle = "rgba(242,163,65,0.5)"; x5.lineWidth = 1; x5.beginPath();
     for (let k = 0; k < 5; k++) { const ox = 260 + k * 90, oy = 26; x5.moveTo(ox, oy); x5.lineTo(ox + d[0] * 34, oy - d[1] * 34); }
@@ -1387,20 +1426,21 @@ function kitInset(ctx, x, y, w, h, title) {
     // camera
     const cp = px(s5.cam[0], s5.cam[1]);
     x5.beginPath(); x5.arc(cp[0], cp[1], 7, 0, Math.PI * 2); x5.fillStyle = "#fff"; x5.fill(); x5.lineWidth = 2; x5.strokeStyle = "#0b0e13"; x5.stroke();
-    label(x5, `camera behind the player · ${s5.cam[1].toFixed(0)} m up · pitch −10° · fov 35° · drag`, 6, 30, "rgba(255,255,255,0.6)");
+    label(x5, `camera behind the player · ${s5.cam[1].toFixed(0)} m up · tilted down 10° · sees a 35° wedge · drag`, 6, 30, "rgba(255,255,255,0.6)");
     // hover
     const read = document.getElementById("c5-read");
     if (s5.hover) {
       const xm = s5.hover[0] / sc5 + xmin5, c = cascadeOfGround(xm), [p] = px(xm, 0);
       x5.strokeStyle = "#fff"; x5.lineWidth = 1; x5.beginPath(); x5.moveTo(p + 0.5, GY - 4); x5.lineTo(p + 0.5, GY + 14); x5.stroke();
-      if (c >= 0) { const cc = s5.casc[c], u = (xm * r[0] - cc.rmin) / cc.width; read.innerHTML = `ground x = ${xm.toFixed(0)} m · <strong style="color:${CCOL[c]}">cascade ${c}</strong> · u = ${u.toFixed(3)} · cell <strong>${(cc.texel * 100).toFixed(1)} cm</strong> · ${(1 / cc.texel).toFixed(0)} cells per metre`; }
-      else read.textContent = `ground x = ${xm.toFixed(0)} m · outside every cascade`;
+      if (c >= 0) { const cc = s5.casc[c]; read.innerHTML = `ground at ${xm.toFixed(0)} m · uses <strong style="color:${CCOL[c]}">photo ${c}</strong> · one cell there is <strong>${(cc.texel * 100).toFixed(1)} cm</strong> · ${(1 / cc.texel).toFixed(0)} cells per metre`; }
+      else read.textContent = `ground at ${xm.toFixed(0)} m · outside every photo`;
     } else read.textContent = "hover the ground";
-    document.getElementById("c5-cap").textContent = `${s5.K} × 2048² · far ${s5.far} m · D16 ${fmtMiB(s5.K * 8388608)} · D32 ${fmtMiB(s5.K * 16777216)}`;
+    document.getElementById("c5-cap").textContent = `${s5.K} photos of 2048 × 2048 cells · draws to ${s5.far} m · memory ${fmtMiB(s5.K * 8388608)} at 16-bit, ${fmtMiB(s5.K * 16777216)} at 32-bit`;
+    L5 && L5.check();
   }
   const req5 = raf(() => { build5(); draw5(); });
   (() => {
-    let active = -1;
+    let active = -1, last = null;
     const pt = ev => { const rc = c5.getBoundingClientRect(); return [(ev.clientX - rc.left) / rc.width * W5, (ev.clientY - rc.top) / rc.height * H5]; };
     const handles = () => [px(s5.cam[0], s5.cam[1]), sunPos()];
     const move = (i, x, y) => {
@@ -1409,8 +1449,8 @@ function kitInset(ctx, x, y, w, h, title) {
       req5();
     };
     c5.addEventListener("pointerdown", ev => { const [x, y] = pt(ev); let best = -1, bd = 22; handles().forEach((h, i) => { const dd = Math.hypot(h[0] - x, h[1] - y); if (dd < bd) { bd = dd; best = i; } }); if (best >= 0) { active = best; c5.setPointerCapture(ev.pointerId); move(best, x, y); } });
-    c5.addEventListener("pointermove", ev => { const [x, y] = pt(ev); if (active >= 0) move(active, x, y); else { s5.hover = [x, y]; draw5(); } });
-    const end = ev => { if (active >= 0) { active = -1; try { c5.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    c5.addEventListener("pointermove", ev => { const [x, y] = pt(ev); if (active >= 0) { last = [x, y]; move(active, x, y); } else { s5.hover = [x, y]; draw5(); } });
+    const end = ev => { if (active >= 0) { if (last) move(active, last[0], last[1]); active = -1; last = null; try { c5.releasePointerCapture(ev.pointerId); } catch (e) {} } };
     c5.addEventListener("pointerup", end); c5.addEventListener("pointercancel", end);
     c5.addEventListener("pointerleave", () => { s5.hover = null; draw5(); });
   })();
@@ -1420,5 +1460,119 @@ function kitInset(ctx, x, y, w, h, title) {
   lam5.addEventListener("input", () => { s5.lam = +lam5.value; document.getElementById("lam5v").textContent = (+lam5.value).toFixed(2); if (s5.scheme !== "p") { s5.scheme = "p"; segOn(document.getElementById("seg5"), "p"); } req5(); });
   far5.addEventListener("input", () => { s5.far = +far5.value; document.getElementById("far5v").textContent = far5.value + " m"; req5(); });
   build5(); draw5();
+
+  // ---------- guided steps ----------
+  const set1 = o => { if (o.L) s1.L = o.L; if (o.P) s1.P = o.P; if (o.N) { s1.N = o.N; $("n1").value = Math.log2(o.N); $("n1v").textContent = o.N; } build1(); draw1(); };
+  L1 = lesson("passes", { next: { id: "aliasing", title: "Why shadow edges go blocky" }, steps: [
+    { say: "The village square from above, at night. The lantern on the left throws a 60° beam: amber ground is lit, dark green is shadow. Before drawing anything, the game takes the lantern's <b>photo</b>, the strip along the top. It looked out along the beam in 256 directions and wrote down how far it could see in each one. Bright means close. The inset at the bottom right is the player seen from the side.", enter: () => set1({ N: 256, L: { p: [0.15, 0.5], ang: 0 }, P: [0.8, 0.62] }) },
+    { say: "<b>Hover the dark ground behind the house</b>, on the side away from the lantern.", todo: "hover a shadowed patch of ground", goal: () => s1.sawShadow, try: () => { s1.hover = [0.72, 0.22]; draw1(); },
+      done: "A white line runs from the lantern to your patch, and a blue wedge marks the direction it falls in. In that direction the photo says the lantern could see only as far as the house, and your patch is farther than that. Something nearer is in the way, so it is in shadow, and the dot turns red." },
+    { say: "<b>Drag the player</b> out from behind the tree, into the amber.", todo: "drag the player into the lit ground", goal: () => s1.litP === 1, try: () => { s1.P = [0.8, 0.4]; draw1(); },
+      done: "The label flips from red to green and the figure in the side view lights up. That is the whole shadow test, run once for every pixel on screen: find the pixel's direction in the light's photo, compare its distance with the one stored there, and call it shadow if something nearer got there first." },
+    { say: "The photo has 256 cells, one per direction.", quiz: { q: "If the photo had only 32 cells, what would happen to the shadows?", options: [
+        { t: "Nothing, they would land in the same places", why: "Roughly the same places, but each cell now covers a wider wedge of ground, and one stored distance has to decide the whole wedge." },
+        { t: "Their edges would turn into steps, one step per cell", ok: true, why: "Each cell is a wedge of directions. With 32 cells every wedge is eight times wider, and everything inside one wedge gets the same answer, so the edges go blocky." },
+        { t: "They would disappear", why: "The test still works with 32 cells. It is just coarser." } ] },
+      todo: "drag the cells slider down to 32", goal: () => s1.N <= 32, try: () => { $("n1").value = 5; $("n1").dispatchEvent(new Event("input")); build1(); draw1(); }, enter: () => set1({ N: 256 }),
+      done: "Every shadow edge now has stair steps, and each step is one cell of the photo. One stored distance decides a whole wedge of ground. How big those wedges get is the next stage." },
+    { say: "One photo from the light, then one look-up and one comparison per screen pixel. No ray is traced and no object is checked, which is why games can afford it for every light. The exact projection and the code are under the hood." } ] });
+
+  const set2 = o => { if (o.L) s2.L = o.L; if (o.A) s2.A = o.A; if (o.B) s2.B = o.B; if (o.N) { s2.N = o.N; $("n2").value = Math.log2(o.N); $("n2v").textContent = o.N; } build2(); draw2(); };
+  L2 = lesson("aliasing", { next: { id: "bias", title: "When a wall shadows itself" }, steps: [
+    { say: "The same lantern with a 64-cell photo, so the cells are easy to see. The house casts a shadow with a stepped edge, marked by the amber arrow. The long wall on the right is painted in blue stripes: <b>each stripe is one cell</b> of the photo landing on the wall.", enter: () => set2({ N: 64, L: { p: [0.1, 0.5], ang: 0 }, A: [0.74, 0.22], B: [0.8, 0.8] }) },
+    { say: "<b>Hover the ground close to the lantern</b>, then out by the wall, and watch the first tile.", todo: "hover near the lantern, then near the wall", goal: () => s2.sawNear && s2.sawFar, try: () => { s2.hover = [0.25, 0.5]; draw2(); s2.hover = [0.7, 0.5]; draw2(); },
+      done: "Close to the lantern one cell is a few centimetres wide. Out by the wall it is about ten. A cell is a wedge, not a square, so the farther it travels the more ground it has to cover with one stored distance." },
+    { say: "", quiz: { q: "If you drag the lantern to the right, closer to the wall, what happens to the stripes on the wall?", options: [
+        { t: "They get wider, because the light is brighter up close", why: "Brightness plays no part. The photo stores distances, and a stripe's width depends only on how far its wedge has travelled." },
+        { t: "They get narrower, because each wedge has travelled less far before it lands", ok: true, why: "Same 64 cells and the same beam, but each wedge reaches the wall sooner, while it is still thin." },
+        { t: "They stay the same, because the photo still has 64 cells", why: "The count is the same, but each cell is a wedge that widens as it goes, so where it lands matters." } ] },
+      todo: "drag the lantern to the right, toward the wall", goal: () => s2.L.p[0] >= 0.3, try: () => { s2.L.p = [0.35, 0.5]; build2(); draw2(); }, enter: () => set2({ L: { p: [0.1, 0.5], ang: 0 } }),
+      done: "The stripes shrink, and the steps on the house's shadow edge get finer too. Drag the lantern back to the left and everything coarsens again. A light far from what it lights gives blocky shadows." },
+    { say: "There is a second stretch. <b>Drag the bottom end of the wall</b> up into the top right corner, so the wall runs almost along the lantern's rays.", todo: "drag the wall's bottom end up to the top right corner", goal: () => s2.theta >= 45, try: () => { s2.B = [0.97, 0.3]; build2(); draw2(); }, enter: () => set2({ L: { p: [0.1, 0.5], ang: 0 }, A: [0.74, 0.22], B: [0.8, 0.8] }),
+      done: "The stripes stretch out long. Each cell is no wider than before, but it lands on the wall at a slant and smears along it; the caption gives the tilt. Tilted surfaces are the second reason shadows go blocky: a hillside at sunset, or a floor lit by a low lamp." },
+    { say: "<b>Push the photo up to 1024 cells.</b>", todo: "drag the cells slider up to 1024", goal: () => s2.N >= 512, try: () => { $("n2").value = 10; $("n2").dispatchEvent(new Event("input")); build2(); draw2(); },
+      done: "The stripes shrink to a few pixels and the stepped edge looks smooth. More cells is the obvious fix, and it costs memory and time: a real photo is a square grid, so four times the cells on each side means sixteen times as many distances to store." },
+    { say: "Cells widen with distance and smear across tilted surfaces, and every blocky shadow edge comes from one of those two. The width formula is under the hood. Next, a bug the cells cause even on a smooth surface." } ] });
+
+  const set3 = o => {
+    if (o.L) s3.L = o.L; if (o.A) s3.A = o.A; if (o.B) s3.B = o.B;
+    if (o.mode) { s3.mode = o.mode; segOn($("seg3"), o.mode); }
+    if (o.N) { s3.N = o.N; segOn($("seg3n"), o.N); }
+    if (o.c != null) { s3.c = o.c / M; $("b3c").value = o.c; $("b3cv").textContent = o.c.toFixed(2) + " m"; }
+    if (o.s != null) { s3.s = o.s; $("b3s").value = o.s; $("b3sv").textContent = o.s.toFixed(1); }
+    if (o.k != null) { s3.k = o.k; $("b3k").value = o.k; $("b3kv").textContent = o.k.toFixed(1) + " cell"; }
+    build3(); draw3();
+  };
+  L3 = lesson("bias", { next: { id: "filtering", title: "Softening the edge" }, steps: [
+    { say: "A stone wall stands in the beam. It blocks the lantern, and its front face is lit by it. That face is drawn as a band: pale where the test says lit, <b>red where the wall is in its own shadow</b>. It should be lit end to end. Those red stripes are a well-known bug called <b>shadow acne</b>, and the first tile says how much of the face has it.", enter: () => set3({ mode: "none", N: 32, c: 0.08, s: 1, k: 1, L: { p: [0.14, 0.5], ang: 0 }, A: [0.62, 0.28], B: [0.7, 0.76] }) },
+    { say: "", quiz: { q: "Why does the face fail its own shadow test?", options: [
+        { t: "The wall was drawn twice by mistake", why: "It is drawn once. The trouble is in the comparison." },
+        { t: "Each cell stores one distance, measured at the cell's middle. A point off to one side of the cell is a little farther away, so it looks as if something nearer is in front of it", ok: true, why: "The caption says how wide a cell is at the wall, about 19 cm. The wall is slightly tilted, so across one cell the far half is farther than the stored number, and fails. Half of every cell goes red: stripes." },
+        { t: "The lantern is too far away", why: "Distance changes the cell size, not the rule. The stripes appear at any distance." } ] } },
+    { say: "The fix is <b>slack</b>, called bias: a point has to be clearly farther than the stored distance before it counts as shadowed. <b>Switch the slack to constant</b> and push it all the way up to 0.5 m.", todo: "switch to constant and drag the constant slack to 0.5 m", goal: () => s3.mode === "const" && s3.c >= 0.04, try: () => { $("seg3").querySelector('[data-v="const"]').click(); $("b3c").value = 0.5; $("b3c").dispatchEvent(new Event("input")); build3(); draw3(); }, enter: () => set3({ mode: "none", c: 0.08, A: [0.62, 0.28], B: [0.7, 0.76] }),
+      done: "The red is gone, but an amber arrow has appeared behind the wall: the shadow now starts some way off the wall's back, floating loose. The second tile says how far. That is <b>peter-panning</b>, after the boy whose shadow came off. Bring the slack down to about 0.05 m and, at this angle, both bugs stay away." },
+    { say: "<b>Drag the bottom end of the wall</b> up to the right, so the lantern's light hits the face at a slant.", todo: "drag the wall's bottom end up to the right", goal: () => s3.theta >= 30, try: () => { s3.B = [0.95, 0.55]; build3(); draw3(); }, enter: () => set3({ mode: "const", c: 0.04, A: [0.62, 0.28], B: [0.7, 0.76] }),
+      done: "The red is back, with a slack that was enough a moment ago. Light at a slant runs a long way through each cell, so the distance changes more within one cell. Push the slack up and the shadow floats off again. One fixed number cannot serve flat-on faces and slanted faces both." },
+    { say: "The second fix scales the slack by each face's tilt.", quiz: { q: "Which faces should get the most slack?", options: [
+        { t: "Faces that look straight at the lantern", why: "Distance barely changes within a cell on those, so they need almost none." },
+        { t: "Faces the light hits at a slant", ok: true, why: "The distance changes most within a cell on a slanted face, and that is where the stripes come from." },
+        { t: "All faces the same", why: "That is the constant slack, and you just watched it fail." } ] },
+      todo: "switch to scaled by tilt, and bring the constant slack down to 0.02 m", goal: () => s3.mode === "slope" && s3.c <= 0.003 && s3.acne <= 0.02, try: () => { $("seg3").querySelector('[data-v="slope"]').click(); $("b3c").value = 0.02; $("b3c").dispatchEvent(new Event("input")); build3(); draw3(); }, enter: () => set3({ mode: "const", c: 0.04, s: 1, B: [0.95, 0.55] }),
+      done: "Clean, and the shadow hugs the wall again. The slack now grows with the tilt of the face: flat-on faces get almost none, slanted faces get plenty, and the constant part only has to cover rounding." },
+    { say: "The third fix leaves the distances alone. It <b>nudges the point being tested</b> a little way off the surface, toward the lantern, before looking it up in the photo. <b>Switch to the nudge.</b>", todo: "switch the slack to the nudge off the surface", goal: () => s3.mode === "normal", try: () => { $("seg3").querySelector('[data-v="normal"]').click(); build3(); draw3(); }, enter: () => set3({ mode: "slope", c: 0.02, k: 1, B: [0.95, 0.55] }),
+      done: "Also clean, with almost no slack in the comparison itself. Hover the face and a short blue line shows the nudge: one cell's width, out from the surface. An engine's single \"shadow bias\" setting is usually just the constant part, with the other two hidden underneath." },
+    { say: "Too little slack and a wall shadows itself; too much and its shadow comes loose. Scaling the slack by tilt, or nudging the tested point off the surface, lets you sit between the two. The three formulas and the code lines are under the hood." } ] });
+
+  const set4 = o => {
+    if (o.L) s4.L = o.L; if (o.P) s4.P = o.P;
+    if (o.mode) { s4.mode = o.mode; segOn($("seg4"), o.mode); }
+    if (o.N) { s4.N = o.N; $("n4").value = Math.log2(o.N); $("n4v").textContent = o.N; }
+    if (o.ls != null) { s4.ls = o.ls / M; $("ls4").value = o.ls; $("ls4v").textContent = o.ls.toFixed(1) + " m"; }
+    if (o.blur != null) { s4.blur = o.blur; $("bl4").value = o.blur; $("bl4v").textContent = "±" + o.blur + " cells"; }
+    build4(); draw4();
+  };
+  L4 = lesson("filtering", { next: { id: "cascades", title: "Shadows from the sun" }, steps: [
+    { say: "A crate and a tree in the beam, and the player standing on the edge of the tree's shadow. Right now each pixel reads <b>one cell</b> of the photo and gets a plain yes or no. Look at the shadow's edge, by the amber arrow: a hard staircase. And the player is either fully lit or fully dark, nothing in between.", enter: () => set4({ mode: "hard", N: 256, ls: 0.6, blur: 4, L: { p: [0.12, 0.5], ang: 0 }, P: [0.85, 0.305] }) },
+    { say: "<b>Switch each pixel to reading 5 cells.</b>", todo: "switch to 5 cells below", goal: () => s4.mode === "pcf5", try: () => { $("seg4").querySelector('[data-v="pcf5"]').click(); build4(); draw4(); },
+      done: "The staircase turns into a smooth ramp, and the side view now gives the player a percentage. Each pixel tests its own cell and the two on either side, five yes-or-no answers, and averages them, so a pixel near the edge comes out part lit." },
+    { say: "<b>Hover the soft edge</b> behind the tree, so the strip shows both green and red dots.", todo: "hover a spot on the soft edge", goal: () => s4.sawMixed, try: () => { s4.hover = [0.761, 0.5385]; draw4(); },
+      done: "On the strip, the blue band is the five cells read, with a green dot for each that says lit and a red one for each that says shadow. Three of five lit means 60 % lit. The answers are averaged, never the distances: the average of two distances would be a surface that does not exist." },
+    { say: "A real shadow is sharp where the tree trunk meets the ground and gets softer farther out.", quiz: { q: "Does reading 5 cells give you that?", options: [
+        { t: "Yes, the blur already grows with distance", why: "Five cells is five cells, a metre from the tree or ten. The ramp is the same width along the whole edge." },
+        { t: "No, the blur is the same width everywhere", ok: true, why: "The edge is a fixed five cells wide. A real soft edge grows with the gap between the blocker and the ground its shadow falls on." },
+        { t: "No, the edge gets sharper far from the tree", why: "It stays the same width. Only real shadows change along their length." } ] },
+      todo: "switch to the blur sized by distance", goal: () => s4.mode === "pcss", try: () => { $("seg4").querySelector('[data-v="pcss"]').click(); build4(); draw4(); },
+      done: "Now the edge starts sharp at the tree and widens with distance. For each pixel the game first searches the photo for the blocker, works out how far in front of the ground it sits, and sizes the blur from that and the lantern's size. Hover along the edge and the caption shows the soft edge growing." },
+    { say: "<b>Drag the lantern size up to 1.5 m.</b>", todo: "drag the lantern size up to 1.5 m", goal: () => s4.ls >= 0.12, try: () => { $("ls4").value = 1.5; $("ls4").dispatchEvent(new Event("input")); build4(); draw4(); },
+      done: "A bigger light makes a softer edge, like a cloudy sky next to a bare bulb. The tiles count how many cells each pixel now reads: dozens here, and far more in a real two-dimensional photo. This is the expensive option." },
+    { say: "The last trick blurs the <b>photo itself</b> once, ahead of time, keeping each cell's average distance and how spread out the distances were. Then one read per pixel gives a soft edge. <b>Switch to the pre-blurred photo</b> and push the blur width up to 10.", todo: "switch to the pre-blurred photo and raise the blur width", goal: () => s4.mode === "vsm" && s4.blur >= 8, try: () => { $("seg4").querySelector('[data-v="vsm"]').click(); $("bl4").value = 10; $("bl4").dispatchEvent(new Event("input")); build4(); draw4(); },
+      done: "Soft edges from a single read. The price shows where the tree's shadow and the crate's run side by side: the thin lit gap between them swells, and light leaks into both shadows. The blurred cells there mix two blockers at different distances with the open ground between, so the spread is huge and the maths lets light through shadow that should be solid. That is called light bleeding." },
+    { say: "Average the answers, never the distances. Size the blur from how far away the blocker is, or pre-blur the photo and accept some leaking. The formulas for all three are under the hood." } ] });
+
+  const set5 = o => {
+    if (o.cam) s5.cam = o.cam; if (o.sun != null) s5.sun = o.sun * Math.PI / 180;
+    if (o.scheme) { s5.scheme = o.scheme; segOn($("seg5"), o.scheme); }
+    if (o.lam != null) { s5.lam = o.lam; $("lam5").value = o.lam; $("lam5v").textContent = o.lam.toFixed(2); }
+    if (o.K) { s5.K = o.K; segOn($("segK5"), o.K); }
+    if (o.far) { s5.far = o.far; $("far5").value = o.far; $("far5v").textContent = o.far + " m"; }
+    build5(); draw5();
+  };
+  L5 = lesson("cascades", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "Morning, and the sun is the light. It lights everything at once, so one photo would have to cover the whole world and its cells would be bigger than the player. The white lines are the wedge of space the camera can see, out to 120 m. Dashed lines cut that wedge into four <b>slices</b>, and each coloured box is one photo fitted around one slice, turned to face the sun. The bars at the bottom show one cell of each photo, magnified.", enter: () => set5({ scheme: "p", lam: 0.75, K: 4, far: 120, sun: 50, cam: [0, 8] }) },
+    { say: "", quiz: { q: "Why does the nearest slice get the smallest cells?", options: [
+        { t: "Because the sun is closer to it", why: "The sun is so far away that its rays are parallel. Every slice is the same distance from it." },
+        { t: "Because its photo covers the smallest patch of world with the same number of cells", ok: true, why: "Every photo has 2048 cells on a side. The near box is a few metres wide, so one cell is under a centimetre. The far box is tens of metres wide, and the table shows its cells several times bigger." },
+        { t: "Because the near slice is drawn first", why: "Order does not change cell size. The width of the box does." } ] } },
+    { say: "<b>Switch the cut to even</b>, so every slice gets the same length of road.", todo: "switch the cut to even below", goal: () => s5.scheme === "0", try: () => { $("seg5").querySelector('[data-v="0"]').click(); build5(); draw5(); }, enter: () => set5({ scheme: "p", far: 120, K: 4 }),
+      done: "The near slice now runs 30 m instead of 9, and its cell size jumps in the table. Even slices waste the near photo, whose cells should be spent on the ground at the player's feet. The blend keeps the near slices short and lets the far ones grow." },
+    { say: "Put the cut back to the blend.", quiz: { q: "If the camera draws out to 300 m instead of 120, which slice ends up with the biggest cells?", options: [
+        { t: "The nearest, because it is closest to the camera", why: "The nearest slice gets the smallest box, so the smallest cells." },
+        { t: "The farthest", ok: true, why: "Its box has to reach out to 300 m, so one cell grows to several centimetres. That is what a distant hill gets, and nobody looks at a hill's shadow closely." },
+        { t: "They all get the same cells, every photo has 2048 on a side", why: "Same count, but spread over very different widths." } ] },
+      todo: "switch back to the blend, then drag the draw distance to 300 m", goal: () => s5.scheme === "p" && s5.far >= 280, try: () => { $("seg5").querySelector('[data-v="p"]').click(); $("far5").value = 300; $("far5").dispatchEvent(new Event("input")); build5(); draw5(); }, enter: () => set5({ scheme: "0", far: 120 }),
+      done: "The far slice's cells are the biggest by far, and the hand-off numbers along the ground say how much the cell size jumps at each seam. That jump is visible in a game unless the engine blends across it. Hover the ground to read the cell size at any spot." },
+    { say: "<b>Switch to 3 slices.</b>", todo: "switch the slices to 3", goal: () => s5.K === 3, try: () => { $("segK5").querySelector('[data-v="3"]').click(); build5(); draw5(); },
+      done: "One photo fewer: the memory in the caption drops by a quarter, and the remaining slices stretch to cover the gap, so every cell grows. Each slice is another photo to take and store, so games settle on three to six." },
+    { say: "Try the sun too: drag it low and the shadows stretch along the ground, and every box turns to follow. One photo per slice: sharp near the player, coarse far away, and a seam at every hand-off. The cut formula and the selection code are under the hood." } ] });
 })();
 </script>

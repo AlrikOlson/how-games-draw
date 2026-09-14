@@ -229,19 +229,21 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 .stats td.tx { white-space: normal; text-align: left; font-family: var(--font-display); font-size: 14px; min-width: 18ch; }
 .stats th.tx { text-align: left; }
 .uses { min-width: 640px; }
+@media (min-width: 1101px) { #lod .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(400px, 1.1fr); } #lod .tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+#lod .tiles.four .tile .n { font-size: 20px; }
 </style>
 
 
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a cobbled road at night, a brick wall, a picket fence · 256² road texture on a 4 m tile · 320×180 target · hover the pixels</p>
+    <p class="eyebrow">a cobbled road at night, a brick wall, a picket fence · five guided demos · nothing to install</p>
     <h1>Texture Filtering &amp; Mipmaps</h1>
-    <p class="lead">A texture is a grid of coloured cells called texels, and every pixel on screen asks the GPU "what colour is this spot of the texture". That question goes wrong in two opposite ways: up close the spot lands between texels and the picture goes blocky or soft, and far away one pixel covers dozens of texels and the picture shimmers. Mipmaps fix the far case by keeping pre-shrunk copies of the texture. <b>The thing people get wrong:</b> anisotropic filtering does not replace mipmaps. It picks a sharper mip and reads it several times along the long side of the pixel's patch of texture.</p>
+    <p class="lead">A texture is a picture wrapped over a 3D shape, and it is made of tiny coloured cells called texels. Every pixel on the screen asks "what colour is my spot of the texture", and that question goes wrong in two opposite ways. Up close the spot lands between texels, so the picture goes blocky or soft. Far away one pixel covers dozens of texels, so the picture shimmers. Mipmaps fix the far case by keeping pre-shrunk copies of the texture. <b>The thing people get wrong:</b> anisotropic filtering does not replace mipmaps. It picks a sharper shrunk copy and reads it several times along the long side of the pixel's patch of texture.</p>
     <div class="key">
-      <span style="--sw:#f2a341">the texel nearest picks, the lower mip level, one pixel step across, the base level's bytes</span>
-      <span style="--sw:#4aa3ff">the four texels bilinear blends, the upper mip level, one pixel step down, the bytes the mip chain adds</span>
-      <span style="--sw:#ffffff">sample point, hovered pixel, footprint, handle you drag</span>
+      <span style="--sw:#f2a341">the one texel nearest picks, the sharper of two copies, one pixel step across, the full-size copy's bytes</span>
+      <span style="--sw:#4aa3ff">the four texels bilinear blends, the blurrier of two copies, one pixel step down, the bytes the shrunk copies add</span>
+      <span style="--sw:#ffffff">the spot being read, the hovered pixel, the pixel's patch, a handle you drag</span>
     </div>
     <dl class="terms">
       <dt>texel</dt><dd>one cell of a texture; a texture pixel</dd>
@@ -254,35 +256,25 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
       <dt>anisotropic</dt><dd>several reads along the long side of a stretched footprint</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#texel"><span class="n">01</span>Reading one texel up close</a></li><li><a href="#minify"><span class="n">02</span>Far away, textures shimmer</a></li><li><a href="#chain"><span class="n">03</span>The mip chain</a></li><li><a href="#lod"><span class="n">04</span>How the GPU picks the level</a></li><li><a href="#memory"><span class="n">05</span>What textures cost in memory</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#texel"><span class="n">01</span>Up close: reading one texel</a></li><li><a href="#minify"><span class="n">02</span>Far away, textures shimmer</a></li><li><a href="#chain"><span class="n">03</span>The stack of shrunk copies</a></li><li><a href="#lod"><span class="n">04</span>How the GPU picks the copy</a></li><li><a href="#memory"><span class="n">05</span>What textures cost in memory</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <section id="texel">
-    <h2>Reading one texel up close</h2>
-    <p class="sub">The player stands nose to the tavern's brick wall. Move the sample point over one 16×16 tile of the wall and watch which texels the sampler reads.</p>
+  <section id="texel" class="stage">
+    <h2>Up close: reading one texel</h2>
+    <p class="sub">The player stands nose to the tavern's brick wall. Move the white dot and watch which texels get read.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c1" width="512" height="512" class="sq grab" aria-label="One 16 by 16 brick tile of a tavern wall blown up to 32 screen pixels per texel, with the nearest texel and the four bilinear texels marked, and an inset of the player standing at the wall"></canvas>
         <div class="cap"><span id="c1-read"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Up close, a texture is <b>stretched over many screen pixels</b>, so most pixels land <b>between texel centres</b>. The sampler has to invent a colour for that in-between spot. <b>Nearest</b> takes the one texel the point falls in. <b>Bilinear</b> mixes the four closest texels, weighting each by how near it is.</p>
-
-        <h3>What you're seeing</h3>
-        <p>One 16×16 brick tile of the wall, blown up to 32 screen pixels per texel, which is what standing this close does. The inset shows the player at the wall, with a white box around the tile you are zoomed into. The white dot is the sample point. The amber box is the texel nearest would return.</p>
-        <p>The four blue boxes are the texels bilinear reads. Each blue dot's size is that texel's share of the mix, and the four numbers are those shares; they always add up to 1.00. The two swatches show both answers side by side, the colour that pixel of wall would get.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the dot to the middle of a brick texel. One weight goes to nearly 1.00 and the two swatches match.</li>
-          <li>Drag it to a corner where brick meets mortar. The weights go to about 0.25 each and the bilinear swatch turns into a muddy blend of red and grey.</li>
-          <li>Drag to the right edge and switch clamp to wrap. The blue boxes jump to the far left of the tile, the way a tiling wall texture continues.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><span class="lab">Address mode</span><div class="seg" id="segAddr" role="group" aria-label="Address mode"><button data-v="clamp" aria-pressed="true">clamp</button><button data-v="wrap">wrap</button></div></div>
+      <div class="lesson" data-lesson="texel">
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><span class="lab">Past the edge of the tile</span><div class="seg" id="segAddr" role="group" aria-label="Address mode"><button data-v="clamp" aria-pressed="true">repeat the edge texel</button><button data-v="wrap">continue from the other side</button></div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">Bilinear is four texels blended by how close the spot is to each, and it can never average more than four.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The sampler never sees pixels. It gets a continuous coordinate <code>(u, v)</code>, two numbers in [0, 1] that say how far across and down the texture you are, and it has to answer with a colour.</p>
         <p>Texel centres sit at half-integers, so <code>u·16 − 0.5</code> is the position in texel units. Its floor names the top-left texel of the 2×2 footprint, the small square of texels being read, and the fractional part is the blend weight. Nearest filtering skips the subtraction and takes whichever texel the point falls in.</p>
         <p>Bilinear is two lerps, where a lerp is a straight blend between two values by a fraction. Lerp the top pair by <code>fx</code>, lerp the bottom pair by <code>fx</code>, then lerp the two results by <code>fy</code>. The four weights always sum to one.</p>
@@ -306,46 +298,35 @@ c = w00·T[i,j] + w10·T[i+1,j] + w01·T[i,j+1] + w11·T[i+1,j+1]</div>
   <span class="k">vec4</span> c11 = texelFetch(t, wrap(i0 + <span class="k">vec2</span>(1,1)), 0);
   <span class="k">return</span> mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
 }</pre>
-        <p class="tldr">Bilinear is four texels blended by how close the sample point is to each, and it can never average more than four.</p>
-      </div>
+      </div></details>
     </div>
   </section>
 
-  <section id="minify">
+  <section id="minify" class="stage">
     <h2>Far away, textures shimmer</h2>
-    <p class="sub">The player looks down the cobbled road toward the horizon, a picket fence on the right. Switch the filter and watch the far stones and the fence posts shimmer, then settle.</p>
+    <p class="sub">The player looks down the cobbled road toward the horizon. Switch the filter and watch the far stones and the fence posts shimmer, then settle.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c2" width="640" height="360" class="r169" aria-label="A cobbled road at night receding to the horizon with a picket fence on the right and a player at the roadside, sampled with the chosen filter, with a 4 times zoom inset of the far road"></canvas>
-        <div class="cap"><span id="c2-read"></span><span id="c2-lod"></span></div>
+        <div class="cap"><span id="c2-read"></span></div>
+        <div class="cap"><span id="c2-lod"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Far from the camera, <b>one screen pixel covers dozens of texels</b>. A bilinear read looks at only four of them, so the colour depends on <b>which four it happened to hit</b>, and the next pixel hits a different four. That is <b>moiré</b>, the wavy bands you see on distant roads and fences. <b>Mipmaps</b> fix it by storing pre-shrunk copies of the texture, so four texels really do stand for the whole pixel.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The road from the player's eye, drawn at 320×180 pixels. Under your feet one cobblestone is 25 cm across and takes dozens of pixels. Near the horizon one pixel covers dozens of stones. The fence posts are 4 cm wide, so far down the road they are thinner than a pixel. The inset in the corner zooms 4× on the far road so you can see the bands.</p>
-        <p>The three tiles below the controls count how many texels each road or fence pixel read, the total texel fetches for the frame, and how long the JavaScript sampler took. The caption shows the range of λ, the mip level, along the road.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Stay on "bilinear, no mips" and look at the inset. The bands are moiré, and they crawl when you slide the tile size. The far fence posts flicker in and out.</li>
-          <li>Switch to trilinear. The bands vanish, the far road settles to one grey, the fence fades to a flat strip, and texels read per pixel goes from 4 to 8.</li>
-          <li>Switch to aniso 16×. The distance sharpens again, the mortar lines come back, and the fetch count climbs.</li>
-          <li>Push LOD bias to −2. The shimmer comes back because the sampler is now picking a level that is too fine.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><span class="lab">Filter</span><div class="seg" id="segF" role="group" aria-label="Filter mode"><button data-v="0">nearest</button><button data-v="1" aria-pressed="true">bilinear, no mips</button><button data-v="2">trilinear</button><button data-v="3">aniso 4×</button><button data-v="4">aniso 16×</button></div></div>
-          <div class="ctl"><label for="tile">Tile size <span class="val" id="tilev">4.0 m</span></label><input type="range" id="tile" min="1" max="8" step="0.5" value="4"></div>
-          <div class="ctl"><label for="bias">LOD bias <span class="val" id="biasv">0.0</span></label><input type="range" id="bias" min="-2" max="2" step="0.25" value="0"></div>
+      <div class="lesson" data-lesson="minify">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">Filter</span><div class="seg" id="segF" role="group" aria-label="Filter mode"><button data-v="0">nearest texel</button><button data-v="1" aria-pressed="true">bilinear, full size only</button><button data-v="2">trilinear</button><button data-v="3">anisotropic 4×</button><button data-v="4">anisotropic 16×</button></div></div>
+          <div class="ctl"><label for="tile">Size of one road tile <span class="val" id="tilev">4.0 m</span></label><input type="range" id="tile" min="1" max="8" step="0.5" value="4"></div>
+          <div class="ctl"><label for="bias">Nudge: sharper copy (−) or blurrier (+) <span class="val" id="biasv">0.0</span></label><input type="range" id="bias" min="-2" max="2" step="0.25" value="0"></div>
         </div>
         <div class="tiles">
-          <div class="tile"><div class="n" id="t2-taps">—</div><div class="l">texels read / textured pixel</div></div>
-          <div class="tile"><div class="n" id="t2-fetch">—</div><div class="l">texel fetches, this frame</div></div>
-          <div class="tile"><div class="n" id="t2-ms">—</div><div class="l">ms, JS sampler</div></div>
+          <div class="tile"><div class="n" id="t2-taps">—</div><div class="l">texels read, per road pixel</div></div>
+          <div class="tile"><div class="n" id="t2-fetch">—</div><div class="l">texels read, whole frame</div></div>
+          <div class="tile"><div class="n" id="t2-ms">—</div><div class="l">ms to draw it in this browser</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">Shimmer is bilinear reading four texels out of dozens; the shrunk copies make those four the average of all of them.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Without mipmaps, a bilinear tap (one read of the sampler) still fetches four texels and ignores the rest, so the pixel colour depends on exactly which four it landed on. Neighbouring pixels land on different ones. The mortar lines between the stones beat against the pixel grid into moiré bands, and the bands crawl the moment the camera moves.</p>
         <p>Mipmaps prefilter the answer. Level k is the texture averaged down by 2<sup>k</sup>: level 1 is half size, level 2 a quarter, and so on. The sampler picks the level where one texel is about one pixel wide, so the four texels it reads already hold the average of everything the pixel covers. λ (lambda) is the name for that picked level, and it can sit between two whole levels.</p>
         <p>Trilinear blends the two nearest levels so the switch between them is invisible. Anisotropic filtering fixes the blur that is left. At grazing angles the footprint, the patch of texture one pixel covers, is long and thin. One level choice has to blur along the short side too. So the sampler picks the level that fits the short side and takes several taps along the long one.</p>
@@ -370,40 +351,30 @@ aniso:      N = min(⌈ρ_major / ρ_minor⌉, maxAniso)
 <span class="k">for</span> (<span class="k">int</span> k = 0; k &lt; <span class="k">int</span>(N); k++)
   sum += textureLod(t, uv + axis * ((k + 0.5) / N - 0.5), lodA);
 c = sum / N;</pre>
-        <p class="tldr">Moiré is bilinear reading four texels out of dozens; mipmaps make those four the average of all of them.</p>
-      </div>
+      </div></details>
     </div>
   </section>
 
-  <section id="chain">
-    <h2>The mip chain</h2>
-    <p class="sub">The road texture and its eight half-size copies. Drag the footprint, slide λ, and see which copy the sampler picks and where along the road it gets used.</p>
+  <section id="chain" class="stage">
+    <h2>The stack of shrunk copies</h2>
+    <p class="sub">The road texture and its eight half-size copies. Choose a copy, stretch the pixel's patch, and see which copy gets read and where on the road it is used.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c3" width="640" height="360" class="r169 grab" aria-label="The nine mip levels of the cobblestone road texture at true size with the picked levels highlighted, a 4 times zoom of the footprint, a byte count per level, and a small view of the road showing where the picked level is used"></canvas>
-        <div class="cap"><span id="c3-read"></span><span id="c3-bytes"></span></div>
+        <div class="cap"><span id="c3-read"></span></div>
+        <div class="cap"><span id="c3-bytes"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">A <b>mip chain</b> is the texture plus a stack of <b>half-size copies</b>: 256, 128, 64, down to a single texel. Think of a photocopier set to 50%, run again and again on its own output. The whole stack costs <b>one third more memory</b> than the texture alone, and in return the sampler reads four texels no matter how far down the road the surface is.</p>
-
-        <h3>What you're seeing</h3>
-        <p>All nine levels of the 256² cobblestone texture at true size, one screen pixel per texel, so the copies shrink to the right. The ellipse on level 0 is the footprint, the patch of road one pixel covers, and the small square zooms in on it 4×.</p>
-        <p>The list gives each level's size and bytes. The amber frame is the lower picked level and the blue frame the upper one, with the blend weight next to each. The road picture at the bottom right paints the rows of road where those two levels get used, on a 4 m tile. In anisotropic mode, white dots along the ellipse are the taps.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Slide λ from 0 to 8. The highlight walks down the list one level per whole number, the ellipse grows by 2× per step, and the amber band on the road picture moves from under your feet toward the horizon.</li>
-          <li>Set footprint aspect to 16:1 and switch level pick to anisotropic. The picked level jumps four levels finer, because log2(16) is 4, and 16 taps appear.</li>
-          <li>Drag the ellipse around level 0. Only its position moves; the level pick depends on its size, not on where it is.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><label for="lod3">LOD λ <span class="val" id="lod3v">4.50</span></label><input type="range" id="lod3" min="0" max="8" step="0.05" value="4.5"></div>
-          <div class="ctl"><label for="ratio3">Footprint aspect <span class="val" id="ratio3v">4.0 : 1</span></label><input type="range" id="ratio3" min="1" max="16" step="0.5" value="4"></div>
-          <div class="ctl"><span class="lab">Level pick</span><div class="seg" id="segM3" role="group" aria-label="Level selection mode"><button data-v="tri" aria-pressed="true">trilinear</button><button data-v="aniso">anisotropic</button></div></div>
+      <div class="lesson" data-lesson="chain">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="lod3">Which copy to read (0 = full size) <span class="val" id="lod3v">4.50</span></label><input type="range" id="lod3" min="0" max="8" step="0.05" value="4.5"></div>
+          <div class="ctl"><label for="ratio3">How stretched the pixel's patch is <span class="val" id="ratio3v">4.0 : 1</span></label><input type="range" id="ratio3" min="1" max="16" step="0.5" value="4"></div>
+          <div class="ctl"><span class="lab">How to pick the copy</span><div class="seg" id="segM3" role="group" aria-label="Level selection mode"><button data-v="tri" aria-pressed="true">trilinear</button><button data-v="aniso">anisotropic</button></div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">The whole stack of copies costs a third more memory than the texture, and that buys a four-texel read at any distance.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Each level is a quarter the size of the one before, so the whole chain costs one third more than the base level. For the 256² RGBA8 texture that is 262,144 bytes for the base and 349,524 bytes for the chain. Without the chain, a minified lookup either aliases (shows the shimmer from the last section) or has to read hundreds of texels per pixel.</p>
         <p>The footprint ellipse is the pixel projected into texture space. On level 0 it covers 2<sup>λ</sup> texels across its long axis. On level ⌊λ⌋ the same ellipse is about one texel wide, which is what makes a 2×2 bilinear read a fair average.</p>
         <p>The levels below 8×8 are single digits of bytes. They still matter, because the sampler needs a level for every distance, and a flat far level is exactly the grey the road averages to at the horizon.</p>
@@ -420,15 +391,14 @@ c = sum / N;</pre>
 <span class="k">vec4</span> c = texelFetch(levelL, src + <span class="k">ivec2</span>(0,1), 0);
 <span class="k">vec4</span> d = texelFetch(levelL, src + <span class="k">ivec2</span>(1,1), 0);
 imageStore(levelL1, dstId, (a + b + c + d) * 0.25);   <span class="c">// box filter; average sRGB in linear</span></pre>
-        <p class="tldr">The whole mip chain costs a third more memory than the base texture, and that buys a four-texel read at any distance.</p>
-      </div>
+      </div></details>
     </div>
   </section>
 
-  <section id="lod">
-    <h2>How the GPU picks the level</h2>
-    <p class="sub">Hover a pixel on the road and see the patch of cobblestones it covers, with the arithmetic that turns that patch into λ.</p>
-    <div class="cols two">
+  <section id="lod" class="stage">
+    <h2>How the GPU picks the copy</h2>
+    <p class="sub">Hover a pixel on the road and see the patch of cobblestones it covers, and how the size of that patch picks the copy.</p>
+    <div class="cols three">
       <div class="vp">
         <canvas id="c4a" width="640" height="360" class="r169" aria-label="The cobbled road at night with the player at the roadside; hover to pick a road pixel, marked with its 2 by 2 quad"></canvas>
         <div class="cap"><span id="c4a-read"></span></div>
@@ -437,40 +407,27 @@ imageStore(levelL1, dstId, (a + b + c + d) * 0.25);   <span class="c">// box fil
         <canvas id="c4b" width="640" height="360" class="r169" aria-label="The road texture in texture space zoomed around the hovered pixel's sample point, with the pixel step arrows and the footprint ellipse"></canvas>
         <div class="cap"><span id="c4b-read"></span></div>
       </div>
-    </div>
-    <div class="controls">
-      <div class="ctl"><span class="lab">Level pick</span><div class="seg" id="segM4" role="group" aria-label="Level selection mode"><button data-v="tri" aria-pressed="true">trilinear</button><button data-v="aniso">anisotropic 16×</button></div></div>
-      <div class="ctl"><span class="lab">Texture shown</span><div class="seg" id="segL4" role="group" aria-label="Which level to draw"><button data-v="0" aria-pressed="true">level 0</button><button data-v="pick">picked level</button></div></div>
-    </div>
-    <div class="cols" style="margin-top:18px">
-      <div class="prose">
-        <p class="plain">The GPU picks the mip level by measuring <b>how far the texture coordinate moves for one pixel step</b> on screen. A big step means the pixel covers many stones, so <b>pick a coarser level</b>. A tiny step means the pixel sits inside one texel, so <b>use level 0</b>. Every filter mode on this page starts from that one measurement.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Left: the road from the player's eye. Hover a road pixel; the white square around it is the 2×2 group the GPU shades together. Right: the road texture, zoomed in around that pixel's sample point. The amber arrow is one pixel step across the screen and the blue arrow one step down, both measured in texels. The ellipse they span is the footprint, the patch of road that one pixel covers.</p>
-        <p>The live box below prints the arithmetic for the hovered pixel. The four tiles show the level used, which levels get blended, the footprint's long-to-short ratio, and how many bilinear taps the read costs.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover the road just in front of the player. The arrows are short, λ is near 0, and the ratio is close to 1:1.</li>
-          <li>Hover the road near the horizon. The arrows stretch, λ climbs, and the ratio grows as the footprint turns into a sliver many stones long.</li>
-          <li>Switch level pick to anisotropic 16× while hovering the horizon. λ drops, white tap dots appear along the long arrow, and bilinear taps goes up to 32.</li>
-          <li>Switch texture shown to picked level. The right view swaps to the coarser copy, where the footprint is about one texel wide.</li>
-        </ul>
-
-        <div class="math live" id="d4-live"></div>
+      <div class="lesson" data-lesson="lod">
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><span class="lab">How to pick the copy</span><div class="seg" id="segM4" role="group" aria-label="Level selection mode"><button data-v="tri" aria-pressed="true">trilinear</button><button data-v="aniso">anisotropic 16×</button></div></div>
+          <div class="ctl"><span class="lab">Right picture shows</span><div class="seg" id="segL4" role="group" aria-label="Which level to draw"><button data-v="0" aria-pressed="true">the full-size texture</button><button data-v="pick">the copy it picked</button></div></div>
+        </div>
         <div class="tiles four">
-          <div class="tile"><div class="n" id="t4-lam">—</div><div class="l">λ used</div></div>
-          <div class="tile"><div class="n" id="t4-lv">—</div><div class="l">levels blended</div></div>
-          <div class="tile"><div class="n" id="t4-ratio">—</div><div class="l">major : minor</div></div>
-          <div class="tile"><div class="n" id="t4-taps">—</div><div class="l">bilinear taps</div></div>
+          <div class="tile"><div class="n" id="t4-lam">—</div><div class="l">copy level read</div></div>
+          <div class="tile"><div class="n" id="t4-lv">—</div><div class="l">copies blended</div></div>
+          <div class="tile"><div class="n" id="t4-ratio">—</div><div class="l">patch long : short</div></div>
+          <div class="tile"><div class="n" id="t4-taps">—</div><div class="l">reads per pixel</div></div>
         </div>
       </div>
-      <div class="prose">
-        <h3>The real version</h3>
+    </div>
+    <div class="foot">
+      <p class="tldr">The copy level is how many halvings it takes until the longer pixel step is about one texel; everything else here is built on that.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The GPU shades pixels in 2×2 groups called quads, so it can subtract neighbouring pixels' UVs. Those differences are the screen-space derivatives: how far the texture coordinate moves for one pixel step in x and one in y. Multiplied by the texture size they are vectors in texels, and their lengths are the two footprint widths.</p>
         <p>The isotropic rule (one size in every direction) takes the larger width, ρ, and sets λ = log2(ρ), so one texel at that level is about one pixel.</p>
         <p>The anisotropic rule divides the long width by N taps first, then takes the log. The level gets finer by log2(N) and the cost goes up by N bilinear taps, or 2N with trilinear. Sixteen is the usual cap because past that the extra taps stop being visible, and the footprint is being averaged over more texels than the screen can show.</p>
+        <p class="words">The live arithmetic for the pixel you are hovering:</p>
+        <div class="math live" id="d4-live"></div>
         <p class="words">In words: measure the pixel step in texels in both directions, take the longer one, and its log base 2 is the level.</p>
         <div class="math">dx = ∂(u,v)/∂x · texSize      dy = ∂(u,v)/∂y · texSize      (texels)
 ρx = |dx| = √(du/dx² + dv/dx²)   ρy = |dy| = √(du/dy² + dv/dy²)
@@ -488,64 +445,50 @@ aniso: N = min(⌈max(ρx,ρy) / min(ρx,ρy)⌉, 16)    λ' = log2(max(ρx,ρy)
 <span class="k">vec4</span> c = textureGrad(t, uv, dFdx(uv), dFdy(uv));
 <span class="c">// cheaper scalar guess some shaders use; fwidth = |dFdx| + |dFdy|</span>
 <span class="k">float</span> lodApprox = log2(max(fwidth(uv.x), fwidth(uv.y)) * texSize.x);</pre>
-        <p class="tldr">λ is log2 of how many texels one pixel step covers; everything else on this page is built on that number.</p>
-      </div>
+      </div></details>
     </div>
   </section>
 
-  <section id="memory">
+  <section id="memory" class="stage">
     <h2>What textures cost in memory</h2>
-    <p class="sub">The road texture in video memory. Change its size, the screen size and the cache hit rate, and watch the bytes and the bandwidth move. Hover the small road texture to squeeze a different 4×4 block of it into 8 bytes.</p>
+    <p class="sub">The road texture in the graphics card's memory. Change its size, the screen size and the cache, and watch the bytes and the traffic move.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c5" width="640" height="360" class="r169 grab" aria-label="Bars of memory for the road texture in four formats and bandwidth per sampling mode, with an inset that compresses one 4 by 4 block of the road texture into a BC1 block and a thumbnail of one frame"></canvas>
         <div class="cap"><span id="c5-read"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Textures are the <b>biggest thing in video memory</b>, and mip chains make them a third bigger. <b>Block compression</b> shrinks them 4 to 8 times by storing small blocks of texels as a couple of colours plus a few bits each. Reading them costs <b>bandwidth</b>, and what saves bandwidth is not fewer texels but <b>fewer cache misses</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>Top bars: the road texture at the picked size in four formats. Amber is the base level, blue is the extra the mip chain adds. Bottom bars: how many megabytes per frame, and gigabytes per second at 60 Hz, the sampler pulls from memory to draw one frame of the road with one bilinear tap, trilinear, and the two anisotropic worst cases, at the picked screen size and cache hit rate.</p>
-        <p>The box on the right takes one 4×4 block of cobblestones, marked on the small road texture, and stores it the BC1 way: two end colours and a 2-bit number per texel that picks one of four shades between them. The raw block is drawn above the decoded one so you can see what the squeeze costs. The table under the demo lists each format's bits per texel, block size, and bytes for the texture without and with a mip chain.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Switch the texture size from 2048² to 4096². Every memory bar quadruples.</li>
-          <li>Drag cache hit rate from 90% down to 50%. The bandwidth tiles jump 5×, because every miss costs a whole 64-byte line.</li>
-          <li>Pick 4K. Bandwidth quadruples with the pixel count; memory does not move.</li>
-          <li>Hover the small road texture onto a mortar line. The block's two end colours spread apart and the error number climbs; hover the middle of a stone and both drop.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><span class="lab">Texture size</span><div class="seg" id="segSz" role="group" aria-label="Texture size"><button data-v="1024">1024²</button><button data-v="2048" aria-pressed="true">2048²</button><button data-v="4096">4096²</button></div></div>
-          <div class="ctl"><span class="lab">Target</span><div class="seg" id="segRes" role="group" aria-label="Render resolution"><button data-v="1920" aria-pressed="true">1080p</button><button data-v="2560">1440p</button><button data-v="3840">4K</button></div></div>
-          <div class="ctl"><label for="hit">Cache hit rate <span class="val" id="hitv">90 %</span></label><input type="range" id="hit" min="0" max="99" step="1" value="90"></div>
+      <div class="lesson" data-lesson="memory">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">Road texture size</span><div class="seg" id="segSz" role="group" aria-label="Texture size"><button data-v="1024">1024²</button><button data-v="2048" aria-pressed="true">2048²</button><button data-v="4096">4096²</button></div></div>
+          <div class="ctl"><span class="lab">Screen size</span><div class="seg" id="segRes" role="group" aria-label="Render resolution"><button data-v="1920" aria-pressed="true">1080p</button><button data-v="2560">1440p</button><button data-v="3840">4K</button></div></div>
+          <div class="ctl"><label for="hit">Reads answered from the cache <span class="val" id="hitv">90 %</span></label><input type="range" id="hit" min="0" max="99" step="1" value="90"></div>
         </div>
         <div class="tiles">
-          <div class="tile"><div class="n" id="t5-bil">—</div><div class="l">GB/s, 1 bilinear tap</div></div>
-          <div class="tile"><div class="n" id="t5-tri">—</div><div class="l">GB/s, trilinear</div></div>
-          <div class="tile"><div class="n" id="t5-an">—</div><div class="l">GB/s, aniso 16× worst case</div></div>
+          <div class="tile"><div class="n" id="t5-bil">—</div><div class="l">GB per second, bilinear</div></div>
+          <div class="tile"><div class="n" id="t5-tri">—</div><div class="l">GB per second, trilinear</div></div>
+          <div class="tile"><div class="n" id="t5-an">—</div><div class="l">GB per second, anisotropic 16× at worst</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+      <p class="tldr">Compress with a block format and keep the shrunk copies; the copies are what keep texture reads landing in the cache.</p>
+      <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Block compression is what makes the chain affordable. BC1 packs a 4×4 block into 8 bytes: two RGB565 endpoint colours (16 bits each) and a 2-bit index per texel that picks one of four colours between them. That is 4 bits per texel instead of 32. BC7 spends 16 bytes per block on better endpoints and partitions. ASTC picks the block size per texture, and a 6×6 block at 16 bytes lands at 3.56 bits per texel. The texture unit decodes blocks on the way into its cache, so the shader never sees the difference.</p>
         <p>Bandwidth is about cache lines, not texels. A cache line is the 64-byte chunk that memory hands over in one go. A bilinear tap reads four neighbouring texels that usually share one line, and the next pixel's tap usually hits the same line.</p>
         <p>Mipmaps are what keep that hit rate high: at the right level, consecutive pixels read consecutive texels. Sample a 2048² texture without mips at heavy minification and every tap lands on a different line, the hit rate collapses, and the slider is what your frame time pays.</p>
-      </div>
-    </div>
-    <p class="words" style="margin-top:20px">How to read the table: the same texture in each format. Bits per texel is the compression, and the last two columns are the bytes it takes without and with a mip chain.</p>
-    <div class="tbl-wrap">
-    <table class="stats" id="fmt-table">
-      <thead><tr><th>Format</th><th>bits / texel</th><th>block</th><th>texels per 64 B line</th><th>no mips</th><th>with mips</th></tr></thead>
-      <tbody id="fmt-body"></tbody>
-    </table>
-    </div>
-    <p class="words">In words: bytes are blocks across times blocks down times bytes per block; bandwidth is pixels times taps times one cache line for every miss.</p>
-    <div class="math">bytes(level n) = ⌈n / bw⌉ · ⌈n / bh⌉ · blockBytes         BC1: 4×4 → 8 B,  BC7: 4×4 → 16 B,  ASTC 6×6 → 16 B
+        <p class="words">How to read the table: the same texture in each format. Bits per texel is the compression, and the last two columns are the bytes it takes without and with a mip chain.</p>
+        <div class="tbl-wrap">
+        <table class="stats" id="fmt-table">
+          <thead><tr><th>Format</th><th>bits / texel</th><th>block</th><th>texels per 64 B line</th><th>no mips</th><th>with mips</th></tr></thead>
+          <tbody id="fmt-body"></tbody>
+        </table>
+        </div>
+        <p class="words">In words: bytes are blocks across times blocks down times bytes per block; bandwidth is pixels times taps times one cache line for every miss.</p>
+        <div class="math">bytes(level n) = ⌈n / bw⌉ · ⌈n / bh⌉ · blockBytes         BC1: 4×4 → 8 B,  BC7: 4×4 → 16 B,  ASTC 6×6 → 16 B
 bandwidth/frame = pixels · taps · 64 B · (1 − hitRate)     taps: bilinear 1, trilinear 2, aniso N× up to 2N
 bandwidth/s     = bandwidth/frame · 60 Hz</div>
-    <p class="words">n is the level width, bw and bh are the block width and height, blockBytes is the bytes per block, taps is the reads per pixel, and hitRate is the share of reads served from cache.</p>
-    <p class="words">What this code does: unpacks one BC1 block into its four-colour palette and picks a texel's colour with its 2-bit index.</p>
+        <p class="words">n is the level width, bw and bh are the block width and height, blockBytes is the bytes per block, taps is the reads per pixel, and hitRate is the share of reads served from cache.</p>
+        <p class="words">What this code does: unpacks one BC1 block into its four-colour palette and picks a texel's colour with its 2-bit index.</p>
 <pre class="code"><span class="c">// BC1 block decode sketch: 8 bytes → 16 texels</span>
 <span class="k">uint</span>  c0 = block.lo &amp; 0xFFFFu, c1 = block.lo &gt;&gt; 16;       <span class="c">// two RGB565 endpoints</span>
 <span class="k">vec3</span>  p0 = unpack565(c0), p1 = unpack565(c1);
@@ -555,34 +498,35 @@ pal[0] = p0; pal[1] = p1;
 <span class="k">else</span>         { pal[2] = 0.5 * (p0 + p1);      pal[3] = <span class="k">vec3</span>(0.0); }  <span class="c">// 3-colour + transparent</span>
 <span class="k">uint</span>  idx = (block.hi &gt;&gt; (2u * (ty * 4u + tx))) &amp; 3u;         <span class="c">// 2 bits per texel</span>
 <span class="k">vec3</span>  texel = pal[idx];</pre>
-    <p class="tldr">Compress with BC or ASTC and keep the mip chain; the chain is what keeps texture reads landing in cache.</p>
+      </div></details>
+    </div>
   </section>
 
   <section id="tradeoffs">
     <h2>Tradeoffs</h2>
-    <p class="sub">What each filter costs per sample and what it looks like when it is the wrong choice.</p>
-    <p class="plain">Read this table as <b>price, then failure</b>. The three number columns say how much each filter reads for one sample. The last two say <b>what goes wrong</b> when it is the wrong pick and <b>when it is the right one</b>. You are choosing between blur, shimmer and bandwidth. Cache lines assume a 64 B line and a tiled layout where one 2×2 footprint fits in a line.</p>
+    <p class="sub">What each filter costs per read and what it looks like when it is the wrong choice.</p>
+    <p class="plain">Read this table as <b>price, then failure</b>. The three number columns say how much each filter reads for one pixel. The last two say <b>what goes wrong</b> when it is the wrong pick and <b>when it is the right one</b>. You are choosing between blur, shimmer and memory traffic. A cache line is the 64-byte chunk memory hands over in one go; the counts assume one 2×2 read fits in a line.</p>
     <div class="tbl-wrap">
     <table class="stats">
       <thead><tr><th>Filter</th><th>texels read</th><th>cache lines touched</th><th>cost vs bilinear</th><th class="tx">what goes wrong</th><th class="tx">pick it when</th></tr></thead>
       <tbody>
-        <tr><td>Nearest, no mips</td><td>1</td><td>1</td><td>≈1×</td><td class="tx">Blocky up close; sparkling, crawling noise far away.</td><td class="tx">Pixel art at whole-number scale, ID and index textures, any lookup that must not blend.</td></tr>
-        <tr><td>Bilinear, no mips</td><td>4</td><td>1</td><td>1×</td><td class="tx">Soft up close; moiré and shimmer far away.</td><td class="tx">UI, textures that are never shrunk on screen, single-level lookups such as shadow maps.</td></tr>
-        <tr><td>Trilinear</td><td>8</td><td>2</td><td>2×</td><td class="tx">Too blurry along the short side at grazing angles: floors and walls go muddy in the distance.</td><td class="tx">Default for anything that can be far away; mobile budgets.</td></tr>
-        <tr><td>Aniso 2×</td><td>up to 16</td><td>up to 4</td><td>up to 4×</td><td class="tx">Still soft once the footprint is longer than 2:1.</td><td class="tx">Cheap upgrade for terrain and roads.</td></tr>
-        <tr><td>Aniso 4×</td><td>up to 32</td><td>up to 8</td><td>up to 8×</td><td class="tx">Soft past 4:1.</td><td class="tx">Console defaults, mobile high settings.</td></tr>
-        <tr><td>Aniso 8×</td><td>up to 64</td><td>up to 16</td><td>up to 16×</td><td class="tx">Rarely visible.</td><td class="tx">Console high settings.</td></tr>
-        <tr><td>Aniso 16×</td><td class="hi">up to 128</td><td class="hi">up to 32</td><td class="hi">up to 32×</td><td class="tx">None you can see; the worst case only happens at grazing angles.</td><td class="tx">PC default; the real cost is far below the worst case because most pixels need 1 to 4 taps and the taps hit L1 cache.</td></tr>
+        <tr><td>Nearest, no mipmaps</td><td>1</td><td>1</td><td>≈1×</td><td class="tx">Blocky up close; sparkling, crawling noise far away.</td><td class="tx">Pixel art at whole-number scale, ID and index textures, any lookup that must not blend.</td></tr>
+        <tr><td>Bilinear, no mipmaps</td><td>4</td><td>1</td><td>1×</td><td class="tx">Soft up close; wavy bands and shimmer far away.</td><td class="tx">UI, textures that are never shrunk on screen, single-level lookups such as shadow maps.</td></tr>
+        <tr><td>Trilinear</td><td>8</td><td>2</td><td>2×</td><td class="tx">Too blurry along the short side of a stretched patch: floors and walls go muddy in the distance.</td><td class="tx">Default for anything that can be far away; mobile budgets.</td></tr>
+        <tr><td>Anisotropic 2×</td><td>up to 16</td><td>up to 4</td><td>up to 4×</td><td class="tx">Still soft once the patch is longer than 2:1.</td><td class="tx">Cheap upgrade for terrain and roads.</td></tr>
+        <tr><td>Anisotropic 4×</td><td>up to 32</td><td>up to 8</td><td>up to 8×</td><td class="tx">Soft past 4:1.</td><td class="tx">Console defaults, mobile high settings.</td></tr>
+        <tr><td>Anisotropic 8×</td><td>up to 64</td><td>up to 16</td><td>up to 16×</td><td class="tx">Rarely visible.</td><td class="tx">Console high settings.</td></tr>
+        <tr><td>Anisotropic 16×</td><td class="hi">up to 128</td><td class="hi">up to 32</td><td class="hi">up to 32×</td><td class="tx">None you can see; the worst case only happens on surfaces seen nearly edge-on.</td><td class="tx">PC default; the real cost is far below the worst case because most pixels need 1 to 4 reads and the reads hit the cache.</td></tr>
       </tbody>
     </table>
     </div>
-    <p class="note">The "up to" matters. The tap count is per pixel and depends on that pixel's footprint ratio, so a 16× setting costs almost nothing on surfaces facing the camera. What you pay in practice is the texture unit's filtering rate: bilinear runs at full rate for 32-bit formats on current GPUs, trilinear and each extra anisotropic tap take extra cycles, and wide formats (RGBA16F, BC6H) filter at a reduced rate.</p>
+    <p class="note">The "up to" matters. The read count is per pixel and depends on that pixel's patch shape, so a 16× setting costs almost nothing on surfaces facing the camera. What you pay in practice is the texture unit's filtering rate: bilinear runs at full rate for 32-bit formats on current GPUs, trilinear and each extra anisotropic read take extra cycles, and wide formats (RGBA16F, BC6H) filter at a reduced rate.</p>
   </section>
 
   <section id="uses">
     <h2>Where it shows up in shipped games</h2>
     <p class="sub">The same sampler, driven differently.</p>
-    <p class="plain">Each row is <b>one way shipped games drive the same sampler</b>. The first column names the use, the second says what the shader asks for, the third says what has to be loaded for it to work, and the last says where you have seen it.</p>
+    <p class="plain">Each row is <b>one way shipped games drive the same sampler</b>. The first column names the use, the second says what the shader, the small program that colours each pixel, asks for, the third says what has to be loaded for it to work, and the last says where you have seen it.</p>
     <div class="tbl-wrap">
     <table class="uses">
       <thead><tr><th>Use</th><th>What the shader asks for</th><th>What has to be loaded</th><th>Seen in</th></tr></thead>
@@ -599,7 +543,6 @@ pal[0] = p0; pal[1] = p1;
     <p class="note">One naming trap, from the OpenGL enum names most APIs inherited. <code>LINEAR_MIPMAP_NEAREST</code> is bilinear on one mip, not trilinear; <code>LINEAR_MIPMAP_LINEAR</code> is trilinear. The first word is the filter within a level, the last word is the filter between levels, and "bilinear with mipmaps" already means the first one.</p>
   </section>
 </div>
-
 <script>
 // Rendering Library scene kit. Paste this whole block at the top of a page's <script> (no external
 // scripts are allowed). Small, flat, readable game-world props for 2D canvas demos. Every function
@@ -715,7 +658,76 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; b.className = 'ok'; quiz.querySelectorAll('button').forEach(x => x.disabled = true); why.innerHTML = '<b>Right.</b> ' + o.why; save(); render(); }
+          else { b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; }
+          quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
+  let L1, L2, L3, L4, L5;
   // ---------- palette (viewports are always dark, like an engine debug view) ----------
   const CA = "#f2a341", CB = "#4aa3ff", CW = "#ffffff", GRID = "rgba(255,255,255,0.12)", GROUND = "#0b0e13";
   const MONO = '12px "IBM Plex Mono", Menlo, Consolas, monospace';
@@ -985,10 +997,12 @@ function kitInset(ctx, x, y, w, h, title) {
     x1.strokeStyle = CB; x1.strokeRect(sx + 94, sy + 10, 56, 40);
     x1.fillStyle = "rgba(255,255,255,0.8)"; x1.textAlign = "center";
     x1.fillText("nearest", sx + 38, sy + 62); x1.fillText("bilinear", sx + 122, sy + 62);
-    read1.innerHTML = `u,v = <strong>${u.toFixed(3)}, ${v.toFixed(3)}</strong> · x,y = ${x.toFixed(2)}, ${y.toFixed(2)} · nearest texel (${ni}, ${nj}) · 2×2 from (${ids[0][0]}, ${ids[0][1]}) · w = ${w.map(t => t.toFixed(2)).join(" ")}`;
+    read1.innerHTML = `spot on the tile: <strong>${u.toFixed(3)} across, ${v.toFixed(3)} down</strong> (0 to 1) · nearest picks texel (${ni}, ${nj}) · bilinear blends the four from (${ids[0][0]}, ${ids[0][1]}) with shares ${w.map(t => t.toFixed(2)).join(" ")}`;
+    d1.stats = { wmax: Math.max(w[0], w[1], w[2], w[3]) };
+    L1 && L1.check();
   }
   const req1 = raf(draw1);
-  hover(c1, (x, y) => { d1.u = clamp(x / S1, 0, 1); d1.v = clamp(y / S1, 0, 1); req1(); });
+  hover(c1, (x, y, down) => { if (down === false) return; d1.u = clamp(x / S1, 0, 1); d1.v = clamp(y / S1, 0, 1); req1(); });
   onSeg("segAddr", v => { d1.wrap = v === "wrap"; req1(); });
   draw1();
 
@@ -997,8 +1011,8 @@ function kitInset(ctx, x, y, w, h, title) {
   const d2 = { mode: 1, tile: 4, bias: 0 };
   const img2 = new ImageData(RW, RH);
   const bufA = document.createElement("canvas"); bufA.width = RW; bufA.height = RH; const bxA = bufA.getContext("2d");
-  const MODES = ["nearest, no mips", "bilinear, no mips", "trilinear", "anisotropic 4×", "anisotropic 16×"];
-  const FAR = ["far road: shimmer and moiré", "far road: shimmer and moiré", "far road: blurred to one grey", "far road: averaged along its length", "far road: averaged along its length"];
+  const MODES = ["nearest texel", "bilinear, full size only", "trilinear", "anisotropic 4×", "anisotropic 16×"];
+  const FAR = ["far road: shimmer and wavy bands", "far road: shimmer and wavy bands", "far road: blurred to one grey", "far road: averaged along its length", "far road: averaged along its length"];
   function draw2() {
     const st = renderScene(img2, d2.mode, d2.tile, d2.bias, d2.mode === 3 ? 4 : 16, true);
     bxA.putImageData(img2, 0, 0); x2.imageSmoothingEnabled = false; x2.drawImage(bufA, 0, 0, 640, 360);
@@ -1017,8 +1031,10 @@ function kitInset(ctx, x, y, w, h, title) {
     document.getElementById("t2-taps").textContent = (st.texels / st.shaded).toFixed(1);
     document.getElementById("t2-fetch").textContent = (st.texels / 1e6).toFixed(2) + " M";
     document.getElementById("t2-ms").textContent = st.ms.toFixed(1);
-    document.getElementById("c2-read").innerHTML = `<strong>${MODES[d2.mode]}</strong> · stone = ${(d2.tile / 16 * 100).toFixed(0)} cm · texel = ${(d2.tile / 256 * 100).toFixed(2)} cm`;
-    document.getElementById("c2-lod").textContent = `λ on the road: ${Math.max(0, st.lmin).toFixed(2)} … ${Math.min(MAXL, st.lmax).toFixed(2)} (clamped)`;
+    document.getElementById("c2-read").innerHTML = `<strong>${MODES[d2.mode]}</strong> · one stone = ${(d2.tile / 16 * 100).toFixed(0)} cm · one texel = ${(d2.tile / 256 * 100).toFixed(2)} cm`;
+    document.getElementById("c2-lod").textContent = `copy picked along the road: level ${Math.max(0, st.lmin).toFixed(2)} at your feet to level ${Math.min(MAXL, st.lmax).toFixed(2)} at the horizon (0 is full size, each level halves it)`;
+    d2.stats = st;
+    L2 && L2.check();
   }
   const req2 = raf(draw2);
   onSeg("segF", v => { d2.mode = +v; req2(); });
@@ -1050,6 +1066,7 @@ function kitInset(ctx, x, y, w, h, title) {
   }
   function draw3() {
     const { rho, rmin, N, lam, l0, l1, f } = pick3();
+    d3.stats = { rho, rmin, N, lam, l0, l1, f };
     x3.fillStyle = GROUND; x3.fillRect(0, 0, 640, 360);
     x3.imageSmoothingEnabled = false; x3.font = MONO; x3.textBaseline = "middle";
     const ca = Math.cos(d3.ang), sa = Math.sin(d3.ang);
@@ -1089,9 +1106,9 @@ function kitInset(ctx, x, y, w, h, title) {
     x3.restore();
     x3.strokeStyle = "rgba(255,255,255,0.35)"; x3.strokeRect(IX - 0.5, IY - 0.5, IS + 1, IS + 1);
     x3.fillStyle = "rgba(255,255,255,0.6)"; x3.textAlign = "left";
-    x3.fillText("footprint", IX + IS + 8, IY + 10); x3.fillText("4× zoom", IX + IS + 8, IY + 24);
-    x3.fillText("level 0 · 256² · 1 px = 1 texel", LX[0], 294);
-    x3.fillText(`footprint ${rho.toFixed(1)} × ${rmin.toFixed(1)} texels`, LX[0], 308);
+    x3.fillText("pixel's", IX + IS + 8, IY + 10); x3.fillText("patch,", IX + IS + 8, IY + 24); x3.fillText("4× zoom", IX + IS + 8, IY + 38);
+    x3.fillText("level 0: 1 screen px per texel", LX[0], 294);
+    x3.fillText(`pixel's patch: ${rho.toFixed(1)} × ${rmin.toFixed(1)} texels`, LX[0], 308);
     // byte list
     const TX = 288, TY0 = 176, LH = 13;
     for (let L = 0; L <= MAXL; L++) {
@@ -1099,10 +1116,10 @@ function kitInset(ctx, x, y, w, h, title) {
       x3.fillStyle = on0 ? CA : on1 ? CB : "rgba(255,255,255,0.55)";
       const n = 256 >> L;
       x3.fillText(`L${L}`, TX, y); x3.fillText(`${n}²`, TX + 26, y); x3.textAlign = "right"; x3.fillText(`${fmtN(BYTES[L])} B`, TX + 128, y); x3.textAlign = "left";
-      if (on0 || on1) x3.fillText(`w=${(on0 ? 1 - f : f).toFixed(2)}`, TX + 136, y);
+      if (on0 || on1) x3.fillText(`×${(on0 ? 1 - f : f).toFixed(2)}`, TX + 136, y);
     }
-    x3.fillStyle = CW; x3.fillText("chain", TX, TY0 + 9.6 * LH); x3.textAlign = "right"; x3.fillText(`${fmtN(TOTAL)} B`, TX + 128, TY0 + 9.6 * LH); x3.textAlign = "left";
-    x3.fillStyle = "rgba(255,255,255,0.55)"; x3.fillText(`= ${(TOTAL / BYTES[0]).toFixed(4)} × base`, TX, TY0 + 10.6 * LH);
+    x3.fillStyle = CW; x3.fillText("stack", TX, TY0 + 9.6 * LH); x3.textAlign = "right"; x3.fillText(`${fmtN(TOTAL)} B`, TX + 128, TY0 + 9.6 * LH); x3.textAlign = "left";
+    x3.fillStyle = "rgba(255,255,255,0.55)"; x3.fillText(`= ${(TOTAL / BYTES[0]).toFixed(4)} × full size`, TX, TY0 + 10.6 * LH);
     // where on the road these levels get used (4 m tile, trilinear)
     const PX = 472, PY = 204, PW = 160, PH = 122, RX = PX + 4, RY = PY + 26, RWW = 152, RHH = 86;
     kitInset(x3, PX, PY, PW, PH, "used on the road here");
@@ -1116,9 +1133,10 @@ function kitInset(ctx, x, y, w, h, title) {
     }
     if (!any) { x3.fillStyle = "rgba(255,255,255,0.7)"; x3.textAlign = "center"; x3.fillText(lam < lamRow[RH - 1] ? "closer than your feet" : "past the horizon", RX + RWW / 2, RY + RHH / 2); x3.textAlign = "left"; }
     // readouts
-    const lamTxt = d3.mode === "aniso" ? `λ' = log2(${rho.toFixed(1)} / ${N}) = <strong>${lam.toFixed(2)}</strong> · ${N} taps` : `λ = <strong>${lam.toFixed(2)}</strong>`;
-    document.getElementById("c3-read").innerHTML = `${lamTxt} · levels <strong>${l0}</strong>${f > 0 ? ` + <strong>${l1}</strong>, blend ${f.toFixed(2)}` : ""}`;
-    document.getElementById("c3-bytes").textContent = `${fmtBytes(BYTES[0])} base · ${fmtBytes(TOTAL)} chain`;
+    const lamTxt = d3.mode === "aniso" ? `${N} reads along the long side, each on copy <strong>${lam.toFixed(2)}</strong> (${rho.toFixed(1)} texels ÷ ${N}, then halvings)` : `copy <strong>${lam.toFixed(2)}</strong>`;
+    document.getElementById("c3-read").innerHTML = `${lamTxt} · reads level <strong>${l0}</strong>${f > 0 ? ` and level <strong>${l1}</strong>, ${Math.round(f * 100)} % of the blurrier one` : ""}`;
+    document.getElementById("c3-bytes").textContent = `${fmtBytes(BYTES[0])} full size · ${fmtBytes(TOTAL)} whole stack`;
+    L3 && L3.check();
   }
   const req3 = raf(draw3);
   hover(c3, (x, y, down) => {
@@ -1157,10 +1175,10 @@ function kitInset(ctx, x, y, w, h, title) {
     const hx = d4.px * 2 + 1, hy = d4.py * 2 + 1;
     x4a.beginPath(); x4a.arc(hx, hy, 9, 0, Math.PI * 2); x4a.strokeStyle = CW; x4a.lineWidth = 1.5; x4a.stroke();
     const above = hy > 70, lx = clamp(hx + 40, 90, 560), ly = above ? hy - 34 : hy + 34;
-    kitLabel(x4a, "this pixel and its 2×2 quad", lx, ly, 'center'); kitArrow(x4a, lx - 20, above ? ly + 9 : ly - 9, hx + 6, above ? hy - 8 : hy + 8, CW);
+    kitLabel(x4a, "this pixel and its 2×2 group", lx, ly, 'center'); kitArrow(x4a, lx - 20, above ? ly + 9 : ly - 9, hx + 6, above ? hy - 8 : hy + 8, CW);
     x4a.fillStyle = "rgba(255,255,255,0.6)"; x4a.font = MONO; x4a.textBaseline = "top"; x4a.textAlign = "left";
-    x4a.fillText(`pixel (${d4.px}, ${d4.py}) of 320×180 · quad at (${d4.px & ~1}, ${d4.py & ~1})`, 12, 10);
-    document.getElementById("c4a-read").innerHTML = `road at <strong>${(V[k]).toFixed(2)} m</strong> ahead, ${(U[k]).toFixed(2)} m across · u,v = ${u.toFixed(3)}, ${v.toFixed(3)}`;
+    x4a.fillText(`pixel (${d4.px}, ${d4.py}) of 320×180 · its 2×2 group starts at (${d4.px & ~1}, ${d4.py & ~1})`, 12, 10);
+    document.getElementById("c4a-read").innerHTML = `road <strong>${(V[k]).toFixed(2)} m</strong> ahead, ${(U[k]).toFixed(2)} m to the side · spot on the texture ${u.toFixed(3)}, ${v.toFixed(3)}`;
 
     // right: texture space, centered on the sample, scaled so the footprint reads
     const s = clamp(96 / maj, 0.5, 40), CX = 320, CY = 180;
@@ -1198,10 +1216,10 @@ function kitInset(ctx, x, y, w, h, title) {
     labelC(x4b, "one pixel step down", tbx, clamp(tby + (by < 0 ? -16 : 16), 70, 350), 640, CB);
     x4b.fillStyle = "rgba(11,14,19,0.75)"; x4b.fillRect(8, 8, 316, 56);
     x4b.fillStyle = "rgba(255,255,255,0.8)"; x4b.font = MONO; x4b.textBaseline = "top"; x4b.textAlign = "left";
-    x4b.fillText(`1 base texel = ${s.toFixed(2)} px · showing level ${Lshow}`, 14, 13);
-    x4b.fillText(gs >= 6 ? `grid: level ${l0} texels = ${Math.pow(2, l0)} base texels` : `level ${l0} grid too fine to draw`, 14, 29);
+    x4b.fillText(`1 full-size texel = ${s.toFixed(2)} screen px · showing level ${Lshow}`, 14, 13);
+    x4b.fillText(gs >= 6 ? `grid: one level-${l0} texel = ${Math.pow(2, l0)} full-size texels` : `level ${l0} grid too fine to draw`, 14, 29);
     x4b.fillText("white ellipse: the road this pixel covers", 14, 45);
-    document.getElementById("c4b-read").innerHTML = `footprint <strong>${maj.toFixed(1)} × ${mn.toFixed(1)} texels</strong> on level 0 · ${(maj / 16).toFixed(1)} stones long`;
+    document.getElementById("c4b-read").innerHTML = `the pixel's patch: <strong>${maj.toFixed(1)} × ${mn.toFixed(1)} texels</strong> of the full-size texture · ${(maj / 16).toFixed(1)} stones long`;
 
     const sg = x => (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(4);
     document.getElementById("d4-live").innerHTML =
@@ -1212,8 +1230,11 @@ isotropic:   levels ${Math.floor(lamIso)} + ${Math.min(Math.floor(lamIso) + 1, M
 anisotropic: ratio ${ratio.toFixed(2)} → N = ${N}, λ' = log2(${maj.toFixed(2)}/${N}) = ${lamAn.toFixed(2)}, ${2 * N} taps`;
     document.getElementById("t4-lam").textContent = lam.toFixed(2);
     document.getElementById("t4-lv").textContent = f > 0.005 ? `${l0} + ${l1}` : `${l0}`;
-    document.getElementById("t4-ratio").textContent = ratio.toFixed(1) + " : 1";
+    document.getElementById("t4-ratio").textContent = ratio.toFixed(1) + ":1";
     document.getElementById("t4-taps").textContent = String(taps);
+    d4.stats = { lam, ratio, maj, N, taps, dist: V[k] };
+    if (d4.mode === "aniso" && maj >= 32) d4.sawFarAniso = true;
+    L4 && L4.check();
   }
   const req4 = raf(draw4);
   hover(c4a, (x, y) => {
@@ -1229,7 +1250,7 @@ anisotropic: ratio ${ratio.toFixed(2)} → N = ${N}, λ' = log2(${maj.toFixed(2)
   const c5 = document.getElementById("c5"), x5 = c5.getContext("2d");
   const d5 = { size: 2048, resW: 1920, hit: 0.9, bx: 37, by: 20 };
   const FMTS = [
-    { name: "RGBA8", bpp: 32, bw: 1, bh: 1, bytes: 4, block: "1×1 · 4 B" },
+    { name: "RGBA8 (raw)", bpp: 32, bw: 1, bh: 1, bytes: 4, block: "1×1 · 4 B" },
     { name: "BC1", bpp: 4, bw: 4, bh: 4, bytes: 8, block: "4×4 · 8 B" },
     { name: "BC7", bpp: 8, bw: 4, bh: 4, bytes: 16, block: "4×4 · 16 B" },
     { name: "ASTC 6×6", bpp: 128 / 36, bw: 6, bh: 6, bytes: 16, block: "6×6 · 16 B" }
@@ -1265,7 +1286,7 @@ anisotropic: ratio ${ratio.toFixed(2)} → N = ${N}, λ' = log2(${maj.toFixed(2)
     x5.fillStyle = GROUND; x5.fillRect(0, 0, 640, 360);
     x5.font = MONO; x5.textBaseline = "middle";
     const X0 = 96, X1 = 256;
-    x5.fillStyle = "rgba(255,255,255,0.6)"; x5.textAlign = "left"; x5.fillText(`memory · the ${size}² road texture · base + mip chain`, 16, 20);
+    x5.fillStyle = "rgba(255,255,255,0.6)"; x5.textAlign = "left"; x5.fillText(`memory: ${size}×${size} road texture + shrunk copies`, 16, 20);
     FMTS.forEach((fm, i) => {
       const y = 44 + i * 30, m = mem[i], wb = (m.base / maxMem) * (X1 - X0), wc = (m.chain / maxMem) * (X1 - X0);
       x5.fillStyle = CW; x5.textAlign = "left"; x5.fillText(fm.name, 16, y);
@@ -1273,16 +1294,16 @@ anisotropic: ratio ${ratio.toFixed(2)} → N = ${N}, λ' = log2(${maj.toFixed(2)
       x5.fillStyle = CA; x5.fillRect(X0, y - 8, Math.max(wb, 1), 16);
       x5.fillStyle = "rgba(255,255,255,0.8)"; x5.fillText(`${(m.chain / 1048576).toFixed(2)} MB (${(m.base / 1048576).toFixed(2)} + ${((m.chain - m.base) / 1048576).toFixed(2)})`, X0 + wc + 8, y);
     });
-    x5.fillStyle = CA; x5.fillRect(X0, 166, 10, 10); x5.fillStyle = CB; x5.fillRect(X0 + 90, 166, 10, 10);
-    x5.fillStyle = "rgba(255,255,255,0.6)"; x5.fillText("base level", X0 + 16, 171); x5.fillText("mip chain, +1/3", X0 + 106, 171);
-    x5.fillText(`bandwidth per frame · ${resW}×${resH} · 64 B lines · ${Math.round(hit * 100)} % hits`, 16, 208);
+    x5.fillStyle = CA; x5.fillRect(X0, 166, 10, 10); x5.fillStyle = CB; x5.fillRect(X0 + 130, 166, 10, 10);
+    x5.fillStyle = "rgba(255,255,255,0.6)"; x5.fillText("full-size copy", X0 + 16, 171); x5.fillText("shrunk copies, +1/3", X0 + 146, 171);
+    x5.fillText(`traffic per frame · ${resW}×${resH} · 64 B lines · ${Math.round(hit * 100)} % cached`, 16, 208);
     SAMP.forEach((sm, i) => {
       const y = 232 + i * 30, w = (bw[i] / maxBw) * (X1 - X0);
       x5.fillStyle = CW; x5.textAlign = "left"; x5.fillText(sm.name, 16, y);
       x5.fillStyle = CA; x5.fillRect(X0, y - 8, Math.max(w, 1), 16);
       x5.fillStyle = "rgba(255,255,255,0.8)"; x5.fillText(`${(bw[i] / 1048576).toFixed(1)} MB → ${(bw[i] * 60 / 1e9).toFixed(1)} GB/s`, X0 + w + 8, y);
     });
-    x5.fillStyle = "rgba(255,255,255,0.45)"; x5.fillText(`${fmtN(px)} pixels × taps × 64 B × ${(1 - hit).toFixed(2)} miss`, 16, 348);
+    x5.fillStyle = "rgba(255,255,255,0.45)"; x5.fillText(`${fmtN(px)} pixels × reads × 64 B × ${(1 - hit).toFixed(2)} not in cache`, 16, 348);
     // the block inset: one 4×4 patch of cobblestones squeezed into 8 bytes
     const B = bc1(d5.bx, d5.by);
     kitInset(x5, 452, 8, 180, 262, "one BC1 block: 8 bytes");
@@ -1308,20 +1329,22 @@ anisotropic: ratio ${ratio.toFixed(2)} → N = ${N}, λ' = log2(${maj.toFixed(2)
     x5.textAlign = "left"; x5.fillStyle = "rgba(255,255,255,0.75)";
     x5.fillText("2 bits", 602, 140); x5.fillText("each", 602, 152);
     x5.fillText("16 texels: 64 B → 8 B", 460, 184);
-    x5.fillText("2 ends + 16 × 2-bit index", 460, 198);
-    x5.fillStyle = B.err > 12 ? "#ef5d5d" : "#5ad48a"; x5.fillText(`error ${B.err.toFixed(1)} / 255 per texel`, 460, 214);
+    x5.fillText("2 end colours + 16 picks", 460, 198);
+    x5.fillStyle = B.err > 12 ? "#ef5d5d" : "#5ad48a"; x5.fillText(`error ${B.err.toFixed(1)} of 255 each`, 460, 214);
     x5.fillStyle = "rgba(255,255,255,0.5)"; x5.fillText("hover texture: pick a block", 460, 236);
     x5.fillText(`block (${d5.bx}, ${d5.by}) of 64×64`, 460, 250);
     // one frame of the road: the pixels that ask the sampler
     x5.drawImage(buf4, 476, 280, 128, 72);
     kitLabel(x5, `one ${resW}×${resH} frame`, 540, 289, 'center');
     x5.font = MONO;
-    document.getElementById("c5-read").innerHTML = `RGBA8 chain = <strong>${(mem[0].chain / mem[0].base).toFixed(4)} ×</strong> base · ASTC 6×6 chain = ${(mem[3].chain / mem[3].base).toFixed(4)} × base (6×6 blocks round up at the small levels) · BC1 block c0 = 0x${B.c0.toString(16).padStart(4, "0")}, c1 = 0x${B.c1.toString(16).padStart(4, "0")}`;
+    document.getElementById("c5-read").innerHTML = `raw: whole stack = <strong>${(mem[0].chain / mem[0].base).toFixed(4)} ×</strong> the full-size copy · ASTC 6×6: ${(mem[3].chain / mem[3].base).toFixed(4)} × (6×6 blocks round up at the small levels) · this block's two end colours: 0x${B.c0.toString(16).padStart(4, "0")}, 0x${B.c1.toString(16).padStart(4, "0")}`;
     document.getElementById("t5-bil").textContent = (bw[0] * 60 / 1e9).toFixed(2);
     document.getElementById("t5-tri").textContent = (bw[1] * 60 / 1e9).toFixed(2);
     document.getElementById("t5-an").textContent = (bw[3] * 60 / 1e9).toFixed(1);
     document.getElementById("fmt-body").innerHTML = FMTS.map((fm, i) =>
       `<tr><td>${fm.name}</td><td>${fm.bpp % 1 ? fm.bpp.toFixed(2) : fm.bpp}</td><td>${fm.block}</td><td>${Math.round(64 * 8 / fm.bpp)}</td><td>${fmtBytes(mem[i].base)}</td><td class="hi">${fmtBytes(mem[i].chain)}</td></tr>`).join("");
+    d5.stats = { err: B.err, spread: Math.hypot(B.p0[0] - B.p1[0], B.p0[1] - B.p1[1], B.p0[2] - B.p1[2]), memMB: mem[0].chain / 1048576 };
+    L5 && L5.check();
   }
   const req5 = raf(draw5);
   onSeg("segSz", v => { d5.size = +v; draw5(); });
@@ -1333,5 +1356,98 @@ anisotropic: ratio ${ratio.toFixed(2)} → N = ${N}, λ' = log2(${maj.toFixed(2)
     d5.bx = clamp(Math.floor((x - TH.x) / TH.s * 64), 0, 63); d5.by = clamp(Math.floor((y - TH.y) / TH.s * 64), 0, 63); req5();
   });
   draw5();
+
+  // ---------- guided steps ----------
+  const $ = id => document.getElementById(id);
+  const set1 = o => { Object.assign(d1, o); segOn($("segAddr"), d1.wrap ? "wrap" : "clamp"); draw1(); };
+  L1 = lesson("texel", { next: { id: "minify", title: "Far away, textures shimmer" }, steps: [
+    { say: "A <b>texture</b> is a picture wrapped over a 3D shape, and like any picture it is made of tiny coloured cells, called <b>texels</b>. This is one 16 by 16 patch of the tavern wall, blown up so each texel is 32 screen pixels wide, which is what standing nose to the wall does. The white dot is the spot on the wall that one screen pixel is asking about. The inset shows the player at the wall.", enter: () => set1({ u: 0.47, v: 0.36, wrap: false }) },
+    { say: "The dot almost never lands on a texel's centre, so the hardware has to invent a colour for an in-between spot. <b>Drag the dot into the middle of a brick texel.</b>", todo: "drag the dot to the middle of a brick texel", goal: () => d1.stats && d1.stats.wmax > 0.8, try: () => { d1.u = 2.5 / 16; d1.v = 2.5 / 16; draw1(); },
+      done: "One of the four numbers is close to 1.00 and the two swatches match. The simplest rule, <b>nearest</b>, takes the one texel the dot is in. The second rule, <b>bilinear</b>, blends the four closest texels by how near the dot is to each, and in the middle of a texel that blend is nearly all one texel." },
+    { say: "Now think about a spot where two brick texels meet a grey mortar texel.", quiz: { q: "What colour does bilinear give that pixel?", options: [
+        { t: "Exactly the nearest texel's colour", why: "That is the nearest rule. Bilinear always mixes four texels, and a spot between brick and mortar gets some of both." },
+        { t: "A blend of the four texels around it, each weighted by how close it is", ok: true, why: "The four numbers on the canvas are those weights, and they always add up to 1.00. The blue swatch is the result." },
+        { t: "The average of the whole tile", why: "Bilinear never looks past the four texels around the dot. Averaging more than that is a different job, covered in the next section." } ] },
+      todo: "now drag the dot to a corner where four texels meet", goal: () => d1.stats && d1.stats.wmax < 0.4, try: () => { d1.u = 4 / 16; d1.v = 4 / 16; draw1(); },
+      done: "All four numbers sit near 0.25 and the bilinear swatch turns a muddy blend of red and grey. That soft, slightly smeared look that textures get when you walk up to a wall in a game is bilinear doing exactly this." },
+    { say: "<b>Drag the dot to the right edge of the tile.</b>", todo: "drag the dot to the right edge", goal: () => d1.u > 0.94, try: () => { d1.u = 0.97; draw1(); },
+      done: "Two of the four blue boxes have run off the tile, so the hardware needs a rule for what lies past the edge. Right now it repeats the edge texel, which is why both boxes sit on the last column." },
+    { say: "A wall texture is meant to repeat, so the texel past the right edge should be the first texel on the left. <b>Switch the edge rule below</b> so the texture continues from the other side.", todo: "switch the edge rule below", goal: () => d1.wrap, try: () => $("segAddr").querySelector('[data-v="wrap"]').click(), enter: () => set1({ u: Math.max(d1.u, 0.97), wrap: false }),
+      done: "The two boxes jump to the far left column. With this rule a repeating texture blends smoothly across its own seam, which is why tiling textures are drawn with matching borders." },
+    { say: "One pixel asks for one spot on the texture. Nearest gives the texel the spot lands in; bilinear blends the four closest by distance, and it can never blend more than four. The weights, the formula and the code are under the hood." } ] });
+
+  const set2 = o => { Object.assign(d2, o); segOn($("segF"), d2.mode); $("tile").value = d2.tile; $("tilev").textContent = d2.tile.toFixed(1) + " m"; $("bias").value = d2.bias; $("biasv").textContent = (d2.bias >= 0 ? "+" : "") + d2.bias.toFixed(2); draw2(); };
+  L2 = lesson("minify", { next: { id: "chain", title: "The stack of shrunk copies" }, steps: [
+    { say: "Now the player looks down the cobbled road. Under their feet one stone takes dozens of pixels; near the horizon one pixel covers dozens of stones. The hardware still reads only four texels for that far pixel, so its colour depends on which four it lands on, and the next pixel lands on a different four. The inset zooms in on the far road: those wavy bands are the result.", enter: () => set2({ mode: 1, tile: 4, bias: 0 }) },
+    { say: "<b>Slide the tile size</b> and watch the inset and the far fence.", todo: "move the tile size slider by a metre or more", goal: () => Math.abs(d2.tile - 4) >= 1, try: () => { $("tile").value = 6; $("tile").dispatchEvent(new Event("input")); },
+      done: "The bands crawl and the far fence posts flicker in and out. Nothing about the road changed, only which four texels each pixel lands on. In a moving game this crawl never stops, and it is called shimmer." },
+    { say: "", quiz: { q: "What would make the far road stop shimmering?", options: [
+        { t: "Read every texel the pixel covers, hundreds if needed", why: "That gives the right answer, but hundreds of reads per pixel every frame is far too slow." },
+        { t: "Keep pre-shrunk copies of the texture and read the copy whose texels are about one pixel wide", ok: true, why: "Each texel of a shrunk copy is already the average of many stones, so four reads stand for the whole pixel. Those copies are called mipmaps." },
+        { t: "Blur the whole screen", why: "That blurs the near road too, and the bands are still there underneath the blur." } ] } },
+    { say: "<b>Switch the filter to trilinear</b>, the setting that reads the shrunk copies.", todo: "switch the filter to trilinear", goal: () => d2.mode === 2, try: () => $("segF").querySelector('[data-v="2"]').click(), enter: () => set2({ mode: 1, bias: 0 }),
+      done: "The bands vanish and the far road settles to a flat grey. Texels read per pixel went from 4 to 8: trilinear blends two copies, the one just too sharp and the one just too soft, so the switch from one copy to the next is invisible." },
+    { say: "The far road is now calm but blurry, and the lines between the stones are gone. A far pixel covers a patch of road that is a few stones wide but many stones deep. One shrunk copy has to fit the deep side, so it blurs the narrow side too. <b>Switch to anisotropic 16×.</b>", todo: "switch the filter to anisotropic 16×", goal: () => d2.mode === 4, try: () => $("segF").querySelector('[data-v="4"]').click(),
+      done: "The lines between the stones come back in the distance. Anisotropic means the hardware picks a sharper copy that fits the narrow side, then reads it up to 16 times along the deep side and averages. The reads-per-pixel tile climbs: that is what the sharpness costs." },
+    { say: "The nudge slider makes the hardware pick a sharper copy (−) or a blurrier one (+) than it would on its own. <b>Drag it to −2.</b>", todo: "drag the nudge slider to −2", goal: () => d2.bias <= -1.5, try: () => { $("bias").value = -2; $("bias").dispatchEvent(new Event("input")); }, enter: () => set2({ mode: 4, bias: 0 }),
+      done: "The shimmer comes back, because the copy is now too sharp for how many stones each pixel covers. Games do use a small negative nudge, then blend frames over time to hide the shimmer it adds back." },
+    { say: "Shimmer is four reads out of dozens of texels. The shrunk copies make those four the average of everything the pixel covers, trilinear blends two copies, and anisotropic spends extra reads along the deep side. The formulas and the code are under the hood." } ] });
+
+  const set3 = o => { Object.assign(d3, o); segOn($("segM3"), d3.mode); $("lod3").value = d3.lam; $("lod3v").textContent = d3.lam.toFixed(2); $("ratio3").value = d3.ratio; $("ratio3v").textContent = d3.ratio.toFixed(1) + " : 1"; draw3(); };
+  L3 = lesson("chain", { next: { id: "lod", title: "How the GPU picks the copy" }, steps: [
+    { say: "Here is the road texture at full size, 256 texels across, and beside it the copies: half size, quarter size, and on down to a single texel. Each copy is made by averaging every 2 by 2 block of the one before it, like a photocopier set to 50% run again and again on its own output. The stack is called a <b>mip chain</b>, and each copy is a <b>level</b>: level 0 is full size, level 1 is half, level 8 is one texel.", enter: () => set3({ lam: 4.5, ratio: 4, mode: "tri", cx: 96, cy: 120 }) },
+    { say: "The full-size texture takes 256 KB.", quiz: { q: "How much does the whole stack of copies take?", options: [
+        { t: "About twice as much", why: "Each copy is a quarter of the one before, not a half. The list on the canvas adds them up." },
+        { t: "About a third more", ok: true, why: "A quarter, plus a sixteenth, plus a sixty-fourth, and so on, adds up to one third. The list on the canvas shows 341 KB for the whole stack against 256 KB for the full-size copy." },
+        { t: "About eight times as much, one for each copy", why: "The copies shrink fast. All eight together are smaller than the full-size texture on its own." } ] } },
+    { say: "The white ellipse on the full-size texture is the <b>patch of texture one pixel covers</b>. The slider says which copy that pixel reads. <b>Slide it all the way up to 8.</b>", todo: "slide 'which copy to read' up to 8", goal: () => d3.lam >= 7.5, try: () => { $("lod3").value = 8; $("lod3").dispatchEvent(new Event("input")); }, enter: () => set3({ lam: 4.5, ratio: 4, mode: "tri" }),
+      done: "The amber frame walked down the stack one level per whole number, the ellipse doubled with every step, and the band on the little road picture moved from under your feet toward the horizon. At 8 the pixel covers the whole texture and reads the one-texel copy, which is the grey the road fades to at the horizon." },
+    { say: "Back at 4.5, look at the list: level 4 is framed in amber and level 5 in blue, each with a share of about half.", enter: () => set3({ lam: 4.5 }), quiz: { q: "Why read two copies instead of one?", options: [
+        { t: "Because one copy would be too blurry", why: "One copy is fine when the slider sits exactly on a whole number. The trouble is what happens in between." },
+        { t: "So the picture does not jump where the road crosses from one copy to the next", ok: true, why: "Trilinear reads both neighbours and blends them by the fraction: at 4.5 it is half and half, at 4.9 it is mostly level 5. Without the blend you would see a line across the road where the copy changes." },
+        { t: "Because the hardware always reads two of everything", why: "Nearest and bilinear read one copy. The second copy is a choice that trilinear makes." } ] } },
+    { say: "A far pixel's patch is stretched: long along the road, narrow across it. <b>Set how stretched to 16 : 1, then switch the pick to anisotropic.</b>", todo: "set the stretch to 16 : 1 and switch to anisotropic", goal: () => d3.ratio >= 15 && d3.mode === "aniso", try: () => { $("ratio3").value = 16; $("ratio3").dispatchEvent(new Event("input")); $("segM3").querySelector('[data-v="aniso"]').click(); }, enter: () => set3({ lam: 4.5, ratio: 4, mode: "tri" }),
+      done: "The copy being read jumped four levels sharper, from 4.5 to 0.5, and 16 white dots appeared along the long side of the ellipse. Splitting the long side into 16 reads means each read only has to cover a sixteenth of it, and a sixteenth is four halvings sharper." },
+    { say: "<b>Drag the ellipse</b> somewhere else on the full-size texture.", todo: "drag the ellipse on the full-size texture", goal: () => Math.hypot(d3.cx - 96, d3.cy - 120) > 30, try: () => { d3.cx = 180; d3.cy = 60; draw3(); }, enter: () => { d3.cx = 96; d3.cy = 120; draw3(); },
+      done: "Only its position changed. Which copy gets read depends on the size of the patch, not on where it sits, so a whole band of road at one distance reads the same copy." },
+    { say: "A mip chain is the texture plus its half-size copies, for a third more memory. The size of the pixel's patch picks the copy, blending two copies hides the switch, and anisotropic trades extra reads for a sharper copy. The byte sum and the code that builds each copy are under the hood." } ] });
+
+  const set4 = o => { Object.assign(d4, o); segOn($("segM4"), d4.mode); segOn($("segL4"), d4.show); draw4(); };
+  L4 = lesson("lod", { next: { id: "memory", title: "What textures cost in memory" }, steps: [
+    { say: "The hardware picks the copy by measuring how far a pixel's spot on the texture moves for one pixel step across the screen, and one step down. Left: the road, with one pixel picked out. Right: the texture, zoomed in around that pixel's spot. The amber arrow is one step across, the blue arrow one step down, both in texels. The white ellipse they span is the pixel's patch.", enter: () => set4({ px: 200, py: 96, mode: "tri", show: "0", sawFarAniso: false }) },
+    { say: "<b>Hover the road at the bottom of the left picture</b>, closest to the camera.", todo: "hover the road at the bottom of the left picture", goal: () => d4.stats && d4.stats.maj < 5, try: () => { d4.px = 160; d4.py = 170; draw4(); },
+      done: "The arrows are short, a texel or two, so the pixel sits inside about one texel and reads the full-size copy: level 0. The patch is nearly round, because one step across moves about as far as one step down." },
+    { say: "<b>Now hover the road near the horizon.</b>", todo: "hover the road near the horizon", goal: () => d4.stats && d4.stats.maj >= 32, try: () => { d4.px = 160; d4.py = 56; draw4(); },
+      done: "The arrows stretch to dozens of texels, the level climbs, and the patch is a sliver: a few stones wide, many stones deep. The level is how many times the texture has to be halved until the long side of the patch is about one texel. Level 3 means the long side was about 8 texels." },
+    { say: "Suppose a pixel's patch is 32 texels long and 4 texels wide. Trilinear fits one copy to the longer side.", quiz: { q: "Which level does it read?", options: [
+        { t: "Level 2, because 4 texels is two halvings", why: "Fitting the short side would leave each read covering 8 texels along the long side, and the shimmer comes back." },
+        { t: "Level 5, because 32 texels is five halvings", ok: true, why: "32, 16, 8, 4, 2, 1: five halvings. That copy is safe from shimmer, but it blurs the short side, which only needed two." },
+        { t: "Level 32, one per texel", why: "The level counts halvings, not texels. Level 8 is already a single texel." } ] } },
+    { say: "<b>Switch the pick to anisotropic 16×, then hover the far road again.</b>", todo: "switch to anisotropic 16× and hover the far road", goal: () => d4.mode === "aniso" && d4.sawFarAniso, try: () => { $("segM4").querySelector('[data-v="aniso"]').click(); d4.px = 160; d4.py = 56; draw4(); },
+      done: "The level dropped, white dots appeared along the long arrow, and four-texel reads per pixel went up to 32. The hardware now fits the copy to the short side and takes several reads along the long one, so the far road keeps the lines between its stones." },
+    { say: "<b>Switch the right picture to show the copy it picked.</b>", todo: "switch the right picture to the picked copy", goal: () => d4.show === "pick", try: () => $("segL4").querySelector('[data-v="pick"]').click(),
+      done: "The right view swaps to the shrunk copy, and on it the patch is about one texel wide. That is the whole trick: pick the copy where one pixel covers about one texel, and four reads are a fair average." },
+    { say: "Two pixel steps measured in texels, and the level is how many halvings until the longer one is about one texel. Every filter on this page starts from that one measurement. The arithmetic for the pixel you are hovering updates live under the hood." } ] });
+
+  const set5 = o => { Object.assign(d5, o); segOn($("segSz"), d5.size); segOn($("segRes"), d5.resW); $("hit").value = Math.round(d5.hit * 100); $("hitv").textContent = Math.round(d5.hit * 100) + " %"; draw5(); };
+  L5 = lesson("memory", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "Textures are the biggest thing in a graphics card's memory, and the shrunk copies make each one a third bigger. Top bars: the road texture at 2048 by 2048 texels in four storage formats, amber for the full-size copy and blue for the shrunk copies. Bottom bars: how much data the hardware pulls from memory to draw one frame of the road, for each filter.", enter: () => set5({ size: 2048, resW: 1920, hit: 0.9, bx: 37, by: 20 }) },
+    { say: "<b>Switch the road texture size to 4096².</b>", todo: "switch the texture size to 4096²", goal: () => d5.size === 4096, try: () => $("segSz").querySelector('[data-v="4096"]').click(),
+      done: "Every memory bar quadrupled: twice the width and twice the height is four times the texels. Stored raw, this one texture with its copies is now 85 MB, and a game has thousands of textures." },
+    { say: "Look at the BC1 bar: one eighth of the raw bar.", quiz: { q: "How does BC1 get so small?", options: [
+        { t: "It throws away the shrunk copies", why: "The blue part of the bar is still there. BC1 keeps the whole stack." },
+        { t: "It stores each 4 by 4 block of texels as two colours plus a 2-bit choice per texel", ok: true, why: "Two end colours, then each texel says which of four shades between them it is. The box on the right shows one block: 16 texels, 64 bytes raw, 8 bytes packed." },
+        { t: "It lowers the resolution", why: "The texture is still 4096 by 4096. Every texel is still there, described in fewer bits." } ] } },
+    { say: "The small road picture in the box marks the block being packed. <b>Hover it</b> until the block sits on a dark gap between two stones.", todo: "hover the small road picture onto a gap between stones", goal: () => d5.stats && d5.stats.spread > 60, try: () => { d5.bx = 36; d5.by = 21; draw5(); }, enter: () => set5({ bx: 37, by: 21 }),
+      done: "The two end colours are now a dark gap and a light stone, far apart, so the four shades between them are coarse and the error number climbs. Most blocks of most textures are gentle enough that you never notice, which is why nearly every PC and console game ships its textures this way." },
+    { say: "The bottom bars depend on the <b>cache</b>, a small fast store next to the hardware that keeps the texels it read most recently. <b>Drag reads answered from the cache down to 50 %.</b>", todo: "drag the cache slider down to 50 %", goal: () => d5.hit <= 0.55, try: () => { $("hit").value = 50; $("hit").dispatchEvent(new Event("input")); }, enter: () => set5({ hit: 0.9 }),
+      done: "The traffic bars jumped five times. Memory hands over data in 64-byte lines, and a line is only fetched when the texels wanted are not already in the cache. At 90 % one read in ten goes to memory; at 50 % it is one in two. The shrunk copies are what keep the rate high, because at the right copy neighbouring pixels read neighbouring texels." },
+    { say: "", quiz: { q: "If you switch the screen size to 4K, what happens to the memory bars at the top?", options: [
+        { t: "They quadruple too", why: "Memory holds the texture. The screen size does not change what is stored." },
+        { t: "They stay put; only the traffic bars grow", ok: true, why: "Four times the pixels means four times the reads per frame, but the same texture in memory." },
+        { t: "They shrink, because each pixel covers less texture", why: "A bigger screen changes which copies get read, not how many bytes are stored." } ] },
+      todo: "now pick 4K to check", goal: () => d5.resW === 3840, try: () => $("segRes").querySelector('[data-v="3840"]').click(),
+      done: "Traffic quadrupled with the pixel count; memory did not move. Screen size sets how many pixels ask, texture size sets what is stored." },
+    { say: "Pack textures with a block format and keep the shrunk copies: they cost a third more memory and pay it back by keeping reads in the cache. The bytes formula, the traffic formula, the format table and the block-decode code are under the hood." } ] });
 })();
 </script>

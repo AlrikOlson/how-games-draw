@@ -239,7 +239,7 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 .order li .nm { flex: 1; }
 .order li button { font: inherit; font-family: var(--font-mono); font-size: 12px; background: var(--chip); color: var(--ink); border: 1px solid var(--line); border-radius: 3px; padding: 2px 8px; cursor: pointer; }
 .order li button:disabled { opacity: 0.35; cursor: default; }
-.math.live { font-size: 12.5px; min-height: 7.5em; }
+.math.live { font-size: 11.5px; min-height: 6.5em; margin-top: 10px; }
 .stats th:last-child, .stats td:last-child { text-align: left; white-space: normal; font-family: var(--font-display); font-size: 14px; min-width: 22ch; }
 .uses td:first-child { white-space: normal; min-width: 12ch; }
 .grid2 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 18px; align-items: start; }
@@ -249,73 +249,72 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 .stats.tr td:last-child { min-width: 26ch; }
 .stats.tr td:nth-child(3) { min-width: 14ch; }
 .section-tldr { margin-top: 22px; }
+/* stages on this page */
+section.stage#oit .cols { grid-template-columns: minmax(0, 1fr) minmax(360px, 460px); }
+section.stage#oit .lesson .tiles.four { grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); }
+section.stage .quad4 { max-width: calc(var(--stage-free) * 1.72); gap: 10px; }
+section.stage .quad4 .cap { margin-top: 6px; }
+section.stage .vp canvas.strip { margin-top: 8px; }
+section.stage .cols > .vp:first-child { max-width: var(--stage-free); }
+section.stage#depth .cols > .vp:first-child { max-width: calc(var(--stage-free) * 1.7778); }
+section.stage#oit .cols > .vp:first-child { max-width: none; }
+.hood .pair { max-width: 600px; margin: 6px 0 16px; }
+@media (max-width: 900px), (max-height: 639px) { section.stage#oit .cols { grid-template-columns: minmax(0, 1fr); } section.stage .quad4 { max-width: none; } }
 </style>
 
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a tavern yard at night · 64 m × 64 m · 60° fov · 160×90 and 320×180 buffers · drag the player</p>
+    <p class="eyebrow">a tavern yard at night · five guided demos · nothing to install</p>
     <h1>Transparency &amp; Sorting</h1>
-    <p class="lead">A see-through pixel is a stack of blends, and the GPU stacks them in the order you draw. Get the order wrong and glass over smoke comes out a different colour from smoke over glass, which is why every engine has a separate translucent pass that sorts, fakes, or works around the problem, and none of the cheap ways is exact. The thing people get wrong is premultiplied alpha. It does not change which order is correct; it changes what the numbers in a colour mean, and that is what makes filtering and grouping of layers come out right.</p>
+    <p class="lead">When a game draws glass, smoke or a glow, the GPU, the chip that draws the picture, keeps no list of layers. It mixes each new colour into the pixel and forgets what was there, so the order it draws things in decides the final colour, and glass over smoke comes out a different colour from smoke over glass. Every engine has a separate pass for see-through things that sorts them, fakes it, or works round it, and none of the cheap ways is exact. <b>The thing people get wrong:</b> premultiplied alpha, a way of storing a colour already scaled by how solid it is, does not change which order is right. It changes what the numbers in a colour mean, and that is what makes smoothing and grouping of layers come out right.</p>
     <div class="key">
       <span style="--sw:#f2a341">A: lantern glow, fire</span>
       <span style="--sw:#4aa3ff">B: window glass</span>
       <span style="--sw:#ffffff">C: smoke; also the player, drag handles, rays</span>
-      <span style="--sw:#5ad48a">order matches the true per-pixel answer</span>
-      <span style="--sw:#ef5d5d">order wrong, or a fragment thrown away</span>
+      <span style="--sw:#5ad48a">the sorted order matches the exact answer</span>
+      <span style="--sw:#ef5d5d">order wrong, or a layer thrown away</span>
     </div>
     <dl class="terms">
-      <dt>alpha</dt><dd>how opaque a colour is, from 0 (invisible) to 1 (solid); written α</dd>
-      <dt>over</dt><dd>the GPU's fixed mix of a new colour onto what is already in the pixel</dd>
-      <dt>fragment</dt><dd>one candidate colour for one pixel from one triangle; a pixel can receive several</dd>
-      <dt>depth buffer</dt><dd>an image that stores, for every pixel, how far away the nearest surface drawn so far is</dd>
-      <dt>premultiplied</dt><dd>a colour stored already scaled by its alpha, so a fully clear texel is all zeros</dd>
+      <dt>alpha</dt><dd>how solid a colour is, from 0 (invisible) to 1 (solid); written α in the formulas</dd>
+      <dt>over</dt><dd>the GPU's fixed way of mixing a new colour onto what is already in the pixel</dd>
+      <dt>fragment</dt><dd>one candidate colour for one pixel from one triangle; a pixel can receive several, and the steps call them layers</dd>
+      <dt>depth buffer</dt><dd>an image that stores, for every pixel, how far away the nearest thing drawn there so far is</dd>
+      <dt>premultiplied</dt><dd>a colour stored already scaled by its alpha, so a fully clear pixel of a texture is all zeros</dd>
       <dt>draw order</dt><dd>the sequence the engine hands objects to the GPU in</dd>
-      <dt>OIT</dt><dd>order-independent transparency: any way of getting the right picture without sorting</dd>
-      <dt>TAA</dt><dd>temporal anti-aliasing: averaging the picture over the last few frames</dd>
+      <dt>OIT</dt><dd>order-independent transparency: any way of getting the right picture without sorting the draws</dd>
+      <dt>TAA</dt><dd>temporal anti-aliasing: smoothing the picture by averaging it over the last few frames</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#over"><span class="n">01</span>One pixel, blended in draw order</a></li><li><a href="#sort"><span class="n">02</span>Sorting whole objects, one number each</a></li><li><a href="#cutout"><span class="n">03</span>Skip the blend</a></li><li><a href="#oit"><span class="n">04</span>Getting it right without sorting</a></li><li><a href="#depth"><span class="n">05</span>Depth writes and the pre-pass trick</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#over"><span class="n">01</span>One pixel, mixed in draw order</a></li><li><a href="#sort"><span class="n">02</span>Sorting whole objects by one number</a></li><li><a href="#cutout"><span class="n">03</span>Skip the mixing: cutouts and dither</a></li><li><a href="#oit"><span class="n">04</span>Getting it right without sorting</a></li><li><a href="#depth"><span class="n">05</span>When glass claims the pixel</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
-  <!-- 1. over operator -->
-  <section id="over">
-    <h2>One pixel, blended in draw order</h2>
-    <p class="sub">A player stands in the tavern yard at night, where the lantern glow, the window glass and the brazier smoke overlap. Hover a pixel to watch each blend step, and reorder the three to change the colour of the overlap.</p>
+  <section id="over" class="stage">
+    <h2>One pixel, mixed in draw order</h2>
+    <p class="sub">A player in the tavern yard at night, where the lantern glow, the window glass and the brazier smoke overlap. Watch one pixel get mixed three times, then change the order.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c1" width="512" height="512" class="sq" aria-label="The tavern front at night with a player in the yard; the lantern glow, the window glass and the brazier smoke overlap as three translucent layers"></canvas>
         <div class="cap"><span id="c1-read">hover a pixel</span><span id="c1-dep"></span></div>
         <div class="math live" id="m1">hover a pixel</div>
       </div>
-      <div class="prose">
-        <p class="plain">Every time the GPU draws a see-through pixel, it <b>mixes the new colour into whatever is already there</b> and forgets the old value. It keeps no list of layers. So <b>the draw order is the only thing that decides the final colour</b>, and swapping two draws changes the picture everywhere they overlap.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The front of the tavern at night. Three see-through things sit over it: A is the lantern's glow (amber), B is the glass in the tavern window (blue), C is the smoke drifting off the brazier past the player (white). The number on each label is its place in the draw list. The box under the canvas replays the blend at the pixel under your cursor, one line per layer, then shows what the reversed order would have given.</p>
-        <p>The readout under the canvas says what share of the covered pixels would change colour if you flipped the order. At the defaults it is about a third of them.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Press up on C, the smoke, so the window glass draws last, then hover the middle where all three overlap. The result shifts toward blue.</li>
-          <li>Drag α of A to 1.00. The glow is now solid: whatever was drawn before it disappears under it, and whatever is drawn after still blends on top.</li>
-          <li>Switch "Show math as" to premultiplied. Same final colour, different bookkeeping: each colour is already scaled by its alpha.</li>
-        </ul>
-
-        <div class="grid2">
-          <div>
-            <span class="lab" style="font-family:var(--font-mono);font-size:12px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted)">Draw order (first → last)</span>
-            <ul class="order" id="ord1" style="margin-top:6px"></ul>
-          </div>
-          <div class="ctl"><span class="lab">Show math as</span><div class="seg" id="mode1" role="group" aria-label="Alpha convention"><button data-v="straight" aria-pressed="true">straight</button><button data-v="premul">premultiplied</button></div></div>
+      <div class="lesson" data-lesson="over">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">Draw order, first to last</span><ul class="order" id="ord1"></ul></div>
         </div>
-        <div class="controls">
-          <div class="ctl"><label for="a1A">α of A <span class="val" id="a1Av">0.60</span></label><input type="range" id="a1A" min="0" max="1" step="0.05" value="0.6"></div>
-          <div class="ctl"><label for="a1B">α of B <span class="val" id="a1Bv">0.50</span></label><input type="range" id="a1B" min="0" max="1" step="0.05" value="0.5"></div>
-          <div class="ctl"><label for="a1C">α of C <span class="val" id="a1Cv">0.50</span></label><input type="range" id="a1C" min="0" max="1" step="0.05" value="0.5"></div>
-          <div class="ctl"><span class="lab">Color of C, the smoke</span><div class="seg" id="col1C" role="group" aria-label="Color of the smoke C"><button data-v="white" aria-pressed="true">white</button><button data-v="amber">amber</button><button data-v="blue">blue</button></div></div>
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="a1A">Alpha of A, the glow <span class="val" id="a1Av">0.60</span></label><input type="range" id="a1A" min="0" max="1" step="0.05" value="0.6"></div>
+          <div class="ctl"><label for="a1B">Alpha of B, the glass <span class="val" id="a1Bv">0.50</span></label><input type="range" id="a1B" min="0" max="1" step="0.05" value="0.5"></div>
+          <div class="ctl"><label for="a1C">Alpha of C, the smoke <span class="val" id="a1Cv">0.50</span></label><input type="range" id="a1C" min="0" max="1" step="0.05" value="0.5"></div>
+          <div class="ctl"><span class="lab">Colour of C, the smoke</span><div class="seg" id="col1C" role="group" aria-label="Colour of the smoke C"><button data-v="white" aria-pressed="true">white</button><button data-v="amber">amber</button><button data-v="blue">blue</button></div></div>
         </div>
-
-        <h3>The real version</h3>
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><span class="lab">Show the sum as</span><div class="seg" id="mode1" role="group" aria-label="Alpha convention"><button data-v="straight" aria-pressed="true">straight</button><button data-v="premul">premultiplied</button></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Mixing forgets earlier layers, so draw order alone decides the colour; premultiplying fixes smoothing and grouping, not order.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The blend unit is the fixed piece of hardware that runs one formula per fragment, where a fragment is one candidate colour for one pixel from one triangle. It reads the target, multiplies, adds, and writes back. The formula is called "over".</p>
         <p>Straight alpha stores colour and alpha as separate numbers. The new pixel is the source colour scaled by its alpha, plus the old pixel scaled by one minus that alpha. Premultiplied alpha stores the colour already scaled by its alpha, so the source is added as-is and only the old pixel gets scaled.</p>
         <p>Premultiplied over is associative, which means you can blend B and C into a group first and then put A over the group, and get the same answer as blending one at a time. Straight over is not, because once (A over B) is treated as a new source its colour is scaled by alpha a second time. Neither convention changes which order is correct.</p>
@@ -343,56 +342,45 @@ blend.srcAlpha = ONE;         blend.dstAlpha = ONE_MINUS_SRC_ALPHA;
   <span class="k">return</span> <span class="k">float4</span>(t.rgb * t.a, t.a);   <span class="c">// premultiply, use the ONE state</span>
 }
 depth.write = <span class="k">false</span>;  depth.test = LESS_EQUAL;   <span class="c">// see section 5</span></pre>
-      </div>
+        <div class="pair">
+          <div class="vp">
+            <canvas id="c1s" width="256" height="256" class="sq" aria-label="Straight alpha coin sprite over blue window glass, bilinear filtered and magnified, showing a dark rim"></canvas>
+            <div class="cap"><strong>straight, smoothed 32×</strong><span id="c1s-cap"></span></div>
+          </div>
+          <div class="vp">
+            <canvas id="c1p" width="256" height="256" class="sq" aria-label="Premultiplied alpha coin sprite over blue window glass, bilinear filtered and magnified, with a clean edge"></canvas>
+            <div class="cap"><strong>premultiplied, smoothed 32×</strong><span id="c1p-cap"></span></div>
+          </div>
+        </div>
+        <p class="note">The two squares above show the dark fringe bug. An 8×8 coin sprite sits over the blue window glass, magnified 32× so each texel, one pixel of the texture, is a big square. The texels outside the coin have α = 0, and most exporters write black into their RGB. When the GPU smooths the edge by averaging neighbouring texels, straight alpha averages that black into the edge before the blend, and you get a dark rim. Premultiplied texels outside the coin are (0,0,0,0) by definition, so the same averaging adds nothing wrong. This is why engines premultiply at import or in the shader.</p>
+    </div></details>
     </div>
-    <div class="pair">
-      <div class="vp">
-        <canvas id="c1s" width="256" height="256" class="sq" aria-label="Straight alpha coin sprite over blue window glass, bilinear filtered and magnified, showing a dark rim"></canvas>
-        <div class="cap"><strong>straight, filtered 32×</strong><span id="c1s-cap"></span></div>
-      </div>
-      <div class="vp">
-        <canvas id="c1p" width="256" height="256" class="sq" aria-label="Premultiplied alpha coin sprite over blue window glass, bilinear filtered and magnified, with a clean edge"></canvas>
-        <div class="cap"><strong>premultiplied, filtered 32×</strong><span id="c1p-cap"></span></div>
-      </div>
-    </div>
-    <p class="note">The two squares above show the dark fringe bug. An 8×8 coin sprite sits over the blue window glass, magnified 32× so each texel, one pixel of the texture, is a big square. The texels outside the coin have α = 0, and most exporters write black into their RGB. When the GPU smooths the edge by averaging neighbouring texels, straight alpha averages that black into the edge before the blend, and you get a dark rim. Premultiplied texels outside the coin are (0,0,0,0) by definition, so the same averaging adds nothing wrong. This is why engines premultiply at import or in the shader.</p>
-    <p class="tldr section-tldr">Blending forgets earlier layers, so draw order alone decides the colour; premultiplying fixes filtering and grouping, not order.</p>
   </section>
 
-  <!-- 2. sorting -->
-  <section id="sort">
-    <h2>Sorting whole objects, one number each</h2>
-    <p class="sub">The player stands in the yard looking at the tavern. Drag the player or the aim point and watch where sorting by object gets the per-pixel order wrong.</p>
+  <section id="sort" class="stage">
+    <h2>Sorting whole objects by one number</h2>
+    <p class="sub">The player stands in the yard looking at the tavern. Drag the player or the aim dot and watch where sorting by object gets the picture wrong.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c2" width="512" height="512" class="grab sq" aria-label="Top-down map of the tavern yard with the player, the tavern, the lantern glow, smoke puffs and the window glass, plus an inset of what the player sees"></canvas>
         <canvas id="c2s" width="512" height="96" class="strip" aria-label="One row of the player's screen at eye height rendered in true order and in sorted order"></canvas>
-        <div class="cap"><span id="c2-read"></span><span id="c2-col"></span></div>
+        <div class="cap"><span id="c2-read"></span></div>
+        <div class="cap"><span id="c2-col"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Engines do not sort pixels. They <b>sort whole objects by one distance number each</b> and draw them far to near. That works until <b>one object reaches both in front of and behind another</b>. Then no single number is right for every pixel it covers, and some columns of the screen come out the wrong colour.</p>
-
-        <h3>What you're seeing</h3>
-        <p>A top-down map of the yard at 8 px per metre. The blue figure is the player, and the player is the camera; the small white handle is where they look. The stone building on the right is the tavern, with a pane of glass in its front wall. The see-through things are the lantern glow, the smoke puffs from the brazier, and that window glass. Each carries a label with its place in the sorted draw list, far to near. The inset in the corner is what the player sees, rendered the exact way.</p>
-        <p>The strip under the map is one row of the player's screen at eye height, 256 columns wide, rendered twice. The top row is the true answer, with each column's ray blending the fragments it crosses in real depth order. The middle row is what object sorting produced. Red marks along the bottom are the columns where the two disagree. The white ray on the map is one such column, and its hit dots are numbered in true depth order. Rays stop at the tavern walls, as the depth test would stop them.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Pick "fire as two crossed cards". Games draw a brazier's fire as two flat cards that cross like an X, so each card is in front on one side and behind on the other, and the sort is wrong on one side of the crossing.</li>
-          <li>Pick "lantern inside a smoke cloud". The lantern glow sits inside the big puff, so the sort has to put it either wholly in front of or wholly behind the smoke, and neither is right for every column. Walk the player round it and the red band moves.</li>
-          <li>At the defaults, watch the smoke puff drifting in through the window: half of it is in front of the glass and half behind, and the sort gets the front half wrong. Drag the player or the aim point until the red columns move or disappear. The sort is only right from some viewpoints, and it stops being right the moment you move.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:6px">
+      <div class="lesson" data-lesson="sort">
+        <div class="controls" data-step-min="4">
           <div class="ctl"><span class="lab">Scene</span><div class="seg" id="scene2" role="group" aria-label="Scene"><button data-v="five" aria-pressed="true">the yard</button><button data-v="cross">fire as two crossed cards</button><button data-v="big">lantern inside a smoke cloud</button></div></div>
         </div>
         <div class="tiles">
-          <div class="tile"><div class="n" id="t2-wrong">·</div><div class="l">columns wrong of 256</div></div>
-          <div class="tile"><div class="n" id="t2-max">·</div><div class="l">max fragments per column</div></div>
-          <div class="tile"><div class="n txt" id="t2-order">·</div><div class="l">sorted draw order</div></div>
+          <div class="tile"><div class="n" id="t2-wrong">·</div><div class="l">columns wrong, of 256</div></div>
+          <div class="tile"><div class="n" id="t2-max">·</div><div class="l">most layers on one column</div></div>
+          <div class="tile"><div class="n txt" id="t2-order">·</div><div class="l">draw order, farthest first</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">One number per object cannot be right for every pixel once objects overlap in depth, and that is the default everything else here tries to beat.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>A sort key is one number per object, usually the distance from the camera to the center of its bounds, the box that fits around it. A pixel needs one number per fragment. Whenever an object is long enough that parts of it sit on both sides of another object, no single key can be right for every pixel it covers.</p>
         <p>Two crossing cards are the textbook case, and fire, smoke and bushes are drawn that way all the time. A small object inside a big translucent volume, such as a lantern inside smoke, a character inside a glass tube or a fish inside a water volume, is the one that shows up in shipped games.</p>
         <p class="words">In words: give each object one distance, draw them farthest first, and accept that this is only right at a pixel when the object order and the fragment order agree there.</p>
@@ -410,46 +398,34 @@ setBlend(premultipliedOver); setDepth(test = LESS_EQUAL, write = <span class="k"
 <span class="k">for</span> (obj : translucents) draw(obj);
 <span class="c">// inside one mesh the triangle order is whatever the index buffer says;</span>
 <span class="c">// a few engines also sort triangles for glass, most do not</span></pre>
-
-        <p class="tldr">One sort key per object cannot be right for every pixel once objects overlap in depth, and that is the default everything else on this page is trying to beat.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <!-- 3. alpha test / dither -->
-  <section id="cutout">
-    <h2>Skip the blend: cutouts and dither</h2>
-    <p class="sub">An autumn leaf hangs in front of the yard fence and fades out as its bush switches detail level. Drag it by fractions of a pixel and compare four ways of never blending at all.</p>
+  <section id="cutout" class="stage">
+    <h2>Skip the mixing: cutouts and dither</h2>
+    <p class="sub">An autumn leaf hangs in front of the yard fence. Four ways of never mixing at all, each hiding the hard edge in its own way.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c3" width="512" height="512" class="grab sq" aria-label="A leaf in front of the night sky, the moon and the yard fence, rendered four ways: alpha test, alpha to coverage, Bayer dither and dither with TAA"></canvas>
-        <div class="cap"><span id="c3-read">hover a pixel</span><span id="c3-pos"></span></div>
+        <div class="cap"><span id="c3-read">hover a pixel</span></div>
+        <div class="cap"><span id="c3-pos"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The cheapest fix is to <b>refuse to blend at all</b>. Each pixel is either fully leaf or fully background, so the draw can <b>write depth and sort with the solid objects</b>, and order stops mattering. The price is the <b>soft edge</b>, and each of the four methods here buys part of it back in a different way.</p>
-
-        <h3>What you're seeing</h3>
-        <p>One 64×64 leaf texture with a soft alpha edge, drawn over a 64×64 view of the night sky, the moon and the yard fence, four times and magnified 4× so you can see single pixels. Top left is alpha test. Top right is alpha-to-coverage with 4× MSAA. Bottom left is a 4×4 Bayer dither. Bottom right is the same dither averaged over 8 frames of TAA.</p>
-        <p>The four tiles give each method's error against a true blend, as the average difference per pixel out of 255. Lower is closer to the real soft edge.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the leaf a fraction of a pixel. The alpha test edge jumps between whole pixels; the others move more smoothly.</li>
-          <li>Pull opacity below 0.50. The alpha test leaf vanishes completely, because no texel is above the threshold any more. The other three fade.</li>
-          <li>Hover a pixel near the edge. The readout shows its alpha, whether the test keeps it, how many of the 4 coverage samples it gets, and the dither threshold it is compared against.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><label for="op3">Opacity <span class="val" id="op3v">0.65</span></label><input type="range" id="op3" min="0.05" max="1" step="0.05" value="0.65"></div>
+      <div class="lesson" data-lesson="cutout">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><label for="op3">Opacity of the whole leaf <span class="val" id="op3v">0.65</span></label><input type="range" id="op3" min="0.05" max="1" step="0.05" value="0.65"></div>
         </div>
         <div class="tiles four">
-          <div class="tile"><div class="n" id="t3-test">·</div><div class="l">alpha test err</div></div>
-          <div class="tile"><div class="n" id="t3-a2c">·</div><div class="l">A2C 4× err</div></div>
-          <div class="tile"><div class="n" id="t3-dith">·</div><div class="l">bayer 4×4 err</div></div>
-          <div class="tile"><div class="n" id="t3-taa">·</div><div class="l">dither + taa err</div></div>
+          <div class="tile"><div class="n" id="t3-test">·</div><div class="l">cutout: error</div></div>
+          <div class="tile"><div class="n" id="t3-a2c">·</div><div class="l">4 sub-pixels: error</div></div>
+          <div class="tile"><div class="n" id="t3-dith">·</div><div class="l">dither: error</div></div>
+          <div class="tile"><div class="n" id="t3-taa">·</div><div class="l">dither, 8 frames: error</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">If every pixel is all-or-nothing you can record depth and forget about order; the four ways differ only in how they hide the hard edge.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Alpha test keeps a pixel if its alpha is at least 0.5 and throws it away otherwise. It keeps the 0.5 contour of the texture and nothing else, so below 50 % opacity the whole leaf vanishes.</p>
         <p>Alpha-to-coverage uses MSAA, multisample anti-aliasing, where each pixel has several coverage samples that get averaged at the end. It turns alpha into a count of those samples, so 4× gives five levels of edge: 0, 1, 2, 3 or 4 samples covered.</p>
         <p>A Bayer dither compares alpha against a fixed 4×4 pattern of thresholds tiled across the screen, so a 50 % alpha keeps every other pixel in a checker. That gives 16 levels, but as a visible pattern. Rotate the pattern every frame and let TAA average 8 frames, and the pattern settles to a smooth blend, the same idea as stochastic transparency.</p>
@@ -479,48 +455,38 @@ err tiles:      mean |result − ref| × 255,
 }
 <span class="c">// alpha-to-coverage instead: output a as-is, set AlphaToCoverageEnable = true,</span>
 <span class="c">// the hardware writes round(a * sampleCount) of the MSAA samples</span></pre>
-
-        <p class="tldr">If every pixel is all-or-nothing you can write depth and forget about order; the four methods differ only in how they hide the hard edge.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <!-- 4. OIT -->
-  <section id="oit">
+  <section id="oit" class="stage">
     <h2>Getting it right without sorting</h2>
-    <p class="sub">The player walks across the yard toward the tavern. Drag left and right to turn, up and down to walk, and compare a sorted render, a weighted average, and the exact per-pixel answer.</p>
-    <div class="cols wide">
-      <div class="quad4">
-        <div class="vp"><canvas id="c4a" width="640" height="360" class="grab r169" aria-label="The yard from the player's eyes, see-through things sorted by object center, with labels"></canvas><div class="cap"><strong>sorted by object center</strong><span id="c4a-cap"></span></div></div>
-        <div class="vp"><canvas id="c4b" width="640" height="360" class="grab r169" aria-label="The same view with weighted blended OIT"></canvas><div class="cap"><strong>weighted blended OIT</strong><span id="c4b-cap"></span></div></div>
-        <div class="vp"><canvas id="c4c" width="640" height="360" class="grab r169" aria-label="The same view with a per-pixel linked list, the exact answer"></canvas><div class="cap"><strong>per-pixel linked list, sorted per pixel</strong><span id="c4c-cap"></span></div></div>
-        <div class="vp"><canvas id="c4d" width="640" height="360" class="grab r169" aria-label="Heatmap of fragments per pixel or of error against the exact view"></canvas><div class="cap"><strong id="c4d-lab">fragments per pixel</strong><span id="c4d-cap"></span></div></div>
+    <p class="sub">The player walks across the yard toward the tavern. Drag up and down to walk, sideways to turn, and compare a sorted picture, a weighted sum and the exact answer.</p>
+    <div class="cols">
+      <div class="vp">
+        <div class="quad4">
+          <div class="vp"><canvas id="c4a" width="640" height="360" class="grab r169" aria-label="The yard from the player's eyes, see-through things sorted by object center, with labels"></canvas><div class="cap"><strong>sorted by object, one number each</strong><span id="c4a-cap"></span></div></div>
+          <div class="vp"><canvas id="c4b" width="640" height="360" class="grab r169" aria-label="The same view with weighted blended OIT"></canvas><div class="cap"><strong>weighted sum, never sorted</strong><span id="c4b-cap"></span></div></div>
+          <div class="vp"><canvas id="c4c" width="640" height="360" class="grab r169" aria-label="The same view with a per-pixel linked list, the exact answer"></canvas><div class="cap"><strong>exact: every layer kept, sorted per pixel</strong><span id="c4c-cap"></span></div></div>
+          <div class="vp"><canvas id="c4d" width="640" height="360" class="grab r169" aria-label="Heatmap of fragments per pixel or of error against the exact view"></canvas><div class="cap"><strong id="c4d-lab">layers per pixel</strong><span id="c4d-cap"></span></div></div>
+        </div>
       </div>
-      <div class="controls">
-        <div class="ctl"><span class="lab">WBOIT weight</span><div class="seg" id="w4" role="group" aria-label="Weight function"><button data-v="eq9" aria-pressed="true">eq. 9</button><button data-v="eq7">eq. 7</button><button data-v="one">w = 1</button></div></div>
-        <div class="ctl"><span class="lab">Heatmap</span><div class="seg" id="heat4" role="group" aria-label="Heatmap content"><button data-v="count" aria-pressed="true">fragment count</button><button data-v="wboit">WBOIT error</button><button data-v="sorted">sorted error</button></div></div>
+      <div class="lesson" data-lesson="oit">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><span class="lab">Map, bottom right</span><div class="seg" id="heat4" role="group" aria-label="Heatmap content"><button data-v="count" aria-pressed="true">layers per pixel</button><button data-v="wboit">weighted sum errors</button><button data-v="sorted">sort errors</button></div></div>
+          <div class="ctl"><span class="lab">Weight in the sum</span><div class="seg" id="w4" role="group" aria-label="Weight function"><button data-v="eq9" aria-pressed="true">by distance (eq. 9)</button><button data-v="eq7">steeper (eq. 7)</button><button data-v="one">no weight</button></div></div>
+        </div>
+        <div class="tiles four" data-step-min="2">
+          <div class="tile"><div class="n" id="t4-wrong">·</div><div class="l">sort: pixels wrong</div></div>
+          <div class="tile"><div class="n" id="t4-werr">·</div><div class="l">weighted: error of 255</div></div>
+          <div class="tile"><div class="n" id="t4-frag">·</div><div class="l">layers · most per pixel</div></div>
+          <div class="tile"><div class="n" id="t4-mem">·</div><div class="l">memory for every layer</div></div>
+        </div>
       </div>
-      <div class="tiles four">
-        <div class="tile"><div class="n" id="t4-wrong">·</div><div class="l">sorted pixels wrong</div></div>
-        <div class="tile"><div class="n" id="t4-werr">·</div><div class="l">WBOIT mean err ×255</div></div>
-        <div class="tile"><div class="n" id="t4-frag">·</div><div class="l">fragments, max per pixel</div></div>
-        <div class="tile"><div class="n" id="t4-mem">·</div><div class="l">list memory at 160×90</div></div>
-      </div>
-      <div class="prose">
-        <p class="plain">Order-independent transparency, or OIT, means <b>getting the right picture without sorting the draws</b>. There are two ways. One <b>keeps every fragment for every pixel</b> and sorts them at the end, which is exact but needs an open-ended amount of memory. The other <b>adds everything up with a weight</b> and never sorts, which is cheap and bounded but only ever approximately right.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The yard from the player's eyes, rendered into a 160×90 buffer three ways: the lantern glow, three smoke puffs, one of them drifting in through the window, the window glass, and the tavern itself, which is solid and blocks whatever is behind it. Top left is the usual sort by object center, with labels naming the see-through things. Top right is weighted blended OIT. Bottom left is a per-pixel linked list, sorted per pixel, which is the ground truth the other two are compared against.</p>
-        <p>Bottom right is a heatmap. By default it shows how many translucent fragments landed on each pixel, from 0 to 5. Switch it to show where the sorted or the weighted image differs from the exact one; black is no error, full brightness is 64/255 or more.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Set the heatmap to "sorted error" and walk toward the window. The bright patches are the pixels where object sorting picked the wrong order: the smoke puff half in front of the glass, and the glow overlapping the nearer puff.</li>
-          <li>Set the WBOIT weight to "w = 1". With no weighting it becomes a plain average, and near objects stop hiding what is behind them.</li>
-          <li>Watch the "list memory" tile as you walk into the smoke. More fragments per pixel means more nodes, and the bracketed figure is what that would cost at 1080p.</li>
-        </ul>
-
-        <h3>The real version</h3>
+    </div>
+    <div class="foot">
+    <p class="tldr">Keep every layer and you are exact but unbounded; add them up with a weight and you are bounded but approximate. There is no third option that is both.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>Weighted blended OIT never sorts. Every fragment adds its premultiplied colour times a weight into one accumulation target, and multiplies its transmittance, the fraction of light it lets through, into a second. The weight depends on depth and alpha, chosen so nearer and more opaque fragments count for more. One full-screen resolve pass divides the sum by the total weight.</p>
         <p>It costs one extra RGBA16F target and one R8 or R16F target. It is wrong wherever two fragments at similar depths have very different alpha, or where a nearly opaque fragment should hide what is behind it. The heatmap shows exactly where.</p>
         <p>A per-pixel linked list stores every fragment. The pixel shader atomically bumps a counter to allocate a node, writes colour, depth and the previous head, and swaps its node in as the new head of that pixel's list. A resolve pass walks each list, sorts it (usually an insertion sort of up to 8 or 16 entries in registers) and composites. It is exact, and the price is unbounded memory: the node buffer must be sized for the worst frame, and it is silently wrong when it overflows.</p>
@@ -550,48 +516,38 @@ memory = 4 B × pixels (heads) + 12 B × fragments (nodes)</div>
   <span class="k">float3</span> avg = a.rgb / max(a.a, 1e-5);
   <span class="k">return</span> <span class="k">float4</span>(avg * (1.0 - r), r);        <span class="c">// blend ONE, SRC_ALPHA against the opaque buffer</span>
 }</pre>
-
-        <p class="tldr">Keep every fragment and you are exact but unbounded; add them up with a weight and you are bounded but approximate. There is no third option that is both.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <!-- 5. depth write -->
-  <section id="depth">
-    <h2>Depth writes and the pre-pass trick</h2>
-    <p class="sub">A glass lamp globe hangs in front of the tavern with smoke drifting through it. Drag to turn, and toggle what the see-through draws are allowed to do to the depth buffer.</p>
+  <section id="depth" class="stage">
+    <h2>When glass claims the pixel</h2>
+    <p class="sub">A glass lamp globe hangs in front of the tavern with smoke drifting through it. Drag to turn, and change what the see-through draws are allowed to do to the depth buffer.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c5" width="640" height="360" class="grab r169" aria-label="A glass lamp globe and a smoke sheet in front of the solid tavern, showing what the depth buffer does to the tavern behind them"></canvas>
-        <div class="cap"><span id="c5-read"></span><span id="c5-cam"></span></div>
+        <div class="cap"><span id="c5-read"></span></div>
+        <div class="cap"><span id="c5-cam"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Translucent draws <b>still test against the depth buffer but must not write to it</b>. If they do, the first see-through fragment at a pixel <b>claims that pixel</b>, and everything behind it is thrown away before it can blend, even a solid object that happens to be drawn later. You see sky through the hole instead of what should be there.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The solid tavern behind, a round glass lamp globe drawn with both its outer and inner faces, and a sheet of smoke cutting through the globe, rendered into a 320×180 buffer. The label under the globe says whether the tavern shows through it or a hole of sky does. The readout gives the average error against a correct render, out of 255, and the draw order in use.</p>
-        <p>Switch the view to "highlight culled" and every fragment that was thrown away by a depth test it should have passed turns red. The tiles count the tavern pixels lost, the translucent fragments culled, and the pixels where the globe's inner face ended up drawn over its outer face.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>At the defaults, translucents draw first and write depth. Where the tavern sits behind the globe or the smoke it has a hole in it and you see sky, and "opaque pixels lost" is not zero.</li>
-          <li>Untick "translucents write depth". The hole in the tavern closes, but "back-over-front pixels" jumps up, because the globe's inside faces blend in whatever order the mesh lists them.</li>
-          <li>Set Glass globe to "depth pre-pass + EQUAL". Now only the nearest layer of the globe blends, and that count drops to zero.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><span class="lab">Draw order</span><div class="seg" id="ord5" role="group" aria-label="Draw order"><button data-v="opaqueFirst">opaques, then translucents</button><button data-v="transFirst" aria-pressed="true">translucents first</button></div></div>
-          <div class="ctl"><label class="chk" for="dw5"><input type="checkbox" id="dw5" checked> translucents write depth</label></div>
-          <div class="ctl"><span class="lab">Glass globe</span><div class="seg" id="pp5" role="group" aria-label="Pre-pass"><button data-v="none" aria-pressed="true">plain draw</button><button data-v="prepass">depth pre-pass + EQUAL</button></div></div>
-          <div class="ctl"><span class="lab">View</span><div class="seg" id="view5" role="group" aria-label="View"><button data-v="image" aria-pressed="true">image</button><button data-v="culled">highlight culled</button></div></div>
+      <div class="lesson" data-lesson="depth">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><span class="lab">Draw order</span><div class="seg" id="ord5" role="group" aria-label="Draw order"><button data-v="opaqueFirst">solid things first, then see-through</button><button data-v="transFirst" aria-pressed="true">see-through things first</button></div></div>
+          <div class="ctl"><label class="chk" for="dw5"><input type="checkbox" id="dw5" checked> see-through things record their distance</label></div>
+          <div class="ctl"><span class="lab">Glass globe</span><div class="seg" id="pp5" role="group" aria-label="Pre-pass"><button data-v="none" aria-pressed="true">one draw, both faces mix</button><button data-v="prepass">record nearest distance, then mix only there</button></div></div>
+        </div>
+        <div class="controls" data-step-min="6">
+          <div class="ctl"><span class="lab">View</span><div class="seg" id="view5" role="group" aria-label="View"><button data-v="image" aria-pressed="true">the picture</button><button data-v="culled">show what was thrown away</button></div></div>
         </div>
         <div class="tiles">
-          <div class="tile"><div class="n" id="t5-lost">·</div><div class="l">opaque pixels lost</div></div>
-          <div class="tile"><div class="n" id="t5-cull">·</div><div class="l">translucent frags culled</div></div>
-          <div class="tile"><div class="n" id="t5-back">·</div><div class="l">back-over-front pixels</div></div>
+          <div class="tile"><div class="n" id="t5-lost">·</div><div class="l">tavern pixels lost</div></div>
+          <div class="tile"><div class="n" id="t5-cull">·</div><div class="l">see-through layers thrown away</div></div>
+          <div class="tile"><div class="n" id="t5-back">·</div><div class="l">inside face drawn over outside</div></div>
         </div>
-
-        <h3>The real version</h3>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">See-through draws read the depth buffer and never write it, except the one-mesh trick that writes depth on purpose so only the nearest layer mixes.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
         <p>The opaque pass runs with the depth test set to LESS and depth writes on, so the buffer ends up holding the nearest solid surface at every pixel. The translucent pass keeps the LESS test, so glass behind a wall is still hidden, but turns writes off, so one translucent layer never hides another. With writes left on, the first translucent fragment at a pixel claims the depth buffer and anything behind it fails the test and never blends, including an opaque object drawn later. That is the failure to remember when a "transparent" material still has depth write enabled by accident.</p>
         <p>The globe is one mesh with outer and inner faces, split into 72 patches drawn in index order. Without writes, both faces blend in whatever order the index buffer gives, so half the patches show the back over the front. The pre-pass trick draws the mesh once depth-only, then again with the test set to EQUAL, so only its nearest layer blends. It trades the inner layers for consistency, which is the right trade for glass, water surfaces and character shields. Objects behind it still get culled by the depth it wrote, which is why it is done per object, not for the whole pass.</p>
         <p class="words">In words: solid things write depth, see-through things only read it; a self-overlapping mesh writes its nearest depth first, then blends only where the depth matches.</p>
@@ -614,34 +570,30 @@ setDepth(test = LESS, write = <span class="k">false</span>);  setBlend(premultip
     setDepth(test = LESS, write = <span class="k">false</span>);
   } <span class="k">else</span> draw(obj);
 }</pre>
-
-        <p class="tldr">Translucent draws read the depth buffer and never write it, except for the one-mesh pre-pass that writes depth on purpose so only the nearest layer blends.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <!-- tradeoffs -->
   <section id="tradeoffs">
     <h2>Tradeoffs</h2>
-    <p class="sub">Memory figures are for a 1920×1080 target. "Layers" means translucent fragments per pixel.</p>
+    <p class="sub">Memory figures are for a 1920×1080 target. "Layers" means see-through fragments landing on one pixel.</p>
     <p class="plain">Each row is one way of handling see-through pixels. You are choosing between <b>how much extra work and memory it costs</b>, <b>how right the picture is</b>, and <b>what kind of content it suits</b>. Read the last column first: it tells you what goes wrong and when to pick the row anyway.</p>
     <div class="tbl-wrap">
     <table class="stats tr">
       <thead><tr><th>Method</th><th>Extra work</th><th>Extra memory</th><th>How right is it</th><th>What goes wrong, and when to pick it</th></tr></thead>
       <tbody>
         <tr><td>Sorted blending</td><td>CPU sort, n log n objects</td><td>0</td><td>right per object, not per pixel</td><td>Wrong inside a mesh and wherever two objects' bounds overlap. The default for everything that does not fit a row below.</td></tr>
-        <tr><td>Alpha test</td><td>discard, may disable early-z</td><td>0</td><td>all-or-nothing per pixel</td><td>Hard, jagged edge, and no fade possible below 0.5. Fences, chain link, foliage with MSAA or TAA behind it.</td></tr>
-        <tr><td>Alpha-to-coverage 4×</td><td>needs MSAA 4×</td><td>+49.8 MB (4× color and depth)</td><td>5 levels</td><td>Stepped edge, needs a dither in the mask. Foliage in forward renderers that already run MSAA.</td></tr>
+        <tr><td>Alpha test</td><td>throws pixels away, which can switch off the GPU's early depth check</td><td>0</td><td>all-or-nothing per pixel</td><td>Hard, jagged edge, and no fade possible below 0.5. Fences, chain link, foliage with MSAA or TAA behind it.</td></tr>
+        <tr><td>Alpha-to-coverage 4×</td><td>needs 4× multisampling (MSAA)</td><td>+49.8 MB (4× color and depth)</td><td>5 levels</td><td>Stepped edge, needs a dither in the mask. Foliage in forward renderers that already run MSAA.</td></tr>
         <tr><td>Dither + TAA</td><td>≈0, needs TAA</td><td>0 (TAA history exists)</td><td>settles over 8 frames</td><td>Noise while things move or get uncovered. LOD cross-fades, fades near the camera, hair.</td></tr>
-        <tr><td>WBOIT</td><td>one resolve, 2 extra MRTs</td><td>+20.7 MB (RGBA16F + R16F)</td><td>approximate</td><td>Wrong for high-α layers and near-equal depths. Particles, smoke, many low-alpha layers.</td></tr>
-        <tr><td>Per-pixel linked list</td><td>atomics, per-pixel sort in resolve</td><td>+8.3 MB heads + 12 B × layers × 2.07 M px (99.5 MB at 4 layers)</td><td>exact until it overflows</td><td>No upper bound on the worst case. Hair, CAD viewers, glass-heavy scenes with a known layer budget.</td></tr>
+        <tr><td>WBOIT</td><td>one extra full-screen pass, 2 extra render targets</td><td>+20.7 MB (RGBA16F + R16F)</td><td>approximate</td><td>Wrong for high-α layers and near-equal depths. Particles, smoke, many low-alpha layers.</td></tr>
+        <tr><td>Per-pixel linked list</td><td>atomic counters, then a per-pixel sort</td><td>+8.3 MB heads + 12 B × layers × 2.07 M px (99.5 MB at 4 layers)</td><td>exact until it overflows</td><td>No upper bound on the worst case. Hair, CAD viewers, glass-heavy scenes with a known layer budget.</td></tr>
         <tr><td>Depth peeling</td><td>one geometry pass per layer</td><td>2 depth buffers, +16.6 MB</td><td>exact up to N layers</td><td>Cost grows with N. Viewers and tools, not usually a 16.7 ms game frame.</td></tr>
       </tbody>
     </table>
     </div>
   </section>
 
-  <!-- uses -->
   <section id="uses">
     <h2>Where it shows up in shipped games</h2>
     <p class="sub">Most games mix four of these in one frame: sorted blending for glass, alpha test or coverage for foliage, dither for fades, and something unsorted for particles.</p>
@@ -659,7 +611,7 @@ setDepth(test = LESS, write = <span class="k">false</span>);  setBlend(premultip
       </tbody>
     </table>
     </div>
-    <p class="note">One naming trap. "Transparent objects render after opaques" sounds like a position in a queue, but it is a set of GPU states: the translucent pass switches on blending, switches off depth writes, and often changes the depth test. Move a mesh later in the draw list without changing those states and you get an opaque object that happens to draw last. The demo in section 5 is that mistake with the depth write left on.</p>
+    <p class="note">One naming trap. "Transparent objects render after opaques" sounds like a position in a queue, but it is a set of GPU states: the translucent pass switches on blending, switches off depth writes, and often changes the depth test. Move a mesh later in the draw list without changing those states and you get an opaque object that happens to draw last. The last demo above is that mistake, with the depth write left on.</p>
   </section>
 </div>
 <script>
@@ -788,6 +740,74 @@ function kitBrazier(ctx, x, y, s) {
   ctx.fillStyle = KIT.flame; ctx.beginPath(); ctx.ellipse(x, y - s * 1.08, s * 0.28, s * 0.34, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#ffd98a'; ctx.beginPath(); ctx.ellipse(x, y - s * 1.02, s * 0.13, s * 0.18, 0, 0, Math.PI * 2); ctx.fill();
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; b.className = 'ok'; quiz.querySelectorAll('button').forEach(x => x.disabled = true); why.innerHTML = '<b>Right.</b> ' + o.why; save(); render(); }
+          else { b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; }
+          quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   // ---------- palette ----------
   const AMBER = [242, 163, 65], BLUE = [74, 163, 255], WHITE = [255, 255, 255];
@@ -800,6 +820,9 @@ function kitBrazier(ctx, x, y, s) {
   const fmtN = n => n.toLocaleString("en-US");
   const f2 = v => (v / 255).toFixed(2);
   const vec = c => `(${f2(c[0])},${f2(c[1])},${f2(c[2])})`;
+  const $ = id => document.getElementById(id);
+  let L1, L2, L3, L4, L5;
+  const S2 = { wrong: 0, best: -1, hovWrong: false }, S3 = { edgeSeen: false }, S4 = { mem: 0 };
 
   function segOn(seg, v) { seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v)))); }
   function segBind(id, fn) { const s = document.getElementById(id); s.addEventListener("click", ev => { const b = ev.target.closest("button"); if (!b) return; segOn(s, b.dataset.v); fn(b.dataset.v); }); }
@@ -853,7 +876,7 @@ function kitBrazier(ctx, x, y, s) {
     ordEl.innerHTML = "";
     order1.forEach((id, i) => {
       const q = layers[id], li = document.createElement("li");
-      li.innerHTML = `<span class="sw" style="background:${css(COLS[q.col])}"></span><span class="nm">${i + 1}. ${id} ${q.name} · α ${q.a.toFixed(2)}</span><button id="ord1-up-${id}" ${i === 0 ? "disabled" : ""}>up</button><button id="ord1-dn-${id}" ${i === 2 ? "disabled" : ""}>down</button>`;
+      li.innerHTML = `<span class="sw" style="background:${css(COLS[q.col])}"></span><span class="nm">${i + 1}. ${id} ${q.name} · alpha ${q.a.toFixed(2)}</span><button id="ord1-up-${id}" ${i === 0 ? "disabled" : ""}>up</button><button id="ord1-dn-${id}" ${i === 2 ? "disabled" : ""}>down</button>`;
       li.querySelector(`#ord1-up-${id}`).addEventListener("click", () => { [order1[i - 1], order1[i]] = [order1[i], order1[i - 1]]; renderOrder(); draw1(); });
       li.querySelector(`#ord1-dn-${id}`).addEventListener("click", () => { [order1[i + 1], order1[i]] = [order1[i], order1[i + 1]]; renderOrder(); draw1(); });
       ordEl.appendChild(li);
@@ -885,27 +908,28 @@ function kitBrazier(ctx, x, y, s) {
       if (!n) continue; cov++;
       if (maxDiff(composite1(px, py, order1), composite1(px, py, rev)) > 1) dep++;
     }
-    document.getElementById("c1-dep").textContent = `${(100 * dep / cov).toFixed(0)} % of covered pixels change with order`;
+    document.getElementById("c1-dep").textContent = `${(100 * dep / cov).toFixed(0)} % of the covered pixels would change if the order were reversed`;
     if (hov1) {
       const [px, py] = hov1;
       x1.strokeStyle = "#fff"; x1.lineWidth = 1; x1.strokeRect(Math.floor(px) - 4.5, Math.floor(py) - 4.5, 10, 10);
       kitLabel(x1, "this pixel", px + 12, py - 14, "left");
       const hits = order1.filter(id => covers(id, px, py));
       let dst = scenePx(px, py); const lines = [];
-      lines.push(`pixel (${px | 0}, ${py | 0}) · ${hits.length} layer${hits.length === 1 ? "" : "s"} · drawn ${hits.join(" → ") || "none"}`);
-      lines.push(`dst   = ${vec(dst)}  the scene behind`);
+      lines.push(`pixel (${px | 0}, ${py | 0}) · ${hits.length} layer${hits.length === 1 ? "" : "s"} land here${hits.length ? ", drawn " + hits.join(" then ") : ""}`);
+      lines.push(`starts as the scene behind: ${vec(dst)}`);
       for (const id of hits) {
         const q = layers[id], c = COLS[q.col], a = q.a, out = over(dst, c, a);
-        if (mode1 === "straight") lines.push(`${id}  α=${a.toFixed(2)}  C = ${vec(c)}·${a.toFixed(2)} + ${vec(dst)}·${(1 - a).toFixed(2)} = ${vec(out)}`);
-        else { const p = c.map(v => v * a); lines.push(`${id}  α=${a.toFixed(2)}  C′ = ${vec(p)} + ${vec(dst)}·${(1 - a).toFixed(2)} = ${vec(out)}`); }
+        if (mode1 === "straight") lines.push(`${id} at ${a.toFixed(2)}: ${a.toFixed(2)}×${vec(c)} + ${(1 - a).toFixed(2)}×${vec(dst)} = ${vec(out)}`);
+        else { const p = c.map(v => v * a); lines.push(`${id} at ${a.toFixed(2)}: ${vec(p)} already scaled + ${(1 - a).toFixed(2)}×${vec(dst)} = ${vec(out)}`); }
         dst = out;
       }
       const r2 = composite1(px, py, rev);
-      lines.push(`result ${vec(dst)}`);
-      lines.push(`reversed order gives ${vec(r2)}   Δmax = ${f2(maxDiff(dst, r2))}`);
+      lines.push(`ends as ${vec(dst)}`);
+      lines.push(`drawn in the reverse order it would be ${vec(r2)}, off by up to ${f2(maxDiff(dst, r2))}`);
       document.getElementById("m1").textContent = lines.join("\n");
-      document.getElementById("c1-read").innerHTML = `final <strong>${vec(dst)}</strong>`;
-    } else { document.getElementById("m1").textContent = "hover a pixel to see each blend step"; document.getElementById("c1-read").textContent = "hover a pixel"; }
+      document.getElementById("c1-read").innerHTML = `marked pixel ends as <strong>${vec(dst)}</strong>, as (red, green, blue) from 0 to 1`;
+    } else { document.getElementById("m1").textContent = "hover a pixel to see each mix, one line per layer"; document.getElementById("c1-read").textContent = "hover a pixel"; }
+    L1 && L1.check();
   }
   c1.addEventListener("pointermove", ev => { hov1 = ptr(c1, ev); draw1(); });
   c1.addEventListener("pointerdown", ev => { hov1 = ptr(c1, ev); draw1(); });
@@ -943,7 +967,7 @@ function kitBrazier(ctx, x, y, s) {
     for (let g = 1; g < T; g++) { ctx.moveTo(g * S + 0.5, 0); ctx.lineTo(g * S + 0.5, 256); ctx.moveTo(0, g * S + 0.5); ctx.lineTo(256, g * S + 0.5); }
     ctx.stroke();
     kitLabel(ctx, premul ? "coin sprite, premultiplied" : "coin sprite, straight alpha", 128, 244, "center");
-    document.getElementById(capId).textContent = `darkest edge pixel L = ${minL.toFixed(2)} · expected ≥ ${expL.toFixed(2)}`;
+    document.getElementById(capId).textContent = `darkest pixel on the rim: brightness ${minL.toFixed(2)} · should be at least ${expL.toFixed(2)}`;
   }
   fringe(false, document.getElementById("c1s"), "c1s-cap");
   fringe(true, document.getElementById("c1p"), "c1p-cap");
@@ -1104,9 +1128,9 @@ function kitBrazier(ctx, x, y, s) {
       const c = S.cols[sel];
       x2.strokeStyle = "#fff"; x2.lineWidth = 1.5; x2.beginPath(); x2.moveTo(ox * PX, oy * PX); x2.lineTo((ox + c.dx * 90) * PX, (oy + c.dy * 90) * PX); x2.stroke();
       c.truth.forEach((h, i) => { const hx = (ox + c.dx * h.t) * PX, hy = (oy + c.dy * h.t) * PX; x2.beginPath(); x2.arc(hx, hy, 6, 0, Math.PI * 2); x2.fillStyle = css(h.o.col); x2.fill(); x2.lineWidth = 2; x2.strokeStyle = c.wrong ? "#ef5d5d" : "#5ad48a"; x2.stroke(); label(x2, String(i + 1), hx + 9, hy - 6, "#fff", 12); });
-      const tr = c.truth.map(h => `${h.o.id} ${h.t.toFixed(1)} m`).join(" → ");
-      const so = S.order.filter(e => c.hits.some(h => h.o === e.o)).map(e => e.o.id).join(" → ");
-      colTxt = c.hits.length ? `column ${sel}: true ${tr}${c.wrong ? ` · sorted ${so}` : " · sorted agrees"}` : `column ${sel}: no fragments`;
+      const tr = c.truth.map(h => `${h.o.id} at ${h.t.toFixed(1)} m`).join(", then ");
+      const so = S.order.filter(e => c.hits.some(h => h.o === e.o)).map(e => e.o.id).join(", then ");
+      colTxt = c.hits.length ? `column ${sel} of 256 · exact, farthest first: ${tr}${c.wrong ? ` · the sort drew ${so}` : " · the sort agrees"}` : `column ${sel} of 256: nothing see-through here`;
     }
     // the player is the camera
     x2.strokeStyle = "#fff"; x2.lineWidth = 1.5; x2.beginPath(); x2.arc(ox * PX, oy * PX, 14, 0, Math.PI * 2); x2.stroke();
@@ -1126,12 +1150,14 @@ function kitBrazier(ctx, x, y, s) {
     const off = document.createElement("canvas"); off.width = NCOL; off.height = 3; off.getContext("2d").putImageData(img, 0, 0);
     x2s.imageSmoothingEnabled = false;
     x2s.drawImage(off, 0, 0, NCOL, 1, 0, 0, 512, 36); x2s.drawImage(off, 0, 1, NCOL, 1, 0, 42, 512, 36); x2s.drawImage(off, 0, 2, NCOL, 1, 0, 84, 512, 12);
-    label(x2s, "the row at eye height, true order", 6, 14, "rgba(255,255,255,0.85)", 11); label(x2s, "same row, sorted by object center", 6, 56, "rgba(255,255,255,0.85)", 11);
+    label(x2s, "one row of the screen, done the exact way", 6, 14, "rgba(255,255,255,0.85)", 11); label(x2s, "same row, objects sorted by one number each", 6, 56, "rgba(255,255,255,0.85)", 11);
     if (sel >= 0) { x2s.strokeStyle = "#fff"; x2s.lineWidth = 1; x2s.strokeRect(sel * 2 - 0.5, 0.5, 3, 95); }
     document.getElementById("t2-wrong").textContent = wrong; document.getElementById("t2-max").textContent = maxF;
     document.getElementById("t2-order").textContent = S.order.map(e => e.o.id).join(" ");
-    document.getElementById("c2-read").innerHTML = `player <strong>(${ox.toFixed(1)}, ${oy.toFixed(1)}) m</strong> · yaw ${(S.yaw * 180 / Math.PI).toFixed(0)}° · far→near ${S.order.map(e => `${e.o.id} ${e.k.toFixed(0)}`).join(", ")}`;
+    document.getElementById("c2-read").innerHTML = `player at <strong>(${ox.toFixed(1)}, ${oy.toFixed(1)}) m</strong>, looking ${(S.yaw * 180 / Math.PI).toFixed(0)}° · farthest first: ${S.order.map(e => `${e.o.id} ${e.k.toFixed(0)} m`).join(", ")}`;
     document.getElementById("c2-col").textContent = colTxt;
+    S2.wrong = wrong; S2.best = best; S2.hovWrong = S2.hovWrong || (hovCol >= 0 && S.cols[hovCol].wrong);
+    L2 && L2.check();
   }
   const req2 = raf(draw2);
   c2.addEventListener("pointerdown", ev => { const [x, y] = ptr(c2, ev); const d0 = Math.hypot(x - cam2.p[0] * PX, y - cam2.p[1] * PX), d1 = Math.hypot(x - cam2.aim[0] * PX, y - cam2.aim[1] * PX); drag2 = d0 < 22 ? 0 : d1 < 22 ? 1 : -1; if (drag2 >= 0) c2.setPointerCapture(ev.pointerId); });
@@ -1194,19 +1220,21 @@ function kitBrazier(ctx, x, y, s) {
     }
     blit(x3, img, 512, 512);
     x3.strokeStyle = "rgba(255,255,255,0.35)"; x3.lineWidth = 1; x3.beginPath(); x3.moveTo(256.5, 0); x3.lineTo(256.5, 512); x3.moveTo(0, 256.5); x3.lineTo(512, 256.5); x3.stroke();
-    const names = ["alpha test ≥ 0.5", "alpha to coverage, 4× msaa", "bayer 4×4 dither", "dither + taa, 8 frames"];
+    const names = ["cutout: keep if alpha is 0.5 or more", "alpha as a count of 4 sub-pixels", "dither: alpha against a 4×4 pattern", "dither, averaged over 8 frames"];
     names.forEach((nm, k) => { const X = (k & 1) * 256, Y = (k >> 1) * 256; kitLabel(x3, nm, X + 6, Y + 16, "left"); });
     kitLabel(x3, "leaf (drag)", st3.x * 4 - 4, 256 + st3.y * 4 + 16, "center", "#f2a341");
     kitLabel(x3, "fence", 256 + 6, 256 + 38 * 4, "left", "#c7cdd8");
     const ids = ["t3-test", "t3-a2c", "t3-dith", "t3-taa"];
     err.forEach((e, k) => { document.getElementById(ids[k]).textContent = (e / (R * R)).toFixed(1); });
-    document.getElementById("c3-pos").textContent = `leaf at (${st3.x.toFixed(2)}, ${st3.y.toFixed(2)}) px · opacity ${st3.op.toFixed(2)}`;
+    document.getElementById("c3-pos").textContent = `leaf at (${st3.x.toFixed(2)}, ${st3.y.toFixed(2)}) pixels · opacity ${st3.op.toFixed(2)}`;
     if (hov3) {
       const i = Math.floor(hov3[0] / 4) & 63, j = Math.floor(hov3[1] / 4) & 63, [a] = sampleLeaf(i, j);
       const T = (BAYER[(i & 3) + 4 * (j & 3)] + 0.5) / 16, n = Math.round(a * 4);
       for (let k = 0; k < 4; k++) { x3.strokeStyle = "#fff"; x3.strokeRect((k & 1) * 256 + i * 4 - 0.5, (k >> 1) * 256 + j * 4 - 0.5, 5, 5); }
-      document.getElementById("c3-read").innerHTML = `px (${i},${j}) α = <strong>${a.toFixed(2)}</strong> · test ${a >= 0.5 ? "keep" : "discard"} · A2C ${n}/4 · T = ${T.toFixed(3)} → ${a > T ? "keep" : "discard"}`;
+      if (a > 0.05 && a < 0.95) S3.edgeSeen = true;
+      document.getElementById("c3-read").innerHTML = `pixel (${i}, ${j}) · alpha <strong>${a.toFixed(2)}</strong> · cutout: ${a >= 0.5 ? "keep" : "drop"} · ${n} of 4 sub-pixels · dither threshold ${T.toFixed(3)}: ${a > T ? "keep" : "drop"}`;
     } else document.getElementById("c3-read").textContent = "hover a pixel";
+    L3 && L3.check();
   }
   const req3 = raf(draw3);
   c3.addEventListener("pointerdown", ev => { drag3 = true; c3.setPointerCapture(ev.pointerId); c3._last = ptr(c3, ev); });
@@ -1258,11 +1286,13 @@ function kitBrazier(ctx, x, y, s) {
     document.getElementById("t4-werr").textContent = (werr / (W4 * H4)).toFixed(1);
     document.getElementById("t4-frag").innerHTML = `${fmtN(totF)} <small>· ${maxF}</small>`;
     document.getElementById("t4-mem").innerHTML = `${fmtB(mem)} <small>(1080p: ${fmtB(mem * 144)})</small>`;
-    document.getElementById("c4a-cap").textContent = `far→near ${order.map(o => o.id).join(" ")}`;
-    document.getElementById("c4b-cap").textContent = wmode4 === "one" ? "w = 1, plain average" : `w = ${wmode4.replace("eq", "eq. ")}, z in metres`;
-    document.getElementById("c4c-cap").textContent = `player (${cam4.x.toFixed(1)}, ${cam4.y.toFixed(1)}) m · yaw ${(cam4.yaw * 180 / Math.PI).toFixed(0)}°`;
-    document.getElementById("c4d-lab").textContent = heat4 === "count" ? "fragments per pixel" : heat4 === "wboit" ? "|WBOIT − exact|" : "|sorted − exact|";
-    document.getElementById("c4d-cap").textContent = heat4 === "count" ? "0 to 5 layers" : "black = 0, full = 64/255 or more";
+    document.getElementById("c4a-cap").textContent = `drawn farthest first: ${order.map(o => o.id).join(", ")}`;
+    document.getElementById("c4b-cap").textContent = wmode4 === "one" ? "no weight: a plain average" : `weight from distance, ${wmode4.replace("eq", "eq. ")}`;
+    document.getElementById("c4c-cap").textContent = `player at (${cam4.x.toFixed(1)}, ${cam4.y.toFixed(1)}) m, looking ${(cam4.yaw * 180 / Math.PI).toFixed(0)}°`;
+    document.getElementById("c4d-lab").textContent = heat4 === "count" ? "layers per pixel" : heat4 === "wboit" ? "where the weighted sum is wrong" : "where the sort is wrong";
+    document.getElementById("c4d-cap").textContent = heat4 === "count" ? "black: none, brightest: 5" : "black: right, brightest: off by 64 of 255 or more";
+    S4.mem = mem;
+    L4 && L4.check();
   }
   const req4 = raf(draw4);
   function camDrag(canvas, cam, req) {
@@ -1331,7 +1361,7 @@ function kitBrazier(ctx, x, y, s) {
     for (const [nm, P, colr] of labs) { const s = project(B, P, 640, 360); if (s && s[0] > 30 && s[0] < 610 && s[1] > 12 && s[1] < 348) kitLabel(x5, nm, s[0], s[1], "center", colr); }
     const sg = project(B, [28, 30, 0.2], 640, 360);
     if (sg && sg[0] > 30 && sg[0] < 610 && sg[1] > 12 && sg[1] < 348) {
-      if (view5 === "culled") kitLabel(x5, "red = thrown away by the depth test", sg[0], sg[1], "center", "#ef5d5d");
+      if (view5 === "culled") kitLabel(x5, "red: thrown away by the distance check", sg[0], sg[1], "center", "#ef5d5d");
       else if (lost > 0) kitLabel(x5, "hole: sky where the tavern should be", sg[0], sg[1], "center", "#ef5d5d");
       else kitLabel(x5, "the tavern shows through, as it should", sg[0], sg[1], "center", "#5ad48a");
     }
@@ -1339,8 +1369,9 @@ function kitBrazier(ctx, x, y, s) {
     document.getElementById("t5-lost").textContent = fmtN(lost);
     document.getElementById("t5-cull").textContent = fmtN(culled);
     document.getElementById("t5-back").textContent = fmtN(backOver);
-    document.getElementById("c5-read").innerHTML = `mean |Δ| vs reference <strong>${(err / (W5 * H5)).toFixed(1)}/255</strong> · draw ${ord5 === "opaqueFirst" ? "tavern, then " + names : names + ", then tavern"}`;
-    document.getElementById("c5-cam").textContent = `player (${cam5.x.toFixed(1)}, ${cam5.y.toFixed(1)}) m · yaw ${(cam5.yaw * 180 / Math.PI).toFixed(0)}° · depth write ${dw5 ? "on" : "off"}`;
+    document.getElementById("c5-read").innerHTML = `average error against the right picture <strong>${(err / (W5 * H5)).toFixed(1)} of 255</strong> · draws ${ord5 === "opaqueFirst" ? "tavern, then " + names : names + ", then tavern"}`;
+    document.getElementById("c5-cam").textContent = `player at (${cam5.x.toFixed(1)}, ${cam5.y.toFixed(1)}) m, looking ${(cam5.yaw * 180 / Math.PI).toFixed(0)}° · see-through draws record distance: ${dw5 ? "on" : "off"}`;
+    L5 && L5.check();
   }
   const req5 = raf(draw5);
   camDrag(c5, cam5, req5);
@@ -1349,5 +1380,119 @@ function kitBrazier(ctx, x, y, s) {
   segBind("view5", v => { view5 = v; draw5(); });
   document.getElementById("dw5").addEventListener("change", ev => { dw5 = ev.target.checked; draw5(); });
   draw5();
+  // ---------- guided steps ----------
+  const set1 = o => {
+    o = o || {};
+    order1 = (o.order || ["A", "B", "C"]).slice();
+    layers.A.a = o.aA == null ? 0.6 : o.aA; layers.B.a = o.aB == null ? 0.5 : o.aB; layers.C.a = o.aC == null ? 0.5 : o.aC;
+    layers.C.col = o.col || "white"; mode1 = o.mode || "straight";
+    for (const id of ["A", "B", "C"]) { $("a1" + id).value = layers[id].a; $("a1" + id + "v").textContent = layers[id].a.toFixed(2); }
+    segOn($("col1C"), layers.C.col); segOn($("mode1"), mode1); hov1 = [285, 235]; renderOrder(); draw1();
+  };
+  L1 = lesson("over", { next: { id: "sort", title: "Sorting whole objects by one number" }, steps: [
+    { say: "The tavern yard at night. Three see-through things sit in front of it: the lantern's glow (A, amber), the window glass (B, blue) and smoke from the brazier (C, white). See-through means each one has an <b>alpha</b>, a number from 0 to 1 for how solid it is; the glow is 0.6, the other two 0.5. The number on each label is its place in the draw list, and the box under the picture shows what happened at the pixel marked with a small white square.", enter: () => set1() },
+    { say: "The GPU keeps <b>one colour per pixel and no list of layers</b>. When a see-through layer is drawn over a pixel it mixes the new colour into the old one by alpha, 0.6 of the new plus 0.4 of what was there, and forgets the old value. The box shows that sum, one line per layer, for the marked pixel.", quiz: { q: "If the smoke (C) is drawn before the glass (B) instead of after it, does the marked pixel end up the same colour?", options: [
+        { t: "Yes, the same three colours go in, so the same colour comes out", why: "Each mix fades what was already there. Whatever is drawn last is faded by nothing, so it shows most." },
+        { t: "No, whatever is drawn last shows most", ok: true, why: "Each layer fades everything before it by its alpha and adds its own colour on top, so the last one drawn has the strongest say. Swap two draws and every pixel they share changes." },
+        { t: "Only if the two alphas are different", why: "Even with equal alphas the last colour drawn is faded least, so the result shifts toward it." } ] },
+      todo: "press up on C, the smoke, so it draws before B", goal: () => order1.indexOf("C") < order1.indexOf("B"), try: () => $("ord1-up-C").click(), enter: () => set1(),
+      done: "The last line of the box moved toward blue: the glass is now drawn last, so half the final colour is its blue. Nothing else changed, only the order." },
+    { say: "<b>Drag the alpha of A, the glow, up to 1.00.</b>", todo: "drag Alpha of A to 1.00", goal: () => layers.A.a >= 0.95, try: () => { $("a1A").value = 1; $("a1A").dispatchEvent(new Event("input")); }, enter: () => set1(),
+      done: "The glow is now solid, and inside it the tavern is gone: the mix took all of the amber and none of what was there. The glass and the smoke, drawn after it, still mix on top. A layer only ever hides what came before it." },
+    { say: "The caption under the picture counts the pixels that would change colour if the draw order were reversed.", quiz: { q: "Which pixels can change colour when the order changes?", options: [
+        { t: "Every pixel under any of the three", why: "A pixel under only one layer has nothing to swap with, so it comes out the same in any order." },
+        { t: "Only pixels under two or more layers, and only if their colours differ", ok: true, why: "Order only matters where layers overlap. And the same colour mixed in twice gives the same result either way round, so two layers of one colour never disagree." },
+        { t: "Only pixels under all three", why: "Two overlapping layers are already enough: the glow over the glass and the glass over the glow are different colours." } ] },
+      todo: "set the colour of C, the smoke, to blue and watch the count fall", goal: () => layers.C.col === "blue", try: () => $("col1C").querySelector('[data-v="blue"]').click(), enter: () => set1(),
+      done: "The count fell. Where the smoke and the glass overlap they are now the same blue, and the same colour mixed in twice comes out the same in either order. Order shows only where the colours differ." },
+    { say: "<b>Switch 'Show the sum as' to premultiplied.</b>", todo: "switch the sum to premultiplied", goal: () => mode1 === "premul", try: () => $("mode1").querySelector('[data-v="premul"]').click(), enter: () => { mode1 = "straight"; segOn($("mode1"), "straight"); draw1(); },
+      done: "Same final colour, different bookkeeping. Premultiplied means each colour is stored already scaled by its alpha, so each line has one multiply less. It never changes which order is right, but it fixes a smoothing bug at the edges of sprites: the coin under the hood shows it." },
+    { say: "Mixing forgets earlier layers, so the draw order alone decides the colour wherever see-through things overlap. The exact formula, the premultiplied version and the GPU's blend settings are under the hood." } ] });
+
+  const set2 = (scene, resetCam) => {
+    scene2 = scene === "cross" ? SCENE_X : scene === "big" ? SCENE_BIG : SCENE5; segOn($("scene2"), scene || "five");
+    if (resetCam) { cam2.p = [8, 32]; cam2.aim = [38, 37]; }
+    hovCol = -1; draw2();
+  };
+  L2 = lesson("sort", { next: { id: "cutout", title: "Skip the mixing: cutouts and dither" }, steps: [
+    { say: "The yard from above, 8 pixels to a metre. The blue figure is the player, and the game draws what they see; the small white dot is where they look. The stone building on the right is the tavern, with a pane of glass in its front wall. The see-through things are the lantern glow, three smoke puffs and that glass, each labelled with its place in the draw list. The inset is what the player sees, done the exact way.", enter: () => set2("five", true) },
+    { say: "Engines do not sort pixels. They give each see-through object <b>one number, the distance from the player to its middle</b>, and draw them farthest first. The strip under the map is one row of the player's screen, at eye height, drawn twice: on top the exact way, below in that sorted order. Red marks are the columns where the two disagree, and the faint red rays on the map are the same columns.", quiz: { q: "The smoke puff at the window is half in front of the glass and half behind it. What does the sort do with it?", options: [
+        { t: "Splits it at the glass and draws each half in its place", why: "The sort never looks at pixels. It has one number for the whole puff and one for the glass, and that is all." },
+        { t: "Puts the whole puff before or after the glass, by its middle, and gets one half wrong", ok: true, why: "The puff's middle is behind the glass, so the whole puff is drawn first. For columns where the puff is really in front, the mix runs the wrong way round and the colour is off. Those are the red columns." },
+        { t: "Draws the puff twice, once on each side", why: "Every object is drawn once, in its one slot in the list." } ] } },
+    { say: "<b>Hover the strip along a red stretch.</b> The white ray on the map is that column, with its hits numbered in true order, and the caption names both orders.", todo: "hover the strip on a red column", goal: () => S2.hovWrong, try: () => { hovCol = S2.best; draw2(); },
+      done: "The caption gives the exact order at that column, farthest first, and then the order the sort used. They disagree about two objects whose middles are one way round while their surfaces, along this one ray, are the other way round." },
+    { say: "<b>Switch the scene to 'fire as two crossed cards'.</b>", todo: "switch the scene below", goal: () => scene2 === SCENE_X, try: () => $("scene2").querySelector('[data-v="cross"]').click(), enter: () => set2("five", true),
+      done: "Games draw a fire as two flat pictures crossing like an X. Each card is in front on one side of the crossing and behind on the other, and both have the same middle, so whatever the sort picks, one half of the fire comes out wrong." },
+    { say: "Stay on the crossed cards.", quiz: { q: "Is there a spot to stand where the sort gets the whole fire right?", options: [
+        { t: "Yes, from behind it", why: "From every side one card is nearer on one half of the crossing and farther on the other. One order cannot serve both halves." },
+        { t: "No, from every side one half is wrong", ok: true, why: "The sort draws the cards in one fixed order. Wherever you stand, that order is right for one half of the crossing and wrong for the other." },
+        { t: "Only from very far away", why: "Distance shrinks the fire on screen but does not change which card is nearer where." } ] },
+      todo: "drag the player to the far side of the fire and look back at it", goal: () => scene2 === SCENE_X && cam2.p[0] >= 38 && S2.wrong > 0, try: () => { cam2.p = [42, 42]; cam2.aim = [34, 30]; draw2(); }, enter: () => set2("cross", true),
+      done: "The red band is on the other half of the fire now. Wherever you stand, one card is nearer on one side of the crossing and the other card on the other side, and a single draw order can only be right for one of them." },
+    { say: "<b>Now pick 'lantern inside a smoke cloud'.</b>", todo: "switch the scene below", goal: () => scene2 === SCENE_BIG, try: () => $("scene2").querySelector('[data-v="big"]').click(), enter: () => set2("cross", true),
+      done: "The glow sits inside the big puff, and its middle is nearer to the player than the puff's middle. So the sort draws the puff first and the glow on top, as if the glow floated in front of the smoke, when really the front of the puff should dim it. This is the case that ships: a character in a glass tube, a fish in a water tank, a lamp in fog." },
+    { say: "One number per object cannot be right for every pixel once objects overlap in depth, and that is the default the rest of this page tries to beat. The sort key and the loop are under the hood." } ] });
+
+  const set3 = o => { Object.assign(st3, { x: 32.3, y: 31.7, op: 0.65 }, o || {}); $("op3").value = st3.op; $("op3v").textContent = st3.op.toFixed(2); hov3 = null; draw3(); };
+  L3 = lesson("cutout", { next: { id: "oit", title: "Getting it right without sorting" }, steps: [
+    { say: "One leaf in front of the night sky, the moon and the yard fence, drawn four times and blown up 4× so every pixel is a visible square. The leaf's picture has a soft edge: its alpha runs from 1 in the middle down to 0 outside. The top-left way never mixes at all. Each pixel is either all leaf or all background, decided by one test: is alpha at least 0.5.", enter: () => set3() },
+    { say: "The edge on the top left is jagged, and yet many games draw leaves, grass and fences exactly that way.", quiz: { q: "Why give up the soft edge?", options: [
+        { t: "It looks sharper, which suits leaves", why: "Look at the top-left edge. It is a staircase of whole pixels, and it flickers as the leaf moves." },
+        { t: "A pixel that is all leaf can record its distance, so the leaf sorts with the solid things and the order problem from the last stage goes away", ok: true, why: "No mixing means no order to get wrong. The leaf writes the depth buffer like a wall does, and the GPU drops whatever is behind it for free." },
+        { t: "It saves memory", why: "It uses the same memory. What it saves is the sort, and the risk of getting it wrong." } ] } },
+    { say: "<b>Drag the leaf a little</b>, less than one pixel.", todo: "drag the leaf a little", goal: () => Math.abs(st3.x - 32.3) > 0.2 || Math.abs(st3.y - 31.7) > 0.2, try: () => { st3.x += 0.6; draw3(); }, enter: () => set3(),
+      done: "Top left, the edge jumps between whole pixels, because a pixel flips the instant its alpha crosses 0.5. The other three shift more gently: each has in-between steps, and the tiles say how far each is from a true soft mix, out of 255." },
+    { say: "<b>Pull the opacity below 0.50.</b>", todo: "drag Opacity below 0.50", goal: () => st3.op <= 0.45, try: () => { $("op3").value = 0.4; $("op3").dispatchEvent(new Event("input")); draw3(); }, enter: () => set3({ x: st3.x, y: st3.y }),
+      done: "The top-left leaf vanished: with the whole picture at 0.45, no pixel reaches 0.5. The other three fade. A plain cutout cannot fade, which is why a bush that fades out as you walk away uses one of the other three." },
+    { say: "Top right splits each pixel into 4 sub-pixels and turns alpha into how many of them are leaf, for 5 shades of edge. Bottom left compares alpha against a fixed 4×4 pattern of thresholds, called a dither, for 16 shades in a visible checker. Bottom right is that dither shifted every frame and averaged over 8 frames.", quiz: { q: "Why does averaging 8 frames of a shifted dither give a smooth edge?", options: [
+        { t: "The GPU mixes the leaf in on those frames", why: "Each frame is still all-or-nothing per pixel. No mixing happens." },
+        { t: "A pixel at alpha 0.5 is leaf on half the frames and background on the other half, and the average of that is a half mix", ok: true, why: "Eight all-or-nothing frames add up to eight shades. Games get the averaging for free from TAA, the smoothing that already blends the last few frames together." },
+        { t: "The pattern gets finer each frame", why: "It is the same 4×4 pattern, shifted. The smoothing comes from the average over time." } ] },
+      todo: "hover a pixel on the leaf's edge to read each method's decision", goal: () => S3.edgeSeen, try: () => { for (let i = 0; i < 64; i++) { const a = sampleLeaf(i, 32)[0]; if (a > 0.05 && a < 0.95) { hov3 = [i * 4 + 2, 32 * 4 + 2]; break; } } draw3(); },
+      done: "The caption gives that pixel's alpha, whether the cutout keeps it, how many of its 4 sub-pixels are leaf, and the dither threshold it is compared against." },
+    { say: "If every pixel is all-or-nothing you can record depth and forget about order. The four ways differ only in how they hide the hard edge. The thresholds, the pattern and the shader are under the hood." } ] });
+
+  const set4 = o => { Object.assign(cam4, { x: 2, y: 31, h: 3.5, yaw: 0.02 }); o = o || {}; wmode4 = o.w || "eq9"; heat4 = o.heat || "count"; segOn($("w4"), wmode4); segOn($("heat4"), heat4); draw4(); };
+  L4 = lesson("oit", { next: { id: "depth", title: "When glass claims the pixel" }, steps: [
+    { say: "The yard from the player's eyes, drawn three ways at 160×90 pixels. Top left is the usual sort by object. Bottom left is the <b>exact answer</b>: every see-through layer that lands on a pixel is kept, and each pixel's own list is sorted at the end. Top right never sorts: it adds the layers up with a weight and divides once. The map, bottom right, shows how many layers landed on each pixel, black for none up to bright blue for five.", enter: () => set4() },
+    { say: "<b>Set the map to 'sort errors'</b>, then walk toward the window: drag up to walk, sideways to turn.", todo: "set the map, then walk toward the tavern", goal: () => heat4 === "sorted" && cam4.x >= 12, try: () => { $("heat4").querySelector('[data-v="sorted"]').click(); cam4.x = 20; draw4(); }, enter: () => set4(),
+      done: "Bright patches on the map: the smoke puff half through the glass, and the glow over the nearer puff. The exact picture has neither problem, because it sorted each pixel's own layers. The first tile counts the pixels the sort got wrong." },
+    { say: "The exact way keeps every layer of every pixel until the end of the frame.", quiz: { q: "What is the catch?", options: [
+        { t: "It is much slower to draw", why: "Drawing costs about the same. The price is paid somewhere else." },
+        { t: "Nobody knows in advance how many layers a pixel will get, so the memory it needs has no fixed ceiling", ok: true, why: "The last tile is what this small view needs, and in brackets what a 1080p screen would need. Set that memory too small and the picture goes wrong without a warning." },
+        { t: "It only works for two layers", why: "It works for any number. That is exactly the problem: any number." } ] },
+      todo: "walk right up to the window and watch the memory tile climb", goal: () => S4.mem >= 250000, try: () => { cam4.x = 38; cam4.y = 31; cam4.yaw = 0.02; draw4(); },
+      done: "Close to the window the smoke fills the view, most pixels hold two or three layers, and the memory has about doubled. A real engine sets this memory for its worst frame and hopes." },
+    { say: "<b>Switch the weight to 'no weight'.</b>", todo: "switch the weight below", goal: () => wmode4 === "one", try: () => $("w4").querySelector('[data-v="one"]').click(), enter: () => { wmode4 = "eq9"; segOn($("w4"), "eq9"); draw4(); },
+      done: "Top right is now a plain average, with no extra say for nearer or more solid layers, and its error tile went up a little. The change is small here because every layer is thin. The weight is a guess at what sorting would have done, and it matters most where a near, nearly solid layer should hide the rest." },
+    { say: "<b>Set the map to 'weighted sum errors'</b> and put a distance weight back on.", todo: "set the map, then choose a distance weight", goal: () => heat4 === "wboit" && wmode4 !== "one", try: () => { $("heat4").querySelector('[data-v="wboit"]').click(); $("w4").querySelector('[data-v="eq9"]').click(); },
+      done: "Amber shows where the weighted sum is off: layers at similar distances with very different alpha, and a solid-ish layer that should hide the rest. Cheap, fixed memory, never exactly right." },
+    { say: "Keep every layer and you are exact but the memory has no ceiling; add them up with a weight and the memory is fixed but the picture is only close. The weight formula, the two blend targets and the linked list are under the hood." } ] });
+
+  const set5 = o => {
+    o = o || {}; Object.assign(cam5, { x: 15, y: 30, h: 3.5, yaw: 0 });
+    if (o.ord) ord5 = o.ord; if (o.dw != null) dw5 = o.dw; if (o.pp) pp5 = o.pp; if (o.view) view5 = o.view;
+    segOn($("ord5"), ord5); $("dw5").checked = dw5; segOn($("pp5"), pp5); segOn($("view5"), view5); draw5();
+  };
+  L5 = lesson("depth", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "A round glass lamp globe on a post in front of the tavern, with a sheet of smoke drifting through it. The game keeps a <b>depth buffer</b>: for every pixel, how far away the nearest thing drawn there is, so anything drawn later and farther can be thrown away unseen. Right now the globe and the smoke are drawn first, and they record their distance like solid things do. Look at the tavern behind the globe: there is a hole of sky in it.", enter: () => set5({ ord: "transFirst", dw: true, pp: "none", view: "image" }) },
+    { say: "", quiz: { q: "Why is there sky where the tavern should be?", options: [
+        { t: "The glass is drawn on top of the tavern and covers it", why: "Glass at alpha 0.5 would show half the tavern through it. Here the tavern was never drawn there at all." },
+        { t: "The globe recorded its distance, so when the tavern was drawn later every pixel behind the globe was thrown away as hidden, and the sky underneath stayed", ok: true, why: "The depth check has no idea the globe is see-through. It sees a nearer distance already recorded and drops the tavern. The first tile counts those pixels." },
+        { t: "The smoke is too thick to see through", why: "The smoke is at alpha 0.45. The hole is sky, not smoke." } ] } },
+    { say: "<b>Set the draw order to 'solid things first, then see-through'.</b>", todo: "switch the draw order below", goal: () => ord5 === "opaqueFirst", try: () => $("ord5").querySelector('[data-v="opaqueFirst"]').click(), enter: () => set5({ ord: "transFirst", dw: true, pp: "none", view: "image" }),
+      done: "The tavern is back: it was drawn before anything could block it, and this is why every engine draws solid things first. But the middle tile is not zero. The globe still records its distance, so the smoke behind it is thrown away before it can mix." },
+    { say: "<b>Untick 'see-through things record their distance'.</b>", todo: "untick the box below", goal: () => !dw5, try: () => $("dw5").click(), enter: () => set5({ ord: "opaqueFirst", dw: true, pp: "none", view: "image" }),
+      done: "Nothing is thrown away now. See-through draws still check the depth buffer, so glass behind a wall stays hidden, but they never write to it. One tile went up though: 'inside face drawn over outside'." },
+    { say: "The globe is one model, a single set of triangles, with an outer face and an inner face, and a pixel through the glass gets both.", quiz: { q: "With no distance recorded, in what order do the two faces mix?", options: [
+        { t: "Nearest first, the GPU sorts them", why: "Nothing sorts inside one model. Its triangles come in the order they were saved." },
+        { t: "Whatever order the model lists its triangles in, so on some pixels the inside lands on top of the outside", ok: true, why: "That tile counts the pixels where the inner face mixed over the outer one. On a real globe it shows as patches that look inside out." },
+        { t: "Farthest first", why: "Only if the model happened to be saved that way, and it was not." } ] },
+      todo: "switch the glass globe to 'record nearest distance, then mix only there'", goal: () => pp5 === "prepass", try: () => $("pp5").querySelector('[data-v="prepass"]').click(), enter: () => set5({ ord: "opaqueFirst", dw: false, pp: "none", view: "image" }),
+      done: "Only the globe's nearest face mixes now, and the tile drops to zero. The trick is two draws: once writing only distance, then again mixing only where the distance matches. It is the one time a see-through thing writes depth on purpose." },
+    { say: "<b>Switch the view to 'show what was thrown away'</b> and tick 'record their distance' again.", todo: "switch the view, then tick the box", goal: () => view5 === "culled" && dw5, try: () => { $("view5").querySelector('[data-v="culled"]').click(); if (!dw5) $("dw5").click(); }, enter: () => set5({ ord: "opaqueFirst", dw: false, pp: "prepass", view: "image" }),
+      done: "Red is every layer dropped by a distance check it should have passed. In a real game this is a see-through surface whose settings left depth write on by mistake, and the symptom is what you saw first: sky through glass, or things behind glass gone." },
+    { say: "Solid things record their distance; see-through things only read it and mix in sorted order. The one exception is a model that overlaps itself, like this globe, which records its nearest distance on purpose so only one layer mixes. The states and the two-pass code are under the hood." } ] });
 })();
 </script>

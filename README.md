@@ -13,7 +13,9 @@ pages/<slug>.html          one page per idea; a fragment: <title>, fonts, <style
 shared/theme.css           the shared stylesheet, pasted into every page and the hub
 shared/scene-kit.js        the shared canvas props, pasted into every page's <script>
 shared/index.template.html the hub source
-shared/BRIEF.md            the page spec: structure, palette, demo quality bar, copy rules
+shared/LESSON.md           the brief for the guided-lesson pages (the current formula)
+shared/lesson-kit.js       the step runtime, pasted into every page
+shared/BRIEF.md            the original page spec: file rules, palette, demo quality bar, copy rules
 shared/REWRITE.md          the plain-language prose structure every section follows
 shared/VISUALS.md          the rules for the game-scene demos
 UNCERTAIN.md               every claim written from memory or estimated, collected for a fact-check
@@ -21,6 +23,19 @@ UNCERTAIN.md               every claim written from memory or estimated, collect
 
 Hub order, and the previous / next order on the site, is the order of entries in
 `shared/index.template.html`.
+
+## The lesson formula
+
+Every demo section is a full-screen stage: the picture on the left, a step card on the right that
+walks the reader through the demo (look, do something on the canvas, or predict then check), and
+the math and code folded into an "Under the hood" disclosure. `shared/LESSON.md` is the brief;
+`pages/rasterization.html` is the exemplar. The step runtime is `shared/lesson-kit.js`, pasted
+into every page by `node shared/apply-kit.js`.
+
+```
+PLAYWRIGHT=/path/to/node_modules/playwright node shared/walk.cjs pages/x.html     # every step reachable?
+PLAYWRIGHT=... node shared/stages.cjs pages/x.html                               # does each stage fit one viewport?
+```
 
 ## Working on it
 

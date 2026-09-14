@@ -231,69 +231,64 @@ section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 .uses.trade td:first-child { white-space: normal; min-width: 11ch; }
 .cap .bad { color: #ef5d5d; }
 .cap .ok { color: #5ad48a; }
+.vp canvas.sq { aspect-ratio: 1; }
+.vp canvas.r43 { aspect-ratio: 512 / 380; }
+.cap.lines { display: block; line-height: 1.5; }
 </style>
 
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a 200 m × 200 m village seen from above · 150 houses, trees, crates and walls · 1080p screen · the player is the camera</p>
+    <p class="eyebrow">a village seen from above · six guided demos · the player is the camera</p>
     <h1>Culling</h1>
-    <p class="lead">Culling is the renderer <b>deciding what not to draw</b> before it draws anything. Skipping a house that is behind the player, or hidden behind a wall, saves the whole cost of drawing it, and the test is far cheaper than the draw. <b>Frustum culling</b> drops what is outside the view and needs almost nothing; <b>occlusion culling</b> drops what is hidden, needs depth from the rest of the scene, and is harder, later, and often one frame stale. The thing people get wrong is treating either test as exact: both <b>keep extra objects on purpose</b> and must never drop a visible one, because nothing later in the frame can bring it back.</p>
+    <p class="lead">A game world holds far more than the player can see at once: houses behind them, trees hidden by a wall, crates so far away they would be a speck. Culling is the renderer <b>deciding what not to draw</b> before it draws anything, because skipping a house costs almost nothing and drawing it costs a lot. This page plays through the tests a game runs every frame, from the cheap one (is it in front of the player at all) to the ones that need to know what is hiding what. <b>The thing people get wrong:</b> none of these tests is exact. Each one <b>keeps extra objects on purpose</b> and must never drop something visible, because nothing later in the frame can bring it back.</p>
     <div class="key">
       <span style="--sw:#f2a341">drawn</span>
       <span style="--sw:#3a3f48">skipped (darkened)</span>
       <span style="--sw:#4aa3ff">drawn but not needed</span>
-      <span style="--sw:#ef5d5d">wrongly skipped, too small, barred door</span>
-      <span style="--sw:#5ad48a">whole group kept</span>
-      <span style="--sw:#ffffff">player's view wedge, handles</span>
+      <span style="--sw:#ef5d5d">wrongly skipped, too small, or a barred door</span>
+      <span style="--sw:#5ad48a">a whole group kept</span>
+      <span style="--sw:#ffffff">the player's view wedge and the drag handles</span>
     </div>
     <dl class="terms">
-      <dt>frustum</dt><dd>the wedge of space the camera can see</dd>
-      <dt>bounds</dt><dd>a simple shape (sphere or box) wrapped around an object; cheap to test</dd>
+      <dt>GPU</dt><dd>the chip that draws the picture; the CPU is the chip that runs the rest of the game</dd>
+      <dt>frustum</dt><dd>the wedge of space the camera can see; this page just calls it the wedge</dd>
+      <dt>wrap shape</dt><dd>a ball or a box wrapped round an object, because it is quicker to test than the object's real shape</dd>
       <dt>culling</dt><dd>skipping an object before it is drawn</dd>
       <dt>conservative</dt><dd>a test that may keep extra objects but never drops a visible one</dd>
       <dt>false positive</dt><dd>an object the test kept even though it is not visible</dd>
       <dt>occluder</dt><dd>something big and close that hides what is behind it</dd>
-      <dt>depth buffer</dt><dd>for each direction on screen, how far away the nearest drawn surface is</dd>
+      <dt>depth buffer</dt><dd>for each direction on screen, how far away the nearest drawn thing is</dd>
       <dt>draw call</dt><dd>one order to the GPU to draw one object or one batch of objects</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#frustum"><span class="n">01</span>Skip what the player can't see</a></li><li><a href="#hierarchy"><span class="n">02</span>Reject a thousand objects with one test</a></li><li><a href="#hiz"><span class="n">03</span>Skip what's hidden behind a wall</a></li><li><a href="#portals"><span class="n">04</span>Rooms, doorways and a lookup table</a></li><li><a href="#gpu"><span class="n">05</span>Drop specks, then let the GPU cull</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#frustum"><span class="n">01</span>Skip what the player can't see</a></li><li><a href="#hierarchy"><span class="n">02</span>Throw out a neighbourhood at once</a></li><li><a href="#hiz"><span class="n">03</span>Skip what's hidden behind a wall</a></li><li><a href="#portals"><span class="n">04</span>Rooms, doorways and a lookup table</a></li><li><a href="#gpu"><span class="n">05</span>Skip what would be a speck</a></li><li><a href="#gpudriven"><span class="n">06</span>Let the GPU write its own list</a></li></ul>
 
-  <section id="frustum">
+  <section id="frustum" class="stage">
     <h2>Skip what the player can't see</h2>
-    <p class="sub">A player stands in a village. Only what falls inside their view wedge gets drawn; drag the player or their aim point and watch every house, tree and crate pass or fail the test.</p>
+    <p class="sub">A player stands in a village. Only what falls inside the wedge they can see gets drawn; the rest is skipped before it costs anything.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c1" width="512" height="512" class="grab" aria-label="Top-down village with a player, their view wedge, and each house, tree, crate and wall marked drawn or skipped; an inset shows what the player sees"></canvas>
+        <canvas id="c1" width="512" height="512" class="grab sq" aria-label="Top-down village with a player, their view wedge, and each house, tree, crate and wall marked drawn or skipped; an inset shows what the player sees"></canvas>
         <div class="cap"><span id="c1-read"></span><span id="c1-cost"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">The player only sees a wedge of the village. <b>Anything outside that wedge is skipped</b> before it costs a draw. The test doesn't look at a house's real shape, only a <b>simple shape wrapped around it</b>, so it sometimes keeps things it didn't need to. That's fine: <b>keeping extra is safe, dropping a visible one is not</b>.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The village from above. The blue figure is the player, and the white wedge in front of them is the frustum, the region the camera can see. Houses, trees, crates and walls inside the wedge are outlined amber and get drawn. Everything outside is darkened: skipped, never sent to the GPU.</p>
-        <p>Blue ones passed the test but don't touch the wedge at all: the wrap shape was loose, so they are drawn for nothing. The thin outlines are the wrap shapes. The inset in the corner is what the player sees on screen, built from the drawn objects only.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Switch the shape from sphere to tilted box. The blue count drops because the box hugs each object tighter.</li>
-          <li>Drag the aim point so a long garden wall lies diagonally across a corner of the wedge. It stays blue with every shape.</li>
-          <li>Push FOV to 120°. More of the village turns amber, and the test cost in the caption doesn't change, because every object is tested no matter what.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><span class="lab">Wrap shape</span><div class="seg" id="segBounds" role="group" aria-label="Bounding volume"><button data-v="sphere">sphere</button><button data-v="aabb" aria-pressed="true">aligned box</button><button data-v="obb">tilted box</button></div></div>
-          <div class="ctl"><label for="fov1">FOV <span class="val" id="fov1v">60°</span></label><input type="range" id="fov1" min="30" max="120" step="1" value="60"></div>
-          <div class="ctl"><label for="far1">Far plane <span class="val" id="far1v">120 m</span></label><input type="range" id="far1" min="30" max="200" step="5" value="120"></div>
+      <div class="lesson" data-lesson="frustum">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><span class="lab">Wrap shape round each object</span><div class="seg" id="segBounds" role="group" aria-label="Bounding volume"><button data-v="sphere">a ball</button><button data-v="aabb" aria-pressed="true">a box lined up with the map</button><button data-v="obb">a box turned with the object</button></div></div>
+          <div class="ctl"><label for="fov1">Field of view, how wide the wedge opens <span class="val" id="fov1v">60°</span></label><input type="range" id="fov1" min="30" max="120" step="1" value="60"></div>
+          <div class="ctl"><label for="far1">Far limit, past which nothing is drawn <span class="val" id="far1v">120 m</span></label><input type="range" id="far1" min="30" max="200" step="5" value="120"></div>
         </div>
-        <div class="tiles">
-          <div class="tile" id="t1-sphere"><div class="n">0</div><div class="l">sphere: kept but outside</div></div>
-          <div class="tile" id="t1-aabb"><div class="n">0</div><div class="l">aligned box: kept but outside</div></div>
-          <div class="tile" id="t1-obb"><div class="n">0</div><div class="l">tilted box: kept but outside</div></div>
+        <div class="tiles" data-step-min="4">
+          <div class="tile" id="t1-sphere"><div class="n">0</div><div class="l">ball: drawn for nothing</div></div>
+          <div class="tile" id="t1-aabb"><div class="n">0</div><div class="l">lined-up box: drawn for nothing</div></div>
+          <div class="tile" id="t1-obb"><div class="n">0</div><div class="l">turned box: drawn for nothing</div></div>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">An object is skipped only when its wrap shape is fully outside one edge of the wedge; a tighter wrap just means fewer extras.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>A plane is a flat cut through space, stored as a direction (its normal, n) and an offset (d). Plugging a point p into n·p + d gives its signed distance: positive on the inside, negative on the outside. The frustum is the space where every one of its planes gives a non-negative distance. This 2D demo has four planes; a 3D camera has six.</p>
         <p>An object is rejected the moment any one plane says its whole wrap shape is on the outside. Straddling a plane counts as inside, so an object is never rejected for being half in.</p>
         <p>The wrap shape decides how many false positives survive. A sphere around a 30 m wall is 30 m wide in every direction. An aligned box, a box lined up with the world axes (an AABB), grows when the wall rotates 45°. A tilted box that turns with the object (an OBB) stays tight. Even the tight one only checks the frustum's own planes, so a wall lying diagonally across a corner passes every plane and is still outside.</p>
@@ -317,45 +312,34 @@ OBB:     r_eff = hx·|n·u| + hy·|n·v| + hz·|n·w|
   }
   <span class="k">return</span> true; <span class="c">// inside or straddling every plane; may still be a false positive</span>
 }</pre>
-
-        <p class="tldr">Frustum culling drops an object only when it is fully outside one plane; a tighter wrap shape just means fewer extras.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="hierarchy">
-    <h2>Reject a thousand objects with one test</h2>
-    <p class="sub">The same valley, now with a thousand trees, crates and houses. Drag the player and watch whole neighbourhoods get thrown out or kept with a single test.</p>
+  <section id="hierarchy" class="stage">
+    <h2>Throw out a neighbourhood at once</h2>
+    <p class="sub">The same valley with a thousand trees, crates and houses, grouped into boxes inside boxes, so one test can skip hundreds of them.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c2" width="512" height="512" class="grab" aria-label="Top-down valley with a thousand trees, crates and houses grouped into quadtree boxes, each box marked thrown out, kept whole, or opened against the player's view wedge"></canvas>
+        <canvas id="c2" width="512" height="512" class="grab sq" aria-label="Top-down valley with a thousand trees, crates and houses grouped into nested boxes, each box marked thrown out, kept whole, or opened against the player's view wedge"></canvas>
         <div class="cap"><span id="c2-read"></span><span id="c2-cost"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Testing every tree one by one costs the same whether the player looks at the whole valley or at a blank wall. Grouping objects into <b>boxes inside bigger boxes</b> means <b>one test can throw out a thousand objects</b> at once. The work then depends on <b>how much the wedge touches</b>, not on how big the world is. It's the difference between checking every house in a city and first asking which neighbourhoods the wedge overlaps.</p>
-
-        <h3>What you're seeing</h3>
-        <p>The valley is split into a quadtree: one box cut into four, and each quarter cut again wherever there are enough objects. Red outlines are neighbourhoods thrown out whole with a single test; everything inside them is darkened. Green outlines are neighbourhoods kept whole; every tree and house inside is drawn with no further test.</p>
-        <p>Faint white outlines are groups the wedge's edge cuts through. Only those get opened, and only their objects get tested one by one.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Push objects to 5,000. The brute force tile climbs to 5,000; the two hierarchy tiles barely move.</li>
-          <li>Aim the player at an empty corner of the valley. Almost every group goes red and the test count collapses.</li>
-          <li>Untick draw groups to see just the village. The tile numbers stay the same.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><label for="n2">Objects <span class="val" id="n2v">1,000</span></label><input type="range" id="n2" min="100" max="5000" step="50" value="1000"></div>
-          <div class="ctl"><label for="nodes2"><input type="checkbox" id="nodes2" checked> draw groups</label></div>
+      <div class="lesson" data-lesson="hierarchy">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="n2">Objects in the valley <span class="val" id="n2v">1,000</span></label><input type="range" id="n2" min="100" max="5000" step="50" value="1000"></div>
+          <div class="ctl"><label for="nodes2"><input type="checkbox" id="nodes2" checked> show the groups</label></div>
         </div>
-        <div class="tiles">
+        <div class="tiles" data-step-min="3">
           <div class="tile on" id="t2-node"><div class="n">0</div><div class="l">group tests</div></div>
-          <div class="tile on" id="t2-obj"><div class="n">0</div><div class="l">object tests</div></div>
-          <div class="tile" id="t2-brute"><div class="n">0</div><div class="l">brute force tests</div></div>
+          <div class="tile on" id="t2-obj"><div class="n">0</div><div class="l">single-object tests</div></div>
+          <div class="tile" id="t2-brute"><div class="n">0</div><div class="l">tests with no groups</div></div>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Boxes inside boxes make the cost depend on where the wedge's edge falls, not on the size of the world.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>A spatial hierarchy is a tree of nested bounds. The root box covers the whole world and each child covers a quarter of its parent. Each node here also stores the tight box around its own objects, so it is really a small bounding volume hierarchy (a tree of boxes around boxes) laid out as a quadtree.</p>
         <p>Walking the tree uses a three-way test per node. If the p-vertex, the corner farthest along a plane's normal, is outside any plane, the node is OUT and the whole subtree is skipped. If the n-vertex, the corner least along the normal, is inside every plane, the node is IN and every object under it is accepted without another test. Anything else is PARTIAL, and only then are the children opened.</p>
         <p>Brute force is one test per object, every frame, whether the object is behind the player or not. The hierarchy costs the nodes visited plus the objects in leaves cut by an edge, about O(log N + k), where k is the number of objects near the frustum edge.</p>
@@ -379,52 +363,39 @@ node classify: p-vertex outside → OUT
     <span class="k">for</span> (Node c : n.children) cullNode(c, planes);
   }
 }</pre>
-
-        <p class="tldr">A tree of boxes makes the cull cost depend on the frustum's edge, not on the size of the world.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="hiz">
+  <section id="hiz" class="stage">
     <h2>Skip what's hidden behind a wall</h2>
-    <p class="sub">Three stone walls stand between the player and the village. Drag a wall, the player or their aim point, and hover a house to see why it was drawn or skipped.</p>
-    <div class="cols two">
+    <p class="sub">Three stone walls stand between the player and the village. Whatever is behind a wall is hidden, and the test that finds out needs distances from things already drawn.</p>
+    <div class="cols three">
       <div class="vp">
-        <canvas id="c3" width="512" height="512" class="grab" aria-label="Top-down village with a player, three draggable stone walls, and each house, tree and crate marked visible, hidden, drawn but hidden, or wrongly skipped"></canvas>
+        <canvas id="c3" width="512" height="512" class="grab sq" aria-label="Top-down village with a player, three draggable stone walls, and each house, tree and crate marked visible, hidden, drawn but hidden, or wrongly skipped"></canvas>
         <div class="cap"><span id="c3-read"></span><span id="c3-err"></span></div>
       </div>
       <div class="vp">
-        <canvas id="c3z" width="512" height="512" aria-label="What the player sees this frame, the depth buffer strip under it, and the hierarchical Z pyramid built from that strip"></canvas>
+        <canvas id="c3z" width="512" height="380" class="r43" aria-label="What the player sees this frame, the strip of distances under it, and the pyramid of rows built from that strip"></canvas>
         <div class="cap"><span id="c3z-read"></span><span id="c3z-frame"></span></div>
+        <div class="cap lines"><span id="c3z-test"></span></div>
+      </div>
+      <div class="lesson" data-lesson="hiz">
+        <div class="controls" data-step-min="4">
+          <div class="ctl"><span class="lab">Where the distances come from</span><div class="seg" id="segHz" role="group" aria-label="Depth source"><button data-v="occ" aria-pressed="true">the 3 walls, this frame</button><button data-v="last">everything drawn last frame</button><button data-v="two">two passes</button></div></div>
+          <div class="ctl"><span class="lab">Frame</span><button class="btn" id="hz-step" type="button">render next frame</button></div>
+        </div>
       </div>
     </div>
-    <div class="controls">
-      <div class="ctl"><span class="lab">Depth source</span><div class="seg" id="segHz" role="group" aria-label="Depth source"><button data-v="occ" aria-pressed="true">walls this frame</button><button data-v="last">everything, last frame</button><button data-v="two">two-pass</button></div></div>
-      <div class="ctl"><span class="lab">Frame</span><button class="btn" id="hz-step" type="button">render next frame</button></div>
-    </div>
-    <div class="below">
-      <div class="prose">
-        <p class="plain">Being inside the player's wedge isn't enough to be seen; a wall in front hides everything behind it. <b>Occlusion culling skips those hidden objects.</b> It needs to know <b>how far away the nearest thing is</b> in each direction, and that information only exists after something has been drawn. That is why occlusion is <b>harder and later</b> than frustum culling, and sometimes <b>one frame stale</b>.</p>
+    <div class="foot">
+    <p class="tldr">Hidden-object tests need distances from things already drawn, so they run later, and the distances must come from this frame's camera.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>What you're seeing</h3>
-        <p>Left: the village from above. The three grey bars with white handles are stone walls you can drag, and the faint fan is the ground the player can see past them. Amber houses and trees are drawn and visible. Darkened ones are correctly skipped. Blue ones are drawn but hidden: safe, but wasted. Red ones are visible but skipped anyway, the error that must not happen. The small number by each object is the pyramid level its test read.</p>
-        <p>Right, top: what the player sees this frame, built from the drawn objects. Under it, the depth buffer: a strip of 256 cells across that view where each cell holds the distance to the nearest wall in that direction. Each row below halves the row above and keeps the farther of every pair. Brighter means nearer. The outlined boxes are the cells one object's test read.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Hover any house inside the wedge. The right panel prints its cell span, its level and the exact comparison.</li>
-          <li>Switch to everything, last frame and swing the aim point fast. Red objects appear: hidden last frame, visible now, skipped anyway, and missing from the player's view. Press render next frame and they recover.</li>
-          <li>Switch to two-pass. Red never appears; the blue objects are what it costs.</li>
-        </ul>
-
-        <h3>The real version</h3>
         <p>Occlusion needs depth. The occluders are rasterized, meaning drawn, into a depth buffer: here a 1D strip of 256 texels, where a texel is one cell of a texture. That buffer is reduced into a pyramid in which each texel of level L holds the farthest depth of the 2<sup>L</sup> base texels under it. This is the hierarchical Z buffer, or Hi-Z, since Z is the usual name for depth.</p>
         <p>To test an object, project its bounds to a span of texels. Pick the level where that span covers at most two texels, read those two, and if the object's nearest point is farther than the larger of them, nothing of it can show. Two reads answer the question for an object of any screen size.</p>
         <p>With only the three walls as occluders the test is correct every frame but weak: small things hide nothing. With <em>everything, last frame</em>, every drawn house and tree becomes an occluder, at the cost of testing this frame's objects against last frame's depth. Move fast and objects that were hidden last frame but are visible now get culled anyway; they pop in a frame later.</p>
         <p>The <em>two-pass</em> fix draws what was visible last frame first, builds the pyramid from that with the current camera, then tests only the remaining objects against it and draws the ones that pass. Depth always comes from the current camera, so nothing visible is ever culled. The price is the blue objects: drawn in pass one because they were visible before, hidden now.</p>
-      </div>
-      <div class="prose">
-        <p class="words">In words: turn the object into a strip of screen cells, jump to the pyramid row where that strip is two cells wide, and compare the object's nearest distance with the farther of those two cells.</p>
+<p class="words">In words: turn the object into a strip of screen cells, jump to the pyramid row where that strip is two cells wide, and compare the object's nearest distance with the farther of those two cells.</p>
         <div class="math">project:  z_v = (p − cam)·fwd,  x_v = (p − cam)·right
           sx = x_v / (z_v · tan(fov/2))      ∈ [−1, 1]
           texel = floor((sx + 1)/2 · 256)
@@ -448,40 +419,29 @@ build:    HiZ[L+1][i] = max(HiZ[L][2i], HiZ[L][2i+1])</div>
                        max(texelFetch(hiz, ivec2(t0.x, t1.y), level).r, texelFetch(hiz, t1, level).r));
   <span class="k">return</span> ssMin.z &gt; farthest;   <span class="c">// nearest point behind everything in those texels</span>
 }</pre>
-
-        <p class="tldr">Hi-Z answers "is something closer in front of this" with two texture reads, and the depth it reads must come from the current camera or it will drop visible things.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="portals">
+  <section id="portals" class="stage">
     <h2>Rooms, doorways and a lookup table</h2>
-    <p class="sub">The player walks through a castle with nine rooms. Drag them from room to room, change how wide they look, or click a doorway to bar it.</p>
+    <p class="sub">The player walks through a castle with nine rooms. Walls hide almost everything, so the view only has to be squeezed through the doorways.</p>
     <div class="cols">
       <div class="vp">
-        <canvas id="c4" width="512" height="512" class="grab" aria-label="Top-down castle floor plan with nine named rooms, stone walls, doorways, a player, the view fan squeezed through each doorway, and the precomputed visible rooms shaded blue"></canvas>
+        <canvas id="c4" width="512" height="512" class="grab sq" aria-label="Top-down castle floor plan with nine named rooms, stone walls, doorways, a player, the view fan squeezed through each doorway, and the rooms in the lookup table shaded blue"></canvas>
         <div class="cap"><span id="c4-read"></span><span id="c4-pvs"></span></div>
       </div>
-      <div class="prose">
-        <p class="plain">Inside a castle, <b>walls hide almost everything</b> and the doorways are the only openings. Portal culling starts in the player's room and <b>squeezes the view through each doorway</b> into the next room; only rooms a squeezed view reaches are drawn. A PVS goes further and <b>works out the answer ahead of time</b>, so at runtime it is one bit lookup per room.</p>
-
-        <h3>What you're seeing</h3>
-        <p>A castle floor plan: nine rooms, twelve doorways, stone walls, and the player standing in the great hall. The amber fan is their view, clipped narrower each time it passes through a door. Rooms marked <em>seen from here</em> are reached by the walk this frame.</p>
-        <p>Rooms shaded blue and marked <em>in the lookup table</em> are in the precomputed set for the player's room, but not reached from this exact spot and direction. A barred doorway shows as a red bar.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Drag the player into a corner room such as the cellar. Only two doorways lead anywhere, and most of the castle goes dark.</li>
-          <li>Click a doorway to bar it. The fan stops there, and the matrix below rebuilds.</li>
-          <li>Push FOV to 150° and compare the portal count with the PVS count in the caption. The PVS is never the smaller set.</li>
-        </ul>
-
-        <div class="controls" style="margin-top:6px">
-          <div class="ctl"><label for="fov4">FOV <span class="val" id="fov4v">70°</span></label><input type="range" id="fov4" min="30" max="150" step="1" value="70"></div>
-          <div class="ctl"><label for="showpvs"><input type="checkbox" id="showpvs" checked> shade PVS of the current room</label></div>
+      <div class="lesson" data-lesson="portals">
+        <div class="controls" data-step-min="5">
+          <div class="ctl"><label for="fov4">Field of view, how wide the fan opens <span class="val" id="fov4v">70°</span></label><input type="range" id="fov4" min="30" max="150" step="1" value="70"></div>
+          <div class="ctl"><label for="showpvs"><input type="checkbox" id="showpvs" checked> shade the rooms in the lookup table</label></div>
         </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Squeezing the view through each doorway is exact for this spot; a lookup table trades that for one yes-or-no bit per room.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>The real version</h3>
         <p>Portal culling starts in the room the camera is in. For each doorway of that room it clips the current frustum down to the doorway's outline. If anything is left, the walk continues into the next room with the narrower frustum. Rooms that no wedge reaches are never touched. In this 2D world a frustum is a range of angles, so the clip is just the overlap of two ranges.</p>
         <p>A PVS, a potentially visible set, precomputes the answer per room: which rooms can be seen from anywhere inside this one, looking in any direction. The bits below are computed live by walking the portals from a 12×12 grid of sample points in every room and taking the union. At runtime that is one bit lookup per room, which is why Quake could afford it in 1996.</p>
         <p>The cost is that the PVS is a superset of the portal result (the blue rooms), and it is only valid while the doors stay where they were when it was built. Bar a door and the whole matrix is rebuilt. Sampling can miss a sliver of visibility between two sample points, so offline tools such as Quake's vis clip portal against portal exactly instead of sampling.</p>
@@ -507,59 +467,61 @@ PVS:       bits[room] = ∪ over samples s in room of walk(s, 360°)
 }
 <span class="c">// PVS at runtime replaces all of the above with one bit test:</span>
 <span class="k">bool</span> maybeVisible = pvs[cameraRoom][r >> 3] &amp; (1 &lt;&lt; (r &amp; 7));</pre>
-
-        <p class="tldr">Portals narrow the view through each door at runtime; a PVS trades exactness and movable doors for one bit test per room.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 
-  <section id="gpu">
-    <h2>Drop specks, then let the GPU cull</h2>
-    <p class="sub">A forest of a thousand trees, crates and houses stretches away from the player. Slide the minimum size to drop the ones that would be specks, then watch the GPU write its own draw list on the right.</p>
-    <div class="cols two">
+  <section id="gpu" class="stage">
+    <h2>Skip what would be a speck</h2>
+    <p class="sub">A forest stretches away from the player. A tree that would cover less than a few pixels on screen costs as much to draw as one up close, so it is skipped too.</p>
+    <div class="cols">
       <div class="vp">
-        <canvas id="c5" width="512" height="512" class="grab" aria-label="Top-down forest and village with a player; objects too small on screen are marked red, and an inset shows one object's size in 1080p pixels"></canvas>
+        <canvas id="c5" width="512" height="512" class="grab sq" aria-label="Top-down forest and village with a player; objects too small on screen are marked red, and an inset shows one object's size in 1080p pixels"></canvas>
         <div class="cap"><span id="c5-read"></span><span id="c5-pick"></span></div>
       </div>
-      <div class="vp">
-        <canvas id="c5b" width="512" height="512" aria-label="Instance buffer, visible list and indirect draw arguments written by the GPU"></canvas>
-        <div class="cap"><span id="c5b-read"></span><span id="c5b-cost"></span></div>
+      <div class="lesson" data-lesson="gpu">
+        <div class="controls" data-step-min="2">
+          <div class="ctl"><label for="px5">Smallest size worth drawing <span class="val" id="px5v">12 px</span></label><input type="range" id="px5" min="1" max="40" step="1" value="12"></div>
+          <div class="ctl"><label for="fov5">Field of view, how wide the wedge opens <span class="val" id="fov5v">60°</span></label><input type="range" id="fov5" min="30" max="120" step="1" value="60"></div>
+        </div>
       </div>
     </div>
-    <div class="controls">
-      <div class="ctl"><label for="px5">Min size <span class="val" id="px5v">12 px</span></label><input type="range" id="px5" min="1" max="40" step="1" value="12"></div>
-      <div class="ctl"><label for="n5">Instances <span class="val" id="n5v">1,000</span></label><input type="range" id="n5" min="150" max="5000" step="50" value="1000"></div>
-      <div class="ctl"><label for="fov5">FOV <span class="val" id="fov5v">60°</span></label><input type="range" id="fov5" min="30" max="120" step="1" value="60"></div>
-    </div>
-    <div class="below">
-      <div class="prose">
-        <p class="plain">A crate 300 m away is <b>smaller than a pixel</b>, and drawing it costs as much as drawing one up close. So <b>drop anything that projects too small</b>. Once every test is this cheap, <b>the GPU can run all of them itself</b>, one thread per object, and write its own list of what to draw. The CPU never waits for an answer.</p>
+    <div class="foot">
+    <p class="tldr">Size culling is one divide per object: anything that would be a speck on screen is skipped.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
 
-        <h3>What you're seeing</h3>
-        <p>Left: the forest from above. Amber trees, crates and houses are drawn, darkened ones are outside the wedge, and red-outlined ones are inside but too small on screen. The dashed circle marks one object with its screen size worked out in the caption; hover to pick another. The inset in the corner draws that object at its real size in 1080p pixels, with the minimum size as a dashed square.</p>
-        <p>Right: the instance buffer with one square per object, the list of survivors, the draw arguments the GPU fills in itself, and two bars comparing CPU and GPU cull time against a 16.7 ms frame.</p>
-
-        <h3>Try this</h3>
-        <ul class="try">
-          <li>Slide min size to 40 px. The far half of the wedge turns red; those trees would be specks.</li>
-          <li>Push instances to 5,000. The CPU bar reaches 5 ms, almost a third of the frame; the GPU bar barely grows.</li>
-          <li>Widen FOV to 120°. Everything looks smaller on screen, so more objects fall under the threshold.</li>
-        </ul>
-
-        <h3>The real version</h3>
         <p>A 2 m crate 300 m away is under a pixel wide on a 1080p screen. Drawing it costs a full draw, or a full instance (one copy of a shared mesh), for a speck that anti-aliasing will mostly remove. The projected radius follows from the bounding radius, the view depth and the vertical field of view, so the test is one division per object and it is usually folded into the same loop as the frustum test.</p>
         <p>The threshold is a quality knob: 1 px is safe, 4 px is visibly aggressive on foliage. This 200 m world is too small for anything to fall under 2 px at 1080p, so the slider here goes far higher than a shipping threshold would.</p>
-        <p>Once the tests are this simple, there is no reason for the CPU to run them. The GPU-driven version keeps every instance in a buffer and runs one thread per instance in a compute shader, a GPU program that is not tied to drawing. Threads that pass append their index to a visible list with an atomic add, an add that many threads can do at once without stepping on each other, on the <code>instanceCount</code> field of the indirect arguments, the small record that tells the GPU how much to draw.</p>
-        <p>The CPU issues one <code>DrawIndexedIndirect</code> per mesh without knowing how many survived, and nothing is read back. At 1 µs per test the CPU side of 5,000 objects is 5 ms, almost a third of a 60 Hz frame; the compute pass is a few microseconds (estimate).</p>
-      </div>
-      <div class="prose">
-        <p class="words">In words: an object's radius in pixels is its real radius, shrunk by how far away it is and by how wide the lens is.</p>
+<p class="words">In words: an object's radius in pixels is its real radius, shrunk by how far away it is and by how wide the lens is.</p>
         <div class="math">r_px = r · (H / 2) / (d · tan(fov_y / 2)),  H = 1080
 drop if  2 · r_px &lt; threshold
 CPU estimate:  N · 1 µs per test
 GPU estimate:  N / (2 · 10⁹ instances per s)  +  ~20 µs dispatch (both estimates)</div>
         <p>r is the bounding radius in metres, d the distance along the view direction, fov_y the vertical field of view, H the screen height in pixels and r_px the radius on screen. N is the instance count.</p>
-        <p class="words">What this code does: one thread per instance runs the frustum, size and Hi-Z tests, then grabs a slot in the visible list with one atomic add.</p>
+    </div></details>
+    </div>
+  </section>
+
+  <section id="gpudriven" class="stage">
+    <h2>Let the GPU write its own list</h2>
+    <p class="sub">The same forest, seen from the GPU's side: one worker per object runs the tests, and the survivors count themselves into the draw order.</p>
+    <div class="cols">
+      <div class="vp">
+        <canvas id="c5b" width="512" height="512" class="sq" aria-label="The list of every object, the list of survivors and the draw order written by the GPU, with bars comparing CPU and GPU time"></canvas>
+        <div class="cap"><span id="c5b-read"></span><span id="c5b-cost"></span></div>
+      </div>
+      <div class="lesson" data-lesson="gpudriven">
+        <div class="controls" data-step-min="3">
+          <div class="ctl"><label for="n5">Objects in the world <span class="val" id="n5v">1,000</span></label><input type="range" id="n5" min="150" max="5000" step="50" value="1000"></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+    <p class="tldr">Run the tests on the GPU, one worker per object, and the CPU never waits for an answer.</p>
+    <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+<p>Once the tests are this simple, there is no reason for the CPU to run them. The GPU-driven version keeps every instance in a buffer and runs one thread per instance in a compute shader, a GPU program that is not tied to drawing. Threads that pass append their index to a visible list with an atomic add, an add that many threads can do at once without stepping on each other, on the <code>instanceCount</code> field of the indirect arguments, the small record that tells the GPU how much to draw.</p>
+        <p>The CPU issues one <code>DrawIndexedIndirect</code> per mesh without knowing how many survived, and nothing is read back. At 1 µs per test the CPU side of 5,000 objects is 5 ms, almost a third of a 60 Hz frame; the compute pass is a few microseconds (estimate).</p>
+<p class="words">What this code does: one thread per instance runs the frustum, size and Hi-Z tests, then grabs a slot in the visible list with one atomic add.</p>
         <pre class="code">[numthreads(64, 1, 1)]
 <span class="k">void</span> CullCS(uint id : SV_DispatchThreadID) {
   <span class="k">if</span> (id &gt;= instanceCount) <span class="k">return</span>;
@@ -575,9 +537,7 @@ GPU estimate:  N / (2 · 10⁹ instances per s)  +  ~20 µs dispatch (both estim
   visibleInstances[drawArgs[inst.meshId].firstInstance + slot] = id;
 }
 <span class="c">// CPU: DrawIndexedIndirect(argsBuffer, meshId * 20)   no readback, no wait</span></pre>
-
-        <p class="tldr">Size culling is one division per object, and moving the whole cull into a compute shader removes both the CPU cost and the wait for an answer.</p>
-      </div>
+    </div></details>
     </div>
   </section>
 </div>
@@ -696,8 +656,77 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; b.className = 'ok'; quiz.querySelectorAll('button').forEach(x => x.disabled = true); why.innerHTML = '<b>Right.</b> ' + o.why; save(); render(); }
+          else { b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; }
+          quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   "use strict";
+  let L1, L2, L3, L4, L5, L6, D1, D2, D3, D4, D5;
   const W = 512, WORLD = 200, S = W / WORLD, SCREEN_H = 1080;
   const AMBER = "#f2a341", BLUE = "#4aa3ff", WHITE = "#ffffff", GREEN = "#5ad48a", RED = "#ef5d5d";
   const GROUND = "#0b0e13", DARK = "rgba(11,14,19,0.74)", DARKER = "rgba(11,14,19,0.84)";
@@ -984,8 +1013,9 @@ function kitInset(ctx, x, y, w, h, title) {
       else if (onClick) onClick(x, y);
       ev.preventDefault();
     });
-    canvas.addEventListener("pointermove", ev => { pending = worldOf(canvas, ev); if (!raf) raf = requestAnimationFrame(flush); });
-    const end = ev => { if (active >= 0) { active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
+    let last = null;
+    canvas.addEventListener("pointermove", ev => { pending = worldOf(canvas, ev); if (active >= 0) last = pending; if (!raf) raf = requestAnimationFrame(flush); });
+    const end = ev => { if (active >= 0) { if (last) onMove(active, Math.max(0, Math.min(WORLD, last[0])), Math.max(0, Math.min(WORLD, last[1]))); last = null; pending = null; active = -1; try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {} } };
     canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
     canvas.addEventListener("pointerleave", () => { if (onHover && active < 0) onHover(-1, -1); });
   }
@@ -1038,16 +1068,19 @@ function kitInset(ctx, x, y, w, h, title) {
       if (iFp >= 0) callout(x1, "loose wrap: drawn for nothing", SCENE[iFp].x * S, SCENE[iFp].y * S, SCENE[iFp].r * S, BLUE, "nw");
       if (iOut >= 0) callout(x1, "outside the wedge: skipped", SCENE[iOut].x * S, SCENE[iOut].y * S, SCENE[iOut].r * S, "#c7cdd8", "sw");
       drawPlayerView(x1, 8, 8, 200, 76, cam, F, SCENE, drawnList, "what the player sees");
-      label(x1, `fov ${cam.fov}° · far ${cam.far} m`, 8, W - 12, "rgba(255,255,255,0.6)");
-      document.getElementById("c1-read").innerHTML = `<strong>${drawn} drawn</strong> of ${SCENE.length} · ${overlap} overlap the wedge · ${drawn - overlap} false positives`;
-      document.getElementById("c1-cost").innerHTML = `${SCENE.length} tests ≈ <strong>${fmtMs(SCENE.length)}</strong> at 1 µs each`;
+      label(x1, `view ${cam.fov}° wide · draws up to ${cam.far} m away`, 8, W - 12, "rgba(255,255,255,0.6)");
+      document.getElementById("c1-read").innerHTML = `<strong>${drawn} drawn</strong> of ${SCENE.length} · ${overlap} really touch the wedge · ${drawn - overlap} drawn for nothing`;
+      document.getElementById("c1-cost").innerHTML = `${SCENE.length} objects tested every frame · about <strong>${fmtMs(SCENE.length)}</strong> at a millionth of a second each`;
       for (const m of ["sphere", "aabb", "obb"]) { const t = document.getElementById("t1-" + m); t.querySelector(".n").textContent = res[m]; t.classList.toggle("on", m === st.mode); }
+      st.stats = { drawn, overlap, res };
+      L1 && L1.check();
     }
     drag(c1, () => camHandles(cam), (i, x, y) => { camMove(cam, i, x, y); draw(); });
     onSeg("segBounds", v => { st.mode = v; draw(); });
     onRange("fov1", v => v + "°", v => { cam.fov = v; draw(); });
     onRange("far1", v => v + " m", v => { cam.far = v; draw(); });
     draw();
+    D1 = { cam, st, draw };
   }
 
   // ============ 2. hierarchy ============
@@ -1119,22 +1152,25 @@ function kitInset(ctx, x, y, w, h, title) {
       callout(x2, "player", cam.x * S, cam.y * S, 10, WHITE, "sw");
       label(x2, `${fmtN(tree.count)} groups · ${rejected.length} thrown out whole · ${accepted.length} kept whole`, 8, W - 12, "rgba(255,255,255,0.6)");
       const total = nodeTests + objTests;
-      document.getElementById("c2-read").innerHTML = `<strong>${fmtN(drawn)} drawn</strong> of ${fmtN(objs.length)} · ${fmtN(total)} tests with hierarchy vs ${fmtN(objs.length)} brute force`;
-      document.getElementById("c2-cost").innerHTML = `<strong>${fmtMs(total)}</strong> vs ${fmtMs(objs.length)} at 1 µs`;
+      document.getElementById("c2-read").innerHTML = `<strong>${fmtN(drawn)} drawn</strong> of ${fmtN(objs.length)} · ${fmtN(total)} tests with groups, ${fmtN(objs.length)} without`;
+      document.getElementById("c2-cost").innerHTML = `<strong>${fmtMs(total)}</strong> instead of ${fmtMs(objs.length)}, at a millionth of a second per test`;
       document.querySelector("#t2-node .n").textContent = fmtN(nodeTests);
       document.querySelector("#t2-obj .n").textContent = fmtN(objTests);
       document.querySelector("#t2-brute .n").textContent = fmtN(objs.length);
+      st.stats = { nodeTests, objTests, total, drawn, rejected: rejected.length, accepted: accepted.length, n: objs.length };
+      L2 && L2.check();
     }
     drag(c2, () => camHandles(cam), (i, x, y) => { camMove(cam, i, x, y); draw(); });
     onRange("n2", v => fmtN(v), v => { st.n = v; draw(); });
     document.getElementById("nodes2").addEventListener("change", ev => { st.nodes = ev.target.checked; draw(); });
     draw();
+    D2 = { cam, st, draw };
   }
 
   // ============ 3. hierarchical Z ============
   {
     const [c3, x3] = ctxOf("c3"), [c3z, x3z] = ctxOf("c3z");
-    const NZ = 256, LEVELS = 9, NREF = 1024;
+    const NZ = 256, LEVELS = 9, NREF = 1024, ZH = 380;
     const cam = { x: 44, y: 172, ang: -0.78, fov: 60, far: 150, near: 1 };
     // three tall stone walls the player can drag
     const walls = [makeObj(62, 136, 9, 1.5, 0.95, "wall"), makeObj(108, 96, 14, 1.5, 0.35, "wall"), makeObj(90, 112, 8, 1.5, 1.35, "wall")];
@@ -1166,14 +1202,14 @@ function kitInset(ctx, x, y, w, h, title) {
       const drawn = new Uint8Array(objs.length), tested = new Array(objs.length).fill(null), pass1 = new Uint8Array(objs.length);
       let hz, hzLabel;
       if (st.mode === "occ") {
-        hz = buildHZ(rasterize(F, inF.filter(k => k < NW), NZ, false).depth); hzLabel = "Hi-Z from the 3 walls, this frame";
+        hz = buildHZ(rasterize(F, inF.filter(k => k < NW), NZ, false).depth); hzLabel = "distances from the 3 walls, this frame";
         for (const k of inF) { if (k < NW) { drawn[k] = 1; continue; } const t = hizTest(hz, spans[k]); tested[k] = t; if (!t.occluded) drawn[k] = 1; }
       } else if (st.mode === "last") {
-        hz = st.prevHZ || buildHZ(new Float32Array(NZ).fill(cam.far)); hzLabel = "Hi-Z from everything drawn last frame, at last frame's camera";
+        hz = st.prevHZ || buildHZ(new Float32Array(NZ).fill(cam.far)); hzLabel = "distances from everything drawn last frame, from where the player was looking then";
         for (const k of inF) { const t = hizTest(hz, spans[k]); tested[k] = t; if (!t.occluded) drawn[k] = 1; }
       } else {
         const p1 = inF.filter(k => st.prevVisible[k]); for (const k of p1) { drawn[k] = 1; pass1[k] = 1; }
-        hz = buildHZ(rasterize(F, p1, NZ, false).depth); hzLabel = `Hi-Z from pass 1 (${p1.length} objects visible last frame), this camera`;
+        hz = buildHZ(rasterize(F, p1, NZ, false).depth); hzLabel = `pass 1: the ${p1.length} objects visible last frame, drawn from this frame's camera`;
         for (const k of inF) { if (pass1[k]) continue; const t = hizTest(hz, spans[k]); tested[k] = t; if (!t.occluded) drawn[k] = 1; }
       }
       let nDrawn = 0, nCulled = 0, nWrong = 0, nHidden = 0;
@@ -1240,16 +1276,17 @@ function kitInset(ctx, x, y, w, h, title) {
       if (iWrong >= 0) callout(x3, "visible but skipped: wrong", objs[iWrong].x * S, objs[iWrong].y * S, objs[iWrong].r * S, RED, "se");
       else if (iHid >= 0) callout(x3, "drawn but hidden: wasted", objs[iHid].x * S, objs[iHid].y * S, objs[iHid].r * S, BLUE, "se");
       label(x3, `frame ${st.frame} · ${inF.length} in the wedge`, 8, W - 12, "rgba(255,255,255,0.6)");
-      document.getElementById("c3-read").innerHTML = `<strong>${nDrawn} drawn</strong> · ${nCulled} occluded of ${inF.length} in the wedge`;
-      document.getElementById("c3-err").innerHTML = nWrong > 0 ? `<span class="bad">${nWrong} wrongly culled</span> · ${nHidden} drawn but hidden` : `<span class="ok">0 wrongly culled</span> · ${nHidden} drawn but hidden`;
+      document.getElementById("c3-read").innerHTML = `<strong>${nDrawn} drawn</strong> · ${nCulled} hidden and skipped, of ${inF.length} in the wedge`;
+      document.getElementById("c3-err").innerHTML = nWrong > 0 ? `<span class="bad">${nWrong} wrongly skipped</span> · ${nHidden} drawn but hidden` : `<span class="ok">0 wrongly skipped</span> · ${nHidden} drawn but hidden`;
 
       // ---- player's view + pyramid view ----
-      x3z.fillStyle = GROUND; x3z.fillRect(0, 0, W, W);
+      x3z.fillStyle = GROUND; x3z.fillRect(0, 0, W, ZH);
       const VH = 64;
       drawViewStrip(x3z, 0, 0, W, VH, cam, F, objs, view);
       kitLabel(x3z, "what the player sees this frame", 6, 12, "left", "#c7cdd8");
-      const top = VH + 34, rowH = 24, gap = 4;
-      label(x3z, "depth buffer under that view: 256 texels → Hi-Z max pyramid, 9 levels", 8, VH + 14, "rgba(255,255,255,0.7)");
+      const top = VH + 40, rowH = 24, gap = 4;
+      label(x3z, "the strip: how far to the nearest drawn thing, 256 cells across the view", 8, VH + 14, "rgba(255,255,255,0.7)");
+      label(x3z, "each row below keeps the farther of every pair · brighter is nearer", 8, VH + 27, "rgba(255,255,255,0.7)");
       for (let L = 0; L < LEVELS; L++) {
         const row = hz[L], n = row.length, cw = W / n, y = top + L * (rowH + gap);
         for (let i = 0; i < n; i++) {
@@ -1257,10 +1294,10 @@ function kitInset(ctx, x, y, w, h, title) {
           x3z.fillStyle = z >= cam.far ? "rgba(255,255,255,0.07)" : `rgb(${Math.round(30 + 205 * v)},${Math.round(33 + 200 * v)},${Math.round(38 + 190 * v)})`;
           x3z.fillRect(i * cw, y, Math.max(1, cw - (cw > 3 ? 1 : 0)), rowH);
         }
-        label(x3z, `L${L}`, W - 6, y + rowH / 2, "rgba(255,255,255,0.7)", "right");
-        if (n <= 4) label(x3z, `${n} texel${n > 1 ? "s" : ""}`, 6, y + rowH / 2, "rgba(255,255,255,0.5)");
+        label(x3z, `row ${L}`, W - 6, y + rowH / 2, "rgba(255,255,255,0.7)", "right");
+        if (n <= 4) label(x3z, `${n} cell${n > 1 ? "s" : ""}`, 6, y + rowH / 2, "rgba(255,255,255,0.5)");
       }
-      const ty = top + LEVELS * (rowH + gap) + 10;
+      let test = "hover a house or tree inside the wedge to see its test";
       if (st.sel >= 0 && spans[st.sel]) {
         const k = st.sel, sp = spans[k], t = tested[k], o = objs[k];
         const col = drawn[k] ? (trueVis[k] ? AMBER : BLUE) : (trueVis[k] ? RED : WHITE);
@@ -1272,35 +1309,42 @@ function kitInset(ctx, x, y, w, h, title) {
           const cw = W / hz[t.L].length, y = top + t.L * (rowH + gap);
           x3z.strokeRect(t.a * cw, y - 2, (t.b - t.a + 1) * cw, rowH + 4);
         }
-        const lines = [];
-        lines.push(`${k < NW ? "stone wall " + k : kindName(o.kind) + " #" + (k - NW)}  · ${(2 * o.hx).toFixed(1)} × ${(2 * o.hy).toFixed(1)} m · nearest z ${sp.zmin.toFixed(1)} m`);
+        const name = k < NW ? "stone wall " + (k + 1) : kindName(o.kind) + " " + (k - NW), near = sp.zmin.toFixed(1);
+        const lines = [`<strong>${name}</strong>: ${(2 * o.hx).toFixed(1)} × ${(2 * o.hy).toFixed(1)} m, nearest point ${near} m away`];
         if (t) {
-          lines.push(`span texels ${sp.t0}–${sp.t1}  (${t.w} wide) → level ${t.L} = ceil(log2(${t.w}))`);
-          lines.push(`Hi-Z[${t.L}][${t.a}${t.b !== t.a ? ".." + t.b : ""}] max = ${t.m >= cam.far ? "far (empty)" : t.m.toFixed(1) + " m"}`);
-          lines.push(`${sp.zmin.toFixed(1)} ${t.occluded ? ">" : "≤"} ${t.m >= cam.far ? cam.far.toFixed(0) : t.m.toFixed(1)}  →  ${t.occluded ? "OCCLUDED, not drawn" : "may be visible, drawn"}`);
-          if (t.occluded && trueVis[k]) lines.push("but the reference says visible: a stale-depth error");
-          if (!t.occluded && !trueVis[k]) lines.push("reference says hidden: a conservative false positive");
-        } else if (pass1[k]) lines.push("drawn in pass 1 (visible last frame), not tested");
-        else if (k < NW) lines.push("occluder, rasterized into the depth buffer");
-        lines.forEach((s, i) => label(x3z, s, 8, ty + i * 17, i === 3 ? col : "rgba(255,255,255,0.8)"));
-      } else label(x3z, "hover a house or tree in the wedge to see its test", 8, ty, "rgba(255,255,255,0.6)");
+          const far = t.m >= cam.far ? null : t.m.toFixed(1);
+          lines.push(`covers cells ${sp.t0} to ${sp.t1} (${t.w} wide), so it reads row ${t.L}, where that is ${t.a === t.b ? "one cell" : "two cells"}`);
+          lines.push(far === null ? "nothing has been drawn in those cells yet" : `nearest drawn thing across those cells: ${far} m away`);
+          if (t.occluded) lines.push(`<span class="${trueVis[k] ? "bad" : "ok"}">${near} m is farther than ${far} m: hidden, skipped</span>`);
+          else lines.push(`${near} m is not farther than ${far === null ? cam.far.toFixed(0) : far} m: may show, drawn`);
+          if (t.occluded && trueVis[k]) lines.push('<span class="bad">but it really is visible: the distances were stale</span>');
+          if (!t.occluded && !trueVis[k]) lines.push("it is really hidden, but keeping it is the safe mistake");
+        } else if (pass1[k]) lines.push("drawn in pass 1 because it was visible last frame, not tested");
+        else if (k < NW) lines.push("a wall: drawn first, and its distances go into the strip");
+        test = lines.join("<br>");
+      }
+      document.getElementById("c3z-test").innerHTML = test;
       document.getElementById("c3z-read").innerHTML = hzLabel;
-      document.getElementById("c3z-frame").innerHTML = `<strong>${LEVELS} levels</strong> · ${NZ * 4} B level 0`;
+      document.getElementById("c3z-frame").innerHTML = `<strong>${LEVELS} rows</strong> · ${NZ} cells in row 0`;
+      st.stats = { drawn: nDrawn, culled: nCulled, wrong: nWrong, hidden: nHidden, inWedge: inF.length };
+      L3 && L3.check();
     }
     function hover(x, y) {
       if (x < 0) { st.hover = -1; return; }
       let best = -1, bd = 7;
       for (const k of last.inF) { const o = objs[k]; const d = Math.hypot(o.x - x, o.y - y) - Math.min(o.r, 4); if (d < bd) { bd = d; best = k; } }
-      if (best >= 0 && best !== st.sel) { st.hover = best; st.sel = best; render(); }
+      if (best >= 0) { st.hover = best; if (best !== st.sel) { st.sel = best; render(); } else L3 && L3.check(); }
     }
+    function moveWall(i, x, y) { const w = walls[i], n = makeObj(x, y, w.hx, w.hy, w.rot, "wall"); n.h = w.h; Object.assign(w, n); }
     drag(c3, () => camHandles(cam).concat(walls.map(w => [w.x, w.y])), (i, x, y) => {
       if (i < 2) camMove(cam, i, x, y);
-      else { const w = walls[i - 2], n = makeObj(x, y, w.hx, w.hy, w.rot, "wall"); n.h = w.h; Object.assign(w, n); }
+      else moveWall(i - 2, x, y);
       frame();
     }, hover);
     onSeg("segHz", v => { st.mode = v; st.hover = -1; frame(); });
     document.getElementById("hz-step").addEventListener("click", () => frame());
     frame();
+    D3 = { cam, st, walls, NW, w0: walls.map(w => [w.x, w.y]), moveWall, frame, render, get last() { return last; } };
   }
 
   // ============ 4. portals and PVS ============
@@ -1389,7 +1433,7 @@ function kitInset(ctx, x, y, w, h, title) {
         }
       });
       st.pvs = pvs;
-      document.getElementById("pvs-bits").textContent = "PVS matrix, one row per room (built from " + samples + " sample points)\n" +
+      document.getElementById("pvs-bits").textContent = "the lookup table (PVS), one row per room, a 1 for each room that might be seen from it (built from " + samples + " sample points)\n" +
         pvs.map((s, i) => `R${i}: ` + rooms.map((_, j) => s.has(j) ? "1" : "0").join(" ") + `   ${s.size} rooms`).join("\n");
     }
     function fan(ctx, ex, ey, lo, hi, R) {
@@ -1442,8 +1486,10 @@ function kitInset(ctx, x, y, w, h, title) {
       handle(x4, ax, ay, 5); drawPlayer(x4, cam);
       callout(x4, "player", cam.x * S, cam.y * S, 10, WHITE, "sw");
       label(x4, `${doors.length - closed.length} doors open · click a doorway to bar it`, 8, W - 12, "rgba(255,255,255,0.6)");
-      document.getElementById("c4-read").innerHTML = room >= 0 ? `player in R${room} ${NAMES[room]} · <strong>${out.rooms.size} of 9 rooms</strong> via portals · ${out.tests} door tests` : "player outside";
-      document.getElementById("c4-pvs").innerHTML = room >= 0 ? `PVS[R${room}]: <strong>${st.pvs[room].size} rooms</strong>` : "";
+      document.getElementById("c4-read").innerHTML = room >= 0 ? `player in the ${NAMES[room]} · <strong>${out.rooms.size} of 9 rooms</strong> reached through doorways · ${out.tests} doorway checks` : "player outside";
+      document.getElementById("c4-pvs").innerHTML = room >= 0 ? `lookup table for this room: <strong>${st.pvs[room].size} rooms</strong>` : "";
+      st.stats = { room, seen: out.rooms.size, tests: out.tests, pvs: room >= 0 ? st.pvs[room].size : 0 };
+      L4 && L4.check();
     }
     drag(c4, () => [[cam.x, cam.y], [cam.x + Math.cos(cam.ang) * 18, cam.y + Math.sin(cam.ang) * 18]], (i, x, y) => {
       if (i === 0) { if (roomOf(x, y) >= 0) { cam.x = x; cam.y = y; } } else { const dx = x - cam.x, dy = y - cam.y; if (Math.hypot(dx, dy) > 0.5) cam.ang = Math.atan2(dy, dx); }
@@ -1456,6 +1502,7 @@ function kitInset(ctx, x, y, w, h, title) {
     onRange("fov4", v => v + "°", v => { cam.fov = v; draw(); });
     document.getElementById("showpvs").addEventListener("change", ev => { st.showPvs = ev.target.checked; draw(); });
     buildPVS(); draw();
+    D4 = { cam, doors, st, buildPVS, draw, roomOf };
   }
 
   // ============ 5. small objects and GPU-driven ============
@@ -1495,8 +1542,8 @@ function kitInset(ctx, x, y, w, h, title) {
         x5.beginPath(); x5.moveTo(cam.x * S, cam.y * S); x5.lineTo(o.x * S, o.y * S); x5.stroke(); x5.setLineDash([]);
         const col = state[pick] === 2 ? AMBER : RED;
         const rightSide = o.x * S > W - 150;
-        label(x5, `${kindName(o.kind)} · r ${o.r.toFixed(1)} m · z ${z.toFixed(0)} m → ${(2 * rpx[pick]).toFixed(1)} px`, o.x * S + (rightSide ? -8 : 8), o.y * S - 10, col, rightSide ? "right" : "left");
-        document.getElementById("c5-pick").innerHTML = `picked ${kindName(o.kind)}: 2 · ${o.r.toFixed(2)} · 540 / (${z.toFixed(1)} · ${th.toFixed(3)}) = <strong>${(2 * rpx[pick]).toFixed(2)} px</strong> ${state[pick] === 2 ? "≥" : "<"} ${st.px.toFixed(1)}`;
+        label(x5, `${kindName(o.kind)} · ${(2 * o.r).toFixed(1)} m across · ${z.toFixed(0)} m away → ${(2 * rpx[pick]).toFixed(1)} px`, o.x * S + (rightSide ? -8 : 8), o.y * S - 10, col, rightSide ? "right" : "left");
+        document.getElementById("c5-pick").innerHTML = `picked ${kindName(o.kind)}: ${(2 * o.r).toFixed(1)} m across, ${z.toFixed(0)} m away → <strong>${(2 * rpx[pick]).toFixed(1)} px</strong> across on a 1080p screen, ${state[pick] === 2 ? "at least" : "under"} the ${st.px} px minimum`;
         // inset: that object at its real size in 1080p pixels, against the threshold
         const cell = 3, cells = 40, ix = 8, iy = 8, iw = cells * cell + 2, ih = cells * cell + 22;
         kitInset(x5, ix, iy, iw, ih, "on screen, 1080p pixels");
@@ -1508,9 +1555,9 @@ function kitInset(ctx, x, y, w, h, title) {
         x5.fillStyle = kindCol(o.kind); x5.fillRect(cx - side / 2, cy - side / 2, side, side);
         x5.strokeStyle = col; x5.lineWidth = 1.5; x5.strokeRect(cx - side / 2, cy - side / 2, side, side);
         x5.strokeStyle = WHITE; x5.setLineDash([3, 3]); x5.lineWidth = 1; x5.strokeRect(cx - thr / 2 + 0.5, cy - thr / 2 + 0.5, thr, thr); x5.setLineDash([]);
-        kitLabel(x5, `${(2 * rpx[pick]).toFixed(1)} px ${state[pick] === 2 ? "≥" : "<"} min ${st.px} px`, ix + iw / 2, iy + ih - 9, "center", col);
+        kitLabel(x5, `${(2 * rpx[pick]).toFixed(1)} px across · minimum ${st.px} px`, ix + iw / 2, iy + ih - 9, "center", col);
       }
-      label(x5, `1080p · fov ${cam.fov}° · min ${st.px.toFixed(1)} px`, 8, W - 12, "rgba(255,255,255,0.6)");
+      label(x5, `1080p screen · view ${cam.fov}° wide · minimum ${st.px} px`, 8, W - 12, "rgba(255,255,255,0.6)");
       document.getElementById("c5-read").innerHTML = `<strong>${fmtN(nV)} drawn</strong> of ${fmtN(objs.length)} · ${fmtN(nF)} outside the wedge · ${fmtN(nS)} too small`;
 
       // ---- buffers ----
@@ -1521,35 +1568,37 @@ function kitInset(ctx, x, y, w, h, title) {
         for (let i = 0; i < count; i++) { const cx = 8 + (i % cols) * cs, cy = y0 + Math.floor(i / cols) * cs; x5b.fillStyle = colorOf(i); x5b.fillRect(cx, cy, Math.max(1, cs - 1), Math.max(1, cs - 1)); }
         return y0 + Math.ceil(count / cols) * cs;
       }
-      label(x5b, `instances[] · ${fmtN(N)} trees, crates and houses × 64 B = ${fmtN(N * 64 / 1024 | 0)} KB · one thread each`, 8, 14, "rgba(255,255,255,0.7)");
+      label(x5b, `every object in the world: ${fmtN(N)} × 64 bytes = ${fmtN(N * 64 / 1024 | 0)} KB · one GPU thread each`, 8, 14, "rgba(255,255,255,0.7)");
       let y = grid(26, 170, N, i => state[i] === 2 ? AMBER : state[i] === 1 ? "rgba(239,93,93,0.6)" : "rgba(255,255,255,0.14)");
       y += 22;
-      label(x5b, `visibleInstances[] · append buffer · ${fmtN(nV)} × 4 B written`, 8, y, "rgba(255,255,255,0.7)");
+      label(x5b, `the survivors: ${fmtN(nV)} written, one slot per passing thread`, 8, y, "rgba(255,255,255,0.7)");
       y = grid(y + 12, 70, N, i => i < nV ? AMBER : "rgba(255,255,255,0.06)");
       y += 22;
       const groups = Math.ceil(N / 64), gpuUs = N / 2000 + 20, cpuUs = N;
       const lines = [
-        `DrawIndexedIndirectArgs {`,
+        `the draw order the GPU reads (DrawIndexedIndirectArgs) {`,
         `  indexCount    = 36        // one mesh, a crate`,
-        `  instanceCount = ${String(nV).padEnd(8)}  // written by InterlockedAdd`,
+        `  instanceCount = ${String(nV).padEnd(8)}  // each passing thread added 1`,
         `  firstIndex    = 0`,
         `  baseVertex    = 0`,
         `  firstInstance = 0`,
-        `}   dispatch ${groups} group${groups > 1 ? "s" : ""} × 64 threads`,
+        `}   ${groups} group${groups > 1 ? "s" : ""} of 64 threads`,
       ];
       lines.forEach((s, i) => label(x5b, s, 8, y + i * 16, i === 2 ? AMBER : "rgba(255,255,255,0.8)"));
       y += lines.length * 16 + 12;
       // budget bar
       const budget = 16700, bw = W - 16;
-      label(x5b, `60 Hz frame budget 16.7 ms · cull cost, estimates`, 8, y, "rgba(255,255,255,0.7)"); y += 12;
+      label(x5b, `one frame at 60 Hz is 16.7 ms · time spent on the tests, estimates`, 8, y, "rgba(255,255,255,0.7)"); y += 12;
       x5b.fillStyle = "rgba(255,255,255,0.08)"; x5b.fillRect(8, y, bw, 12);
       x5b.fillStyle = BLUE; x5b.fillRect(8, y, Math.max(2, bw * cpuUs / budget), 12);
-      label(x5b, `CPU  ${fmtMs(cpuUs)} at 1 µs per test`, 8 + Math.max(2, bw * cpuUs / budget) + 8, y + 6, "rgba(255,255,255,0.8)"); y += 18;
+      label(x5b, `CPU  ${fmtMs(cpuUs)}, one test at a time`, 8 + Math.max(2, bw * cpuUs / budget) + 8, y + 6, "rgba(255,255,255,0.8)"); y += 18;
       x5b.fillStyle = "rgba(255,255,255,0.08)"; x5b.fillRect(8, y, bw, 12);
       x5b.fillStyle = AMBER; x5b.fillRect(8, y, Math.max(2, bw * gpuUs / budget), 12);
-      label(x5b, `GPU  ${fmtMs(gpuUs)} compute cull, estimate`, 8 + Math.max(2, bw * gpuUs / budget) + 8, y + 6, "rgba(255,255,255,0.8)");
-      document.getElementById("c5b-read").innerHTML = `<strong>${fmtN(nV)}</strong> instanceCount · ${fmtN(N - nV)} threads returned early`;
-      document.getElementById("c5b-cost").innerHTML = `CPU ${fmtMs(cpuUs)} vs GPU ~${fmtMs(gpuUs)} (estimates)`;
+      label(x5b, `GPU  ${fmtMs(gpuUs)}, thousands of tests at once (estimate)`, 8 + Math.max(2, bw * gpuUs / budget) + 8, y + 6, "rgba(255,255,255,0.8)");
+      document.getElementById("c5b-read").innerHTML = `<strong>${fmtN(nV)}</strong> to draw, counted by the GPU itself · ${fmtN(N - nV)} threads stopped early`;
+      document.getElementById("c5b-cost").innerHTML = `on the CPU ${fmtMs(cpuUs)}, on the GPU about ${fmtMs(gpuUs)} (estimates)`;
+      st.stats = { nV, nF, nS, N };
+      L5 && L5.check(); L6 && L6.check();
     }
     drag(c5, () => camHandles(cam), (i, x, y) => { camMove(cam, i, x, y); draw(); }, (x, y) => {
       if (x < 0) { st.hover = -1; return; }
@@ -1561,6 +1610,108 @@ function kitInset(ctx, x, y, w, h, title) {
     onRange("n5", v => fmtN(v), v => { st.n = v; st.hover = -1; draw(); });
     onRange("fov5", v => v + "°", v => { cam.fov = v; draw(); });
     draw();
+    D5 = { cam, st, draw };
   }
+
+  // ---------- guided steps ----------
+  const $ = id => document.getElementById(id);
+  const CAM1 = { x: 100, y: 180, ang: -1.45, fov: 60, far: 120 };
+  const set1 = (c, mode) => { Object.assign(D1.cam, c); D1.st.mode = mode; segOn($("segBounds"), mode); $("fov1").value = D1.cam.fov; $("fov1v").textContent = D1.cam.fov + "°"; $("far1").value = D1.cam.far; $("far1v").textContent = D1.cam.far + " m"; D1.draw(); };
+  const turned1 = () => { const d = D1.cam.ang - CAM1.ang; return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) > 0.7; };
+  L1 = lesson("frustum", { next: { id: "hierarchy", title: "Throw out a neighbourhood at once" }, steps: [
+    { say: "The village from above. The figure at the bottom is the <b>player</b>, and the white wedge in front of them is everything they can see. Houses, trees and crates inside the wedge are outlined amber: they get drawn. Everything outside is darkened: skipped, and the GPU, the chip that draws, never hears about them. The inset in the corner is what the player sees.", enter: () => set1({ ...CAM1 }, "aabb") },
+    { say: "<b>Drag the white dot</b> at the end of the dashed line to turn the player toward the left side of the village.", todo: "drag the white dot to turn the player", goal: turned1, try: () => { D1.cam.ang = -2.4; D1.draw(); },
+      done: "The wedge turned with them and a different set of houses lit up. Every object gets the same quick question each frame: inside the wedge, or not. A skipped object costs nothing beyond that question." },
+    { say: "Some objects are <b>blue</b>: they passed the test, but no part of them is inside the wedge.", quiz: { q: "Why were they drawn?", options: [
+        { t: "The test is broken", why: "It did what it was built to do. It never looks at an object's real shape." },
+        { t: "The test checks a simple box wrapped round each object, and the box pokes into the wedge", ok: true, why: "Testing a real shape is slow, so the test checks a box or a ball wrapped round it. A loose wrap pokes into the wedge when the object does not, and the object is drawn for nothing. That is wasted work, but it is safe." },
+        { t: "They are behind the player", why: "Behind the player is outside the wedge, and those are darkened, not blue." } ] } },
+    { say: "<b>Switch the wrap shape to a ball.</b>", todo: "switch the wrap shape below", goal: () => D1.st.mode === "sphere", try: () => $("segBounds").querySelector('[data-v="sphere"]').click(), enter: () => { if (D1.st.mode === "sphere") set1({}, "aabb"); },
+      done: "More blue. A ball round a long garden wall is as wide as the wall is long, so it reaches into the wedge from far away. The tiles count the wasted draws for each wrap shape; the box that turns with the object hugs it tightest." },
+    { say: "<b>Push the field of view up to 120°</b>, so the wedge opens wide.", todo: "drag the field of view to 120°", goal: () => D1.cam.fov >= 110, try: () => { $("fov1").value = 120; $("fov1").dispatchEvent(new Event("input")); },
+      done: "More of the village turns amber, and the test count under the picture does not move: all 150 objects are tested every frame, whichever way the player looks. The next stage fixes that." },
+    { say: "One cheap question per object, whether its wrap shape is fully outside any edge of the wedge. If so, skip it. Keeping an extra one is fine; dropping something visible is the one mistake nothing later can fix. The edge test and the three wrap shapes are under the hood." } ] });
+
+  const CAM2 = { x: 46, y: 150, ang: -0.62, fov: 60, far: 120 };
+  const set2 = (c, n) => { Object.assign(D2.cam, c); D2.st.n = n; $("n2").value = n; $("n2v").textContent = fmtN(n); if (!D2.st.nodes) { D2.st.nodes = true; $("nodes2").checked = true; } D2.draw(); };
+  L2 = lesson("hierarchy", { next: { id: "hiz", title: "Skip what's hidden behind a wall" }, steps: [
+    { say: "Now a thousand trees, crates and houses. Each test is quick, but a thousand of them add up, and the count is the same whether the player looks across the whole valley or into an empty corner. So the valley is cut into <b>groups</b>: one big box split into four, each quarter split again where there are enough objects. A <b>red</b> box was thrown out whole with a single test. A <b>green</b> box was kept whole. A faint white box has the wedge's edge cutting through it, so it was opened and its objects tested one by one.", enter: () => set2({ ...CAM2 }, 1000) },
+    { say: "Pick a red box with a couple of hundred trees in it.", quiz: { q: "How many tests did it take to skip all of them?", options: [
+        { t: "One for each tree", why: "That is exactly the work the groups are there to avoid. The box was tested, not the trees." },
+        { t: "One, for the box", ok: true, why: "If the whole box is outside the wedge, everything inside it is too. One test replaced two hundred." },
+        { t: "None, red boxes are ignored", why: "It still took one test to find out the box was outside." } ] } },
+    { say: "<b>Push the object count to 5,000.</b>", todo: "drag the slider to 5,000", goal: () => D2.st.n >= 4500, try: () => { $("n2").value = 5000; $("n2").dispatchEvent(new Event("input")); },
+      done: "The no-groups tile climbs to 5,000. The two group tiles barely move: the work depends on how much the wedge's edge touches, not on how big the world is." },
+    { say: "<b>Turn the player</b> so the wedge points off the edge of the valley and touches almost nothing.", todo: "drag the white dot to aim off the edge of the valley", goal: () => !!D2.st.stats && D2.st.stats.total < Math.max(D2.st.stats.n * 0.06, 80), try: () => { D2.cam.ang = 2.6; D2.draw(); }, enter: () => { if (D2.st.n < 4500) set2({}, 5000); },
+      done: "Nearly every box goes red and the test count collapses. Looking at nothing costs nearly nothing." },
+    { say: "", quiz: { q: "Where does the grouped version still spend its tests?", options: [
+        { t: "On every object inside a green box", why: "A green box is kept whole. Nothing inside it is tested again." },
+        { t: "On the objects in the white boxes, where the wedge's edge runs through", ok: true, why: "Only a box the edge cuts gets opened, and only its objects get tested one by one. The cost follows the edge of the wedge." },
+        { t: "On the objects inside the red boxes", why: "A red box is thrown out whole. Nothing inside it is looked at." } ] } },
+    { say: "Boxes inside boxes: one test throws out or keeps a whole neighbourhood, and only the boxes on the wedge's edge get opened. The three-way box test and the walk through the tree are under the hood." } ] });
+
+  const CAM3 = { x: 44, y: 172, ang: -0.78, fov: 60, far: 150 };
+  const set3 = mode => { Object.assign(D3.cam, CAM3); D3.w0.forEach((p, i) => D3.moveWall(i, p[0], p[1])); D3.st.mode = mode; segOn($("segHz"), mode); D3.st.hover = -1; D3.frame(); };
+  const wallMoved = () => D3.walls.some((w, i) => Math.hypot(w.x - D3.w0[i][0], w.y - D3.w0[i][1]) > 8);
+  const hoveredHidden = () => { const l = D3.last, k = D3.st.hover; return !!(l && k >= D3.NW && l.tested[k] && l.tested[k].occluded); };
+  L3 = lesson("hiz", { next: { id: "portals", title: "Rooms, doorways and a lookup table" }, steps: [
+    { say: "Being inside the wedge is not enough. Three <b>stone walls</b> stand between the player and the village, and whatever is behind a wall is hidden. Left: amber objects are drawn and visible, darkened ones are hidden and skipped, and blue ones are drawn but hidden, which is wasted but safe. Middle: what the player sees, and under it a strip of 256 cells across the view, one per direction, each holding how far it is to the nearest wall. Brighter is nearer.", enter: () => set3("occ") },
+    { say: "<b>Drag a wall</b> by its white handle up toward the village, and watch what is behind it go dark.", todo: "drag a wall somewhere new", goal: wallMoved, try: () => { D3.moveWall(0, 80, 128); D3.frame(); },
+      done: "Everything behind the wall was skipped without being drawn. This test needs something the wedge test did not: the distances in the strip. They only exist once the walls have been drawn, which is why the hidden-object test runs later in the frame." },
+    { say: "<b>Hover a darkened house</b> inside the wedge to see its test in the middle panel.", todo: "hover a darkened house or tree", goal: hoveredHidden, try: () => { const l = D3.last, k = l.inF.find(k => k >= D3.NW && l.tested[k] && l.tested[k].occluded); if (k !== undefined) { D3.st.hover = k; D3.st.sel = k; D3.render(); } },
+      done: "The panel outlines the cells the house covers, then the row of the pyramid where those cells shrink to one or two. Each row keeps the farther of every pair from the row above, so reading two cells gives the farthest wall across the whole house. If the house's nearest point is farther than that, nothing of it can show. The small number by each object on the left is the row its own test read." },
+    { say: "So far only the three walls hide anything; a crate behind a house is still drawn. Games use <b>everything drawn last frame</b> as the hiders instead, because last frame's distances are already there.", quiz: { q: "What can go wrong with last frame's distances?", options: [
+        { t: "Nothing, the picture barely changes between frames", why: "Usually true. When the player moves fast it is not, and that is when it bites." },
+        { t: "Something hidden last frame but visible now gets skipped, and pops in a frame late", ok: true, why: "The distances were measured from where the player was looking a frame ago. Move fast and the strip is wrong for some directions, and a visible house is dropped." },
+        { t: "Everything is drawn twice", why: "Nothing is drawn twice. The risk is drawing too little." } ] },
+      todo: "switch to everything drawn last frame, then drag the player slowly to the right", goal: () => D3.st.mode === "last" && !!D3.st.stats && D3.st.stats.wrong > 0, try: () => { $("segHz").querySelector('[data-v="last"]').click(); for (let k = 0; k < 40 && !(D3.st.stats.wrong > 0); k++) { D3.cam.x = Math.min(WORLD, D3.cam.x + 2); D3.frame(); } }, enter: () => { if (D3.st.mode !== "occ") { D3.st.mode = "occ"; segOn($("segHz"), "occ"); D3.st.hover = -1; D3.frame(); } },
+      done: "Somewhere along the drag a red object flashed: hidden behind a tree last frame, visible now, skipped anyway, and missing from the player's view. Every frame the player moves, the strip is a frame behind. Press render next frame and a red object comes back, one frame late. That pop is the price of stale distances." },
+    { say: "<b>Switch to two passes.</b>", todo: "switch the source below", goal: () => D3.st.mode === "two", try: () => $("segHz").querySelector('[data-v="two"]').click(),
+      done: "Red never appears now, however you move. Pass one draws what was visible last frame and builds the strip from that with this frame's camera; pass two tests only the rest. The blue objects are the cost: drawn because they were visible before, hidden now." },
+    { say: "A hidden-object test needs distances from things already drawn, so it runs later than the wedge test, and those distances must come from this frame's camera or it drops visible things. Two reads of the pyramid answer the question for an object of any size. How the pyramid is built and read is under the hood." } ] });
+
+  const CAM4 = { x: 98, y: 106, ang: -0.55, fov: 70 };
+  const set4 = () => { Object.assign(D4.cam, CAM4); $("fov4").value = 70; $("fov4v").textContent = "70°"; let rebuilt = false; D4.doors.forEach(d => { if (!d.open) { d.open = true; rebuilt = true; } }); if (rebuilt) D4.buildPVS(); if (!D4.st.showPvs) { D4.st.showPvs = true; $("showpvs").checked = true; } D4.draw(); };
+  L4 = lesson("portals", { next: { id: "gpu", title: "Skip what would be a speck" }, steps: [
+    { say: "A castle with nine rooms. The walls hide almost everything, and the <b>doorways</b> are the only openings. The player stands in the great hall. The amber fan is what they can see, and it gets narrower each time it passes through a doorway into the next room. A room the fan never reaches goes dark and is never drawn.", enter: set4 },
+    { say: "<b>Drag the player into the cellar</b>, the room at the bottom in the middle.", todo: "drag the player into the cellar", goal: () => D4.roomOf(D4.cam.x, D4.cam.y) === 7, try: () => { D4.cam.x = 100; D4.cam.y = 165; D4.draw(); },
+      done: "Only two doorways lead out of the cellar, and most of the castle goes dark. The caption counts the rooms reached and the doorway checks it took: a handful, instead of a test per object." },
+    { say: "<b>Click a doorway</b> to bar it.", todo: "click any doorway", goal: () => D4.doors.some(d => !d.open), try: () => { D4.doors[8].open = false; D4.buildPVS(); D4.draw(); },
+      done: "The fan stops at the bar. As far as this test is concerned, a barred door is a wall, and the rooms behind it go dark." },
+    { say: "Some rooms are shaded <b>blue</b> and marked <i>in the lookup table</i>. The fan does not reach them from this exact spot, yet they are still drawn.", quiz: { q: "What is the lookup table?", options: [
+        { t: "The rooms the player has visited so far", why: "Where the player has been says nothing about what they can see now." },
+        { t: "For each room, every room that could be seen from anywhere inside it, worked out ahead of time", ok: true, why: "Built before the game runs, by walking the doorways from a grid of spots in every room. At play time it is one yes-or-no bit per room, which is why it is so cheap." },
+        { t: "The rooms nearest to the player", why: "Distance is not the point. A far room seen through two doorways is in; a near room round a corner is out." } ] } },
+    { say: "<b>Push the field of view up to 150°.</b>", todo: "drag the field of view to 150°", goal: () => D4.cam.fov >= 140, try: () => { $("fov4").value = 150; $("fov4").dispatchEvent(new Event("input")); },
+      done: "The fan reaches more rooms, and the lookup table's count in the caption never drops below the fan's count. The table holds every room that could ever be seen from this one, so it is always the bigger set: no work at play time, a few extra rooms drawn." },
+    { say: "Squeezing the view through each doorway at play time is exact for this spot and copes with doors that open and close. The lookup table trades that for one bit per room, and has to be rebuilt when a door is barred. The angle ranges, the walk and the table's bits are under the hood." } ] });
+
+  const CAM5 = { x: 30, y: 170, ang: -0.72, fov: 60, far: 200 };
+  const set5 = (px, fov) => { Object.assign(D5.cam, CAM5); D5.cam.fov = fov; D5.st.px = px; D5.st.hover = -1; $("px5").value = px; $("px5v").textContent = px + " px"; $("fov5").value = fov; $("fov5v").textContent = fov + "°"; D5.draw(); };
+  L5 = lesson("gpu", { next: { id: "gpudriven", title: "Let the GPU write its own list" }, steps: [
+    { say: "A forest running away from the player. Amber is drawn, darkened is outside the wedge, and the <b>red-outlined</b> objects are inside the wedge but would be smaller on screen than the minimum size, so they are skipped too. One object is picked out with a dashed circle, and the inset shows it at its real size on a 1080p screen, with the minimum as a dashed square. Hover another to pick it.", enter: () => set5(12, 60) },
+    { say: "<b>Slide the smallest size worth drawing up to 40 px</b>, that is 40 pixels.", todo: "drag the size slider to 40 px", goal: () => D5.st.px >= 36, try: () => { $("px5").value = 40; $("px5").dispatchEvent(new Event("input")); },
+      done: "The far half of the wedge turns red: those trees would be specks. Real games set this to a pixel or two; the slider goes far higher so the effect shows in a village this small." },
+    { say: "Look at the picked object's size in the caption.", quiz: { q: "Which change makes it smaller on screen?", options: [
+        { t: "Moving the player closer to it", why: "Closer things look bigger. That is the wrong direction." },
+        { t: "Widening the field of view", ok: true, why: "A wider view squeezes more of the world onto the same screen, so everything on it gets smaller and more objects fall under the minimum." },
+        { t: "Lowering the smallest size worth drawing", why: "That changes which sizes get skipped, not how big anything looks." } ] },
+      todo: "now push the field of view to 120°", goal: () => D5.cam.fov >= 110, try: () => { $("fov5").value = 120; $("fov5").dispatchEvent(new Event("input")); },
+      done: "More red. Nothing moved, but everything shrank on screen, so more of it fell under the line." },
+    { say: "<b>Drag the player into the middle of the village</b>, near the crossroads.", todo: "drag the player to the crossroads", goal: () => Math.hypot(D5.cam.x - 100, D5.cam.y - 110) < 30, try: () => { D5.cam.x = 95; D5.cam.y = 120; D5.draw(); },
+      done: "Now most of the wedge is close, so almost nothing is too small. The size test is one divide per object, and it runs in the same loop as the wedge test." },
+    { say: "Size on screen is real size, shrunk by distance and by how wide the view is. Anything under the minimum is skipped; the formula is under the hood." } ] });
+
+  L6 = lesson("gpudriven", { steps: [
+    { say: "Every test on this page is cheap, and so far the CPU, the chip that runs the game, has had to run them all and then tell the GPU what to draw. Here the GPU does it itself. The top block is the list of every object in the world, one square each, kept on the GPU. One GPU thread, a tiny worker, runs the tests for each square: <b>amber</b> passed, <b>red</b> was too small, <b>grey</b> was outside the wedge. The middle block is the list of survivors. Below it is the short draw order the GPU reads when it draws.", enter: () => { if (D5.st.n !== 1000) { $("n5").value = 1000; $("n5").dispatchEvent(new Event("input")); } } },
+    { say: "", quiz: { q: "Who fills in how many objects to draw?", options: [
+        { t: "The CPU, after reading the survivors list back", why: "Reading it back means waiting for the GPU to finish. The whole point is not to wait." },
+        { t: "Each surviving thread adds one to the count", ok: true, why: "Thousands of threads each add one to the same number, in a way that never loses an add. The GPU then reads that number itself when it draws, and the CPU never sees it." },
+        { t: "It is fixed when the game is built", why: "It changes every frame as the player moves." } ] } },
+    { say: "<b>Push the object count to 5,000.</b>", todo: "drag the slider to 5,000", goal: () => D5.st.n >= 4500, try: () => { $("n5").value = 5000; $("n5").dispatchEvent(new Event("input")); },
+      done: "The CPU bar climbs to 5 ms, five thousandths of a second and almost a third of the 16.7 ms a frame gets at 60 frames a second, because the CPU works through the list one object at a time. The GPU bar barely grows: it runs thousands of threads at once." },
+    { say: "<b>Pull the count down to 150.</b>", todo: "drag the slider to 150", goal: () => D5.st.n <= 300, try: () => { $("n5").value = 150; $("n5").dispatchEvent(new Event("input")); },
+      done: "The CPU bar shrinks to a sliver. The GPU bar hardly changes: starting a GPU job has a fixed cost of about 20 microseconds that does not shrink. For a handful of objects either way is cheap; the win is in the thousands." },
+    { say: "Keep the whole list on the GPU, run one thread per object, and let the survivors count themselves in. The CPU sends one draw order per kind of object without knowing how many survived, and never waits. The GPU program that does it, called a compute shader, is under the hood." } ] });
 })();
 </script>
