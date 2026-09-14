@@ -192,6 +192,8 @@ section > .tldr { margin-top: 24px; }
 
 /* page-specific */
 .tri { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.tri.two { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.hoodvp { max-width: 420px; margin: 0 0 18px; }
 @media (max-width: 820px) { .tri { grid-template-columns: minmax(0, 1fr); } }
 .vp canvas.r32 { aspect-ratio: 3 / 2; }
 .vp canvas.r169 { aspect-ratio: 16 / 9; }
@@ -213,9 +215,9 @@ section > .tldr { margin-top: 24px; }
 <div class="wrap">
   <a class="back" href="../index.html">← Rendering Library</a>
   <header>
-    <p class="eyebrow">a knight's camp outside a castle · 1920×1080 target · 60° fov · six guided demos</p>
+    <p class="eyebrow">a knight's camp outside a castle · six guided demos · nothing to install</p>
     <h1>Rasterization &amp; Depth</h1>
-    <p class="lead">Rasterization is the step where the GPU turns a triangle into the list of pixels it covers, and the depth buffer is the step that decides which triangle wins when several land on the same pixel. Both are cheap, and this page is about why they are cheap and where they break. <b>The thing people get wrong:</b> the depth buffer does not store distance from the camera. It stores z divided by w, a squashed value that spends most of its precision in the first metre, so depth bugs are almost always a near-plane problem, not a bit-count problem.</p>
+    <p class="lead">A game draws everything out of triangles, and the screen is a grid of tiny squares called pixels. Rasterization is the step that works out which pixels each triangle covers, and the depth buffer is the step that decides which triangle wins when two land on the same pixel. Both are quick, and this page is about why they are quick and where they break. <b>The thing people get wrong:</b> the depth buffer does not store distance in metres. It stores a squashed, rounded version that spends most of its accuracy close to the camera, so most depth bugs are about where the camera's near limit sits, not about how many bits you have.</p>
     <div class="key">
       <span style="--sw:#f2a341">the triangle being drawn: sunshade, shield half A, castle wall</span>
       <span style="--sw:#4aa3ff">the second triangle: shield half B, banner, a tile an edge crosses</span>
@@ -234,20 +236,16 @@ section > .tldr { margin-top: 24px; }
       <dt>early-Z</dt><dd>the depth test run before the pixel shader instead of after, so hidden pixels cost nothing</dd>
     </dl>
   </header>
-  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#pipeline"><span class="n">01</span>From a corner in 3D to a pixel</a></li><li><a href="#coverage"><span class="n">02</span>Which pixels a triangle covers</a></li><li><a href="#persp"><span class="n">03</span>Blending across a triangle</a></li><li><a href="#depth"><span class="n">04</span>The depth buffer and z-fighting</a></li><li><a href="#overdraw"><span class="n">05</span>Early-Z</a></li><li><a href="#hier"><span class="n">06</span>Testing tiles before pixels</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
+  <ul class="toc"><li class="toc-lab">On this page</li><li><a href="#pipeline"><span class="n">01</span>How a triangle gets onto the screen</a></li><li><a href="#coverage"><span class="n">02</span>Which pixels a triangle covers</a></li><li><a href="#persp"><span class="n">03</span>Why the far tiles stretch</a></li><li><a href="#depth"><span class="n">04</span>Who is in front</a></li><li><a href="#overdraw"><span class="n">05</span>Skipping the pixels you cannot see</a></li><li><a href="#hier"><span class="n">06</span>Checking blocks of pixels at once</a></li><li><a href="#tradeoffs" class="dim">Tradeoffs</a></li><li><a href="#uses" class="dim">Where it shows up in shipped games</a></li></ul>
 
     <section id="pipeline">
-    <h2>From a corner in 3D to a pixel</h2>
+    <h2>How a triangle gets onto the screen</h2>
     <p class="sub">A sunshade at the knight's camp: one triangle of cloth strung from a pole down to two pegs. Follow its corners from the world to the player's screen.</p>
     <div class="cols wide">
-      <div class="tri">
+      <div class="tri two">
         <div class="vp">
           <canvas id="c1w" width="512" height="512" class="grab sq" aria-label="Top-down view of the camp: camera at the bottom, its view wedge, trees, a knight, a farmhouse and the draggable sunshade triangle"></canvas>
           <div class="cap"><span id="c1w-cap"></span></div>
-        </div>
-        <div class="vp">
-          <canvas id="c1n" width="512" height="512" class="sq" aria-label="The same camp after the perspective divide, inside the minus one to plus one square the screen maps to"></canvas>
-          <div class="cap"><span id="c1n-cap"></span></div>
         </div>
         <div class="vp">
           <canvas id="c1v" width="512" height="512" class="sq" aria-label="What the player sees: the camp on a 1920 by 1080 screen with the sunshade triangle placed in pixels"></canvas>
@@ -257,6 +255,11 @@ section > .tldr { margin-top: 24px; }
       <div class="lesson" data-lesson="pipeline"></div>
     </div>
     <details class="hood"><summary>Under the hood: the math and the code</summary><div>
+    <p>The GPU has one in-between step this page skipped: after the divide, every corner lands in a square running from −1 to +1 on each axis, called normalized device coordinates. The screen is that square stretched to 1920×1080. Here is the camp in that square, for the corner you last dragged.</p>
+    <div class="hoodvp"><div class="vp">
+          <canvas id="c1n" width="512" height="512" class="sq" aria-label="The same camp after the perspective divide, inside the minus one to plus one square the screen maps to"></canvas>
+          <div class="cap"><span id="c1n-cap"></span></div>
+        </div></div>
         <p>The vertex shader, which is the small program that runs once per corner, multiplies each position by the projection matrix and outputs four numbers: x, y, z and w. For a perspective camera <code>w</code> equals the view-space depth, the distance along the direction the camera is pointing. Nothing is divided yet.</p>
         <p>Clipping, which is cutting off the parts of a triangle the camera cannot see, happens in this space. The near-plane test is a simple comparison here, <code>z ≥ −w</code>, and the divide has not yet blown up points sitting right at the camera.</p>
         <p>After clipping, the hardware divides x, y and z by w. The result is normalized device coordinates, or NDC, a cube running from −1 to +1 on each axis. The viewport transform then maps NDC x and y to pixels.</p>
@@ -280,7 +283,7 @@ float zb = ndc.z * 0.5 + 0.5;                <span class="c">// GL range [-1,1] 
 
         
     </div></details>
-    <p class="tldr">A vertex goes in as three numbers, comes out as four, and one divide by w turns it into a pixel position.</p>
+    <p class="tldr">A corner's place on the screen comes from one thing: where it is compared to the camera, divided by how far away it is.</p>
   </section>
 
     <section id="coverage">
@@ -294,7 +297,7 @@ float zb = ndc.z * 0.5 + 0.5;                <span class="c">// GL range [-1,1] 
       </div>
       <div class="lesson" data-lesson="coverage">
         <div class="controls" data-step-min="4">
-          <div class="ctl"><span class="lab">Shared-edge tie</span><div class="seg" id="segTL" role="group" aria-label="Tie rule on shared edges"><button data-v="tl" aria-pressed="true">top-left rule</button><button data-v="ge">E ≥ 0 both</button></div></div>
+          <div class="ctl"><span class="lab">A centre dot exactly on the seam</span><div class="seg" id="segTL" role="group" aria-label="Tie rule on shared edges"><button data-v="tl" aria-pressed="true">goes to one triangle</button><button data-v="ge">both triangles draw it</button></div></div>
         </div>
       </div>
     </div>
@@ -332,12 +335,12 @@ attr = λ0·a0 + λ1·a1 + λ2·a2</div>
 
         
     </div></details>
-    <p class="tldr">Three signs decide coverage, and the top-left rule makes sure a shared edge is drawn exactly once.</p>
+    <p class="tldr">One dot per pixel, three edge questions per dot, and a tie rule so a shared edge is painted exactly once.</p>
   </section>
 
   <section id="persp">
-    <h2>Blending across a triangle</h2>
-    <p class="sub">A flagstone courtyard made of two triangles. Why the tiles kink at the seam, and the divide that fixes it.</p>
+    <h2>Why the far tiles stretch</h2>
+    <p class="sub">A flagstone courtyard made of two triangles. Why the pattern kinks at the seam, and the divide that fixes it.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c2q" width="512" height="512" class="sq" aria-label="A flagstone courtyard running away from the camera toward a knight, a tree and a farmhouse; the tiles kink at the triangle seam when interpolation is affine"></canvas>
@@ -345,8 +348,8 @@ attr = λ0·a0 + λ1·a1 + λ2·a2</div>
       </div>
       <div class="lesson" data-lesson="persp">
         <div class="controls" data-step-min="3">
-          <div class="ctl"><span class="lab">Interpolation</span><div class="seg" id="segPC" role="group" aria-label="Interpolation mode"><button data-v="affine" aria-pressed="true">affine</button><button data-v="persp">perspective-correct</button><button data-v="split">split</button></div></div>
-          <div class="ctl"><label for="qdepth">Quad depth <span class="val" id="qdepthv">8 m</span></label><input type="range" id="qdepth" min="1" max="30" step="0.5" value="8"></div>
+          <div class="ctl"><span class="lab">How the pattern is mixed</span><div class="seg" id="segPC" role="group" aria-label="Interpolation mode"><button data-v="affine" aria-pressed="true">evenly across the screen</button><button data-v="persp">with distance in mind</button><button data-v="split">both, side by side</button></div></div>
+          <div class="ctl"><label for="qdepth">Courtyard depth <span class="val" id="qdepthv">8 m</span></label><input type="range" id="qdepth" min="1" max="30" step="0.5" value="8"></div>
         </div>
       </div>
     </div>
@@ -360,11 +363,11 @@ u_correct = (λ0·u0/w0 + λ1·u1/w1 + λ2·u2/w2) / (λ0/w0 + λ1/w1 + λ2/w2)<
 
         
     </div></details>
-    <p class="tldr">Anything you blend across a triangle in 3D gets divided by w first and multiplied back afterwards.</p>
+    <p class="tldr">Anything mixed across a triangle in 3D is divided by its distance first and put back afterwards, or the far end comes out stretched.</p>
   </section>
 
     <section id="depth">
-    <h2>The depth buffer and z-fighting</h2>
+    <h2>Who is in front: the depth buffer</h2>
     <p class="sub">A banner hangs 5 mm in front of a castle wall 30 m away. Whether the wall or the banner wins each pixel depends on three settings.</p>
     <div class="cols">
       <div class="vp">
@@ -375,16 +378,16 @@ u_correct = (λ0·u0/w0 + λ1·u1/w1 + λ2·u2/w2) / (λ0/w0 + λ1/w1 + λ2/w2)<
       <div class="lesson" data-lesson="depth">
         <div class="controls" data-step-min="3">
           <div class="ctl"><label for="dA">Wall distance <span class="val" id="dAv">30 m</span></label><input type="range" id="dA" min="1" max="120" step="0.5" value="30"></div>
-          <div class="ctl"><label for="dB">Banner offset <span class="val" id="dBv">−5 mm</span></label><input type="range" id="dB" min="-150" max="150" step="0.5" value="-5"></div>
-          <div class="ctl"><label for="dNear">Near plane <span class="val" id="dNearv">0.10 m</span></label><input type="range" id="dNear" min="0.01" max="2" step="0.01" value="0.1"></div>
-          <div class="ctl"><span class="lab">Format</span><div class="seg" id="segBits" role="group" aria-label="Depth buffer format"><button data-v="16" aria-pressed="true">D16</button><button data-v="24">D24</button><button data-v="32">D32F</button><button data-v="32r">D32F reversed</button></div></div>
-          <div class="ctl"><span class="lab">Test</span><div class="seg" id="segTest" role="group" aria-label="Depth test function"><button data-v="less" aria-pressed="true">LESS</button><button data-v="greater">GREATER</button></div></div>
+          <div class="ctl"><label for="dB">Banner sits <span class="val" id="dBv">5 mm in front</span></label><input type="range" id="dB" min="-150" max="150" step="0.5" value="-5"></div>
+          <div class="ctl"><label for="dNear">Near plane, the closest distance drawn <span class="val" id="dNearv">0.10 m</span></label><input type="range" id="dNear" min="0.01" max="2" step="0.01" value="0.1"></div>
+          <div class="ctl"><span class="lab">How each distance is stored</span><div class="seg" id="segBits" role="group" aria-label="Depth buffer format"><button data-v="16" aria-pressed="true">16-bit</button><button data-v="24">24-bit</button><button data-v="32">32-bit float</button><button data-v="32r">32-bit float, reversed</button></div></div>
+          <div class="ctl"><span class="lab">Which one wins</span><div class="seg" id="segTest" role="group" aria-label="Depth test function"><button data-v="less" aria-pressed="true">nearer number (LESS)</button><button data-v="greater">farther number (GREATER)</button></div></div>
         </div>
         <div class="tiles four">
-          <div class="tile" id="t3-16"><div class="n">—</div><div class="l">D16 step at the wall</div></div>
-          <div class="tile" id="t3-24"><div class="n">—</div><div class="l">D24 step at the wall</div></div>
-          <div class="tile" id="t3-32"><div class="n">—</div><div class="l">D32F step at the wall</div></div>
-          <div class="tile" id="t3-32r"><div class="n">—</div><div class="l">D32F reversed</div></div>
+          <div class="tile" id="t3-16"><div class="n">—</div><div class="l">16-bit: smallest gap it can tell apart at the wall</div></div>
+          <div class="tile" id="t3-24"><div class="n">—</div><div class="l">24-bit: smallest gap at the wall</div></div>
+          <div class="tile" id="t3-32"><div class="n">—</div><div class="l">32-bit float: smallest gap at the wall</div></div>
+          <div class="tile" id="t3-32r"><div class="n">—</div><div class="l">32-bit float, reversed</div></div>
         </div>
       </div>
     </div>
@@ -411,12 +414,12 @@ depthBuffer[px] = zq;                            <span class="c">// unless depth
 
         
     </div></details>
-    <p class="tldr">The depth buffer stores z/w, its step grows with the square of the distance, and the near plane sets the scale for all of it.</p>
+    <p class="tldr">The depth buffer stores a squashed, rounded distance whose steps grow with the square of the distance, and the near plane sets the scale for all of it.</p>
   </section>
 
     <section id="overdraw">
-    <h2>Early-Z: skipping hidden pixels</h2>
-    <p class="sub">Five trees in front of each other at the edge of the camp. How many times each pixel gets shaded depends on the order you draw them in.</p>
+    <h2>Skipping the pixels you cannot see</h2>
+    <p class="sub">Five trees in front of each other at the edge of the camp. How many times each pixel gets coloured depends on the order you draw them in.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c4" width="640" height="360" class="grab r169" aria-label="Overdraw heatmap of five overlapping trees on a 64 by 36 grid, with an inset showing the trees as the player sees them"></canvas>
@@ -425,12 +428,12 @@ depthBuffer[px] = zq;                            <span class="c">// unless depth
       <div class="lesson" data-lesson="overdraw">
         <div class="controls" data-step-min="3">
           <div class="ctl"><span class="lab">Draw order</span><div class="seg" id="segOrder" role="group" aria-label="Draw order"><button data-v="ftb">front-to-back</button><button data-v="btf" aria-pressed="true">back-to-front</button></div></div>
-          <div class="ctl"><span class="lab">Early-Z</span><label class="chk"><input type="checkbox" id="earlyZ" checked> depth test before shading</label></div>
-          <div class="ctl"><label for="draws">Draws issued <span class="val" id="drawsv">5</span></label><input type="range" id="draws" min="1" max="5" step="1" value="5"></div>
+          <div class="ctl"><span class="lab">Early-Z</span><label class="chk"><input type="checkbox" id="earlyZ" checked> check depth before colouring</label></div>
+          <div class="ctl"><label for="draws">Trees drawn <span class="val" id="drawsv">5</span></label><input type="range" id="draws" min="1" max="5" step="1" value="5"></div>
         </div>
         <div class="tiles">
-          <div class="tile on" id="t4-cur"><div class="n">—</div><div class="l">this setup, Mfrag @1080p</div></div>
-          <div class="tile" id="t4-ftb"><div class="n">—</div><div class="l">front-to-back + early-Z</div></div>
+          <div class="tile on" id="t4-cur"><div class="n">—</div><div class="l">this setup: million colourings per frame at full HD</div></div>
+          <div class="tile" id="t4-ftb"><div class="n">—</div><div class="l">front-to-back with early-Z</div></div>
           <div class="tile" id="t4-off"><div class="n">—</div><div class="l">early-Z off, any order</div></div>
         </div>
       </div>
@@ -455,12 +458,12 @@ drawOpaque(fullPixelShader);
 
         
     </div></details>
-    <p class="tldr">Draw near things first and keep discard out of opaque shaders, and each pixel gets shaded about once.</p>
+    <p class="tldr">Draw near things first and let the depth check run before colouring, and each pixel gets coloured about once.</p>
   </section>
 
     <section id="hier">
-    <h2>Testing tiles before pixels</h2>
-    <p class="sub">The sunshade again, now a big triangle across a 64×64 patch of the screen. How the GPU skips most of the per-pixel tests.</p>
+    <h2>Checking blocks of pixels at once</h2>
+    <p class="sub">The sunshade again, now a big triangle across a 64×64 patch of the screen. How the GPU skips most of the per-pixel checks.</p>
     <div class="cols">
       <div class="vp">
         <canvas id="c5" width="512" height="512" class="grab sq" aria-label="The sunshade triangle over a 64 by 64 pixel patch of the camp, divided into tiles: rejected tiles faint red, fully covered tiles amber, edge-crossing tiles outlined blue with every pixel center tested"></canvas>
@@ -471,9 +474,9 @@ drawOpaque(fullPixelShader);
           <div class="ctl"><span class="lab">Tile size</span><div class="seg" id="segTile" role="group" aria-label="Tile size in pixels"><button data-v="4">4×4</button><button data-v="8" aria-pressed="true">8×8</button><button data-v="16">16×16</button></div></div>
         </div>
         <div class="tiles">
-          <div class="tile" id="t5-tiles"><div class="n">—</div><div class="l">tile tests, 12 evals each</div></div>
-          <div class="tile on" id="t5-px"><div class="n">—</div><div class="l">pixel tests, 3 evals each</div></div>
-          <div class="tile" id="t5-bb"><div class="n">—</div><div class="l">bounding-box walk, pixels</div></div>
+          <div class="tile" id="t5-tiles"><div class="n">—</div><div class="l">tile checks (12 tests each)</div></div>
+          <div class="tile on" id="t5-px"><div class="n">—</div><div class="l">pixel checks (3 tests each)</div></div>
+          <div class="tile" id="t5-bb"><div class="n">—</div><div class="l">pixels checked with no tile stage</div></div>
         </div>
       </div>
     </div>
@@ -502,7 +505,7 @@ drawOpaque(fullPixelShader);
 
         
     </div></details>
-    <p class="tldr">Four corner tests per edge let the GPU skip whole tiles, so per-pixel work only happens where an edge runs through.</p>
+    <p class="tldr">Four corner checks per edge let the GPU accept or throw out whole tiles, so per-pixel work only happens where an edge runs through.</p>
   </section>
 
   <section id="tradeoffs">
@@ -842,7 +845,7 @@ function lesson(id, spec) {
     wp.forEach((p, i) => { handle(x1w, p[0], p[1], 7, i === sel1); });
     for (let m = 4; m <= 16; m += 4) label(x1w, m + " m", 6, CY - m * S1 - 3, "rgba(255,255,255,0.5)");
     kitLabel(x1w, "camera: the player's eye", CX + 12, CY - 2, "left");
-    kitLabel(x1w, "near plane 0.5 m", CX + 24, CY - P1.near * S1 - 14, "left", "#c7cdd8");
+    kitLabel(x1w, "nearest it draws: 0.5 m", CX + 24, CY - P1.near * S1 - 14, "left", "#c7cdd8");
     kitLabel(x1w, "what it can see: " + (2 * Math.atan(th) * 180 / Math.PI).toFixed(0) + "° wide", 506, 498, "right", "#c7cdd8");
     const tc = [(wp[0][0] + wp[1][0] + wp[2][0]) / 3, (wp[0][1] + wp[1][1] + wp[2][1]) / 3];
     kitLabel(x1w, "sunshade: one triangle, drag a corner", tc[0], tc[1] + 26, "center", AMB);
@@ -881,10 +884,10 @@ function lesson(id, spec) {
     kitLabel(x1v, "the sunshade, placed in pixels", 256, 440, "center", AMB);
     vp.forEach((p, i) => { const q = [clamp(p[0], 8, 504), clamp(p[1], 120, 392)]; handle(x1v, q[0], q[1], 6, i === sel1); });
     const s = pr[sel1], v = V1[sel1];
-    $("c1w-cap").innerHTML = `${VNAME[sel1]} = <strong>(${v[0].toFixed(2)}, ${v[1].toFixed(2)}, ${v[2].toFixed(2)}) m</strong> from the camera`;
+    $("c1w-cap").innerHTML = `${VNAME[sel1]}: <strong>${Math.abs(v[0]).toFixed(1)} m ${v[0] < 0 ? "left" : "right"}</strong>, <strong>${(-v[2]).toFixed(1)} m ahead</strong>, ${v[1] + EYE < 0.3 ? "on the ground" : "<strong>" + (v[1] + EYE).toFixed(1) + " m up</strong>"}`;
     $("c1n-cap").innerHTML = `clip w = <strong>${s.clip[3].toFixed(2)}</strong> · ndc = <strong>(${s.ndc[0].toFixed(3)}, ${s.ndc[1].toFixed(3)}, ${s.ndc[2].toFixed(4)})</strong>`;
     const inside = Math.abs(s.ndc[0]) <= 1 && Math.abs(s.ndc[1]) <= 1;
-    $("c1v-cap").innerHTML = `pixel = <strong>(${s.vp[0].toFixed(0)}, ${s.vp[1].toFixed(0)})</strong> · depth ${(s.ndc[2] * 0.5 + 0.5).toFixed(5)}${inside ? "" : " · off screen"}`;
+    $("c1v-cap").innerHTML = `lands on pixel <strong>(${s.vp[0].toFixed(0)}, ${s.vp[1].toFixed(0)})</strong> of 1920×1080${inside ? "" : " · <strong>off screen</strong>"} · stored depth <strong>${(s.ndc[2] * 0.5 + 0.5).toFixed(3)}</strong> (0 = at the camera, 1 = as far as it draws)`;
     L1 && L1.check();
   }
   drag(c1w, () => V1.map(wpx), (i, x, y) => { sel1 = i; V1[i][0] = clamp((x - CX) / S1, -8.5, 8.5); V1[i][2] = clamp((y - CY) / S1, -16, -0.55); draw1(); });
@@ -946,12 +949,12 @@ function lesson(id, spec) {
     off2.getContext("2d").putImageData(img, 0, 0);
     kitInset(x2, 660, 418, 104, 90, "on screen");
     x2.imageSmoothingEnabled = false; x2.drawImage(off2, 664, 440, 96, 64);
-    $("c2-count").innerHTML = `A <strong>${nA} px</strong> · B <strong>${nB} px</strong> · centers exactly on the shared edge <strong>${nOn}</strong> · double-covered <strong style="color:${nDouble ? RED : "inherit"}">${nDouble}</strong> · missed <strong style="color:${nMiss ? RED : "inherit"}">${nMiss}</strong>`;
+    $("c2-count").innerHTML = `A covers <strong>${nA} pixels</strong> · B covers <strong>${nB}</strong> · centre dots exactly on the seam: <strong>${nOn}</strong> · coloured twice: <strong style="color:${nDouble ? RED : "inherit"}">${nDouble}</strong> · coloured by nobody: <strong style="color:${nMiss ? RED : "inherit"}">${nMiss}</strong>`;
     if (T2.hover) {
-      const [i, j] = T2.hover, ca = coverage(A, i + 0.5, j + 0.5, T2.rule), l = ca.e.map(v => v / ca.area);
-      { const cbh = coverage(B, i + 0.5, j + 0.5, T2.rule); if (ca.inside || cbh.inside) T2.hoverIn = true; else T2.hoverOut = true; }
-      $("c2-read").innerHTML = `pixel (${i}, ${j}) center (${i + 0.5}, ${j + 0.5}) · E = <strong>${ca.e.map(v => v.toFixed(1)).join(", ")}</strong> · λ = (${l.map(v => v.toFixed(2)).join(", ")}) · A: <strong style="color:${ca.inside ? GRN : RED}">${ca.inside ? "covered" : "not covered"}</strong>`;
-    } else $("c2-read").textContent = "hover a pixel for its three edge-function values";
+      const [i, j] = T2.hover, ca = coverage(A, i + 0.5, j + 0.5, T2.rule), l = ca.e.map(v => v / ca.area), cbh = coverage(B, i + 0.5, j + 0.5, T2.rule);
+      if (ca.inside || cbh.inside) T2.hoverIn = true; else T2.hoverOut = true;
+      $("c2-read").innerHTML = `pixel (${i}, ${j}) against triangle A's three edges: <strong>${ca.e.map(v => v > 0 ? "inside" : v < 0 ? "outside" : "on the line").join(" · ")}</strong> → <strong style="color:${ca.inside ? GRN : RED}">${ca.inside ? "A colours it" : "not A"}</strong>${cbh.inside ? " · <strong style=\"color:" + GRN + "\">B colours it</strong>" : ""}`;
+    } else $("c2-read").textContent = "hover a pixel to see its three edge checks";
     L2 && L2.check();
   }
   const snap = v => Math.round(v - 0.5) + 0.5;
@@ -1007,7 +1010,7 @@ function lesson(id, spec) {
     kitLabel(x2q, "seam between the two triangles", mid[0] + 14, mid[1], "left");
     kitLabel(x2q, "flagstone courtyard, 8×8 tiles", 8, 500, "left", "#c7cdd8");
     const kb = sp(0, -0.8, zf + 0.3); kitLabel(x2q, "knight at the far edge", kb[0] - 14, kb[1] - 30, "right");
-    $("c2q-read").innerHTML = `w_near = <strong>${zn.toFixed(1)}</strong> · w_far = <strong>${zf.toFixed(1)}</strong> · ratio <strong>${(zf / zn).toFixed(1)}×</strong> · 8×8 flagstones on a 1.8 m wide courtyard`;
+    $("c2q-read").innerHTML = `near edge <strong>${zn.toFixed(1)} m</strong> away · far edge <strong>${zf.toFixed(1)} m</strong> · <strong>${(zf / zn).toFixed(1)}×</strong> farther · 8×8 flagstones on a 1.8 m wide courtyard`;
     LQ && LQ.check();
   }
   onSeg("segPC", v => { Q.mode = v; drawQ(); });
@@ -1073,27 +1076,27 @@ function lesson(id, spec) {
     for (const r of WALL3) x3.strokeRect(r[0] * 8 + 0.5, r[1] * 8 + 0.5, (r[2] - r[0]) * 8, (r[3] - r[1]) * 8);
     x3.strokeStyle = "rgba(74,163,255,0.9)"; x3.beginPath(); BAN3.forEach((p, i) => i ? x3.lineTo(p[0] * 8, p[1] * 8) : x3.moveTo(p[0] * 8, p[1] * 8)); x3.closePath(); x3.stroke();
     kitLabel(x3, "castle wall, drawn first (A)", 8, 130, "left", AMB);
-    kitLabel(x3, "banner, " + (D3.dB >= 0 ? "+" : "−") + Math.abs(D3.dB) + " mm, drawn second (B)", 8, 480, "left", BLU);
+    kitLabel(x3, "banner, " + Math.abs(D3.dB) + " mm " + (D3.dB > 0 ? "behind" : "in front") + ", drawn second (B)", 8, 480, "left", BLU);
     kitLabel(x3, "sky: nothing drawn,", 508, 184, "right", "#c7cdd8"); kitLabel(x3, "depth stays at far", 508, 204, "right", "#c7cdd8");
-    if (winA > 0 && winB > 0) kitLabel(x3, "stripes: both round to one value", 184, 300, "center");
+    if (winA > 0 && winB > 0) kitLabel(x3, "stripes: both round to the same number", 184, 300, "center");
     kitInset(x3, 374, 8, 132, 154, "player's view");
     x3.drawImage(see3, 378, 32, 124, 124);
     if (D3.hover) { const [i, j] = D3.hover; x3.strokeStyle = WHT; x3.lineWidth = 2; x3.strokeRect(i * 8 + 0.5, j * 8 + 0.5, 8, 8); }
-    $("c3-count").innerHTML = `where the banner covers the wall: wall keeps <strong>${winA} px</strong>, banner wins <strong>${winB} px</strong> · stored range ${isFinite(lo) ? lo.toFixed(7) + " … " + hi.toFixed(7) : "—"}`;
+    $("c3-count").innerHTML = `where the banner covers the wall: the wall keeps <strong>${winA} pixels</strong>, the banner wins <strong>${winB}</strong>`;
     for (const b of ["16", "24", "32", "32r"]) { const el = $("t3-" + b); el.querySelector(".n").textContent = fmtMM(stepAt(D3.dA, b)); el.classList.toggle("on", b === D3.bits); }
     if (D3.hover) {
       const [i, j] = D3.hover, px = i + 0.5, py = j + 0.5, k = j * R3 + i, a = insideWall(px, py), b = insidePoly(BAN3, px, py);
       const za = zA3(px, py), zb = za + D3.dB / 1000, qa = quant(z01(za, D3.near), D3.bits), qb = quant(z01(zb, D3.near), D3.bits);
       const fmtQ = q => D3.bits === "16" ? Math.round(q * 65535) : D3.bits === "24" ? Math.round(q * 16777215) : q.toPrecision(8);
-      let verdict = !a && !b ? "not covered" : !b ? "only the wall" : !a ? "only the banner" : qa === qb ? `same quantum, banner ${D3.test === "less" ? "fails LESS, wall stays" : "fails GREATER, wall stays"}` : (owner[k] === 2 ? "banner passes" : "banner fails");
-      $("c3-read").innerHTML = `px (${i}, ${j}): z_wall ${a ? za.toFixed(4) + " m → " + fmtQ(qa) : "—"} · z_banner ${b ? zb.toFixed(4) + " m → " + fmtQ(qb) : "—"} · <strong style="color:${owner[k] === 2 ? GRN : (a && b ? RED : "inherit")}">${verdict}</strong>`;
-    } else $("c3-read").textContent = "hover a pixel to see both depths and the stored quantum";
+      let verdict = !a && !b ? "nothing drawn here" : !b ? "only the wall" : !a ? "only the banner" : qa === qb ? `same number, so the wall, drawn first, keeps it` : (owner[k] === 2 ? "banner passes" : "banner fails");
+      $("c3-read").innerHTML = `pixel (${i}, ${j}): wall ${a ? za.toFixed(4) + " m, stored as " + fmtQ(qa) : "not here"} · banner ${b ? zb.toFixed(4) + " m, stored as " + fmtQ(qb) : "not here"} · <strong style="color:${owner[k] === 2 ? GRN : (a && b ? RED : "inherit")}">${verdict}</strong>`;
+    } else $("c3-read").textContent = "hover a pixel to see both distances and the numbers they are stored as";
     L3 && L3.check();
   }
   c3.addEventListener("pointermove", ev => { const [x, y] = pos(c3, ev); const h = [clamp(Math.floor(x / 8), 0, 63), clamp(Math.floor(y / 8), 0, 63)]; if (String(h) !== String(D3.hover)) { D3.hover = h; draw3(); } });
   c3.addEventListener("pointerleave", () => { D3.hover = null; draw3(); });
   $("dA").addEventListener("input", () => { D3.dA = +$("dA").value; $("dAv").textContent = D3.dA + " m"; draw3(); });
-  $("dB").addEventListener("input", () => { D3.dB = +$("dB").value; $("dBv").textContent = (D3.dB < 0 ? "−" : "+") + Math.abs(D3.dB) + " mm"; draw3(); });
+  $("dB").addEventListener("input", () => { D3.dB = +$("dB").value; $("dBv").textContent = Math.abs(D3.dB) + " mm " + (D3.dB > 0 ? "behind" : "in front"); draw3(); });
   $("dNear").addEventListener("input", () => { D3.near = +$("dNear").value; $("dNearv").textContent = D3.near.toFixed(2) + " m"; draw3(); });
   onSeg("segBits", v => { D3.bits = v; draw3(); });
   onSeg("segTest", v => { D3.test = v; draw3(); });
@@ -1148,11 +1151,11 @@ function lesson(id, spec) {
       const drawn = list.includes(q);
       x4.strokeStyle = drawn ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.25)"; x4.lineWidth = 1.5; treeOutline(x4, q);
       handle(x4, (q.x + q.w / 2) * C4, (q.y + q.h / 2) * C4, 7);
-      const txt = "tree z " + q.z.toFixed(2) + (drawn ? " · draw #" + (list.indexOf(q) + 1) : " · not issued");
+      const txt = "tree, depth " + q.z.toFixed(2) + (drawn ? " · drawn " + ["1st", "2nd", "3rd", "4th", "5th"][list.indexOf(q)] : " · not drawn");
       kitLabel(x4, txt, (q.x + q.w / 2) * C4 + 11, (q.y + q.h / 2) * C4 + [-40, 40, 0, 20, -20][i], "left", drawn ? WHT : "rgba(255,255,255,0.5)");
     });
     for (let k = 0; k <= 5; k++) { x4.fillStyle = `rgb(${ramp[k].join(",")})`; x4.fillRect(8 + k * 16, 342, 14, 10); x4.strokeStyle = "rgba(255,255,255,0.4)"; x4.strokeRect(8.5 + k * 16, 342.5, 14, 10); }
-    label(x4, "shader runs per pixel: 0 … 5", 110, 351, "rgba(255,255,255,0.7)");
+    label(x4, "times each pixel was coloured: 0 … 5", 110, 351, "rgba(255,255,255,0.7)");
     // what the player sees: the five trees in depth order, one fifth scale
     kitInset(x4, 470, 8, 162, 96, "player's view");
     x4.save(); x4.beginPath(); x4.rect(472, 26, 158, 76); x4.clip(); x4.translate(487, 30); x4.scale(0.2, 0.2);
@@ -1160,7 +1163,7 @@ function lesson(id, spec) {
     quads.slice().sort((a, b) => b.z - a.z).forEach(q => kitTree(x4, (q.x + q.w / 2) * C4, (q.y + q.h) * C4, q.h * C4 / 1.87));
     x4.restore();
     const M = v => (v * SCALE4 / 1e6).toFixed(2);
-    $("c4-read").innerHTML = `${fmtN(G4W * G4H)} cells · rasterized <strong>${fmtN(r.ras)}</strong> fragments (${(r.ras / (G4W * G4H)).toFixed(2)}× overdraw) · shaded <strong>${fmtN(r.sh)}</strong> → <strong>${M(r.sh)} M</strong> at 1080p`;
+    $("c4-read").innerHTML = `${fmtN(G4W * G4H)} pixels · <strong>${fmtN(r.ras)}</strong> tree pixels reached the depth check · <strong>${fmtN(r.sh)}</strong> got coloured · at full HD that is <strong>${M(r.sh)} million</strong> colourings per frame`;
     $("t4-cur").querySelector(".n").textContent = M(r.sh);
     $("t4-ftb").querySelector(".n").textContent = M(sim4("ftb", true, 5).sh);
     $("t4-off").querySelector(".n").textContent = M(sim4("btf", false, 5).sh);
@@ -1218,7 +1221,7 @@ function lesson(id, spec) {
     kitLabel(x5, "sunshade: one big triangle", 8, 500, "left", "#c7cdd8");
     kitLabel(x5, "knight", 470, 392, "center");
     const total = (N5 / T) * (N5 / T);
-    $("c5-read").innerHTML = `${tiles} of ${total} tiles inside the bounding box: <strong style="color:${RED}">${rej} rejected</strong> · <strong style="color:${AMB}">${full} full</strong> · <strong style="color:${BLU}">${part} partial</strong> · ${fmtN(covered)} px covered`;
+    $("c5-read").innerHTML = `${tiles} of ${total} tiles touch the triangle's box: <strong style="color:${RED}">${rej} thrown out</strong> · <strong style="color:${AMB}">${full} accepted whole</strong> · <strong style="color:${BLU}">${part} edge-crossing</strong> · ${fmtN(covered)} pixels covered`;
     $("t5-tiles").querySelector(".n").textContent = fmtN(tiles);
     $("t5-px").querySelector(".n").textContent = fmtN(pxTests);
     $("t5-bb").querySelector(".n").textContent = fmtN(bbox);
@@ -1232,94 +1235,94 @@ function lesson(id, spec) {
   // ---------- guided steps ----------
   const outside1 = () => V1.some(v => { const n = project(v).ndc; return Math.abs(n[0]) > 1 || Math.abs(n[1]) > 1; });
   L1 = lesson("pipeline", { next: { id: "coverage", title: "Which pixels a triangle covers" }, steps: [
-    { say: "Here is the camp from above. The white dot at the bottom is the <b>camera</b>, the player's eye, and the dashed lines are the edges of what it can see. The amber triangle is a <b>sunshade</b>: one triangle of cloth strung from a pole top down to two pegs. On the right is the same camp as the player sees it." },
-    { say: "<b>Drag the pole top</b>, the amber corner, to the left, past the campfire.", todo: "drag the amber corner left", goal: () => V1[2][0] < -1.6,
-      done: "It moved left on the player's screen too. Every corner makes the same trip: measure it from the camera, divide by its distance, map the result to a pixel." },
-    { say: "Next, one of the pegs.", quiz: { q: "If you drag a peg toward the camera, which way does it move on the player's screen?", options: [
-        { t: "Toward the middle of the screen", why: "Things nearer the camera spread outward from the centre, not inward. Drag one and watch." },
-        { t: "Away from the middle, out toward the edge", ok: true, why: "Nearer means a smaller distance to divide by, so the point lands further from the centre. That divide is all perspective is." },
-        { t: "It stays put, it only gets bigger", why: "A single corner has no size to grow. Its position is what changes." } ] },
+    { say: "Everything a game draws is made of <b>triangles</b>. Thousands make the knight; the sunshade here is just one, strung from a pole top down to two pegs. The screen is a grid of tiny squares called <b>pixels</b>, and drawing means deciding which pixels each triangle covers. On the left is the camp from above, with the player's eye, the <b>camera</b>, at the bottom and dashed lines showing what it can see. On the right is what the player sees." },
+    { say: "First job: find where each corner of the triangle lands on the screen. <b>Drag the pole top</b>, the amber corner, to the left, past the campfire.", todo: "drag the amber corner left", goal: () => V1[2][0] < -1.6,
+      done: "It moved left on the player's screen too. The GPU does this for every corner of every triangle, millions of times a frame: work out where the corner sits compared to the camera, then where that lands on the screen." },
+    { say: "Now a peg.", quiz: { q: "If you drag a peg toward the camera, where does it go on the player's screen?", options: [
+        { t: "Toward the middle of the screen", why: "Nearer things look bigger and spread out from the middle of the picture. Drag one and watch." },
+        { t: "Away from the middle, out toward the edge", ok: true, why: "Nearer things spread out from the middle; farther things crowd toward it. That is perspective, and the GPU gets it by dividing by the distance." },
+        { t: "It stays put", why: "Its distance changed, so its place on the screen changes too." } ] },
       todo: "now drag a peg toward the camera to check", goal: () => V1[0][2] > -2.6 || V1[1][2] > -2.6,
-      done: "The peg swings out toward the edge of the screen. Nearer points spread out, and that is the divide by distance at work." },
+      done: "The peg swings out toward the edge. Everything near the camera spreads out, and that one divide by distance is what makes a flat screen look deep." },
     { say: "<b>Drag the pole top far away</b>, up next to the farmhouse.", todo: "drag the amber corner up to the farmhouse", goal: () => V1[2][2] < -10,
-      done: "Its dot creeps toward the centre, and the depth in the caption climbs toward 1. Far things bunch up in the middle and get squashed in depth. Keep that in mind for the depth section." },
+      done: "Its dot creeps toward the middle of the screen, and the stored depth under the picture climbs toward 1. Depth is how far away the corner is, squeezed into a 0 to 1 range. Far things end up crowded near 1, which matters in a later section." },
     { say: "<b>Drag a peg outside the dashed lines.</b>", todo: "drag a peg outside the camera's view", goal: outside1,
-      done: "The player cannot see it, so the GPU cuts the triangle along the edge of the view before drawing anything. That cut is called clipping, and it happens before the divide, so a corner right at the camera never gets divided by zero." },
-    { say: "One more view. The middle panel is the <b>−1 to +1 square</b> the GPU works in after the divide: inside the white square is on screen, outside is cut off. Its caption shows the numbers for the corner you last dragged: <code>clip w</code> is its distance from the camera and <code>ndc</code> is the result of the divide. The formulas and the shader code are under the hood below." } ] });
+      done: "The player cannot see it, so the GPU trims the triangle along the edge of the view before drawing anything. That trim is called clipping, and it also keeps the divide safe from corners sitting right at the camera, where the distance would be zero." },
+    { say: "That is the whole trip for a corner: position compared to the camera, divide by distance, land on a pixel. The exact formulas, and the GPU's in-between −1 to +1 version of the screen, are under the hood below." } ] });
 
-  L2 = lesson("coverage", { next: { id: "persp", title: "Blending across a triangle" }, steps: [
-    { say: "This screen is <b>24×16 pixels</b>, each with a white dot at its <b>centre</b>. The shield is two triangles, A on the left and B on the right. A pixel gets coloured only if a triangle covers its centre dot. The inset shows what the player sees." },
-    { say: "Look at a pixel near the shield's edge: part of the shield is inside it, but the centre dot is outside.", quiz: { q: "Does that pixel get drawn?", options: [
-        { t: "Yes, part of the triangle is in it", why: "The GPU never measures how much of a pixel is covered. Only the centre dot counts." },
-        { t: "No, only the centre dot matters", ok: true, why: "One test point per pixel. That is why edges come out jagged: a pixel is all in or all out." },
-        { t: "It gets half the colour", why: "That would be anti-aliasing, which needs more test points per pixel. Plain rasterization has one." } ] } },
-    { say: "<b>Hover a pixel inside the shield</b>, then one just outside it, and read the caption.", todo: "hover one pixel inside and one outside", goal: () => T2.hoverIn && T2.hoverOut,
-      done: "Three numbers, one per edge. Inside, all three are positive. Outside, at least one goes negative. Three signs are the whole test." },
-    { say: "The two halves share the seam down the middle, and ten pixel centres sit <b>exactly on it</b>. Right now a tie-break rule gives each one to exactly one triangle. <b>Switch the tie rule to E ≥ 0 both.</b>", todo: "switch the tie rule below", goal: () => T2.rule === "ge", enter: () => { T2.rule = "tl"; segOn($("segTL"), "tl"); draw2(); },
-      done: "A red column appears: both triangles claimed those pixels, and the inset shows a bright stripe where the shield was drawn twice. For anything see-through, drawing twice is a visible bug. The top-left rule exists for exactly this." },
+  L2 = lesson("coverage", { next: { id: "persp", title: "Why the far tiles stretch" }, steps: [
+    { say: "This screen is only <b>24 pixels wide and 16 tall</b>, so you can see every square. Each one has a white dot at its <b>centre</b>. The shield is two triangles, A on the left and B on the right. The GPU colours a pixel only if a triangle covers its centre dot. The inset shows the result." },
+    { say: "Look at a pixel where the shield's edge cuts through it but misses the centre dot.", quiz: { q: "Does that pixel get coloured?", options: [
+        { t: "Yes, part of the shield is in it", why: "The GPU never measures how much of a pixel is covered. It only looks at the centre dot." },
+        { t: "No, only the centre dot counts", ok: true, why: "One test point per pixel. This is why edges look jagged: a pixel is all in or all out." },
+        { t: "It gets half the colour", why: "Half colours need extra test points inside each pixel. That is anti-aliasing, a separate trick with its own page." } ] } },
+    { say: "How does it decide? A triangle has three edges, and for each edge the GPU asks: is this dot on the inside side of it? <b>Hover a pixel inside the shield</b>, then one just outside.", todo: "hover one pixel inside and one outside", goal: () => T2.hoverIn && T2.hoverOut,
+      done: "Inside, all three edges say inside. Outside, at least one says outside. Three yes-or-no answers are the whole test, and each one is a quick multiply and subtract." },
+    { say: "The two halves share the seam down the middle, and ten centre dots sit <b>exactly on it</b>. Right now a tie rule gives each one to exactly one triangle. <b>Switch it so both triangles draw it.</b>", todo: "switch the tie rule below", goal: () => T2.rule === "ge", enter: () => { T2.rule = "tl"; segOn($("segTL"), "tl"); draw2(); },
+      done: "A red column appears: both triangles coloured those pixels, and the inset shows a bright stripe where the shield was painted twice. For anything see-through, painting twice shows. The tie rule exists for exactly this." },
     { say: "<b>Drag the shield's top corner one pixel sideways</b> so the seam leans.", todo: "drag the top corner sideways", goal: () => T2.v[1][0] !== T2.v[2][0],
-      done: "No centre sits exactly on a leaning line, so the tie rule never fires. It only matters on exact ties, but a screen full of shared edges hits them all the time." },
-    { say: "Three edge tests per pixel centre, one tie rule for exact hits. The same three numbers, divided by the triangle's area, are the blend weights that spread colour across it. Under the hood has the formula and the loop the hardware runs." } ] });
+      done: "No centre dot sits exactly on a leaning line, so the tie rule never fires. It only matters on exact ties, but a screen full of shared edges hits them constantly." },
+    { say: "One test point per pixel, three edge questions per point, one tie rule for exact hits. The same three answers, kept as numbers, also say how close the pixel is to each corner, which is how colour gets blended across a triangle. Under the hood has the formula and the loop." } ] });
 
   const setQ = (mode, depth) => { Q.mode = mode; Q.depth = depth; segOn($("segPC"), mode); $("qdepth").value = depth; $("qdepthv").textContent = depth + " m"; drawQ(); };
-  LQ = lesson("persp", { next: { id: "depth", title: "The depth buffer and z-fighting" }, steps: [
-    { say: "The courtyard is one flat floor made of <b>two triangles</b>; the dashed line is the seam. The tile pattern is spread across each triangle with the screen-space weights from the last section. Look at the seam: <b>the tiles kink</b>.", enter: () => setQ("affine", 8) },
+  LQ = lesson("persp", { next: { id: "depth", title: "Who is in front: the depth buffer" }, steps: [
+    { say: "The courtyard floor is <b>two triangles</b>; the dashed line is the seam. The GPU paints the flagstone pattern by mixing values from the three corners across each triangle, evenly across the screen. Look at the seam: <b>the tiles kink</b>.", enter: () => setQ("affine", 8) },
     { say: "", quiz: { q: "Why do the tiles kink at the seam?", options: [
         { t: "The two triangles were drawn in the wrong order", why: "Order does not change where a pattern lands inside a triangle." },
-        { t: "Equal steps across the screen are not equal steps across the floor, because the far end is squashed", ok: true, why: "Perspective squeezes the far end of the floor into fewer pixels, so spreading the pattern evenly across pixels stretches the far tiles. Each triangle gets it wrong in its own direction, and they meet in a kink." },
-        { t: "The tile texture is too small", why: "Resolution has nothing to do with it. The pattern is computed, not stored." } ] } },
-    { say: "<b>Switch to perspective-correct.</b>", todo: "switch the interpolation below", goal: () => Q.mode === "persp",
-      done: "The kink is gone and the far tiles shrink toward the knight the way a real floor would. The fix: divide every blended value by its distance first, blend, then undo the divide per pixel." },
-    { say: "<b>Choose split</b>, then push the quad depth up to 30 m.", todo: "choose split and drag the depth slider to 30 m", goal: () => Q.mode === "split" && Q.depth >= 29,
-      done: "Left half wrong, right half right, on one floor. The deeper the floor, the bigger the ratio between near and far distance in the caption, and the worse the kink." },
-    { say: "Hardware does this for every value the vertex shader hands to the pixel shader, so you only meet the bug when you write your own rasterizer. The formula is under the hood." } ] });
+        { t: "The far end of the floor is squashed on screen, so mixing evenly across pixels stretches the far tiles", ok: true, why: "Perspective squeezes the far end into fewer pixels. Mix evenly across those pixels and the far tiles come out too big. Each triangle gets it wrong in its own direction, and they meet in a kink." },
+        { t: "The tile pattern is too small", why: "The pattern is computed from the corners, not stored, so its size is not the issue." } ] } },
+    { say: "<b>Switch the mix to one that keeps distance in mind.</b>", todo: "switch the mixing below", goal: () => Q.mode === "persp",
+      done: "The kink is gone and the far tiles shrink toward the knight like a real floor. The fix: divide each corner's value by its distance before mixing, then undo that per pixel." },
+    { say: "<b>Choose both, side by side</b>, then push the courtyard depth up to 30 m.", todo: "choose side by side and drag the depth slider to 30 m", goal: () => Q.mode === "split" && Q.depth >= 29,
+      done: "Left half wrong, right half right, on one floor. The deeper the floor, the bigger the gap between the near and far distances, and the worse the even mix gets." },
+    { say: "Real GPUs use the distance-aware mix for everything they blend, so you only meet the kink if you build your own rasterizer. The formula is under the hood." } ] });
 
-  const set3 = o => { Object.assign(D3, o); segOn($("segBits"), D3.bits); segOn($("segTest"), D3.test); $("dA").value = D3.dA; $("dAv").textContent = D3.dA + " m"; $("dB").value = D3.dB; $("dBv").textContent = (D3.dB < 0 ? "−" : "+") + Math.abs(D3.dB) + " mm"; $("dNear").value = D3.near; $("dNearv").textContent = D3.near.toFixed(2) + " m"; draw3(); };
-  L3 = lesson("depth", { next: { id: "overdraw", title: "Early-Z: skipping hidden pixels" }, steps: [
-    { say: "This is a 64×64 patch of the <b>depth buffer</b>: one number per pixel saying how far away the nearest thing drawn so far is. The castle wall was drawn first, in amber, then a banner in blue, 5 mm in front of it. The inset shows what the player sees. The buffer is 16 bits per pixel, and <b>the banner is already striped</b>.", enter: () => set3({ bits: "16", dA: 30, dB: -5, near: 0.1, test: "less" }) },
+  const set3 = o => { Object.assign(D3, o); segOn($("segBits"), D3.bits); segOn($("segTest"), D3.test); $("dA").value = D3.dA; $("dAv").textContent = D3.dA + " m"; $("dB").value = D3.dB; $("dBv").textContent = Math.abs(D3.dB) + " mm " + (D3.dB > 0 ? "behind" : "in front"); $("dNear").value = D3.near; $("dNearv").textContent = D3.near.toFixed(2) + " m"; draw3(); };
+  L3 = lesson("depth", { next: { id: "overdraw", title: "Skipping the pixels you cannot see" }, steps: [
+    { say: "Two things can land on the same pixel, and the nearer one should win. So the GPU keeps a second picture, the <b>depth buffer</b>: for every pixel, the distance of the nearest thing drawn there so far. This is a 64×64 patch of it. The castle wall was drawn first, in amber, then a banner in blue, 5 mm in front of it. The inset shows what the player sees, and <b>the banner is already striped</b>.", enter: () => set3({ bits: "16", dA: 30, dB: -5, near: 0.1, test: "less" }) },
     { say: "", quiz: { q: "Why is the banner striped?", options: [
-        { t: "The banner was drawn before the wall", why: "It was drawn second. Order only decides once the buffer cannot tell the two apart." },
-        { t: "At 30 m, 5 mm is smaller than the buffer's step, so wall and banner round to the same number and draw order decides pixel by pixel", ok: true, why: "The tiles below say it: the 16-bit step at 30 m is about 137 mm. Anything closer than that is a coin flip, and the flips fall in stripes along the depth slope." },
-        { t: "16 bits cannot store a distance as big as 30 m", why: "It can. It stores a squashed value between 0 and 1. The trouble is how coarse the steps are out at 30 m." } ] } },
-    { say: "<b>Switch the format to D24.</b>", todo: "switch the format below", goal: () => D3.bits === "24", enter: () => set3({ bits: "16", dA: 30, near: 0.1, test: "less" }),
-      done: "The banner comes out whole. The 24-bit step at 30 m is about half a millimetre, comfortably under the 5 mm gap." },
-    { say: "Stay on D24.", quiz: { q: "If you drag the wall out to 120 m, will the stripes come back?", options: [
-        { t: "No, 24 bits is enough at any distance", why: "The step grows with the square of the distance. Four times as far means sixteen times the step." },
-        { t: "Yes, the step grows with the square of the distance", ok: true, why: "From 30 m to 120 m the step grows 16×, from half a millimetre to about 9 mm, past the 5 mm gap." },
-        { t: "Only if the banner is moved too", why: "The gap stays 5 mm. What changes is how finely the buffer can measure it out there." } ] },
+        { t: "The banner was drawn before the wall", why: "It was drawn second. Order only decides when the buffer cannot tell the two apart." },
+        { t: "Each stored distance is rounded. At 30 m, 5 mm is smaller than the rounding, so wall and banner round to the same number and it is a coin flip, pixel by pixel", ok: true, why: "Each pixel here stores a 16-bit number, one of 65,536 values, and the tiles below say what one step of that is worth at the wall: about 137 mm. Anything closer than that is a tie, and ties fall in stripes." },
+        { t: "The buffer cannot store a distance as big as 30 m", why: "It can. It stores a squashed value between 0 and 1. The trouble is how coarse the steps are out at 30 m." } ] } },
+    { say: "More values means finer steps. <b>Switch the buffer to 24-bit</b>, about 16 million values instead of 65 thousand.", todo: "switch to 24-bit below", goal: () => D3.bits === "24", enter: () => set3({ bits: "16", dA: 30, near: 0.1, test: "less" }),
+      done: "The banner comes out whole. The 24-bit step at 30 m is about half a millimetre, well under the 5 mm gap." },
+    { say: "Stay on 24-bit.", quiz: { q: "If you push the wall out to 120 m, do the stripes come back?", options: [
+        { t: "No, 24-bit is enough at any distance", why: "The step grows with the square of the distance: four times as far means sixteen times the step." },
+        { t: "Yes, the step grows with the square of the distance", ok: true, why: "From 30 m to 120 m the step grows 16×, from half a millimetre to about 9 mm, past the 5 mm gap. Far things are crowded near 1, remember." },
+        { t: "Only if the banner moves too", why: "The gap stays 5 mm. What changes is how finely the buffer can measure out there." } ] },
       todo: "drag Wall distance to 120 m", goal: () => D3.bits === "24" && D3.dA >= 115, enter: () => set3({ bits: "24", dA: 30, near: 0.1 }),
-      done: "Stripes are back. The D24 tile now reads about 9 mm, bigger than the gap." },
-    { say: "Now the knob most people miss. <b>Drag the near plane down to 0.01 m.</b>", todo: "drag Near plane to 0.01 m", goal: () => D3.near <= 0.02, enter: () => set3({ bits: "24", dA: 120, near: 0.1 }),
-      done: "Every tile grew about ten times. Halving the near plane doubles the step at every distance. The near plane sets the scale of the whole buffer, and pushing it out is the single best fix for z-fighting." },
-    { say: "<b>Switch to D32F reversed</b> and set the test to GREATER.", todo: "switch format and test below", goal: () => D3.bits === "32r" && D3.test === "greater", enter: () => set3({ bits: "24", dA: 120, near: 0.01, test: "less" }),
-      done: "Whole again, at 120 m with a near plane of one centimetre. Reversed-Z stores 1 − depth as a float, and a float has its finest steps near zero, which is now where the far scene sits." },
-    { say: "The stored value is z divided by w, not metres, so its step grows with the square of the distance. More bits help, the near plane helps more, and reversed-Z in a float takes the problem away. Under the hood has the formulas and the per-fragment test." } ] });
+      done: "Stripes are back. The 24-bit tile now reads about 9 mm, bigger than the gap." },
+    { say: "Now the setting most people miss. The <b>near plane</b> is the closest distance the camera bothers to draw; anything nearer is cut off. <b>Drag it down to 0.01 m.</b>", todo: "drag the near plane to 0.01 m", goal: () => D3.near <= 0.02, enter: () => set3({ bits: "24", dA: 120, near: 0.1 }),
+      done: "Every tile grew about ten times. Halving the near plane doubles the step at every distance, because the buffer spends most of its values on the first metre. Pushing the near plane out is the single best fix for this flicker." },
+    { say: "<b>Switch to 32-bit float, reversed</b>, and set the winner to the farther number.", todo: "switch the storage and the winner below", goal: () => D3.bits === "32r" && D3.test === "greater", enter: () => set3({ bits: "24", dA: 120, near: 0.01, test: "less" }),
+      done: "Whole again, at 120 m with a near plane of one centimetre. A float is a number format whose steps are finest near zero. Reversed means far things are stored near zero, right where the float is most precise." },
+    { say: "The stored distance is squashed and rounded, and its steps get coarser with the square of the distance. More bits help, the near plane helps more, and a reversed float makes the problem go away. The formulas and the per-pixel test are under the hood." } ] });
 
   const set4 = o => { Object.assign(O4, o); segOn($("segOrder"), O4.order); $("earlyZ").checked = O4.early; $("draws").value = O4.draws; $("drawsv").textContent = O4.draws; draw4(); };
-  L4 = lesson("overdraw", { next: { id: "hier", title: "Testing tiles before pixels" }, steps: [
-    { say: "Five trees, drawn <b>back to front</b>. The colour of each cell is how many times the pixel shader ran there: dark never, blue once, amber and white three or more. The inset shows what the player sees: one tree per pixel, whatever the count.", enter: () => set4({ order: "btf", early: true, draws: 5 }) },
-    { say: "Right now the pixels behind the big near tree get shaded up to five times.", quiz: { q: "If the trees were drawn front to back instead, how many times would a pixel hidden behind the near tree be shaded?", options: [
-        { t: "Still five, every tree is still drawn", why: "Every tree is still rasterized, but the depth test runs before the shader. A fragment behind something already drawn fails and never gets shaded." },
-        { t: "Once", ok: true, why: "The near tree goes first and shades its pixels. Every later tree fails the depth test there before its shader runs. That early test is early-Z." },
-        { t: "Zero", why: "The near tree itself still shades each of its pixels once." } ] } },
+  L4 = lesson("overdraw", { next: { id: "hier", title: "Checking blocks of pixels at once" }, steps: [
+    { say: "Five trees, drawn <b>back to front</b>, the way you would paint them. Colouring a pixel is the expensive part: a small program, the pixel shader, runs once for every pixel of every triangle. The colour of each cell here is how many times that program ran: dark never, blue once, amber and white three or more. The inset shows the trees as the player sees them.", enter: () => set4({ order: "btf", early: true, draws: 5 }) },
+    { say: "Suppose the trees were drawn front to back instead.", quiz: { q: "A pixel hidden behind the big near tree gets coloured how many times?", options: [
+        { t: "Still five, every tree is still drawn", why: "Every tree still lands on the pixel, but the depth check runs before the colouring. A tree behind something already drawn fails the check and is never coloured." },
+        { t: "Once", ok: true, why: "The near tree goes first and colours its pixels. Every later tree fails the depth check there before its colouring runs. Checking early is called early-Z." },
+        { t: "Zero", why: "The near tree itself still colours each of its pixels once." } ] } },
     { say: "<b>Switch the draw order to front-to-back.</b>", todo: "switch the draw order below", goal: () => O4.order === "ftb", enter: () => set4({ order: "btf", early: true, draws: 5 }),
-      done: "The heatmap goes almost entirely blue: once per pixel. The shaded count in the caption dropped, and the tiles show what that is worth at 1080p." },
+      done: "The picture goes almost entirely blue: once per pixel. The coloured count under it dropped, and the tiles show what that is worth on a full HD screen." },
     { say: "<b>Untick early-Z.</b>", todo: "untick the early-Z box", goal: () => !O4.early,
-      done: "Back to the full count, whatever the order. This is what happens when a shader writes its own depth or uses discard: the hardware cannot test early, so every hidden fragment gets shaded. Alpha-tested leaves are the classic case." },
-    { say: "Tick early-Z again, keep front-to-back, and <b>drag the big near tree over the others</b> so it hides as much of them as you can. Watch the shaded count in the caption.", todo: "tick early-Z and drag the big tree over the others", goal: () => O4.early && O4.order === "ftb" && O4.last && O4.last.sh <= 700,
-      done: "The shaded count fell while the rasterized count stayed the same. With front-to-back order and early-Z, the hidden parts of the trees behind are never shaded, so overlap costs only the cheap depth test. Overdraw only hurts when that test comes too late." },
-    { say: "Draw near things first and keep discard out of opaque shaders, and each pixel shades about once. Engines that cannot sort well use a depth prepass instead. Under the hood has the cost formula and the prepass code." } ] });
+      done: "Back to the full count, whatever the order. This happens when a colouring program changes the depth itself or throws its own pixel away, because then the hardware cannot check early. Leaves with cut-out edges are the classic case." },
+    { say: "Tick early-Z again, keep front-to-back, and <b>drag the big near tree over the others</b> to hide as much of them as you can. Watch the coloured count.", todo: "tick early-Z and drag the big tree over the others", goal: () => O4.early && O4.order === "ftb" && O4.last && O4.last.sh <= 700,
+      done: "The coloured count fell while the number of tree pixels stayed the same. With front-to-back order and early-Z, hidden parts are never coloured, so overlap costs only the cheap depth check." },
+    { say: "Draw near things first, let the depth check run early, and each pixel gets coloured about once. Engines that cannot sort well draw everything twice instead: once cheaply just to fill the depth buffer, then once for real. Under the hood has the cost formula and that trick." } ] });
 
   L5 = lesson("hier", { next: { id: "tradeoffs", title: "Tradeoffs: which depth format" }, steps: [
-    { say: "A 64×64 patch of the screen split into 8×8 tiles. Before testing any pixel, the GPU tests <b>each tile's four corners</b> against the triangle's three edges. Faint red tiles: thrown out. Solid amber: accepted whole. Blue outline: an edge crosses them, so every pixel centre inside gets tested.", enter: () => { H5.T = 8; segOn($("segTile"), "8"); draw5(); } },
-    { say: "", quiz: { q: "How many per-pixel tests does a solid amber tile need?", options: [
+    { say: "A big triangle covers thousands of pixels, and checking each one takes time. So the GPU first checks <b>blocks of 8×8 pixels</b>, called tiles, using just their four corners. Faint red tiles are entirely outside and get thrown out. Solid amber tiles are entirely inside and get accepted whole. Blue-outlined tiles have an edge crossing them, so every centre dot inside gets checked.", enter: () => { H5.T = 8; segOn($("segTile"), "8"); draw5(); } },
+    { say: "", quiz: { q: "How many per-pixel checks does a solid amber tile need?", options: [
         { t: "64, one per pixel", why: "That is exactly what the tile stage is there to avoid." },
-        { t: "None", ok: true, why: "All four corners are inside all three edges, so every pixel between them is too. Twelve corner evaluations replaced 64 pixel tests." },
-        { t: "Four, one per corner", why: "Four corners per edge, twelve evaluations in all, but zero per pixel." } ] } },
+        { t: "None", ok: true, why: "If all four corners are inside all three edges, every pixel between them is too. Twelve corner checks replaced 64 pixel checks." },
+        { t: "Four, one per corner", why: "Four corners per edge, twelve checks in all, but zero per pixel." } ] } },
     { say: "<b>Switch to 16×16 tiles.</b>", todo: "switch the tile size below", goal: () => H5.T === 16,
-      done: "Fewer tile tests, but more pixel tests: a bigger tile is more likely to have an edge running through it. Hardware settles on 8×8 or 16×16 as the balance." },
-    { say: "<b>Drag the top corner down</b> next to a peg to squash the triangle into a sliver.", todo: "drag the top corner down beside a peg", goal: () => H5.stats && H5.stats.part > H5.stats.full && H5.stats.part >= 6,
-      done: "Almost every tile it touches is partial now, so the tile stage saves nothing. Thin slivers are the expensive triangle shape, and this is part of why over-dense meshes crawl." },
+      done: "Fewer tile checks, more pixel checks: a bigger tile is more likely to have an edge running through it. Real GPUs settle on 8×8 or 16×16." },
+    { say: "<b>Drag the top corner down</b> beside a peg to squash the triangle into a sliver.", todo: "drag the top corner down beside a peg", goal: () => H5.stats && H5.stats.part > H5.stats.full && H5.stats.part >= 6,
+      done: "Now almost every tile it touches has an edge through it, so the tile stage saves nothing. Long thin triangles are the expensive shape, and a model made of tiny slivers makes a GPU crawl." },
     { say: "Big triangles are cheap per pixel because whole tiles are accepted at once. Slivers and tiny triangles are not. Under the hood has the corner test and the two-stage loop." } ] });
 })();
 </script>
