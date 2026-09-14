@@ -1,9 +1,9 @@
-# Rendering Library
+# How Games Draw
 
 Twenty-two interactive pages on how a game draws its picture, one idea per page, each with
 live canvas demos you can drag. Plain HTML, no framework, no external scripts.
 
-Published at https://moistfridge.com/rendering-library
+Published at https://moistfridge.com/how-games-draw
 
 ## Layout
 
@@ -75,9 +75,9 @@ added at the foot of every page. The absolute paths matter: moistfridge serves a
 `/slug` with no trailing slash, so a relative link resolves against the site root and breaks.
 
 ```
-node shared/build-site.js --base /rendering-library
-fridge dist --slug rendering-library
-node ~/.claude/skills/moistfridge/scripts/verify-page.mjs https://moistfridge.com/rendering-library
+node shared/build-site.js --base /how-games-draw
+fridge dist --slug how-games-draw
+node ~/.claude/skills/moistfridge/scripts/verify-page.mjs https://moistfridge.com/how-games-draw
 ```
 
 Republishing keeps the address, the view count and the revision history.

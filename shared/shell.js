@@ -15,7 +15,7 @@
   const page = (location.pathname.split('/').pop() || 'page').replace(/\.html$/, '');
   const pages = window.RL_PAGES || null, base = window.RL_BASE || '';
   document.documentElement.classList.add('dash');
-  document.title = title + ' · Rendering Library';
+  document.title = title + ' · How Games Draw';
 
   // ---- panels: overview (the old header), one per stage, one per reference section
   const panels = [];
@@ -47,7 +47,7 @@
   const homeHref = pages ? (base || '') + '/' : (back ? back.getAttribute('href') : '../index.html');
   let topics = '';
   if (pages) topics = '<select class="dash-topics" aria-label="Topic">' + pages.map(p => `<option value="${p.slug}"${p.slug === page ? ' selected' : ''}>${String(p.n).padStart(2, '0')} · ${esc(p.title)}</option>`).join('') + '</select>';
-  top.innerHTML = `<a class="dash-home">Rendering Library</a><span class="dash-sep">/</span>${topics || '<span class="dash-title">' + esc(title) + '</span>'}` +
+  top.innerHTML = `<a class="dash-home">How Games Draw</a><span class="dash-sep">/</span>${topics || '<span class="dash-title">' + esc(title) + '</span>'}` +
     `<select class="dash-stagesel" aria-label="Stage"></select><span class="dash-grow"></span>` +
     `<button type="button" class="dash-prev" aria-label="Previous stage">‹</button><span class="dash-pos"></span><button type="button" class="dash-next" aria-label="Next stage">›</button>`;
   top.querySelector('.dash-home').href = homeHref;

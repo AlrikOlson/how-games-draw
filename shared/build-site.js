@@ -8,7 +8,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const argBase = process.argv.indexOf('--base');
-const base = (argBase > -1 ? process.argv[argBase + 1] : '/rendering-library').replace(/\/$/, '');
+const base = (argBase > -1 ? process.argv[argBase + 1] : '/how-games-draw').replace(/\/$/, '');
 
 execSync('node shared/build-index.js', { stdio: 'inherit' });
 
@@ -28,7 +28,7 @@ order.forEach((page, i) => {
   const src = fs.readFileSync('pages/' + page.slug + '.html', 'utf8');
   const cut = src.indexOf('</style>');
   if (cut < 0) throw new Error(page.slug + ': no </style>');
-  let head = src.slice(0, cut + '</style>'.length).replace(/<title>(.*?)<\/title>/, (m, t) => '<title>' + esc(t) + ' · Rendering Library</title>');
+  let head = src.slice(0, cut + '</style>'.length).replace(/<title>(.*?)<\/title>/, (m, t) => '<title>' + esc(t) + ' · How Games Draw</title>');
   head += '\n<meta name="description" content="' + page.blurb.replace(/"/g, '&quot;') + '">';
   head += '\n' + pagesTag;
   let body = src.slice(cut + '</style>'.length).replace(/href="\.\.\/index\.html"/g, 'href="' + base + '"');
@@ -36,10 +36,10 @@ order.forEach((page, i) => {
   const prev = order[i - 1], next = order[i + 1];
   const nav = '\n  <nav class="pagenav" aria-label="Previous and next page">'
     + (prev ? '<a href="' + base + '/pages/' + prev.slug + '.html"><span class="lab">← previous </span>' + prev.title + '</a>'
-            : '<a href="' + base + '"><span class="lab">← </span>Rendering Library</a>')
+            : '<a href="' + base + '"><span class="lab">← </span>How Games Draw</a>')
     + '<span class="pos">' + String(i + 1).padStart(2, '0') + ' / ' + order.length + '</span>'
     + (next ? '<a class="next" href="' + base + '/pages/' + next.slug + '.html"><span class="lab">next </span>' + next.title + ' →</a>'
-            : '<a class="next" href="' + base + '">back to the library →</a>')
+            : '<a class="next" href="' + base + '">back to all lessons →</a>')
     + '</nav>\n';
   const last = body.lastIndexOf('</section>');
   if (last < 0) throw new Error(page.slug + ': no sections');
