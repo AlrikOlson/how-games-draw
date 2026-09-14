@@ -201,7 +201,10 @@ section.stage .vp canvas.r32 { width: min(100%, calc(var(--stage-free) * 1.5)); 
 section.stage .vp canvas.r43 { width: min(100%, calc(var(--stage-free) * 1.3474)); }
 section.stage .cols { grid-template-columns: minmax(0, auto) minmax(360px, 1fr); }
 .lesson .lesson-top { margin-bottom: 14px; }
-.lesson .lesson-top canvas { max-width: 520px; }
+.lesson .lesson-top canvas { max-width: min(520px, calc(var(--stage-free) * 0.8)); }
+#dof .vp canvas.r169 { width: min(100%, calc(var(--stage-free) * 1.3)); }
+#dof .cols { grid-template-columns: minmax(0, 1fr) minmax(360px, 560px); }
+@media (max-width: 900px), (max-height: 639px) { #dof .cols { grid-template-columns: minmax(0, 1fr); } }
 section.stage .cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(320px, 1.1fr); gap: clamp(20px, 2.5vw, 40px); }
 @media (max-width: 1100px) { section.stage .cols.three { grid-template-columns: minmax(0, 1fr); } }
 .lesson .tiles.four { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
@@ -317,8 +320,8 @@ color = sceneHDR + I * texture(bloomU1, uv).rgb;</pre>
           <div class="ctl"><label class="chk"><input type="checkbox" id="karis1"> Karis vote: dim pixels outvote a bright one on the first shrink</label></div>
         </div>
         <div class="tiles four" data-step-min="2">
-          <div class="tile" id="t1-plain"><div class="n">—</div><div class="l">flicker without Karis, glow swing</div></div>
-          <div class="tile" id="t1-karis"><div class="n">—</div><div class="l">flicker with Karis, glow swing</div></div>
+          <div class="tile" id="t1-plain"><div class="n">—</div><div class="l">glow swing without the Karis vote</div></div>
+          <div class="tile" id="t1-karis"><div class="n">—</div><div class="l">glow swing with the Karis vote</div></div>
           <div class="tile"><div class="n" id="t1-mem">—</div><div class="l">memory for all the copies</div></div>
           <div class="tile"><div class="n" id="t1-reads">—</div><div class="l">pixel reads per frame</div></div>
         </div>
@@ -729,6 +732,73 @@ function kitInset(ctx, x, y, w, h, title) {
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   if (title) kitLabel(ctx, title, x + 6, y + 12, 'left', '#c7cdd8');
 }
+// lesson-kit start
+// Rendering Library lesson kit. Paste this whole block into a page's <script> after the scene kit.
+// A lesson is a short run of steps beside one demo. Each step says one thing and asks for one of:
+//   look    { say }                         read it, press Continue
+//   do      { say, goal, todo, done }       goal() is checked on every redraw; Continue unlocks when it is true
+//   predict { say, quiz: { q, options: [{ t, ok, why }] }, goal?, todo?, done? }
+//           answer first (wrong answers explain and let you retry), then the optional goal
+// A goal step also carries try(): a realistic way to reach the goal (set the control through its DOM element and
+// dispatch its event, or call the demo's own drag handler with reachable values), used by shared/walk.cjs.
+// A .lesson-top element inside the panel (a second canvas, say) stays above the step card.
+// Elements inside the lesson panel with data-step-min="k" stay hidden until step k (1-based).
+// Progress is remembered per page and section in localStorage.
+function lesson(id, spec) {
+  const root = document.querySelector('[data-lesson="' + id + '"]');
+  const steps = spec.steps, n = steps.length;
+  const key = 'rl:' + (location.pathname.split('/').pop() || 'page') + ':' + id;
+  let i = 0, met = steps.map(() => false), answered = steps.map(() => false), finished = false;
+  try { const s = JSON.parse(localStorage.getItem(key) || 'null'); if (s && s.n === n) { i = s.i; met = s.met; answered = s.answered; finished = !!s.finished; } } catch (e) {}
+  const save = () => { try { localStorage.setItem(key, JSON.stringify({ n, i, met, answered, finished })); } catch (e) {} };
+  const top = root.querySelector('.lesson-top');
+  (top || root).insertAdjacentHTML(top ? 'afterend' : 'afterbegin',
+    '<ol class="steps" aria-label="Steps"></ol><div class="step"><div class="stepn"></div><div class="say"></div><div class="quiz"></div><div class="status"></div>' +
+    '<div class="nav"><button type="button" class="next">Continue</button><button type="button" class="restart">start over</button></div></div>');
+  const dots = root.querySelector('.steps'), stepn = root.querySelector('.stepn'), say = root.querySelector('.say'), quiz = root.querySelector('.quiz'), status = root.querySelector('.status'), next = root.querySelector('.next'), restart = root.querySelector('.restart');
+  for (let k = 0; k < n; k++) { const li = document.createElement('li'); li.setAttribute('role', 'button'); li.tabIndex = 0; li.title = 'step ' + (k + 1); li.addEventListener('click', () => go(k)); li.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(k); } }); dots.appendChild(li); }
+  next.addEventListener('click', () => { if (i < n - 1) go(i + 1); else { finished = true; save(); render(); } });
+  restart.addEventListener('click', () => { met = steps.map(() => false); answered = steps.map(() => false); finished = false; go(0); });
+  function go(k) { i = Math.max(0, Math.min(n - 1, k)); finished = false; if (steps[i].enter) steps[i].enter(); save(); render(); check(); }
+  function reveal() { root.querySelectorAll('[data-step-min]').forEach(el => { el.hidden = (i + 1) < +el.dataset.stepMin; }); }
+  function render() {
+    const s = steps[i];
+    [...dots.children].forEach((li, k) => { li.className = k < i || (k === i && finished) ? 'done' : k === i ? 'cur' : ''; li.setAttribute('aria-current', k === i ? 'step' : 'false'); });
+    stepn.textContent = 'step ' + (i + 1) + ' of ' + n;
+    say.innerHTML = s.say;
+    quiz.innerHTML = '';
+    if (s.quiz) {
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = s.quiz.q; quiz.appendChild(q);
+      const why = document.createElement('div'); why.className = 'why';
+      s.quiz.options.forEach((o, k) => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = o.t;
+        if (answered[i]) { b.disabled = true; if (o.ok) b.className = 'ok'; }
+        b.addEventListener('click', () => {
+          quiz.querySelectorAll('button').forEach(x => x.classList.remove('no'));
+          if (o.ok) { answered[i] = true; save(); render(); return; }
+          b.className = 'no'; why.innerHTML = '<b>Not quite.</b> ' + o.why + ' Try another answer.'; quiz.appendChild(why);
+        });
+        quiz.appendChild(b);
+      });
+      if (answered[i]) { why.innerHTML = '<b>Right.</b> ' + s.quiz.options.find(o => o.ok).why; quiz.appendChild(why); }
+    }
+    const gate = s.quiz && !answered[i];
+    if (s.goal && !gate) status.innerHTML = met[i] ? '<span class="ok">✓</span> ' + (s.done || 'Done.') : '<span class="todo">→ ' + (s.todo || 'do it on the canvas') + '</span>';
+    else if (finished && i === n - 1) status.innerHTML = '<span class="ok">✓</span> Section done.' + (spec.next ? ' <a href="#' + spec.next.id + '">Next: ' + spec.next.title + ' ↓</a>' : '');
+    else status.innerHTML = '';
+    next.disabled = gate || (s.goal && !met[i]) || (finished && i === n - 1);
+    next.textContent = i < n - 1 ? 'Continue' : 'Finish';
+    restart.hidden = i === 0 && !finished;
+    reveal();
+    if (spec.onStep) spec.onStep(i, s);
+  }
+  function check() { const s = steps[i]; if (s.goal && !met[i] && s.goal()) { met[i] = true; save(); render(); } }
+  render(); reveal();
+  const api = { check, go, get step() { return i; }, spec };
+  (window.RL = window.RL || { lessons: {} }).lessons[id] = api;
+  return api;
+}
+// lesson-kit end
 (() => {
   "use strict";
   const W = 256, H = 144, NPX = W * H;
@@ -740,6 +810,7 @@ function kitInset(ctx, x, y, w, h, title) {
   const fmtB = b => b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : b >= 1024 ? (b / 1024).toFixed(0) + " KB" : b + " B";
   const MONO = '11px "IBM Plex Mono", Menlo, Consolas, monospace';
   const AMBER = "#f2a341", BLUE = "#4aa3ff", WHITE = "#ffffff", GREEN = "#5ad48a", RED = "#ef5d5d";
+  let L1, L2, L3, L4, L5, L6;   // the guided lessons, one per stage; every draw ends with a check()
 
   // ---------- scene: a village street at night. 256×144, HDR linear, depth in metres, velocity in px/frame ----------
   const CAM = { fpx: 200, h: 1.5, hor: 60 };
@@ -1006,27 +1077,29 @@ function kitInset(ctx, x, y, w, h, title) {
     }
     const kf = ((FF.y | 0) * W + (FF.x | 0)) * 3;
     const ffPeak = S1.I * luma(bl[kf], bl[kf + 1], bl[kf + 2]);
-    $("c1a-read").innerHTML = `bloom peak <strong>${peak.toFixed(2)}</strong> · at the firefly <strong>${S1.firefly ? ffPeak.toFixed(2) : "off"}</strong> · T ${S1.T.toFixed(2)} K ${S1.K.toFixed(2)}`;
+    S1.stats = { peak, ffPeak };
+    $("c1a-read").innerHTML = `brightest glow <strong>${peak.toFixed(2)}</strong> × white paper · threshold <strong>${S1.T.toFixed(2)}</strong> · strength ${S1.I.toFixed(2)} · soft edge ${S1.K.toFixed(2)}`;
     // chain view
     clear(x1b, 640, 360);
     const M = chain1.mips, U = chain1.ups;
-    label(x1b, "downsample: 13 taps per texel, half size each step", 4, 3, AMBER);
+    label(x1b, "shrink: each copy is half the size of the one before, 13 reads per pixel", 4, 3, AMBER);
     blit(x1b, imageHDR(M[0].d, M[0].w, M[0].h, 4), 4, 16, 256, 144);
     let x = 268; const xs = [];
     for (let l = 1; l <= 6; l++) { blit(x1b, imageHDR(M[l].d, M[l].w, M[l].h, 4), x, 16, M[l].w, M[l].h); xs.push(x); x += M[l].w + 8; }
-    label(x1b, `prefilter ${M[0].w}×${M[0].h}`, 4, 164);
-    label(x1b, `m1 ${M[1].w}×${M[1].h} · m2 ${M[2].w}×${M[2].h} · m3 ${M[3].w}×${M[3].h} · m4 ${M[4].w}×${M[4].h} · m5 ${M[5].w}×${M[5].h} · m6 ${M[6].w}×${M[6].h}`, 268, 164);
-    label(x1b, "upsample: 3×3 tent of the smaller mip, added to this level", 4, 177, BLUE);
+    label(x1b, `the pixels allowed to glow, ${M[0].w}×${M[0].h}`, 4, 164);
+    label(x1b, `copies ${M[1].w}×${M[1].h} · ${M[2].w}×${M[2].h} · ${M[3].w}×${M[3].h} · ${M[4].w}×${M[4].h} · ${M[5].w}×${M[5].h} · ${M[6].w}×${M[6].h}`, 268, 164);
+    label(x1b, "grow back: blur each small copy a little and add it to the next size up", 4, 177, BLUE);
     // ups: [u5, u4, u3, u2, u1, u0]
     blit(x1b, imageHDR(U[5].d, U[5].w, U[5].h, 4), 4, 190, 256, 144);
     for (let l = 1; l <= 5; l++) { const u = U[5 - l]; blit(x1b, imageHDR(u.d, u.w, u.h, 4), xs[l - 1], 190, u.w, u.h); }
-    label(x1b, `bloom = tent(u1) at ${U[5].w}×${U[5].h}`, 4, 338);
-    label(x1b, `u1 = m1 + tent(u2) … u5 = m5 + tent(m6)`, 268, 338);
+    label(x1b, `the finished glow, ${U[5].w}×${U[5].h}`, 4, 338);
+    label(x1b, "each level = its own copy + the blurred level below it", 268, 338);
     const st = chainStats(M);
-    $("c1b-read").innerHTML = `<strong>${fmtB(st.mem)}</strong> for 7 levels · <strong>${fmtN(st.reads)}</strong> bilinear reads`;
-    $("t1-mem").innerHTML = `${fmtB(st.mem)} <small>${fmtB(st.mem * 1920 * 1080 / (4 * NPX))} at 1080p from half res</small>`;
+    $("c1b-read").innerHTML = `glow at the firefly <strong>${S1.firefly ? ffPeak.toFixed(2) : "off"}</strong> · all 7 copies use <strong>${fmtB(st.mem)}</strong> · <strong>${fmtN(st.reads)}</strong> pixel reads a frame`;
+    $("t1-mem").innerHTML = `${fmtB(st.mem)} <small>${fmtB(st.mem * 1920 * 1080 / (4 * NPX))} at 1920×1080, starting from half size</small>`;
     $("t1-reads").innerHTML = `${(st.reads / 1000).toFixed(0)} k <small>${(st.reads / NPX).toFixed(1)} per pixel</small>`;
     $("t1-plain").classList.toggle("on", !S1.karis); $("t1-karis").classList.toggle("on", S1.karis);
+    L1 && L1.check(); L2 && L2.check();
   }
   // firefly flicker: 48×48 crop around the firefly, eight sub-pixel offsets, with and without Karis
   function fireflySweep() {
@@ -1050,7 +1123,7 @@ function kitInset(ctx, x, y, w, h, title) {
     }
     for (const key of ["plain", "karis"]) {
       const r = res[key], el = $("t1-" + key).querySelector(".n");
-      el.innerHTML = `${((r.mx - r.mn) * S1.I).toFixed(2)} <small>peak ${(r.mn * S1.I).toFixed(2)}–${(r.mx * S1.I).toFixed(2)} over 8 offsets</small>`;
+      el.innerHTML = `${((r.mx - r.mn) * S1.I).toFixed(2)} <small>peak ${(r.mn * S1.I).toFixed(2)}–${(r.mx * S1.I).toFixed(2)} over 8 positions</small>`;
     }
   }
   let sweepTimer = 0;
@@ -1092,7 +1165,7 @@ function kitInset(ctx, x, y, w, h, title) {
     const nH = countAbove(scene2.col, 1.0);
     if (S2.mask) maskOver(x2a, scene2.col, 1.0);
     kitLabel(x2a, "only the lamps, the windows and the moon glow", 320, 340, "center", AMBER);
-    $("c2a-read").innerHTML = `threshold 1.0 · <strong>${nH} px</strong> contribute (${(100 * nH / NPX).toFixed(1)} %)`;
+    $("c2a-read").innerHTML = `threshold 1.0 · <strong>${nH} pixels</strong> may glow, ${(100 * nH / NPX).toFixed(1)} % of the picture`;
     const bloomL = bloomChain(thresholdBuf(ldr2, NPX, S2.t, 0.1), W, H, false).bloom;
     const compL = new Float32Array(NPX * 3);
     for (let k = 0; k < NPX * 3; k++) compL[k] = ldr2[k] + I2 * bloomL[k];
@@ -1101,7 +1174,9 @@ function kitInset(ctx, x, y, w, h, title) {
     if (S2.mask) maskOver(x2b, ldr2, S2.t);
     kitLabel(x2b, "house walls, the road and the player glow too", 320, 340, "center", AMBER);
     let mx = 0; for (let k = 0; k < NPX * 3; k++) if (ldr2[k] > mx) mx = ldr2[k];
-    $("c2b-read").innerHTML = `threshold ${S2.t.toFixed(2)} · <strong>${nL} px</strong> contribute (${(100 * nL / NPX).toFixed(1)} %) · max ${mx.toFixed(2)}`;
+    $("c2b-read").innerHTML = `threshold ${S2.t.toFixed(2)} · <strong>${nL} pixels</strong> may glow, ${(100 * nL / NPX).toFixed(1)} % · brightest pixel after the squeeze ${mx.toFixed(2)}`;
+    S2.stats = { nH, nL, mx };
+    L3 && L3.check();
   }
   const upd2 = rafOnce(draw2);
   bind("thr2", "thr2v", v => v.toFixed(2), v => { S2.t = v; upd2(); });
@@ -1231,7 +1306,8 @@ function kitInset(ctx, x, y, w, h, title) {
       }
       blit(x3b, img, 0, 0, 640, 360);
     }
-    $("c3b-cost").innerHTML = `${S3.n} samples · half res ${HW}×${HH} · <strong>${fmtN(dof3.reads)}</strong> reads`;
+    $("c3b-cost").innerHTML = `${S3.n} reads per pixel · blurred at half size, ${HW}×${HH} · <strong>${fmtN(dof3.reads)}</strong> reads in all`;
+    L4 && L4.check();
   }
   function draw3a() {
     clear(x3a, 640, 360);
@@ -1258,8 +1334,8 @@ function kitInset(ctx, x, y, w, h, title) {
     x3a.strokeStyle = "rgba(255,255,255,0.4)"; x3a.beginPath(); x3a.moveTo(L, yOf(0)); x3a.lineTo(R, yOf(0)); x3a.moveTo(L, T); x3a.lineTo(L, B); x3a.stroke();
     for (let d = 0; d <= DMAX; d += 4) label(x3a, d + " m", xOf(d), B + 6, "rgba(255,255,255,0.6)", "center");
     for (let c = -MAXC; c <= MAXC; c += 8) label(x3a, (c > 0 ? "+" : "") + c, L - 6, yOf(c) - 6, "rgba(255,255,255,0.6)", "right");
-    label(x3a, "far, +px", R - 4, T + 2, AMBER, "right"); label(x3a, "near, −px", R - 4, B - 16, BLUE, "right");
-    label(x3a, "CoC, px in the 256 px frame", L + 6, T + 2);
+    label(x3a, "behind the focus", R - 4, T + 2, AMBER, "right"); label(x3a, "in front of the focus", R - 4, B - 16, BLUE, "right");
+    label(x3a, "blur disc width in pixels, in this 256-pixel-wide picture", L + 6, T + 2);
     // focus line
     x3a.strokeStyle = WHITE; x3a.setLineDash([3, 4]); x3a.beginPath(); x3a.moveTo(xOf(S3.df), T); x3a.lineTo(xOf(S3.df), B); x3a.stroke(); x3a.setLineDash([]);
     label(x3a, `focus ${S3.df.toFixed(1)} m`, xOf(S3.df) + 5, B - 30);
@@ -1273,7 +1349,7 @@ function kitInset(ctx, x, y, w, h, title) {
     let dn = null, dfar = null;
     for (let i = 0; i < pts.length; i++) { if (Math.abs(pts[i][2]) < 1) { if (dn === null) dn = pts[i][3]; dfar = pts[i][3]; } }
     const A = S3.f / S3.N, H0 = S3.f * S3.f / (S3.N * (SENSOR / W)) / 1000 + S3.f / 1000;
-    $("c3a-read").innerHTML = `A = f/N = <strong>${A.toFixed(1)} mm</strong> · sharp (|CoC| &lt; 1 px) from <strong>${dn === null ? "—" : dn.toFixed(2) + " m"}</strong> to <strong>${dfar === null ? "—" : (dfar >= DMAX - 0.1 ? "∞" : dfar.toFixed(2) + " m")}</strong> · hyperfocal ${H0.toFixed(1)} m`;
+    $("c3a-read").innerHTML = `lens opening <strong>${A.toFixed(1)} mm</strong> wide · sharp from <strong>${dn === null ? "nowhere" : dn.toFixed(2) + " m"}</strong> to <strong>${dfar === null ? "nowhere" : (dfar >= DMAX - 0.1 ? "as far as it draws" : dfar.toFixed(2) + " m")}</strong> · focus at ${H0.toFixed(1)} m and everything past ${(H0 / 2).toFixed(1)} m is sharp`;
   }
   const upd3 = rafOnce(() => { draw3a(); draw3b(); });
   bind("fl3", "fl3v", v => v + " mm", v => { S3.f = v; upd3(); });
@@ -1286,9 +1362,9 @@ function kitInset(ctx, x, y, w, h, title) {
   c3b.addEventListener("pointermove", ev => {
     const [i, j] = pixelOf(c3b, ev); if (i < 0 || j < 0 || i >= W || j >= H) return;
     const k = j * W + i, d = scene3.dep[k], c = coc3[k];
-    $("c3b-read").innerHTML = `px (${i}, ${j}) · depth <strong>${d >= 999 ? "sky" : d.toFixed(2) + " m"}</strong> · CoC <strong>${c >= 0 ? "+" : "−"}${Math.abs(c).toFixed(1)} px</strong> (${(Math.abs(c) * 7.5).toFixed(0)} px at 1920) · ${Math.abs(c) < 1 ? "sharp" : c > 0 ? "far field" : "near field"}`;
+    $("c3b-read").innerHTML = `pixel (${i}, ${j}) · <strong>${d >= 999 ? "sky" : d.toFixed(2) + " m away"}</strong> · disc <strong>${Math.abs(c).toFixed(1)} px</strong> wide here, ${(Math.abs(c) * 7.5).toFixed(0)} px on a 1920-wide screen · ${Math.abs(c) < 1 ? "sharp" : c > 0 ? "behind the focus" : "in front of the focus"}`;
   });
-  c3b.addEventListener("pointerleave", () => { $("c3b-read").textContent = "hover for depth and CoC"; });
+  c3b.addEventListener("pointerleave", () => { $("c3b-read").textContent = "hover the picture to read a pixel's distance and blur size"; });
   draw3a(); draw3b();
 
   // ---------- 4. motion blur ----------
@@ -1353,7 +1429,7 @@ function kitInset(ctx, x, y, w, h, title) {
       kitLabel(x4, `car · ${ball > 0 ? "+" : ""}${ball} px/frame on screen`, 400, 136, "center", AMBER);
       kitLabel(x4, `player · in front, ${S4.pan === 0 ? "still" : "moving with the street"}`, 245, 106, "center");
       kitLabel(x4, `street pans ${S4.pan > 0 ? "+" : ""}${S4.pan} px/frame`, 632, 340, "right");
-      $("c4-cost").innerHTML = `${S4.n} samples · <strong>${fmtN(mb.reads)}</strong> reads`;
+      $("c4-cost").innerHTML = `${S4.n} reads per pixel · <strong>${fmtN(mb.reads)}</strong> reads in all`;
     } else {
       const img = new ImageData(W, H), p = img.data, v = scene4.vel;
       for (let k = 0; k < NPX; k++) {
@@ -1378,11 +1454,13 @@ function kitInset(ctx, x, y, w, h, title) {
           if (Math.hypot(ax, ay) >= 1) arrow(x4, cx - ax / 2, cy - ay / 2 - 5, cx + ax / 2, cy + ay / 2 - 5, AMBER, 1.5);
         }
       }
-      if (S4.view === "tile") { label(x4, "amber: tile max · blue: neighbour max, 3×3 tiles", 6, 344, "rgba(255,255,255,0.85)"); }
-      else label(x4, "per-pixel velocity × shutter, one arrow per 16 px tile", 6, 344, "rgba(255,255,255,0.85)");
-      $("c4-cost").innerHTML = `${TX}×${TY} tiles of ${TS} px`;
+      if (S4.view === "tile") { label(x4, "amber: longest move in this block · blue: longest move in the 9 blocks around it", 6, 344, "rgba(255,255,255,0.85)"); }
+      else label(x4, "how far the pixels moved while the shutter was open, one arrow per 16-pixel block", 6, 344, "rgba(255,255,255,0.85)");
+      $("c4-cost").innerHTML = `${TX}×${TY} blocks of ${TS} pixels`;
     }
-    $("c4-read").innerHTML = `car <strong>${ball > 0 ? "+" : ""}${ball} px/frame</strong> · street and player <strong>${S4.pan > 0 ? "+" : ""}${S4.pan}</strong> · car blur length <strong>${(Math.abs(ball) * S4.shutter).toFixed(1)} px</strong> · shutter ${(S4.shutter * 16.7).toFixed(1)} ms`;
+    $("c4-read").innerHTML = `car moves <strong>${ball > 0 ? "+" : ""}${ball} px</strong> a frame on screen · street and player <strong>${S4.pan > 0 ? "+" : ""}${S4.pan} px</strong> · car smear <strong>${(Math.abs(ball) * S4.shutter).toFixed(1)} px</strong> long · shutter open ${(S4.shutter * 16.7).toFixed(1)} of 16.7 ms`;
+    S4.ball = ball;
+    L5 && L5.check();
   }
   const upd4 = rafOnce(draw4);
   onSeg("seg4v", v => { S4.view = v; upd4(); });
@@ -1441,7 +1519,7 @@ function kitInset(ctx, x, y, w, h, title) {
       x5.strokeStyle = "rgba(255,255,255,0.3)"; x5.lineWidth = 1; x5.strokeRect(x + 0.5, 16.5, tw - 1, th - 1);
       label(x5, n === "Tone map + grade" ? "tone map" : n.startsWith("Upscaler") ? "upscaler" : n.toLowerCase(), x + tw / 2, 74, "rgba(255,255,255,0.75)", "center");
     });
-    label(x5, `post stack at ${ow}×${oh} · estimated ms per pass, in order`, 16, 92);
+    label(x5, `the passes at ${ow}×${oh} · estimated milliseconds each, in order`, 16, 92);
     // one row per pass, bars on a shared scale
     const bx0 = 140, bw = 168, maxMs = Math.max(...list.map(p => p.ms), 0.01), rowH = 22;
     list.forEach((p, i) => {
@@ -1454,13 +1532,13 @@ function kitInset(ctx, x, y, w, h, title) {
     });
     // the frame: 16.7 ms, post stack share filled in
     const fy = 108 + list.length * rowH + 8, fw = 360;
-    label(x5, "60 Hz frame, 16.7 ms · post stack share", 16, fy);
+    label(x5, "one 60 Hz frame is 16.7 ms · the share these passes take", 16, fy);
     x5.fillStyle = "rgba(255,255,255,0.06)"; x5.fillRect(16, fy + 16, fw, 16);
     x5.fillStyle = total > 16.7 ? RED : GREEN; x5.fillRect(16, fy + 16, Math.min(fw, fw * total / 16.7), 16);
     label(x5, `${total.toFixed(2)} ms · ${(100 * total / 16.7).toFixed(0)} %`, 16 + Math.min(fw, fw * total / 16.7) + 6, fy + 18, total > 16.7 ? RED : GREEN);
     // render targets to scale, right column
     const s = 200 / 3840, ox = 400, oy = 124;
-    label(x5, "render targets to scale", ox, oy - 18);
+    label(x5, "the images the passes draw into, to scale", ox, oy - 18);
     const box = (w, h, c) => { x5.strokeStyle = c; x5.lineWidth = 1.5; x5.strokeRect(ox + 0.5, oy + 0.5, w * s, h * s); };
     box(ow, oh, WHITE); if (internal < 1) box(pw, ph, BLUE); box(pw / 2, ph / 2, AMBER); box(pw / 4, ph / 4, "#c98a3a");
     let ly = oy + oh * s + 8;
@@ -1468,19 +1546,123 @@ function kitInset(ctx, x, y, w, h, title) {
     if (internal < 1) { label(x5, `internal ${pw}×${ph} · ${fmtN(pw * ph)} px`, ox, ly, BLUE); ly += 14; }
     label(x5, `half ${pw / 2 | 0}×${ph / 2 | 0} · ${fmtN(pw * ph / 4)} px · DoF`, ox, ly, AMBER); ly += 14;
     label(x5, `quarter ${pw / 4 | 0}×${ph / 4 | 0} · ${fmtN(pw * ph / 16)} px`, ox, ly, "#c98a3a"); ly += 14;
-    label(x5, `RGBA16F at output: ${fmtB(ow * oh * 8)}`, ox, ly, "rgba(255,255,255,0.6)");
+    label(x5, `one full-size colour image: ${fmtB(ow * oh * 8)}`, ox, ly, "rgba(255,255,255,0.6)");
     label(x5, "order: " + list.map(p => p.name.split(" (")[0].toLowerCase()).join(" → "), 16, 322, "rgba(255,255,255,0.6)");
-    label(x5, `post targets ${fmtB(mem)} · velocity ${fmtB(pw * ph * 4)} · depth ${fmtB(pw * ph * 4)}`, 16, 338, "rgba(255,255,255,0.6)");
+    label(x5, `all pass images ${fmtB(mem)} · movement map ${fmtB(pw * ph * 4)} · depth map ${fmtB(pw * ph * 4)}`, 16, 338, "rgba(255,255,255,0.6)");
     $("t5-ms").textContent = total.toFixed(2) + " ms";
     $("t5-pct").innerHTML = `${(100 * total / 16.7).toFixed(0)} % <small>${total > 16.7 ? "over" : (16.7 - total).toFixed(1) + " ms left"}</small>`;
     $("t5-mem").textContent = fmtB(mem);
-    $("c5-read").innerHTML = `<strong>${list.length} passes</strong> · ${fmtN(list.reduce((a, p) => a + p.px, 0))} pixel-passes`;
+    $("c5-read").innerHTML = `<strong>${list.length} passes</strong> · ${fmtN(list.reduce((a, p) => a + p.px, 0))} pixels touched a frame, all passes added up`;
     $("tbl5-body").innerHTML = list.map(p => `<tr><td>${p.name}</td><td>${p.res}</td><td>${fmtN(p.px)}</td><td class="hi">${p.ms.toFixed(2)}</td><td>${p.targets}</td></tr>`).join("") + `<tr><td>Total</td><td></td><td></td><td class="hi">${total.toFixed(2)}</td><td>${fmtB(mem)}</td></tr>`;
+    S5.total = total;
+    L6 && L6.check();
   }
   onSeg("seg5r", v => { S5.res = v; draw5(); });
   onSeg("seg5a", v => { S5.aa = v; draw5(); });
   $("half5").addEventListener("change", ev => { S5.half = ev.target.checked; draw5(); });
   $("quart5").addEventListener("change", ev => { S5.quarter = ev.target.checked; draw5(); });
   draw5();
+
+  // ---------- guided steps ----------
+  const set1 = o => { Object.assign(S1, o); $("thr1").value = S1.T; $("thr1v").textContent = S1.T.toFixed(2); $("int1").value = S1.I; $("int1v").textContent = S1.I.toFixed(2); $("knee1").value = S1.K; $("knee1v").textContent = S1.K.toFixed(2); segOn($("seg1v"), S1.view); $("ff1").checked = S1.firefly; $("karis1").checked = S1.karis; $("anim1").checked = S1.anim; $("off1").value = S1.off; $("off1v").textContent = S1.off.toFixed(2) + " px"; compute1(); draw1(); };
+  L1 = lesson("bloom", { next: { id: "chain", title: "Why the glow is cheap" }, steps: [
+    { say: "A village street at night, drawn with <b>bloom</b>: the soft glow around the lamps, the tavern window and the moon. The game stores each pixel's brightness as a real number with no ceiling. White paper is 1, the moon is 4, a lamp head is 50, the player is under 0.5. A screen can only show 0 to 1, so the picture is squeezed to fit at the very end.", enter: () => set1({ T: 1, I: 0.2, K: 0.5, view: "composite", firefly: false, karis: false, anim: false, off: 0 }) },
+    { say: "", quiz: { q: "What decides whether a thing in the street glows?", options: [
+        { t: "Whether the game lists it as a light", why: "The bloom pass never sees a list of lights. It only sees pixels." },
+        { t: "Whether its pixels are brighter than one number, the threshold", ok: true, why: "Every pixel is compared with the threshold, 1 here, which is white paper. Brighter pixels get to glow, whatever they belong to." },
+        { t: "How big it is on screen", why: "Size changes how wide the glow ends up, not whether there is one." } ] },
+      todo: "switch the view to the pixels allowed to glow", goal: () => S1.view === "pre", try: () => $("seg1v").querySelector('[data-v="pre"]').click(),
+      done: "Only the lamp heads, the windows, the neon sign and the moon survive. Everything else is black. This is the picture the glow is built from, and it is under 2 % of the pixels." },
+    { say: "<b>Drag the glow threshold down to 0</b>, so every pixel counts as bright.", todo: "drag the threshold to 0", goal: () => S1.T <= 0.2, try: () => { $("thr1").value = 0; $("thr1").dispatchEvent(new Event("input")); }, enter: () => set1({ T: 1, view: "composite" }),
+      done: "The whole street glows, even the road, and the picture goes milky. The threshold is a brightness, not a list of things: set it too low and plain walls glow like lamps." },
+    { say: "Back at 1. Now <b>drag the glow strength up to 0.8</b>.", todo: "drag the strength to 0.8 or more", goal: () => S1.I >= 0.75, try: () => { $("int1").value = 0.8; $("int1").dispatchEvent(new Event("input")); }, enter: () => set1({ T: 1, I: 0.2, view: "composite" }),
+      done: "The same few things glow, only harder. Two separate knobs: the threshold picks who glows, the strength says how much. Most of the look of a game's bloom is these two numbers." },
+    { say: "One more knob. Imagine a pixel whose brightness sits right at the threshold and wobbles a little from frame to frame.", quiz: { q: "With a hard cut at exactly 1, what does that pixel do?", options: [
+        { t: "It glows steadily", why: "One frame it is over the line and glows, the next it is under and does not." },
+        { t: "It flickers in and out of the glow", ok: true, why: "That is why there is a soft edge: a pixel fades into the glow over a range around the threshold instead of switching. You cannot see it on a still picture, only when things move." },
+        { t: "It glows at half strength", why: "A hard cut has no half. Half strength is exactly what the soft edge adds." } ] } },
+    { say: "A threshold picks the bright pixels, a strength scales their glow, and a soft edge stops flicker at the line. The next stage shows how the glow gets so wide for so little work. The fade formula is under the hood." } ] });
+
+  L2 = lesson("chain", { next: { id: "order", title: "Glow first, then squeeze for the screen" }, steps: [
+    { say: "This is the work behind the glow, shown 4 times brighter so the small copies are visible. Top row: the pixels allowed to glow, then six copies, each half the size of the one before, down to 4×3 pixels. Bottom row: the copies grown back up, each blurred a little and added to the next size. The bottom-left picture is the finished glow.", enter: () => set1({ T: 1, I: 0.2, K: 0.5, firefly: false, karis: false, anim: false, off: 0 }) },
+    { say: "", quiz: { q: "Why shrink the picture before blurring it?", options: [
+        { t: "Small pictures use less memory, so the blur is free", why: "Memory is part of it, the tiles say how much, but the point is the size of the blur." },
+        { t: "A small blur on a tiny copy is a huge blur on the full picture", ok: true, why: "Blurring 3 pixels on the 4×3 copy is a blur about 200 pixels wide once it is grown back. That is how the glow reaches across the street for about 16 reads per pixel, the number in the tiles. A read is one pixel the graphics card has to look at, and reads are what a pass costs." },
+        { t: "Shrinking is what makes the glow bright", why: "Shrinking averages pixels, which makes things dimmer, not brighter. Brightness comes from the strength slider." } ] } },
+    { say: "Now the catch. <b>Tick add a firefly</b>: one single pixel over the trees at 400 times white, the kind of spark a wet surface throws.", todo: "tick add a firefly", goal: () => S1.firefly, try: () => $("ff1").click(),
+      done: "A dot appears over the trees in the top-left picture, a glow spot in the bottom-left one, and the caption reads the glow it makes. One pixel is now the brightest thing in the street." },
+    { say: "<b>Slide the firefly sideways</b> to about half a pixel, and watch the glow number in the caption.", todo: "drag the slider to about half a pixel", goal: () => S1.firefly && S1.off >= 0.4, try: () => { $("off1").value = 0.5; $("off1").dispatchEvent(new Event("input")); }, enter: () => set1({ firefly: true, anim: false, off: 0 }),
+      done: "The glow it makes changes as it slides. The first shrink reads the picture in 2×2 blocks, and depending on where the spark sits one block gets all of it or two blocks share it, so its glow swings between two sizes. On screen that is a pulsing spark. The tick box above the slider animates it." },
+    { say: "<b>Tick the Karis vote.</b> On the first shrink, each group of four pixels takes a vote in which dim pixels count more than bright ones.", todo: "tick the Karis vote", goal: () => S1.karis, try: () => $("karis1").click(), enter: () => set1({ firefly: true, off: 0.5 }),
+      done: "Compare the two flicker tiles: the swing dropped more than ten times. One 400× pixel can no longer outvote three dim neighbours, so the spark keeps a steady, smaller glow." },
+    { say: "Shrink, blur a little, grow back, add. The tiles say what the copies cost in memory and reads. The 13-read pattern and the vote formula are under the hood." } ] });
+
+  const set2 = o => { Object.assign(S2, o); $("mask2").checked = S2.mask; $("thr2").value = S2.t; $("thr2v").textContent = S2.t.toFixed(2); draw2(); };
+  L3 = lesson("order", { next: { id: "dof", title: "Depth of field: blur by distance" }, steps: [
+    { say: "The same street twice. A screen can only show brightness from 0 to 1, so before the picture leaves the graphics card it is <b>squeezed</b>: a curve that keeps 0 at 0, puts 1 at about 0.5 and 50 at 0.98. On the left the glow was worked out on the raw brightness and the squeeze came last. On the right the squeeze came first and the glow ran on the squeezed picture. Look at the house walls on the right.", enter: () => set2({ mask: false, t: 0.3 }) },
+    { say: "After the squeeze, the brightest pixel in the whole picture is 0.98.", quiz: { q: "With the glow threshold still at 1, how many pixels on the right would be allowed to glow?", options: [
+        { t: "The same ones as on the left", why: "The lamp heads were 50 before the squeeze. Now they are 0.98, under the threshold like everything else." },
+        { t: "None, so the threshold has to come down, and then walls count too", ok: true, why: "Nothing beats 1 any more. To get any glow at all the threshold has to drop to 0.3 or so, and at 0.3 a beige wall passes as easily as a lamp. That is the fog on the right." },
+        { t: "Only the moon", why: "The moon was 4 before the squeeze and is 0.8 after it. Nothing passes 1." } ] } },
+    { say: "<b>Tick highlight the pixels allowed to glow.</b>", todo: "tick the highlight box", goal: () => S2.mask, try: () => $("mask2").click(), enter: () => set2({ t: 0.3 }),
+      done: "Left: the lamp heads, the windows, the sign and the moon, under 2 % of the picture. Right: the walls, the road around the lamps, the player's shirt. The captions count them. Same blur, wrong input." },
+    { say: "<b>Drag the threshold on the squeezed picture up to 0.9</b> and see whether a higher number rescues the right side.", todo: "drag the threshold to 0.9", goal: () => S2.t >= 0.85, try: () => { $("thr2").value = 0.9; $("thr2").dispatchEvent(new Event("input")); }, enter: () => set2({ mask: true, t: 0.3 }),
+      done: "The walls drop out, but so do the windows, the sign and the dimmer lamps: a window was 3 times white before the squeeze and 0.75 after, a lamp at 6 became 0.86. The squeeze already threw away the difference between a lamp and a wall, and no threshold gets it back." },
+    { say: "Work out the glow on the raw brightness and squeeze once at the very end. The same rule holds for the next two effects: blur the raw picture, never the squeezed one. Both orders are written out under the hood." } ] });
+
+  const set3 = o => { Object.assign(S3, o); $("fd3").value = S3.df; $("fd3v").textContent = S3.df.toFixed(1) + " m"; $("fs3").value = S3.N; $("fs3v").textContent = "f/" + S3.N.toFixed(1); $("fl3").value = S3.f; $("fl3v").textContent = S3.f + " mm"; segOn($("seg3m"), S3.mode); segOn($("seg3s"), S3.shape); segOn($("seg3n"), S3.n); segOn($("seg3v"), S3.view); draw3a(); draw3b(); };
+  L4 = lesson("dof", { next: { id: "mblur", title: "Motion blur: smear along the movement" }, steps: [
+    { say: "The player at 4 m is sharp; the crates at 2.5 m and the lamps and trees behind are blurred. A lens is sharp at <b>one distance only</b>. Anything nearer or farther lands as a small disc, and the farther from the focus, the wider the disc. The graph above plots disc width against distance: blue is in front of the focus, amber behind.", enter: () => set3({ f: 100, N: 1.4, df: 4, mode: "gather", shape: "circle", n: 32, view: "image" }) },
+    { say: "<b>Switch the view to blur size per pixel.</b>", todo: "switch the view below", goal: () => S3.view === "coc", try: () => $("seg3v").querySelector('[data-v="coc"]').click(),
+      done: "This is the map the blur works from, one disc width per pixel: blue in front of the focus, amber behind, brighter meaning a wider disc, black where it is sharp. The game gets it from the distance it already stored for every pixel while drawing. Hover the picture to read one pixel." },
+    { say: "<b>Drag the focus distance to 2.5 m</b>, where the crates stand.", todo: "set the focus to about 2.5 m", goal: () => S3.df >= 2.0 && S3.df <= 3.0, try: () => { $("fd3").value = 2.5; $("fd3").dispatchEvent(new Event("input")); }, enter: () => set3({ df: 4, view: "image" }),
+      done: "The crates are sharp and the player has gone soft and amber: behind the focus now. On the graph the dashed line moved and every dot slid along the curve. Focus is one number the game can animate, which is how a cutscene pulls your eye from one face to another." },
+    { say: "The f-stop is the size of the lens opening. f/1.4 is wide open, f/16 is a pinhole.", quiz: { q: "What happens to the blur at f/16?", options: [
+        { t: "Everything blurs more", why: "A wider opening makes wider discs. f/16 is the narrow end." },
+        { t: "Almost everything is sharp", ok: true, why: "A narrow opening makes tiny discs at every distance, so the curve flattens and the whole street sits inside the sharp band. Phone cameras live here; a wide opening is what makes a portrait's background melt." },
+        { t: "The focus distance moves", why: "The focus stays where it was set. Only the disc widths change." } ] },
+      todo: "drag the f-stop to f/16", goal: () => S3.N >= 12, try: () => { $("fs3").value = 16; $("fs3").dispatchEvent(new Event("input")); }, enter: () => set3({ df: 4, N: 1.4, view: "image" }),
+      done: "The graph is nearly flat, the caption says sharp as far as it draws, and the street is crisp from the crates to the trees." },
+    { say: "Back at f/1.4. So far the blur has been done the careful way. <b>Switch how to blur to each pixel by its own disc size</b>, the obvious way.", todo: "switch the method below", goal: () => S3.mode === "naive", try: () => $("seg3m").querySelector('[data-v="naive"]').click(), enter: () => set3({ df: 4, N: 1.4, mode: "gather", view: "image" }),
+      done: "Two things go wrong. The blurred crates get a razor edge against the player, and the sharp player grows a halo into the blurred street behind. A real lens lets blurry near things spill over sharp far things, never the other way round, so engines blur the near and far sides separately and check each neighbour's disc." },
+    { say: "The careful method is back. <b>Pick hexagon and 16 reads per pixel.</b>", todo: "pick hexagon and 16 reads", goal: () => S3.shape === "hex" && S3.n === 16, try: () => { $("seg3s").querySelector('[data-v="hex"]').click(); $("seg3n").querySelector('[data-v="16"]').click(); }, enter: () => set3({ mode: "gather", shape: "circle", n: 32, view: "image" }),
+      done: "Each street lamp becomes a six-sided spot, the shape of a real lens's blades, and with only 16 reads per pixel each spot breaks into dots. Engines take 64 reads, or blur at half size, or both. The caption counts the reads." },
+    { say: "Disc width comes from the distance to the focus and the lens opening, near blur spills over far things and not the reverse, and the reads per pixel set the cost. The lens formula and the neighbour check are under the hood." } ] });
+
+  const set4 = o => { Object.assign(S4, o); segOn($("seg4v"), S4.view); segOn($("seg4w"), S4.weight); segOn($("seg4n"), S4.n); $("sh4").value = S4.shutter; $("sh4v").textContent = S4.shutter.toFixed(2) + " frame"; $("ov4").value = S4.objVx; $("ov4v").textContent = (S4.objVx < 0 ? "−" : "") + Math.abs(S4.objVx) + " px/frame"; $("pan4").value = S4.pan; $("pan4v").textContent = (S4.pan < 0 ? "−" : "") + Math.abs(S4.pan) + " px/frame"; draw4(); };
+  L5 = lesson("mblur", { next: { id: "cost", title: "What the whole stack costs" }, steps: [
+    { say: "A car passes behind the player while the camera pans, so the street slides left. Since the last frame, one sixtieth of a second ago, the car moved 10 pixels right on screen and everything else moved 4 pixels left. <b>Motion blur</b> smears each pixel along the way it moved, and the car is smeared.", enter: () => set4({ shutter: 0.5, n: 8, objVx: 14, pan: -4, weight: "depth", view: "result" }) },
+    { say: "<b>Switch the view to movement arrows.</b>", todo: "switch the view below", goal: () => S4.view === "vel", try: () => $("seg4v").querySelector('[data-v="vel"]').click(),
+      done: "One arrow per 16-pixel block: how far the pixels there moved while the shutter was open. The game writes this for every pixel as it draws, by comparing where each thing is now with where it was last frame. That record is the movement map, and the blur reads it." },
+    { say: "Think about the car's back edge. The car pixels moved right; the street pixels just behind them moved left.", quiz: { q: "If every pixel is smeared along its own arrow, what happens at that edge?", options: [
+        { t: "The car's smear spreads onto the street behind it", why: "The street pixels have their own short arrow, so they only ever pull in street. Nothing carries the car's colour past its edge." },
+        { t: "The smear stops dead at the car's edge", ok: true, why: "A street pixel smears along the street's arrow and never reads the car. So the car gets a smeared inside and a hard cut-out outline, which no real camera produces." },
+        { t: "The street smears over the car", why: "The street's arrow is short, 4 pixels, so it barely smears at all." } ] },
+      todo: "switch the smear to its own movement", goal: () => S4.weight === "own", try: () => $("seg4w").querySelector('[data-v="own"]').click(), enter: () => set4({ view: "result", weight: "depth", objVx: 14, pan: -4 }),
+      done: "A car-shaped cut-out with a blurred inside. The fix is to let each pixel smear along the longest movement near it, not just its own." },
+    { say: "<b>Switch the view to longest move per block.</b>", todo: "switch the view below", goal: () => S4.view === "tile", try: () => $("seg4v").querySelector('[data-v="tile"]').click(),
+      done: "Amber: the longest move inside each block. Blue: the longest move in the nine blocks around it. Every pixel near the car now smears along the car's arrow, so the car's colour can reach past its own edge onto the street." },
+    { say: "Now a trap. <b>Set the camera pan to −8 and the car speed to 8</b>, so the car stands still on screen while the street slides past it.", todo: "set pan to −8 and car speed to 8", goal: () => Math.abs(S4.pan + S4.objVx) <= 2 && S4.pan <= -6, try: () => { $("pan4").value = -8; $("pan4").dispatchEvent(new Event("input")); $("ov4").value = 8; $("ov4").dispatchEvent(new Event("input")); }, enter: () => set4({ view: "result", weight: "depth", objVx: 14, pan: -4 }),
+      done: "The caption reads car moves 0 px. The car is sharp and the street is smeared, which is what a camera following a car sees." },
+    { say: "<b>Switch the smear to the longest move nearby</b>, the one without the depth check.", todo: "switch the smear below", goal: () => S4.weight === "nmax", try: () => $("seg4w").querySelector('[data-v="nmax"]').click(), enter: () => set4({ view: "result", weight: "depth", objVx: 8, pan: -8 }),
+      done: "The moving street behind the car eats the car's edge. The blocks say the longest move nearby is the street's, so the still car gets smeared too. The depth check stops it: a pixel may only be smeared over by something in front of it, and the still car is in front of the street. The player, in front of everything, never gets the car's smear either." },
+    { say: "Smear along the longest movement nearby, and let distance decide who smears over whom. The shutter slider sets how much of a frame's travel to smear, and the reads per pixel set the cost. The weight for each neighbour is under the hood." } ] });
+
+  const set5 = o => { Object.assign(S5, o); segOn($("seg5r"), S5.res); segOn($("seg5a"), S5.aa); $("half5").checked = S5.half; $("quart5").checked = S5.quarter; draw5(); };
+  L6 = lesson("cost", { next: { id: "tradeoffs", title: "Tradeoffs" }, steps: [
+    { say: "The strip along the top is the street after each pass, in the order they run: the car smears, the crates and trees soften, the lamps glow, the colours get squeezed, the edges get smoothed, and the health bar goes on last. The bars under it are each pass's estimated time. The long bar is the whole stack against one frame at 60 frames a second, which is 16.7 ms: green if it fits. The rectangles on the right are the images each pass draws into, to scale.", enter: () => set5({ res: "1080p", aa: "taa", half: true, quarter: false }) },
+    { say: "Each pass is cheap per pixel, a fraction of a nanosecond, but it touches every pixel of the screen.", quiz: { q: "Switch the screen from 1920×1080 to 3840×2160, four times the pixels. How much longer does the stack take?", options: [
+        { t: "About the same, the passes have not changed", why: "The passes are the same, but each one now has four times as many pixels to touch." },
+        { t: "About four times", ok: true, why: "Every pass touches every pixel, so the time follows the pixel count. The tiles show the total and its share of the frame." },
+        { t: "About twice", why: "Twice the width and twice the height is four times the pixels, and the time follows the pixels." } ] },
+      todo: "switch the screen size to 3840×2160", goal: () => S5.res === "4K", try: () => $("seg5r").querySelector('[data-v="4K"]').click(),
+      done: "Every bar grew about four times, and the stack now takes a real slice of the frame. That slice comes out of the time left for drawing the game itself." },
+    { say: "Depth of field is the most expensive pass per pixel, so it runs on a half-size copy of the picture. <b>Untick depth of field at half size.</b>", todo: "untick the box", goal: () => !S5.half, try: () => $("half5").click(), enter: () => set5({ res: "4K", half: true }),
+      done: "Its bar is about four times longer: full size is four times the pixels. Blur hides the missing detail, so almost every game keeps this box ticked." },
+    { say: "The box is ticked again. Now <b>tick bloom starts from a quarter-size copy</b>.", todo: "tick the bloom box", goal: () => S5.half && S5.quarter, try: () => { if (!S5.half) $("half5").click(); $("quart5").click(); }, enter: () => set5({ res: "4K", half: true, quarter: false }),
+      done: "The bloom bar nearly vanishes. Bloom is already a blur, so starting from a smaller picture costs nothing you can see." },
+    { say: "<b>Pick upscaler, effects before it at 67 % size.</b> An upscaler is a pass that turns a smaller picture into a full-size one, filling in the missing pixels from earlier frames.", todo: "pick the upscaler option", goal: () => S5.aa === "upBefore", try: () => $("seg5a").querySelector('[data-v="upBefore"]').click(), enter: () => set5({ res: "4K", half: true, quarter: true, aa: "taa" }),
+      done: "Every pass before the upscaler now runs on the smaller blue rectangle, under half the pixels, and only the upscaler and the health bar touch the full screen. That is how DLSS, FSR and XeSS make 4K affordable." },
+    { say: "Post passes are cheap per pixel and expensive per frame. Shrink the picture before you blur it, and put the upscaler as late as you can. The per-pass numbers and the table of image sizes are under the hood." } ] });
 })();
 </script>
