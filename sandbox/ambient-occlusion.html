@@ -15,7 +15,7 @@ import { boot, THREE, PAL } from './_kit.js';
 
 const sb = boot({
   slug: 'ambient-occlusion', title: 'Ambient Occlusion',
-  blurb: 'The camp\'s cellar with the roof off, drawn by a real GPU with a real screen-space ambient occlusion pass. Fire true rays for the answer, then guess it from the depth photo with test dots or a skyline march, clean the noise up with a blur and last frames, and see where the photo gets it wrong.',
+  blurb: 'The camp\'s cellar with the roof off, drawn by a real GPU with a real screen-space ambient occlusion pass. Left of the line the picture is darkened by the guess from the depth photo; right of the line by the true answer, rays fired from every point at the real shapes. Tune the guess with test dots or a skyline march, clean its noise up, and see in red every pixel it gets wrong.',
   camera: { pos: [3.5, 7.5, 12], target: [0.2, 0.6, -1.2], near: 0.1, far: 200 }
 });
 const scene = sb.scene, camera = sb.camera, renderer = sb.renderer;
@@ -24,7 +24,7 @@ sb.lights.hemi.intensity = 1.15; sb.lights.sun.intensity = 1.0;
 
 // ---- the cellar: every prop is a box, cylinder or sphere so the true-answer pass can trace the same shapes
 const world = sb.world;
-world.ground(60, PAL.grass);
+world.ground(60, PAL.grass).material.color.setHex(0x3f6a45);
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(9.6, 7.6), sb.mat(PAL.wall)); floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0.012, 0); floor.receiveShadow = true; floor.userData.sdf = false; scene.add(floor);
 const box = (w, h, d, x, y, z, colour, rotY = 0, rotZ = 0) => { const m = sb.mesh(new THREE.BoxGeometry(w, h, d), sb.mat(colour), x, y, z); m.rotation.set(0, rotY, rotZ); scene.add(m); return m; };
 const cyl = (r, h, x, y, z, colour, rotZ = 0, rotY = 0) => { const m = sb.mesh(new THREE.CylinderGeometry(r, r, h, 18), sb.mat(colour), x, y, z); m.rotation.set(0, rotY, rotZ); scene.add(m); return m; };
@@ -151,24 +151,24 @@ void main() { float d = texture(tG, vUv).a; float a = texture(tBlur, vUv).r; if 
   uniforms: { tG: { value: null }, tBlur: { value: null }, tHist: { value: null }, uProj: { value: camera.projectionMatrix }, uInvProj: { value: camera.projectionMatrixInverse }, uRes: { value: new THREE.Vector2(1, 1) }, uGRes: { value: new THREE.Vector2(1, 1) }, uRadius: aoMat.uniforms.uRadius, uSeed: { value: 0 },
     uCamWorld: { value: camera.matrixWorld }, uPrevView: { value: new THREE.Matrix4() }, uPrevProj: { value: new THREE.Matrix4() }, uAlpha: { value: 0.1 }, uTau: { value: 0.2 }, uReject: { value: 1 }, uOn: { value: 1 } } });
 
-const showMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D tG, tAO, tTruth; uniform int uMode; uniform float uFar;
+const showMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D tG, tAO, tTruth; uniform int uMode; uniform float uFar, uSplit;
 vec3 srgb(float v) { return vec3(pow(clamp(v, 0.0, 1.0), 1.0 / 2.2)); }
 void main() { float d = texture(tG, vUv).a; if (d <= 0.0) { o = vec4(0.04, 0.055, 0.075, 1.0); return; }
   if (uMode == 1) { o = vec4(srgb(1.0 - d / uFar), 1.0); return; }
-  float ao = texture(tAO, vUv).r; if (uMode == 2) { o = vec4(srgb(ao), 1.0); return; }
+  float ao = texture(tAO, vUv).r; if (uMode == 2) { o = vec4(srgb(vUv.x >= uSplit ? texture(tTruth, vUv).r : ao), 1.0); return; }
   float tr = texture(tTruth, vUv).r; if (uMode == 3) { o = vec4(srgb(tr), 1.0); return; }
   float e = abs(ao - tr); vec3 c = e < 0.15 ? mix(vec3(0.05, 0.08, 0.14), vec3(0.29, 0.64, 1.0), e / 0.15) : e < 0.35 ? mix(vec3(0.29, 0.64, 1.0), vec3(0.95, 0.64, 0.25), (e - 0.15) / 0.2) : mix(vec3(0.95, 0.64, 0.25), vec3(1.0), clamp((e - 0.35) / 0.3, 0.0, 1.0)); o = vec4(c, 1.0); }`,
-  uniforms: { tG: { value: null }, tAO: { value: null }, tTruth: { value: null }, uMode: { value: 0 }, uFar: { value: 32 } } });
+  uniforms: { tG: { value: null }, tAO: { value: null }, tTruth: { value: null }, uMode: { value: 0 }, uFar: { value: 32 }, uSplit: { value: 2 } } });
 const errMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D tG, tAO, tTruth;
 void main() { float d = texture(tG, vUv).a; if (d <= 0.0) { o = vec4(0.0); return; } o = vec4(abs(texture(tAO, vUv).r - texture(tTruth, vUv).r), 1.0, 0.0, 1.0); }`,
   uniforms: { tG: { value: null }, tAO: { value: null }, tTruth: { value: null } } });
 
 // the lit picture reads the AO term at its own pixel and darkens only the soft light, or everything, or nothing
-const aoTex = { value: null }, aoMode = { value: 1 }, aoPow = { value: 2 }, screenInv = { value: new THREE.Vector2() };
+const aoTex = { value: null }, truthTex = { value: null }, aoMode = { value: 1 }, aoPow = { value: 2 }, screenInv = { value: new THREE.Vector2() }, splitPx = { value: 1e9 }, tracedOn = { value: 0 }, diffOn = { value: 0 };
 scene.traverse(o => { if (!o.isMesh || !o.material.isMeshLambertMaterial) return; const m = o.material;
-  m.onBeforeCompile = sh => { sh.uniforms.tAO = aoTex; sh.uniforms.uAOMode = aoMode; sh.uniforms.uAOPow = aoPow; sh.uniforms.uScreenInv = screenInv;
-    sh.fragmentShader = 'uniform sampler2D tAO; uniform int uAOMode; uniform float uAOPow; uniform vec2 uScreenInv;\n' + sh.fragmentShader.replace('#include <aomap_fragment>',
-      'float sao = pow(clamp(texture2D(tAO, gl_FragCoord.xy * uScreenInv).r, 0.0, 1.0), uAOPow); if (uAOMode >= 1) reflectedLight.indirectDiffuse *= sao; if (uAOMode == 2) reflectedLight.directDiffuse *= sao;'); };
+  m.onBeforeCompile = sh => { sh.uniforms.tAO = aoTex; sh.uniforms.tTruth = truthTex; sh.uniforms.uAOMode = aoMode; sh.uniforms.uAOPow = aoPow; sh.uniforms.uScreenInv = screenInv; sh.uniforms.uSplitPx = splitPx; sh.uniforms.uTracedOn = tracedOn; sh.uniforms.uDiffOn = diffOn;
+    sh.fragmentShader = 'uniform sampler2D tAO, tTruth; uniform int uAOMode; uniform float uAOPow, uSplitPx, uTracedOn, uDiffOn; uniform vec2 uScreenInv;\n' + sh.fragmentShader.replace('#include <aomap_fragment>',
+      'vec2 aoUv = gl_FragCoord.xy * uScreenInv; float saoG = clamp(texture2D(tAO, aoUv).r, 0.0, 1.0); float saoT = clamp(texture2D(tTruth, aoUv).r, 0.0, 1.0); float useT = uTracedOn * step(uSplitPx, gl_FragCoord.x); float sao = pow(mix(saoG, saoT, useT), uAOPow); if (uAOMode >= 1) reflectedLight.indirectDiffuse *= sao; if (uAOMode == 2) reflectedLight.directDiffuse *= sao; reflectedLight.indirectDiffuse += vec3(1.0, 0.08, 0.04) * (smoothstep(0.06, 0.3, abs(saoG - saoT)) * uDiffOn * 0.8);'); };
   m.customProgramCacheKey = () => 'cellar-ao'; m.needsUpdate = true; });
 
 // ---- render targets
@@ -176,7 +176,7 @@ const mkRT = (w, h, linear) => new THREE.WebGLRenderTarget(w, h, { type: THREE.H
 let gbuf = null, rtRaw = null, rtBlur = null, hist = [null, null], truth = [null, null], curH = 0, curT = 0, rtErr = new THREE.WebGLRenderTarget(48, 48, { depthBuffer: false });
 const errPx = new Uint8Array(48 * 48 * 4); const size = new THREE.Vector2();
 function ensureTargets() {
-  renderer.getDrawingBufferSize(size); const w = Math.max(2, size.x | 0), h = Math.max(2, size.y | 0); const aw = Math.max(2, Math.round(w * aoScale)), ah = Math.max(2, Math.round(h * aoScale)); const tw = Math.max(2, Math.round(w * 0.5)), th = Math.max(2, Math.round(h * 0.5));
+  renderer.getDrawingBufferSize(size); const w = Math.max(2, size.x | 0), h = Math.max(2, size.y | 0); const aw = Math.max(2, Math.round(w * aoScale)), ah = Math.max(2, Math.round(h * aoScale)); const tw = w, th = h;
   if (!gbuf || gbuf.width !== w || gbuf.height !== h) { if (gbuf) gbuf.dispose(); gbuf = new THREE.WebGLRenderTarget(w, h, { type: THREE.FloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true }); }
   if (!rtRaw || rtRaw.width !== aw || rtRaw.height !== ah) { for (const r of [rtRaw, rtBlur, ...hist]) if (r) r.dispose(); rtRaw = mkRT(aw, ah, true); rtBlur = mkRT(aw, ah, true); hist = [mkRT(aw, ah, true), mkRT(aw, ah, true)]; histValid = false; }
   if (!truth[0] || truth[0].width !== tw || truth[0].height !== th) { for (const r of truth) if (r) r.dispose(); truth = [mkRT(tw, th, true), mkRT(tw, th, true)]; truthDirty = true; }
@@ -185,15 +185,39 @@ function ensureTargets() {
 
 // ---- state
 let view = 'picture', stage = 'final', aoScale = 1, method = 'ssao', sliding = false, histValid = false, truthDirty = true, truthFrames = 0, frame = 0, sunOn = true;
+let compare = 'split', splitF = 0.5, timeOfDay = 'day';
+// the sky, and three kinds of daylight: the same numbers go to the kit's lights and to the sky
+const SRGBFN = `vec3 srgb3(vec3 c) { c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }`;
+const skyU = { uInvPV: { value: new THREE.Matrix4() }, uCamPos: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Vector3() }, uSkyScale: { value: new THREE.Vector3(7, 8, 11) } };
+const skyMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: skyU, vertexShader: VS, depthTest: false, depthWrite: false, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform mat4 uInvPV; uniform vec3 uCamPos, uSunDir, uSunCol, uSkyScale; ${SRGBFN}
+vec3 sky(vec3 d) { vec3 base = vec3(0.0033, 0.0046, 0.0083); vec3 horizon = vec3(0.05, 0.07, 0.11) * exp(-abs(d.y) * 5.0); float s = dot(d, uSunDir);
+  vec3 sun = uSunCol * (smoothstep(0.9985, 0.9997, s) * 2.5 + pow(max(s, 0.0), 48.0) * 0.06); return (base + horizon) * uSkyScale + sun; }
+void main(){ vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, 1.0, 1.0); vec3 d = normalize(w.xyz / w.w - uCamPos); o = vec4(srgb3(sky(d)), 1.0); }` });
+const skyScene = new THREE.Scene(); skyScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), skyMat)); const invPV = new THREE.Matrix4();
+const TIMES = {
+  day: { sunPos: [14, 18, 8], sunCol: 0xffe2b0, sunI: 3.2, hemiSky: 0x8fa8c8, hemiGnd: 0x2a3a2a, hemiI: 0.9, sky: [7, 8, 11] },
+  overcast: { sunPos: [14, 18, 8], sunCol: 0xffe2b0, sunI: 0, hemiSky: 0xc4cad2, hemiGnd: 0x3a3f3a, hemiI: 1.5, sky: [12, 11.5, 11] },
+  sunset: { sunPos: [22, 4.5, -8], sunCol: 0xffa050, sunI: 2.8, hemiSky: 0x7a86ad, hemiGnd: 0x3a2e24, hemiI: 0.55, sky: [7, 3.2, 1.6] }
+};
+function setTime(name) {
+  const t = TIMES[name]; timeOfDay = name; const sun = sb.lights.sun, hemi = sb.lights.hemi;
+  sun.position.set(...t.sunPos); sun.color.setHex(t.sunCol); sun.intensity = t.sunI; hemi.color.setHex(t.hemiSky); hemi.groundColor.setHex(t.hemiGnd); hemi.intensity = t.hemiI;
+  skyU.uSkyScale.value.set(...t.sky); skyU.uSunDir.value.copy(sun.position).normalize(); skyU.uSunCol.value.set(sun.color.r, sun.color.g, sun.color.b).multiplyScalar(t.sunI);
+}
+setTime('day');
+const splitLine = document.createElement('div'); splitLine.style.cssText = 'position:absolute;top:0;bottom:0;width:2px;background:rgba(242,217,153,0.9);pointer-events:none;display:none;'; sb.stage.appendChild(splitLine);
 const prevView = new THREE.Matrix4(), prevProj = new THREE.Matrix4(), lastView = new THREE.Matrix4(), lastProj = new THREE.Matrix4();
 const flame = scene.getObjectByName('flame'); const sliderHome = slider.position.x;
 
 // ---- 1 the true answer
-const s1 = sb.panel.section('01 · The true answer', 'From every point on every surface, fire rays up and count how many get away. That share of open sky is the answer every trick below is chasing. It is traced against the real shapes here, not the depth photo.');
+const s1 = sb.panel.section('01 · The true answer', 'From every point on every surface, fire rays up and count how many get away. That share of open sky is the answer every trick below is chasing. It is traced against the real shapes here, not the depth photo, and it adds up over frames while the camera holds still.');
+s1.segment('Compare', [{ value: 'game', label: 'the guess' }, { value: 'split', label: 'split' }, { value: 'truth', label: 'the true answer' }, { value: 'diff', label: 'where they differ' }], 'split', v => { compare = v; apply(); });
+s1.slider('Where the true answer begins', { min: 0, max: 100, step: 1, value: 50, unit: ' %' }, x => { splitF = x / 100; });
+s1.segment('Daylight', [{ value: 'day', label: 'sunny' }, { value: 'overcast', label: 'overcast' }, { value: 'sunset', label: 'sunset' }], 'day', x => { setTime(x); sb.lights.sun.visible = sunOn; apply(); });
 const showSeg = s1.segment('Show', [{ value: 'picture', label: 'the picture' }, { value: 'depth', label: 'the depth photo' }, { value: 'ao', label: 'the AO term' }, { value: 'truth', label: 'the true answer' }, { value: 'error', label: 'error against the truth' }], 'picture', v => { view = v; apply(); });
 s1.slider('Rays per point, each frame', { min: 4, max: 64, step: 4, value: 16 }, v => { truthMat.uniforms.uRays.value = v; truthDirty = true; });
 s1.slider('How far a ray, a dot or a march goes (radius)', { min: 0.3, max: 3, step: 0.1, value: 1.5, unit: ' m' }, v => { aoMat.uniforms.uRadius.value = v; truthDirty = true; histValid = false; });
-s1.note('The true answer adds up over frames while the camera holds still, so it gets cleaner the longer you wait. Move, and it starts over.');
+s1.note('Overcast is the honest test: no sun, only sky light, so all the grounding in the picture comes from AO. Pick "where they differ" and every pixel where the guess is off turns red: under the shelf, at the frame edge, wherever the depth photo cannot see.');
 const raysRead = s1.readout('rays per point so far');
 const errRead = s1.readout('average error, whole screen');
 
@@ -243,8 +267,10 @@ const msRead = s6.readout('milliseconds per frame');
 
 function useMethod(m) { if (method !== m) methodSeg.set(m); }
 function apply() {
-  sb.hud('mode', view === 'picture' ? (aoMode.value === 0 ? 'the picture with no AO at all' : aoMode.value === 1 ? 'the picture, AO darkening only the soft light' : 'the picture, AO darkening sun and soft light alike')
-    : view === 'depth' ? 'the depth photo the guesses read: bright is near, dark is far' : view === 'ao' ? 'the AO term from the ' + (method === 'ssao' ? 'test dots' : 'skyline march') + ', ' + (stage === 'raw' ? 'raw and noisy' : stage === 'blur' ? 'after the blur' : 'after the blur and the last frames') + ': white is open sky, dark is buried'
+  const dark = aoMode.value === 0 ? 'no AO at all' : aoMode.value === 1 ? 'AO darkening only the soft light' : 'AO darkening sun and soft light alike';
+  const cmp = compare === 'game' ? 'the guess from the depth photo' : compare === 'truth' ? 'the true answer, traced' : compare === 'diff' ? 'the guess, red where it disagrees with the true answer' : 'left: the guess from the depth photo · right: the true answer, traced';
+  sb.hud('mode', view === 'picture' ? (aoMode.value === 0 ? 'the picture with no AO at all' : 'the picture, ' + dark + ' · ' + cmp)
+    : view === 'depth' ? 'the depth photo the guesses read: bright is near, dark is far' : view === 'ao' ? 'the AO term from the ' + (method === 'ssao' ? 'test dots' : 'skyline march') + ', ' + (stage === 'raw' ? 'raw and noisy' : stage === 'blur' ? 'after the blur' : 'after the blur and the last frames') + ': white is open sky, dark is buried' + (compare === 'split' ? ' · right of the line: the true answer' : '')
     : view === 'truth' ? 'the true answer, traced against the real shapes, adding up over frames' : 'error of the AO term against the truth: blue is small, amber is wrong, white is very wrong');
   errRead(view === 'error' ? '…' : 'pick the error view');
 }
@@ -260,13 +286,14 @@ sb.onFrame((dt, t) => {
   lookRead(method === 'ssao' ? aoMat.uniforms.uN.value + ' dots' : aoMat.uniforms.uDirs.value + ' directions × ' + aoMat.uniforms.uSteps.value + ' steps × 2 = ' + (aoMat.uniforms.uDirs.value * aoMat.uniforms.uSteps.value * 2));
 });
 sb.onRender((scene, camera, renderer) => {
-  ensureTargets(); frame++;
-  camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+  ensureTargets(); frame++; renderer.autoClear = false;
+  camera.updateMatrixWorld(); camera.updateProjectionMatrix(); invPV.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).invert(); skyU.uInvPV.value.copy(invPV); skyU.uCamPos.value.copy(camera.position);
   if (drift(lastView, camera.matrixWorldInverse) > 1e-5 || drift(lastProj, camera.projectionMatrix) > 1e-7) truthDirty = true;
   // 1 the depth and normal photo
   renderer.shadowMap.autoUpdate = false;
   scene.overrideMaterial = gMat; renderer.setRenderTarget(gbuf); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, camera); scene.overrideMaterial = null;
-  const seed = histMat.uniforms.uOn.value > 0.5 || view === 'truth' || view === 'error' ? (frame % 64) * 0.618 : 0;
+  const needTruth = view === 'truth' || view === 'error' || compare !== 'game';
+  const seed = histMat.uniforms.uOn.value > 0.5 || needTruth ? (frame % 64) * 0.618 : 0;
   // 2 the AO term, raw
   for (const m of [aoMat, blurMat, histMat, truthMat]) { m.uniforms.tG.value = gbuf.texture; m.uniforms.uSeed.value = seed; m.uniforms.uGRes.value.set(gbuf.width, gbuf.height); }
   aoMat.uniforms.uRes.value.set(rtRaw.width, rtRaw.height);
@@ -281,7 +308,7 @@ sb.onRender((scene, camera, renderer) => {
   prevView.copy(camera.matrixWorldInverse); prevProj.copy(camera.projectionMatrix); lastView.copy(camera.matrixWorldInverse); lastProj.copy(camera.projectionMatrix);
   const term = stage === 'raw' ? rtRaw : stage === 'blur' ? rtBlur : nextH;
   // 5 the true answer, only when asked for, adding up over still frames
-  if (view === 'truth' || view === 'error') {
+  if (needTruth) {
     if (truthDirty) { truthFrames = 0; truthDirty = false; }
     truthMat.uniforms.uPrimN.value = primN; truthMat.uniforms.tPrev.value = truth[curT].texture; truthMat.uniforms.uBlend.value = 1 / (truthFrames + 1); truthMat.uniforms.uRes.value.set(truth[0].width, truth[0].height);
     quad.material = truthMat; renderer.setRenderTarget(truth[1 - curT]); renderer.render(quadScene, quadCam); curT = 1 - curT; truthFrames++;
@@ -291,11 +318,16 @@ sb.onRender((scene, camera, renderer) => {
       quad.material = errMat; renderer.setRenderTarget(rtErr); renderer.render(quadScene, quadCam); renderer.readRenderTargetPixels(rtErr, 0, 0, 48, 48, errPx);
       let s = 0, n = 0; for (let i = 0; i < errPx.length; i += 4) if (errPx[i + 1] > 127) { s += errPx[i]; n++; } errRead(n ? (s / n / 255 * 100).toFixed(1) + ' % of full dark' : 'no surface on screen');
     }
-  } else raysRead('pick the true answer or error view');
+  } else raysRead('pick a view with the true answer in it');
   // 6 the picture, or one of the views
+  const split = compare === 'split' ? splitF : compare === 'truth' ? 0 : 1;
   renderer.setRenderTarget(null); renderer.setClearColor(PAL.sky, 1); renderer.clear();
-  if (view === 'picture') { aoTex.value = nextH.texture; renderer.shadowMap.needsUpdate = true; renderer.render(scene, camera); }
-  else { showMat.uniforms.tG.value = gbuf.texture; showMat.uniforms.tAO.value = term.texture; showMat.uniforms.tTruth.value = truth[curT].texture; showMat.uniforms.uMode.value = view === 'depth' ? 1 : view === 'ao' ? 2 : view === 'truth' ? 3 : 4; quad.material = showMat; renderer.render(quadScene, quadCam); }
+  if (view === 'picture') {
+    renderer.render(skyScene, quadCam);
+    aoTex.value = nextH.texture; truthTex.value = truth[curT].texture; splitPx.value = split * gbuf.width; tracedOn.value = compare === 'split' || compare === 'truth' ? 1 : 0; diffOn.value = compare === 'diff' ? 1 : 0;
+    renderer.shadowMap.needsUpdate = true; renderer.render(scene, camera);
+  } else { showMat.uniforms.tG.value = gbuf.texture; showMat.uniforms.tAO.value = term.texture; showMat.uniforms.tTruth.value = truth[curT].texture; showMat.uniforms.uMode.value = view === 'depth' ? 1 : view === 'ao' ? 2 : view === 'truth' ? 3 : 4; showMat.uniforms.uSplit.value = view === 'ao' && compare !== 'diff' ? split : 2; quad.material = showMat; renderer.render(quadScene, quadCam); }
+  const lineOn = compare === 'split' && (view === 'picture' || view === 'ao'); splitLine.style.display = lineOn ? 'block' : 'none'; splitLine.style.left = (split * 100) + '%';
 });
 sb.start();
 </script>
