@@ -15,12 +15,14 @@ import { boot, THREE, PAL } from './_kit.js';
 
 const sb = boot({
   slug: 'ray-tracing-and-bvh', title: 'Ray Tracing & the BVH',
-  blurb: 'The knight\'s camp drawn twice: left of the line by the usual triangle rasterizer, right of it by a real ray tracer running in a shader over the same triangles. Drag one ray through the camp and watch which boxes it opens, build the tree of boxes two ways, move the house, and count the rays a frame can afford.',
+  blurb: 'The knight\'s camp drawn twice: left of the line by the usual triangle rasterizer, right of it by a real ray tracer running in a shader over the same triangles. The traced side gets what the rasterizer cannot: soft sun shadows, sky light that darkens corners, light bouncing off walls, a campfire that throws real shadows, and a mirror pond. Then drag one ray through the camp, build the tree of boxes two ways, and count the rays a frame can afford.',
   camera: { pos: [10, 4.5, 13], target: [0, 1, -1], near: 0.1, far: 300 }
 });
 const { scene, camera, renderer } = sb;
 scene.background = null; renderer.setClearColor(PAL.sky, 1);
 const camp = sb.world.camp();
+// a lighter ground than the other playgrounds, so shadows and bounced light have something to show on
+camp.ground.material.color.setHex(0x3f6a45);
 // the camp plus a pond: a mirror, so the ray traced side has something to reflect
 const pond = sb.mesh(new THREE.CircleGeometry(2.6, 24), sb.mat(0x14304a), 5, 0.02, 0.6); pond.rotation.x = -Math.PI / 2; pond.castShadow = false; pond.name = 'pond'; scene.add(pond);
 const shield = camp.knight.children[3];
@@ -175,35 +177,38 @@ function pack() {
   }
   nodeCount = n; nodeTex.needsUpdate = triTex.needsUpdate = instTex.needsUpdate = true;
   U.uTlasRoot.value = tlasRoot; U.uNInst.value = inst.length;
-  walkDirty = levelDirty = statsDirty = true;
+  walkDirty = levelDirty = statsDirty = true; dirty();
 }
 
 // ---- state
 let view = 'split', splitF = 0.5, findBy = 'tree', opt = { split: 'sah', leafSize: 4 }, level = 2, showLevel = false, showWalk = false, nearFirst = true, anyHit = false, stepWanted = -1;
-let twoLevel = false, update = 'rebuild', wind = false, shadowN = 1, sunSize = 1.5, bounces = 1, rtScale = 0.5;
+let twoLevel = false, update = 'rebuild', wind = false, shadowN = 1, sunSize = 2.5, bounces = 1, rtScale = 1;
+let timeOfDay = 'day', skyRays = true, diff = 1, fireR = 0.3, accumulate = true, layer = 0, accN = 0;
+function dirty() { accN = 0; }
 let walkDirty = true, levelDirty = true, statsDirty = true, windMs = 0, frame = 0;
 
 // ---- shaders
 const GL3 = THREE.GLSL3;
 const VS = 'out vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
-const SKYFN = `
-vec3 srgb(vec3 c) { c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+const SRGBFN = `vec3 srgb(vec3 c) { c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }`;
+const SKYFN = `${SRGBFN}
 vec3 sky(vec3 d) { vec3 base = vec3(0.0033, 0.0046, 0.0083); vec3 horizon = vec3(0.05, 0.07, 0.11) * exp(-abs(d.y) * 5.0); float s = dot(d, uSunDir);
-  vec3 sun = uSunCol * (smoothstep(0.9985, 0.9997, s) * 2.5 + pow(max(s, 0.0), 48.0) * 0.06); return base + horizon + sun; }`;
-const skyU = { uInvPV: { value: new THREE.Matrix4() }, uCamPos: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Vector3() } };
-const skyMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: skyU, vertexShader: VS, depthTest: false, depthWrite: false, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform mat4 uInvPV; uniform vec3 uCamPos, uSunDir, uSunCol; ${SKYFN}
+  vec3 sun = uSunCol * (smoothstep(0.9985, 0.9997, s) * 2.5 + pow(max(s, 0.0), 48.0) * 0.06); return (base + horizon) * uSkyScale + sun; }`;
+const skyU = { uInvPV: { value: new THREE.Matrix4() }, uCamPos: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Vector3() }, uSkyScale: { value: new THREE.Vector3(1, 1, 1) } };
+const skyMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: skyU, vertexShader: VS, depthTest: false, depthWrite: false, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform mat4 uInvPV; uniform vec3 uCamPos, uSunDir, uSunCol, uSkyScale; ${SKYFN}
 void main(){ vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, 1.0, 1.0); vec3 d = normalize(w.xyz / w.w - uCamPos); o = vec4(srgb(sky(d)), 1.0); }` });
 
 const U = {
   uNodes: { value: nodeTex }, uTris: { value: triTex }, uInst: { value: instTex }, uNW: { value: NW }, uTW: { value: TW }, uIW: { value: IW },
   uTlasRoot: { value: 0 }, uNInst: { value: 1 }, uBrute: { value: 0 }, uNearFirst: { value: 1 }, uShadowN: { value: 1 }, uBounces: { value: 1 }, uFrame: { value: 0 }, uHeat: { value: 0 },
   uSplit: { value: 0.5 }, uSunSize: { value: 0.03 }, uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Vector3() }, uHemiSky: { value: new THREE.Vector3() }, uHemiGnd: { value: new THREE.Vector3() },
-  uCamPos: { value: new THREE.Vector3() }, uFirePos: { value: new THREE.Vector3() }, uFireCol: { value: new THREE.Vector3() }, uInvPV: { value: new THREE.Matrix4() }, uMat: { value: MATS }
+  uCamPos: { value: new THREE.Vector3() }, uFirePos: { value: new THREE.Vector3() }, uFireCol: { value: new THREE.Vector3() }, uInvPV: { value: new THREE.Matrix4() }, uMat: { value: MATS },
+  uSkyRays: { value: 1 }, uDiff: { value: 1 }, uLayer: { value: 0 }, uFireR: { value: 0.3 }, uBlend: { value: 1 }, uSkyScale: { value: new THREE.Vector3(1, 1, 1) }, tPrev: { value: null }
 };
 const TRACE = `precision highp float; precision highp int; precision highp sampler2D;
 in vec2 vUv; out vec4 o;
-uniform sampler2D uNodes, uTris, uInst; uniform int uNW, uTW, uIW, uTlasRoot, uNInst, uBrute, uNearFirst, uShadowN, uBounces, uFrame, uHeat;
-uniform float uSplit, uSunSize; uniform vec3 uSunDir, uSunCol, uHemiSky, uHemiGnd, uCamPos, uFirePos, uFireCol; uniform mat4 uInvPV; uniform vec4 uMat[24];
+uniform sampler2D uNodes, uTris, uInst, tPrev; uniform int uNW, uTW, uIW, uTlasRoot, uNInst, uBrute, uNearFirst, uShadowN, uBounces, uFrame, uHeat, uSkyRays, uDiff, uLayer;
+uniform float uSplit, uSunSize, uFireR, uBlend; uniform vec3 uSunDir, uSunCol, uHemiSky, uHemiGnd, uCamPos, uFirePos, uFireCol, uSkyScale; uniform mat4 uInvPV; uniform vec4 uMat[24];
 #define PI 3.14159265
 ${SKYFN}
 vec4 fetchN(int i) { return texelFetch(uNodes, ivec2(i - (i / uNW) * uNW, i / uNW), 0); }
@@ -229,7 +234,7 @@ bool walkTree(int root, vec3 o, vec3 d, inout float tMax, inout int hitTri, bool
     int ni = stack[--sp]; vec4 a = fetchN(ni * 2), b = fetchN(ni * 2 + 1); boxes++;
     if (!slab(a.xyz, b.xyz, o, invD, tMax)) continue;
     int cnt = int(b.w);
-    if (cnt > 0) { int first = int(a.w); for (int k = 0; k < cnt; k++) { tests++; float t = triT(first + k, o, d); if (t > 0.0 && t < tMax) { tMax = t; hitTri = first + k; found = true; if (anyHit) return true; } } }
+    if (cnt > 0) { int first = int(a.w); for (int k = 0; k < cnt; k++) { tests++; float t = triT(first + k, o, d); if (t > 0.0 && t < tMax) { if (anyHit && uMat[int(fetchT((first + k) * 3).w)].w < 0.0) continue; tMax = t; hitTri = first + k; found = true; if (anyHit) return true; } } }
     else { int axis = -cnt - 1; int left = int(a.w); float dc = axis == 0 ? d.x : (axis == 1 ? d.y : d.z); bool lf = uNearFirst == 0 || dc >= 0.0;
       if (sp < 30) { stack[sp++] = lf ? left + 1 : left; stack[sp++] = lf ? left : left + 1; } }
   }
@@ -256,54 +261,104 @@ vec3 hitNormal(int ti, int s) { vec3 v0 = fetchT(ti * 3).xyz, v1 = fetchT(ti * 3
   vec4 r0 = fetchI(s * 4), r1 = fetchI(s * 4 + 1), r2 = fetchI(s * 4 + 2); return normalize(r0.xyz * nl.x + r1.xyz * nl.y + r2.xyz * nl.z); }
 vec3 sunSample(float seed) { vec3 w = uSunDir; vec3 u = normalize(cross(abs(w.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), w)); vec3 vv = cross(w, u);
   float r = sqrt(hash(vec3(gl_FragCoord.xy, seed))) * tan(uSunSize); float ph = 6.2831853 * hash(vec3(gl_FragCoord.yx, seed + 3.7)); return normalize(w + u * (r * cos(ph)) + vv * (r * sin(ph))); }
-// the same lighting the rasterized side uses: sun, sky dome, campfire; shadows come from real rays here
-vec3 shade(vec3 p, vec3 n, vec4 m, inout int boxes, inout int tests, float seed) {
-  if (m.w < 0.0) return m.rgb;
-  vec3 col = mix(uHemiGnd, uHemiSky, dot(n, vec3(0.0, 1.0, 0.0)) * 0.5 + 0.5);
+// random directions: a point on the sun's disc, a point on the fire, a direction over a surface weighted toward straight up
+vec3 fireSample(float seed) { float u1 = hash(vec3(gl_FragCoord.xy, seed + 2.2)), u2 = hash(vec3(gl_FragCoord.yx, seed + 5.9)); float z = 1.0 - 2.0 * u1, r = sqrt(max(0.0, 1.0 - z * z)), ph = 6.2831853 * u2; return uFirePos + uFireR * vec3(r * cos(ph), z, r * sin(ph)); }
+vec3 cosDir(vec3 n, float seed) { float u1 = hash(vec3(gl_FragCoord.xy, seed + 8.4)), u2 = hash(vec3(gl_FragCoord.yx, seed + 1.9)); float r = sqrt(u1), ph = 6.2831853 * u2;
+  vec3 u = normalize(cross(abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), n)); vec3 vv = cross(n, u); return normalize(u * (r * cos(ph)) + vv * (r * sin(ph)) + n * sqrt(max(1.0 - u1, 0.0))); }
+// the sky dome the rasterized side uses as its constant fill light
+vec3 dome(vec3 d) { return mix(uHemiGnd, uHemiSky, d.y * 0.5 + 0.5); }
+// direct light at a point: the sun through nSun shadow rays toward its disc, the campfire through one shadow ray toward a point on it
+void direct(vec3 p, vec3 n, float seed, int nSun, out vec3 sunC, out vec3 fireC, out float vis, inout int boxes, inout int tests) {
+  sunC = vec3(0.0); fireC = vec3(0.0); vis = 0.0;
   float ndl = max(dot(n, uSunDir), 0.0);
-  if (ndl > 0.0) { float vis = 1.0;
-    if (uShadowN > 0) { vis = 0.0; for (int k = 0; k < 8; k++) { if (k >= uShadowN) break; vec3 sd = sunSample(seed + float(k) * 1.618); float tm = 1e9; int ht, hi; if (!trace(p + n * 1e-3, sd, tm, ht, hi, true, false, boxes, tests)) vis += 1.0; } vis /= float(uShadowN); }
-    col += uSunCol * ndl * vis; }
-  vec3 fv = uFirePos - p; float fd = length(fv); vec3 fl = fv / fd; float nfl = max(dot(n, fl), 0.0);
+  if (ndl > 0.0) { vis = 1.0;
+    if (nSun > 0) { vis = 0.0; for (int k = 0; k < 8; k++) { if (k >= nSun) break; vec3 sd = sunSample(seed + float(k) * 1.618); float tm = 1e9; int ht, hi; if (!trace(p, sd, tm, ht, hi, true, false, boxes, tests)) vis += 1.0; } vis /= float(nSun); }
+    sunC = uSunCol * ndl * vis; }
+  vec3 fs = fireSample(seed); vec3 fv = fs - p; float fd = length(fv); vec3 fl = fv / fd; float nfl = max(dot(n, fl), 0.0);
   if (nfl > 0.0 && fd < 12.0) { float att = 1.0 / max(fd * fd, 0.01); float c = 1.0 - pow(fd / 12.0, 4.0); att *= c * c; float tm = fd - 2e-3; int ht, hi;
-    if (!trace(p + n * 1e-3, fl, tm, ht, hi, true, false, boxes, tests)) col += uFireCol * att * nfl; }
-  return m.rgb * col / PI; }
+    if (!trace(p, fl, tm, ht, hi, true, false, boxes, tests)) fireC = uFireCol * att * nfl; }
+}
+// sky light and bounced light: one ray up and away from the surface; a miss is the sky, a hit is another surface with its own direct light
+void indirect(vec3 p, vec3 n, vec3 alb, float seed, out vec3 skyC, out vec3 bounceC, inout int boxes, inout int tests) {
+  skyC = vec3(0.0); bounceC = vec3(0.0);
+  if (uSkyRays == 0) skyC = alb * dome(n) / PI;
+  if (uSkyRays == 0 && uDiff == 0) return;
+  vec3 thr = alb; vec3 pp = p, nn = n;
+  for (int k = 0; k < 2; k++) {
+    if (k > 0 && k >= uDiff) break;
+    vec3 dd = cosDir(nn, seed + 11.0 + float(k) * 5.1); float tm = 1e9; int ht, hi;
+    if (!trace(pp, dd, tm, ht, hi, false, false, boxes, tests)) { if (uSkyRays == 1) { vec3 c = thr * dome(dd) / PI; if (k == 0) skyC += c; else bounceC += c; } break; }
+    if (uDiff == 0) break;
+    vec3 q = pp + dd * tm; vec3 nq = hitNormal(ht, hi); if (dot(nq, dd) > 0.0) nq = -nq; vec4 mq = uMat[int(fetchT(ht * 3).w)];
+    if (mq.w < 0.0) { bounceC += thr * mq.rgb; break; }
+    vec3 sC, fC; float vs; direct(q + nq * 1e-3, nq, seed + 23.0 + float(k) * 3.3, 1, sC, fC, vs, boxes, tests);
+    bounceC += thr * mq.rgb * (sC + fC) / PI;
+    thr *= mq.rgb; pp = q + nq * 1e-3; nn = nq;
+  }
+}
 vec3 heat(float n) { float x = clamp(n / 96.0, 0.0, 1.0); vec3 a = vec3(0.03, 0.05, 0.12), b = vec3(0.29, 0.64, 1.0), c = vec3(0.95, 0.64, 0.25), d = vec3(1.0);
   return x < 0.34 ? mix(a, b, x / 0.34) : x < 0.67 ? mix(b, c, (x - 0.34) / 0.33) : mix(c, d, (x - 0.67) / 0.33); }
 void main() {
   if (vUv.x < uSplit) discard;
   vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, 1.0, 1.0); vec3 d = normalize(w.xyz / w.w - uCamPos); vec3 ro = uCamPos;
-  float seed = float(uFrame) * 0.37; int boxes = 0, tests = 0; vec3 acc = vec3(0.0), thr = vec3(1.0);
+  float seed = fract(float(uFrame) * 0.618034) * 97.0; int boxes = 0, tests = 0; vec3 thr = vec3(1.0);
+  vec3 sunC = vec3(0.0), skyC = vec3(0.0), bounceC = vec3(0.0), fireC = vec3(0.0), mirrorC = vec3(0.0), emitC = vec3(0.0); float shadowV = 1.0;
   for (int b = 0; b < 3; b++) {
     if (b > uBounces) break;
     float tMax = 1e9; int ht, hi;
     bool hit = trace(ro, d, tMax, ht, hi, false, uBrute == 1 && b == 0, boxes, tests);
-    if (!hit) { acc += thr * sky(d); break; }
+    if (!hit) { if (b == 0) emitC += sky(d); else mirrorC += thr * sky(d); break; }
     vec3 p = ro + d * tMax; vec3 n = hitNormal(ht, hi); if (dot(n, d) > 0.0) n = -n;
     vec4 m = uMat[int(fetchT(ht * 3).w)]; float refl = max(m.w, 0.0);
-    acc += thr * shade(p, n, m, boxes, tests, seed + float(b) * 7.3) * (1.0 - refl);
+    if (m.w < 0.0) { if (b == 0) emitC += m.rgb; else mirrorC += thr * m.rgb; break; }
+    if (uHeat == 0) {
+      vec3 sC, fC, kC, bC; float vs; vec3 po = p + n * 1e-3;
+      direct(po, n, seed + float(b) * 7.3, b == 0 ? uShadowN : 1, sC, fC, vs, boxes, tests);
+      indirect(po, n, m.rgb, seed + float(b) * 13.1, kC, bC, boxes, tests);
+      if (b == 0) { sunC = m.rgb * sC / PI * (1.0 - refl); fireC = m.rgb * fC / PI * (1.0 - refl); skyC = kC * (1.0 - refl); bounceC = bC * (1.0 - refl); shadowV = vs; }
+      else mirrorC += thr * (m.rgb * (sC + fC) / PI + kC + bC) * (1.0 - refl);
+    }
     if (refl <= 0.0 || b == uBounces) break;
     thr *= refl; d = reflect(d, n); ro = p + n * 1e-3;
   }
-  o = uHeat == 1 ? vec4(heat(float(boxes)), 1.0) : vec4(srgb(acc), 1.0);
+  vec3 c = uLayer == 0 ? sunC + skyC + bounceC + fireC + mirrorC + emitC : uLayer == 1 ? sunC : uLayer == 2 ? skyC : uLayer == 3 ? bounceC : uLayer == 4 ? fireC : uLayer == 5 ? mirrorC : vec3(shadowV);
+  c *= uLayer == 2 ? 4.0 : uLayer == 3 ? 6.0 : uLayer == 4 ? 2.0 : 1.0;
+  vec3 cur = uHeat == 1 ? heat(float(boxes)) : c;
+  o = vec4(mix(texture(tPrev, vUv).rgb, cur, uBlend), 1.0);
 }`;
 const traceMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: U, vertexShader: VS, fragmentShader: TRACE, depthTest: false, depthWrite: false });
-const compU = { tRT: { value: null }, uSplit: { value: 0.5 }, uRes: { value: new THREE.Vector2(1, 1) } };
-const compMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: compU, vertexShader: VS, depthTest: false, depthWrite: false, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D tRT; uniform float uSplit; uniform vec2 uRes;
-void main(){ if (vUv.x < uSplit) discard; if (uSplit > 0.0 && uSplit < 1.0 && (vUv.x - uSplit) * uRes.x < 2.0) { o = vec4(0.95, 0.85, 0.6, 1.0); return; } o = vec4(texture(tRT, vUv).rgb, 1.0); }` });
+const compU = { tRT: { value: null }, uSplit: { value: 0.5 }, uRes: { value: new THREE.Vector2(1, 1) }, uRaw: { value: 0 } };
+const compMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: compU, vertexShader: VS, depthTest: false, depthWrite: false, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D tRT; uniform float uSplit; uniform vec2 uRes; uniform int uRaw; ${SRGBFN}
+void main(){ if (vUv.x < uSplit) discard; if (uSplit > 0.0 && uSplit < 1.0 && (vUv.x - uSplit) * uRes.x < 2.0) { o = vec4(0.95, 0.85, 0.6, 1.0); return; } vec3 c = texture(tRT, vUv).rgb; o = vec4(uRaw == 1 ? c : srgb(c), 1.0); }` });
 const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quadGeo = new THREE.PlaneGeometry(2, 2);
 const skyScene = new THREE.Scene(); skyScene.add(new THREE.Mesh(quadGeo, skyMat));
 const traceScene = new THREE.Scene(); traceScene.add(new THREE.Mesh(quadGeo, traceMat));
 const compScene = new THREE.Scene(); compScene.add(new THREE.Mesh(quadGeo, compMat));
-let rt = null, rtW = 0, rtH = 0;
-function ensureRT() { const w = Math.max(2, Math.round(sb.stage.clientWidth * rtScale)), h = Math.max(2, Math.round(sb.stage.clientHeight * rtScale)); if (rt && rt.width === w && rt.height === h) return; if (rt) rt.dispose(); rt = new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false }); rtW = w; rtH = h; }
+let rt = null, rtPrev = null, rtW = 0, rtH = 0;
+function ensureRT() { const w = Math.max(2, Math.round(sb.stage.clientWidth * rtScale)), h = Math.max(2, Math.round(sb.stage.clientHeight * rtScale)); if (rt && rt.width === w && rt.height === h) return; if (rt) { rt.dispose(); rtPrev.dispose(); }
+  const mk = () => new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false }); rt = mk(); rtPrev = mk(); rtW = w; rtH = h; dirty(); }
 // light values copied from the kit's lights, so both halves agree
-U.uSunDir.value.copy(sb.lights.sun.position).normalize(); skyU.uSunDir.value.copy(U.uSunDir.value);
-U.uSunCol.value.set(sb.lights.sun.color.r, sb.lights.sun.color.g, sb.lights.sun.color.b).multiplyScalar(sb.lights.sun.intensity); skyU.uSunCol.value.copy(U.uSunCol.value);
-U.uHemiSky.value.set(sb.lights.hemi.color.r, sb.lights.hemi.color.g, sb.lights.hemi.color.b).multiplyScalar(sb.lights.hemi.intensity);
-U.uHemiGnd.value.set(sb.lights.hemi.groundColor.r, sb.lights.hemi.groundColor.g, sb.lights.hemi.groundColor.b).multiplyScalar(sb.lights.hemi.intensity);
-U.uFireCol.value.set(fireLight.color.r, fireLight.color.g, fireLight.color.b).multiplyScalar(fireLight.intensity);
-U.uFirePos.value.set(camp.fire.position.x, 1.0, camp.fire.position.z);
+function syncLights() {
+  U.uSunDir.value.copy(sb.lights.sun.position).normalize(); skyU.uSunDir.value.copy(U.uSunDir.value);
+  U.uSunCol.value.set(sb.lights.sun.color.r, sb.lights.sun.color.g, sb.lights.sun.color.b).multiplyScalar(sb.lights.sun.intensity); skyU.uSunCol.value.copy(U.uSunCol.value);
+  U.uHemiSky.value.set(sb.lights.hemi.color.r, sb.lights.hemi.color.g, sb.lights.hemi.color.b).multiplyScalar(sb.lights.hemi.intensity);
+  U.uHemiGnd.value.set(sb.lights.hemi.groundColor.r, sb.lights.hemi.groundColor.g, sb.lights.hemi.groundColor.b).multiplyScalar(sb.lights.hemi.intensity);
+  U.uFireCol.value.set(fireLight.color.r, fireLight.color.g, fireLight.color.b).multiplyScalar(fireLight.intensity);
+  U.uFirePos.value.set(camp.fire.position.x, 1.0, camp.fire.position.z); dirty();
+}
+// three times of day: the same numbers go to the kit's lights (left half) and to the tracer (right half)
+const TIMES = {
+  day: { sunPos: [12, 16, -10], sunCol: 0xffe2b0, sunI: 3.2, hemiSky: 0x8fa8c8, hemiGnd: 0x2a3a2a, hemiI: 0.9, fireI: 12, sky: [7, 8, 11] },
+  sunset: { sunPos: [22, 4.5, -8], sunCol: 0xffa050, sunI: 2.8, hemiSky: 0x7a86ad, hemiGnd: 0x3a2e24, hemiI: 0.55, fireI: 20, sky: [7, 3.2, 1.6] },
+  night: { sunPos: [12, 16, -10], sunCol: 0xffe2b0, sunI: 0, hemiSky: 0x4a5a80, hemiGnd: 0x1a2020, hemiI: 0.16, fireI: 60, sky: [0.3, 0.35, 0.6] }
+};
+function setTime(name) {
+  const t = TIMES[name]; timeOfDay = name; const sun = sb.lights.sun, hemi = sb.lights.hemi;
+  sun.position.set(...t.sunPos); sun.color.setHex(t.sunCol); sun.intensity = t.sunI; sun.castShadow = t.sunI > 0;
+  hemi.color.setHex(t.hemiSky); hemi.groundColor.setHex(t.hemiGnd); hemi.intensity = t.hemiI; fireLight.intensity = t.fireI;
+  U.uSkyScale.value.set(...t.sky); skyU.uSkyScale.value.copy(U.uSkyScale.value); syncLights();
+}
+setTime('day');
 
 // ---- the overlay: the ray, its handles, the boxes, the tested triangles (drawn to illustrate, always on top)
 const overlay = new THREE.Scene();
@@ -397,9 +452,20 @@ function bruteJS(o, d) { // every triangle, no boxes
 const s1 = sb.panel.section('01 · Two ways to draw the camp', 'Left of the line the usual rasterizer paints triangles onto the screen and shadows come from a shadow map. Right of the line a ray tracer fires one ray per pixel into the same triangles and asks what it hits first. Orbit, and the ray traced side keeps up.');
 s1.segment('Show', [{ value: 'raster', label: 'rasterized' }, { value: 'split', label: 'split' }, { value: 'rt', label: 'ray traced' }, { value: 'heat', label: 'boxes per pixel' }], 'split', v => { view = v; applyView(); });
 s1.slider('Where the ray traced side begins', { min: 0, max: 100, step: 1, value: 50, unit: ' %' }, x => { splitF = x / 100; });
+s1.segment('Light to show on the traced side', [{ value: 0, label: 'all of it' }, { value: 1, label: 'sun only' }, { value: 2, label: 'sky only' }, { value: 3, label: 'bounced only' }, { value: 4, label: 'campfire only' }, { value: 5, label: 'mirror only' }, { value: 6, label: 'lit or in shadow' }], 0, x => { layer = +x; U.uLayer.value = layer; applyView(); });
 s1.key([['#4aa3ff', 'boxes per pixel view: a few boxes opened'], ['#f2a341', 'dozens of boxes opened'], ['#ffffff', 'a hundred or more (the leaves)']]);
 
-const s2 = sb.panel.section('02 · One ray, two ways', 'Drag the blue start and the amber aim to fire one ray through the camp. The slow way tests every triangle. With the tree, the ray only opens the boxes it touches and tests the few triangles inside the last ones.');
+const sL = sb.panel.section('02 · Light, traced', 'Every kind of light here is a ray asking a question. Is the sun visible from this point? Is the sky? What did the light hit before it got here? Let the frames blend and the answers settle into soft shadows, dark corners and colour spilling off the walls.');
+sL.segment('Time of day', [{ value: 'day', label: 'day' }, { value: 'sunset', label: 'sunset' }, { value: 'night', label: 'night' }], 'day', x => { setTime(x); applyView(); });
+sL.slider('Sun size (a bigger sun makes softer shadows)', { min: 0, max: 8, step: 0.5, value: 2.5, unit: '°' }, x => { sunSize = x; U.uSunSize.value = x * Math.PI / 180; });
+sL.toggle('sky light: ask the sky if it can see this point (corners and overhangs go dark)', true, x => { skyRays = x; U.uSkyRays.value = x ? 1 : 0; });
+sL.slider('Bounced light (light that hit something else first)', { min: 0, max: 2, step: 1, value: 1, fmt: x => x === 0 ? 'none' : x + (x === 1 ? ' bounce' : ' bounces') }, x => { diff = x; U.uDiff.value = x; });
+sL.slider('Campfire size (a bigger fire makes softer fire shadows)', { min: 0.02, max: 0.8, step: 0.02, value: 0.3, unit: ' m' }, x => { fireR = x; U.uFireR.value = x; });
+sL.toggle('blend frames while the camera is still (the noise settles)', true, x => { accumulate = x; dirty(); });
+const accRead = sL.readout('frames blended');
+sL.note('The rasterized half can only do what a shadow map allows: one hard-edged sun shadow, no shadows from the fire, and the same sky light in every corner. Try night: on the left the fire shines straight through the house wall.');
+
+const s2 = sb.panel.section('03 · One ray, two ways', 'Drag the blue start and the amber aim to fire one ray through the camp. The slow way tests every triangle. With the tree, the ray only opens the boxes it touches and tests the few triangles inside the last ones.');
 s2.segment('Find the first hit by', [{ value: 'brute', label: 'checking every triangle' }, { value: 'tree', label: 'with the tree' }], 'tree', x => { findBy = x; U.uBrute.value = x === 'brute' ? 1 : 0; walkDirty = true; applyView(); });
 const startHS = s2.slider('Ray start height', { min: 0.2, max: 8, step: 0.1, value: 1.8, unit: ' m' }, x => { rayStart.y = x; startH.position.y = x; walkDirty = true; });
 const aimHS = s2.slider('Aim height', { min: 0.2, max: 8, step: 0.1, value: 1.4, unit: ' m' }, x => { rayAim.y = x; aimH.position.y = x; walkDirty = true; });
@@ -409,20 +475,20 @@ const walkTog = s2.toggle('draw the boxes the ray opens and the triangles it che
 s2.key([['#f2a341', 'triangle checked'], ['#5ad48a', 'box check passed'], ['#ef5d5d', 'box check failed, or starts beyond the hit']]);
 s2.note('On the GPU side, checking every triangle applies to the camera rays only; the shadow rays keep the tree, or one frame would take seconds. Watch the milliseconds readout in 06 jump.');
 
-const s3 = sb.panel.section('03 · Building the tree', 'Every box holds two smaller boxes, down to finished boxes holding a few triangles. Step through the levels and compare cutting a box down the middle with cutting where the cost says.');
+const s3 = sb.panel.section('04 · Building the tree', 'Every box holds two smaller boxes, down to finished boxes holding a few triangles. Step through the levels and compare cutting a box down the middle with cutting where the cost says.');
 const levelS = s3.slider('Level of the tree shown', { min: 0, max: 12, step: 1, value: 2 }, x => { level = x; levelDirty = true; });
 s3.toggle('show the boxes of that level', false, x => { showLevel = x; levelDirty = true; });
 s3.segment('Where to cut each box', [{ value: 'median', label: 'down the middle' }, { value: 'sah', label: 'by cost (SAH)' }], 'sah', x => { opt.split = x; rebuildAll('rebuilt the tree, cut ' + (x === 'sah' ? 'by cost' : 'down the middle')); });
 s3.slider('Triangles per finished box', { min: 1, max: 8, step: 1, value: 4 }, x => { opt.leafSize = x; rebuildAll('rebuilt the tree with ' + x + ' triangles per finished box'); });
 const nodesRead = s3.readout('boxes in the tree'), depthRead = s3.readout('levels'), buildRead = s3.readout('build time'), avgBoxRead = s3.readout('boxes per ray, 100 random rays'), avgTestRead = s3.readout('triangle checks per ray');
 
-const s4 = sb.panel.section('04 · Walking the tree', 'The ray keeps a to-do list of boxes. Scrub through its walk: green boxes passed the test, red ones failed or start beyond the best hit so far, so they are never opened.');
+const s4 = sb.panel.section('05 · Walking the tree', 'The ray keeps a to-do list of boxes. Scrub through its walk: green boxes passed the test, red ones failed or start beyond the best hit so far, so they are never opened.');
 const stepS = s4.slider('Step of the walk shown', { min: 0, max: 60, step: 1, value: 60, fmt: x => x + ' of ' + (rec.n || 0) }, x => { stepWanted = x >= +stepS.el.querySelector('input').max ? -1 : x; if (!showWalk) walkTog.set(true, false); showWalk = true; drawWalk(); });
 s4.toggle('open the nearer half first', true, x => { nearFirst = x; U.uNearFirst.value = x ? 1 : 0; walkDirty = statsDirty = true; });
 s4.segment('What the ray asks', [{ value: 'closest', label: 'the nearest thing' }, { value: 'any', label: 'anything at all (a shadow ray)' }], 'closest', x => { anyHit = x === 'any'; walkDirty = true; });
 const stepBoxRead = s4.readout('boxes checked so far'), stepTestRead = s4.readout('triangles checked so far'), stepHitRead = s4.readout('closest hit so far');
 
-const s5 = sb.panel.section('05 · Moving props', 'One tree over the whole camp must change whenever anything moves. With two levels each prop keeps its own tree and a tiny top tree holds the props, so dragging the house rebuilds only the top tree. Wind changes the shape of the trees, so their own trees must be regrown every frame.');
+const s5 = sb.panel.section('06 · Moving props', 'One tree over the whole camp must change whenever anything moves. With two levels each prop keeps its own tree and a tiny top tree holds the props, so dragging the house rebuilds only the top tree. Wind changes the shape of the trees, so their own trees must be regrown every frame.');
 s5.toggle('two-level tree: one tree per prop, a small top tree over them', false, x => { twoLevel = x; rebuildAll(x ? 'built one tree per prop and the top tree over them' : 'built one tree over the whole camp'); });
 s5.segment('When a shape changes', [{ value: 'rebuild', label: 'rebuild from scratch' }, { value: 'refit', label: 'refit: regrow the boxes, keep the tree' }], 'rebuild', x => { update = x; if (!wind) rebuildAll('rebuilt the tree, fresh'); });
 s5.toggle('wind: bend the trees every frame', false, x => { wind = x; if (!x) { for (const p of props) if (p.tree) restoreTree(p); rebuildAll('wind stopped, rebuilt the tree'); } });
@@ -430,13 +496,14 @@ s5.button('Put the house and the knight back', () => { camp.house.position.set(4
 const workRead = s5.readout('last tree work'), frameWorkRead = s5.readout('tree work per frame');
 s5.key([['#f2a341', 'the top tree over the props (two-level mode)'], ['#4aa3ff', 'boxes of the shown level']]);
 
-const s6 = sb.panel.section('06 · Rays a frame can afford', 'Every ray past the first costs the same walk again. Shadow rays go toward the sun and stop at the first thing they touch, one more goes to the campfire, and a mirror bounce follows the ray off the pond and the shield.');
+const s6 = sb.panel.section('07 · Rays a frame can afford', 'Every ray past the first costs the same walk again. Shadow rays go toward the sun and the fire and stop at the first thing they touch, one ray goes up to ask the sky, each bounce is a ray plus its own shadow rays, and a mirror bounce follows the ray off the pond and the shield.');
 s6.slider('Shadow rays per pixel, toward the sun', { min: 0, max: 8, step: 1, value: 1 }, x => { shadowN = x; });
-s6.slider('Sun size (softer shadows, more noise)', { min: 0, max: 8, step: 0.5, value: 1.5, unit: '°' }, x => { sunSize = x; U.uSunSize.value = x * Math.PI / 180; });
 s6.slider('Mirror bounces', { min: 0, max: 2, step: 1, value: 1 }, x => { bounces = x; });
-s6.segment('Ray picture size', [{ value: 1, label: 'full' }, { value: 0.5, label: 'half' }, { value: 0.25, label: 'quarter' }], 0.5, x => { rtScale = +x; });
+s6.segment('Ray picture size', [{ value: 1, label: 'full' }, { value: 0.5, label: 'half' }, { value: 0.25, label: 'quarter' }], 1, x => { rtScale = +x; });
 const rtRead = s6.readout('ray picture'), rppRead = s6.readout('rays per pixel, at most'), rpfRead = s6.readout('rays per frame, at most'), msRead = s6.readout('milliseconds per frame');
-s6.note('Noise is what one random shadow ray per pixel really gives you; games clean it with a denoiser rather than firing more rays. The milliseconds count the whole frame on your graphics card.');
+s6.note('Turn frame blending off in 02 to see what one frame of random rays really looks like: that noise is what games clean up with a denoiser rather than firing more rays. The milliseconds count the whole frame on your graphics card.');
+// any control change restarts the blend
+{ const pe = document.querySelector('.sb-panel'); pe.addEventListener('input', dirty); pe.addEventListener('change', dirty); pe.addEventListener('click', dirty); }
 U.uSunSize.value = sunSize * Math.PI / 180;
 
 // ---- tree work
@@ -541,6 +608,9 @@ window.addEventListener('pointerup', () => { if (drag) { drag = null; sb.control
 function applyView() {
   sb.hud('mode', view === 'raster' ? 'rasterized only: triangles painted to the screen, shadows from a shadow map' : view === 'split' ? 'left: rasterized · right of the line: ray traced in a shader, ' + (findBy === 'brute' ? 'camera rays checking every triangle' : 'walking the tree of boxes') : view === 'rt' ? 'ray traced: every pixel is one ray asking what it hits first' : 'boxes opened per pixel: dark blue is cheap, white is a hundred or more');
   pondLabel.hide(view === 'raster' || view === 'heat');
+  const LAY = ['', 'sun light only, with its soft shadows', 'sky light only, brightened 4 times: bright where the sky is in view, dark in corners and under things', 'bounced light only, brightened 6 times: light that hit something else first', 'campfire light only, brightened 2 times, with its shadows', 'the mirror bounce only: the pond and the shield', 'white where the sun is visible, black where a shadow ray was blocked'];
+  if (layer && view !== 'raster' && view !== 'heat') sb.hud('mode', LAY[layer]);
+  dirty();
 }
 applyView();
 
@@ -554,23 +624,29 @@ sb.onFrame((dt, t) => {
   if (walkDirty) updateWalk(); if (levelDirty) updateLevel(); if (statsDirty) updateStats();
   const now = performance.now(); if (lastNow) msAvg += ((now - lastNow) - msAvg) * 0.1; lastNow = now; msRead(msAvg.toFixed(1) + ' ms');
   const frac = view === 'raster' ? 0 : view === 'split' ? 1 - splitF : 1; const heatOn = view === 'heat';
-  const rpp = heatOn ? 1 : (2 + shadowN) * (1 + bounces);
+  const perHit = 2 + shadowN + (skyRays || diff > 0 ? 1 : 0) + diff * 2 + Math.max(diff - 1, 0);
+  const rpp = heatOn ? 1 : perHit * (1 + bounces);
   const px = rt ? Math.round(rt.width * frac) * rt.height : 0;
   rtRead(rt && frac > 0 ? rtW + ' × ' + rtH + ' rays wide and tall' : 'off');
-  rppRead(heatOn ? '1, the camera ray only' : '1 camera + ' + shadowN + ' sun + 1 campfire, times ' + (1 + bounces) + ' = ' + rpp);
+  rppRead(heatOn ? '1, the camera ray only' : perHit + ' per surface hit' + (bounces ? ', times ' + (1 + bounces) + ' at a mirror' : ''));
+  accRead(heatOn ? 'not for this view' : !accumulate ? 'off, one frame at a time' : wind ? 'off while the wind blows' : accN + (accN === 1 ? ' frame' : ' frames'));
   rpfRead(frac > 0 ? (px * rpp).toLocaleString() : '0');
 });
+const lastCam = new THREE.Matrix4();
 sb.onRender((scene, camera, renderer) => {
   camera.updateMatrixWorld(); invPV.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).invert();
+  if (!lastCam.equals(camera.matrixWorld)) { lastCam.copy(camera.matrixWorld); dirty(); }
   U.uInvPV.value.copy(invPV); U.uCamPos.value.copy(camera.position); skyU.uInvPV.value.copy(invPV); skyU.uCamPos.value.copy(camera.position);
   renderer.autoClear = false; renderer.setRenderTarget(null); renderer.setClearColor(PAL.sky, 1); renderer.clear();
   renderer.render(skyScene, quadCam);
   const split = view === 'split' ? splitF : view === 'raster' ? 1 : 0;
   if (split > 0) renderer.render(scene, camera);
   if (split < 1) {
-    ensureRT(); U.uSplit.value = split; U.uHeat.value = view === 'heat' ? 1 : 0; U.uShadowN.value = view === 'heat' ? 0 : shadowN; U.uBounces.value = view === 'heat' ? 0 : bounces; U.uFrame.value = frame++;
-    renderer.setRenderTarget(rt); renderer.clear(); renderer.render(traceScene, quadCam); renderer.setRenderTarget(null);
-    compU.tRT.value = rt.texture; compU.uSplit.value = split; compU.uRes.value.set(sb.stage.clientWidth, sb.stage.clientHeight); renderer.render(compScene, quadCam);
+    ensureRT(); const heatOn = view === 'heat'; U.uSplit.value = split; U.uHeat.value = heatOn ? 1 : 0; U.uShadowN.value = heatOn ? 0 : shadowN; U.uBounces.value = heatOn ? 0 : bounces; U.uFrame.value = frame++;
+    const blending = accumulate && !heatOn && !wind; if (!blending) accN = 0; U.uBlend.value = blending ? 1 / (accN + 1) : 1; if (blending && accN < 4096) accN++;
+    U.tPrev.value = rtPrev.texture; renderer.setRenderTarget(rt); renderer.clear(); renderer.render(traceScene, quadCam); renderer.setRenderTarget(null);
+    compU.tRT.value = rt.texture; compU.uRaw.value = heatOn ? 1 : 0; compU.uSplit.value = split; compU.uRes.value.set(sb.stage.clientWidth, sb.stage.clientHeight); renderer.render(compScene, quadCam);
+    const sw = rt; rt = rtPrev; rtPrev = sw;
   }
   renderer.render(overlay, camera);
 });
