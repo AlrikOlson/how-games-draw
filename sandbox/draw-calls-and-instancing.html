@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draw Calls &amp; Instancing · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'draw-calls-and-instancing', title: 'Draw Calls & Instancing',
+  blurb: 'The knight\'s camp, a market of crates and a forest of up to 4,000 trees, all drawn by a real graphics chip. Every idea from the chapter is a switch: send the props one order at a time, sort the orders, merge the forest into one shape, or send one order for thousands of copies, and watch the counts and the CPU time change.',
+  camera: { pos: [12, 10, 15], target: [0, 1.5, 1], near: 0.1, far: 400 }
+});
+const scene = sb.scene, renderer = sb.renderer, camera = sb.camera;
+const camp = sb.world.camp();
+camp.ground.scale.set(4.5, 4.5, 1);
+
+// ---------------------------------------------------------------- helpers
+let seed = 20260914; const rnd = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const rr = (a, b) => a + rnd() * (b - a);
+const M4 = THREE.Matrix4, V3 = THREE.Vector3;
+const T = (x, y, z) => new M4().makeTranslation(x, y, z);
+const fmtInt = n => Math.round(n).toLocaleString('en-GB');
+const fmtBytes = b => b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(b < 10240 ? 1 : 0) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
+
+// merge low-poly parts into one geometry with vertex colours, so one prop is one shape
+function merge(parts) {
+  const pos = [], nor = [], col = [], c = new THREE.Color();
+  for (const p of parts) {
+    const g = p.geo.toNonIndexed(); g.applyMatrix4(p.m || new M4()); c.set(p.color);
+    const a = g.attributes.position.array, n = g.attributes.normal.array;
+    for (let i = 0; i < a.length; i += 3) { pos.push(a[i], a[i + 1], a[i + 2]); nor.push(n[i], n[i + 1], n[i + 2]); col.push(c.r, c.g, c.b); }
+    g.dispose(); p.geo.dispose();
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.computeBoundingBox(); geo.computeBoundingSphere(); return geo;
+}
+
+// ---------------------------------------------------------------- the two shapes: one tree, one crate
+const MAXT = 4000, MAXC = 400, NPAINT = 24, NTEX = 9;
+const treeGeo = merge([
+  { geo: new THREE.CylinderGeometry(0.24, 0.32, 1.8, 6, 1, true), color: PAL.wood, m: T(0, 0.9, 0) },
+  { geo: new THREE.IcosahedronGeometry(1.28, 1), color: PAL.leaf, m: T(0, 2.48, 0) },
+  { geo: new THREE.IcosahedronGeometry(0.8, 0), color: PAL.leafLite, m: T(-0.4, 3.2, 0.2) }
+]);
+const VT = treeGeo.attributes.position.count;
+const crateGeo = new THREE.BoxGeometry(0.9, 0.9, 0.9).toNonIndexed(); crateGeo.computeBoundingSphere();
+const VC = crateGeo.attributes.position.count;
+const geoBytes = g => Object.values(g.attributes).reduce((s, a) => s + a.array.byteLength, 0);
+const TREE_BYTES = geoBytes(treeGeo), CRATE_BYTES = geoBytes(crateGeo);
+
+// paints for the trees: tints that multiply the vertex colours, one material each
+const tints = []; for (let k = 0; k < NPAINT; k++) tints.push(new THREE.Color().setHSL(0.14 + 0.3 * ((k * 7) % NPAINT) / NPAINT, 0.75, 0.68));
+const tintMats = tints.map(c => new THREE.MeshLambertMaterial({ vertexColors: true, color: c }));
+
+// paint jobs for the crates: nine small textures, the same nine on one big sheet, and the same nine in a stack
+function paintTile(ctx, k, x0, y0) {
+  const hue = (k * 40) % 360;
+  ctx.fillStyle = `hsl(${hue} 45% 40%)`; ctx.fillRect(x0, y0, 64, 64);
+  ctx.fillStyle = `hsl(${hue} 45% 26%)`; for (let r = 1; r < 4; r++) ctx.fillRect(x0, y0 + r * 16 - 1, 64, 2);
+  ctx.fillStyle = `hsl(${hue} 55% 70%)`; ctx.fillRect(x0, y0, 64, 4); ctx.fillRect(x0, y0 + 60, 64, 4); ctx.fillRect(x0, y0, 4, 64); ctx.fillRect(x0 + 60, y0, 4, 64);
+  ctx.font = 'bold 36px Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(k + 1), x0 + 32, y0 + 34);
+}
+const texs = [], tileCanvases = [];
+for (let k = 0; k < NTEX; k++) {
+  const c = document.createElement('canvas'); c.width = c.height = 64; paintTile(c.getContext('2d'), k, 0, 0); tileCanvases.push(c);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 1; texs.push(t);
+}
+const atlasCanvas = document.createElement('canvas'); atlasCanvas.width = atlasCanvas.height = 192;
+{ const ctx = atlasCanvas.getContext('2d'); for (let k = 0; k < NTEX; k++) paintTile(ctx, k, (k % 3) * 64, Math.floor(k / 3) * 64); }
+const atlasTex = new THREE.CanvasTexture(atlasCanvas); atlasTex.colorSpace = THREE.SRGBColorSpace;
+const tileOff = k => [(k % 3) / 3, (2 - Math.floor(k / 3)) / 3];
+// the stack: a real texture array, one layer per paint job, stored linear so no colour space flag is needed
+const arrData = new Uint8Array(64 * 64 * 4 * NTEX);
+{ const lin = new Uint8Array(256); for (let i = 0; i < 256; i++) lin[i] = Math.round(255 * Math.pow(i / 255, 2.2));
+  for (let k = 0; k < NTEX; k++) { const d = tileCanvases[k].getContext('2d').getImageData(0, 0, 64, 64).data;
+    for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) { const s = ((63 - y) * 64 + x) * 4, o = (k * 4096 + y * 64 + x) * 4; arrData[o] = lin[d[s]]; arrData[o + 1] = lin[d[s + 1]]; arrData[o + 2] = lin[d[s + 2]]; arrData[o + 3] = 255; } } }
+const arrTex = new THREE.DataArrayTexture(arrData, 64, 64, NTEX); arrTex.format = THREE.RGBAFormat; arrTex.type = THREE.UnsignedByteType;
+arrTex.minFilter = THREE.LinearMipmapLinearFilter; arrTex.magFilter = THREE.LinearFilter; arrTex.generateMipmaps = true; arrTex.needsUpdate = true;
+
+const texMats = texs.map(t => new THREE.MeshLambertMaterial({ map: t }));
+const mergedCrateMat = new THREE.MeshLambertMaterial({ map: atlasTex });
+// one sheet: each copy carries the corner of its tile, and the shader shifts the texture coordinates there
+const atlasMat = new THREE.MeshLambertMaterial({ map: atlasTex });
+atlasMat.onBeforeCompile = sh => { sh.vertexShader = 'attribute vec2 aTile;\n' + sh.vertexShader.replace('#include <uv_vertex>', '#include <uv_vertex>\n\tvMapUv = vMapUv * (1.0 / 3.0) + aTile;'); };
+atlasMat.customProgramCacheKey = () => 'atlas';
+// one stack: each copy carries a layer number, and the shader reads that layer of the texture array
+const arrMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+arrMat.onBeforeCompile = sh => {
+  sh.uniforms.mapArr = { value: arrTex };
+  sh.vertexShader = 'attribute float aLayer; varying float vLayer; varying vec2 vUvA;\n' + sh.vertexShader.replace('#include <uv_vertex>', '#include <uv_vertex>\n\tvLayer = aLayer; vUvA = uv;');
+  sh.fragmentShader = 'precision highp sampler2DArray;\nuniform sampler2DArray mapArr; varying float vLayer; varying vec2 vUvA;\n' + sh.fragmentShader.replace('#include <map_fragment>', '\tdiffuseColor *= texture(mapArr, vec3(vUvA, vLayer));');
+};
+arrMat.customProgramCacheKey = () => 'texarray';
+
+// the camera test inside the draw: six planes of the view wedge, and a switch. Shared by the forest's shaders.
+const planesU = []; for (let i = 0; i < 6; i++) planesU.push(new THREE.Vector4());
+const gpuCullU = { value: 0 };
+const CULL_GLSL = `
+	#ifdef USE_INSTANCING
+	if (uGpuCull > 0.5) {
+		vec4 c = modelMatrix * instanceMatrix * vec4(0.0, 2.0, 0.0, 1.0);
+		for (int i = 0; i < 6; i++) if (dot(uPlanes[i].xyz, c.xyz) + uPlanes[i].w < -3.3) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+	}
+	#endif`;
+const instTreeMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+instTreeMat.onBeforeCompile = sh => {
+  sh.uniforms.uPlanes = { value: planesU }; sh.uniforms.uGpuCull = gpuCullU;
+  sh.vertexShader = 'uniform vec4 uPlanes[6]; uniform float uGpuCull;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>' + CULL_GLSL);
+};
+instTreeMat.customProgramCacheKey = () => 'treecull';
+const mergedTreeMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+
+// colour by order: one shader for everything, and each draw call sets its own colour just before it is sent
+const colourMat = new THREE.ShaderMaterial({
+  uniforms: { uCol: { value: new THREE.Color() }, uPlanes: { value: planesU }, uGpuCull: gpuCullU },
+  vertexShader: `uniform vec4 uPlanes[6]; uniform float uGpuCull; varying vec3 vN;
+void main() {
+	vec4 mv = vec4(position, 1.0);
+	#ifdef USE_INSTANCING
+	mv = instanceMatrix * mv;
+	#endif
+	vN = normalize(normalMatrix * normal);
+	mv = modelViewMatrix * mv;
+	gl_Position = projectionMatrix * mv;` + CULL_GLSL + `
+}`,
+  fragmentShader: `uniform vec3 uCol; varying vec3 vN;
+void main() { float l = 0.55 + 0.45 * max(0.0, dot(normalize(vN), normalize(vec3(0.5, 0.8, 0.4)))); gl_FragColor = vec4(uCol * l, 1.0); }`
+});
+let drawIdx = 0, lastDrawIdx = 1;
+const hueFn = function () { drawIdx++; colourMat.uniforms.uCol.value.setHSL((drawIdx / lastDrawIdx) * 0.85, 0.75, 0.55); colourMat.uniformsNeedUpdate = true; };
+const noop = () => {};
+
+// ---------------------------------------------------------------- the props: where every tree and crate stands
+const tX = new Float32Array(MAXT), tZ = new Float32Array(MAXT), tRot = new Float32Array(MAXT), tScale = new Float32Array(MAXT), tPhase = new Float32Array(MAXT), tPaint = new Uint8Array(MAXT);
+for (let i = 0; i < MAXT; i++) {
+  let x, z; do { const r = Math.sqrt(rr(20 * 20, 80 * 80)), a = rr(0, Math.PI * 2); x = Math.cos(a) * r; z = Math.sin(a) * r; } while (Math.hypot(x - 12, z - 15) < 5);
+  tX[i] = x; tZ[i] = z; tRot[i] = rr(0, Math.PI * 2); tScale[i] = rr(0.6, 1.2); tPhase[i] = rr(0, Math.PI * 2); tPaint[i] = Math.floor(rnd() * NPAINT);
+}
+let labelTree = 0; for (let i = 1, best = 1e9; i < 600; i++) { const d = Math.hypot(tX[i] + 10, tZ[i] + 16); if (d < best) { best = d; labelTree = i; } }
+const spots = []; for (let ix = 0; ix < 15; ix++) for (let iz = 0; iz < 8; iz++) spots.push([-8 + ix * 1.15, 4.6 + iz * 1.05, rr(-0.25, 0.25)]);
+for (let i = spots.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [spots[i], spots[j]] = [spots[j], spots[i]]; }
+const cX = new Float32Array(MAXC), cY = new Float32Array(MAXC), cZ = new Float32Array(MAXC), cRot = new Float32Array(MAXC), cPaint = new Uint8Array(MAXC);
+for (let j = 0; j < MAXC; j++) { const s = spots[j % spots.length]; cX[j] = s[0]; cZ[j] = s[1]; cRot[j] = s[2]; cY[j] = 0.45 + Math.floor(j / spots.length) * 0.9; cPaint[j] = Math.floor(rnd() * NTEX); }
+
+// ---------------------------------------------------------------- state
+const S = { count: 2200, mode: 'each', paints: 6, cpaints: NTEX, cull: 'cpu', ctex: 'tex', wind: false, shadows: false, colour: false };
+let nT = 2000, nC = 200;
+const treePaint = i => tPaint[i] % S.paints, cratePaint = j => cPaint[j] % S.cpaints;
+function assignMat(m, mat) { m.userData.mat = mat; if (!S.colour) m.material = mat; }
+
+// ---- A: one mesh per prop
+const gEach = new THREE.Group(); scene.add(gEach);
+const treeMeshes = [], crateMeshes = [];
+for (let i = 0; i < MAXT; i++) {
+  const m = new THREE.Mesh(treeGeo, tintMats[treePaint(i)]); m.position.set(tX[i], 0, tZ[i]); m.rotation.y = tRot[i]; m.scale.setScalar(tScale[i]);
+  m.userData.kind = 'ftree'; m.userData.mat = m.material; treeMeshes.push(m); gEach.add(m);
+}
+for (let j = 0; j < MAXC; j++) {
+  const m = new THREE.Mesh(crateGeo, texMats[cPaint[j]]); m.position.set(cX[j], cY[j], cZ[j]); m.rotation.y = cRot[j];
+  m.userData.kind = 'fcrate'; m.userData.mat = m.material; crateMeshes.push(m); gEach.add(m);
+}
+
+// ---- B: one merged giant shape for the forest, one for the market (world positions baked into the vertices)
+const gMerged = new THREE.Group(); scene.add(gMerged);
+const mPos = new Float32Array(MAXT * VT * 3), mBase = new Float32Array(MAXT * VT * 3), mNor = new Float32Array(MAXT * VT * 3), mCol = new Float32Array(MAXT * VT * 3);
+{
+  const p = treeGeo.attributes.position.array, n = treeGeo.attributes.normal.array, v = new V3(), q = new V3();
+  for (let i = 0; i < MAXT; i++) {
+    const c = Math.cos(tRot[i]), s = Math.sin(tRot[i]), sc = tScale[i], o = i * VT * 3;
+    for (let k = 0; k < VT * 3; k += 3) {
+      v.set(p[k], p[k + 1], p[k + 2]).multiplyScalar(sc); q.set(n[k], n[k + 1], n[k + 2]);
+      mBase[o + k] = c * v.x + s * v.z + tX[i]; mBase[o + k + 1] = v.y; mBase[o + k + 2] = -s * v.x + c * v.z + tZ[i];
+      mNor[o + k] = c * q.x + s * q.z; mNor[o + k + 1] = q.y; mNor[o + k + 2] = -s * q.x + c * q.z;
+    }
+  }
+  mPos.set(mBase);
+}
+const mergedTreeGeo = new THREE.BufferGeometry();
+mergedTreeGeo.setAttribute('position', new THREE.BufferAttribute(mPos, 3)); mergedTreeGeo.setAttribute('normal', new THREE.BufferAttribute(mNor, 3)); mergedTreeGeo.setAttribute('color', new THREE.BufferAttribute(mCol, 3));
+mergedTreeGeo.attributes.position.setUsage(THREE.DynamicDrawUsage); mergedTreeGeo.boundingSphere = new THREE.Sphere(new V3(0, 2, 0), 86);
+const mergedTrees = new THREE.Mesh(mergedTreeGeo, mergedTreeMat); mergedTrees.frustumCulled = false; mergedTrees.userData.kind = 'ftree'; mergedTrees.userData.mat = mergedTreeMat; gMerged.add(mergedTrees);
+function paintMergedTrees() {
+  const c = treeGeo.attributes.color.array;
+  for (let i = 0; i < MAXT; i++) { const t = tints[treePaint(i)], o = i * VT * 3; for (let k = 0; k < VT * 3; k += 3) { mCol[o + k] = c[k] * t.r; mCol[o + k + 1] = c[k + 1] * t.g; mCol[o + k + 2] = c[k + 2] * t.b; } }
+  mergedTreeGeo.attributes.color.needsUpdate = true;
+}
+paintMergedTrees();
+const cPos = new Float32Array(MAXC * VC * 3), cNor = new Float32Array(MAXC * VC * 3), cUv = new Float32Array(MAXC * VC * 2);
+{
+  const p = crateGeo.attributes.position.array, n = crateGeo.attributes.normal.array;
+  for (let j = 0; j < MAXC; j++) {
+    const c = Math.cos(cRot[j]), s = Math.sin(cRot[j]), o = j * VC * 3;
+    for (let k = 0; k < VC * 3; k += 3) {
+      cPos[o + k] = c * p[k] + s * p[k + 2] + cX[j]; cPos[o + k + 1] = p[k + 1] + cY[j]; cPos[o + k + 2] = -s * p[k] + c * p[k + 2] + cZ[j];
+      cNor[o + k] = c * n[k] + s * n[k + 2]; cNor[o + k + 1] = n[k + 1]; cNor[o + k + 2] = -s * n[k] + c * n[k + 2];
+    }
+  }
+}
+const mergedCrateGeo = new THREE.BufferGeometry();
+mergedCrateGeo.setAttribute('position', new THREE.BufferAttribute(cPos, 3)); mergedCrateGeo.setAttribute('normal', new THREE.BufferAttribute(cNor, 3)); mergedCrateGeo.setAttribute('uv', new THREE.BufferAttribute(cUv, 2));
+mergedCrateGeo.boundingSphere = new THREE.Sphere(new V3(0, 2, 8.5), 12);
+const mergedCrates = new THREE.Mesh(mergedCrateGeo, mergedCrateMat); mergedCrates.frustumCulled = false; mergedCrates.userData.kind = 'fcrate'; mergedCrates.userData.mat = mergedCrateMat; gMerged.add(mergedCrates);
+function uvMergedCrates() {
+  const u = crateGeo.attributes.uv.array;
+  for (let j = 0; j < MAXC; j++) { const [ox, oy] = tileOff(cratePaint(j)), o = j * VC * 2; for (let k = 0; k < VC * 2; k += 2) { cUv[o + k] = u[k] / 3 + ox; cUv[o + k + 1] = u[k + 1] / 3 + oy; } }
+  mergedCrateGeo.attributes.uv.needsUpdate = true;
+}
+uvMergedCrates();
+
+// ---- C: one order, many copies
+const gInst = new THREE.Group(); scene.add(gInst);
+const dummy = new THREE.Object3D();
+const treeInst = new THREE.InstancedMesh(treeGeo, instTreeMat, MAXT); treeInst.frustumCulled = false; treeInst.userData.kind = 'ftree'; treeInst.userData.mat = instTreeMat; gInst.add(treeInst);
+treeInst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+const baseM = new Float32Array(MAXT * 16);
+for (let i = 0; i < MAXT; i++) { dummy.position.set(tX[i], 0, tZ[i]); dummy.rotation.set(0, tRot[i], 0); dummy.scale.setScalar(tScale[i]); dummy.updateMatrix(); dummy.matrix.toArray(baseM, i * 16); treeInst.setMatrixAt(i, dummy.matrix); }
+function paintInstTrees() { for (let i = 0; i < MAXT; i++) treeInst.setColorAt(i, tints[treePaint(i)]); treeInst.instanceColor.needsUpdate = true; }
+paintInstTrees();
+const crateInstByTex = []; for (let k = 0; k < NTEX; k++) { const m = new THREE.InstancedMesh(crateGeo, texMats[k], MAXC); m.frustumCulled = false; m.userData.kind = 'fcrate'; m.userData.mat = texMats[k]; crateInstByTex.push(m); gInst.add(m); }
+const crateGeoAtlas = crateGeo.clone(); crateGeoAtlas.setAttribute('aTile', new THREE.InstancedBufferAttribute(new Float32Array(MAXC * 2), 2));
+const crateInstAtlas = new THREE.InstancedMesh(crateGeoAtlas, atlasMat, MAXC); crateInstAtlas.frustumCulled = false; crateInstAtlas.userData.kind = 'fcrate'; crateInstAtlas.userData.mat = atlasMat; gInst.add(crateInstAtlas);
+const crateGeoArr = crateGeo.clone(); crateGeoArr.setAttribute('aLayer', new THREE.InstancedBufferAttribute(new Float32Array(MAXC), 1));
+const crateInstArr = new THREE.InstancedMesh(crateGeoArr, arrMat, MAXC); crateInstArr.frustumCulled = false; crateInstArr.userData.kind = 'fcrate'; crateInstArr.userData.mat = arrMat; gInst.add(crateInstArr);
+function layoutInstCrates() {
+  const counts = new Array(NTEX).fill(0), tile = crateGeoAtlas.attributes.aTile.array, layer = crateGeoArr.attributes.aLayer.array;
+  for (let j = 0; j < nC; j++) {
+    const p = cratePaint(j); dummy.position.set(cX[j], cY[j], cZ[j]); dummy.rotation.set(0, cRot[j], 0); dummy.scale.setScalar(1); dummy.updateMatrix();
+    crateInstByTex[p].setMatrixAt(counts[p]++, dummy.matrix);
+    crateInstAtlas.setMatrixAt(j, dummy.matrix); crateInstArr.setMatrixAt(j, dummy.matrix);
+    const [ox, oy] = tileOff(p); tile[j * 2] = ox; tile[j * 2 + 1] = oy; layer[j] = p;
+  }
+  for (let k = 0; k < NTEX; k++) { crateInstByTex[k].count = counts[k]; crateInstByTex[k].instanceMatrix.needsUpdate = true; }
+  crateInstAtlas.count = nC; crateInstArr.count = nC; crateInstAtlas.instanceMatrix.needsUpdate = true; crateInstArr.instanceMatrix.needsUpdate = true;
+  crateGeoAtlas.attributes.aTile.needsUpdate = true; crateGeoArr.attributes.aLayer.needsUpdate = true;
+}
+
+// the whole forest and market, for shadows and the colour view
+const propMeshes = [...treeMeshes, ...crateMeshes, mergedTrees, mergedCrates, treeInst, ...crateInstByTex, crateInstAtlas, crateInstArr];
+for (const m of propMeshes) { m.castShadow = false; m.receiveShadow = false; }
+
+// labels
+sb.label('the market: crates in 9 paint jobs', new V3(0, 3.2, 8.2), 'amber');
+sb.label('the forest: one tree shape, thousands of copies', new V3(tX[labelTree], tScale[labelTree] * 4.2, tZ[labelTree]), 'blue');
+sb.label('the camp', camp.house).off.set(0, 4.6, 0);
+
+// ---------------------------------------------------------------- panel
+const s1 = sb.panel.section('01 · What one order costs', 'Every tree and crate is one order (a draw call) from the computer\'s main processor (CPU) to the graphics chip (GPU). Add props and watch the CPU\'s time per frame climb.');
+s1.slider('Props in the scene (trees and crates)', { min: 220, max: 4400, step: 220, value: 2200 }, v => { S.count = v; rebuild(); });
+s1.toggle('shadow pass: send every order a second time for the sun\'s shadow map', false, v => { S.shadows = v; apply(); });
+s1.toggle('colour by order: each draw call gets its own colour, in the order it was sent', false, v => setColour(v));
+const R = {};
+R.calls = s1.readout('orders sent (draw calls)'); R.tris = s1.readout('triangles'); R.cpu = s1.readout('CPU time writing the orders'); R.prop = s1.readout('CPU time moving and testing props'); R.frame = s1.readout('time between frames');
+
+const s2 = sb.panel.section('02 · Sort the orders, skip the setup', 'Each tree has one of a few paints (materials). When two orders in a row use the same paint the setup between them is free, so a sorted list has far fewer setup changes.');
+const orderSeg = s2.segment('The list is sent', [{ value: 'each', label: 'as the level lists it' }, { value: 'sorted', label: 'sorted by paint' }], 'each', v => setMode(v));
+s2.slider('Different paints on the trees', { min: 1, max: NPAINT, step: 1, value: 6 }, v => { S.paints = v; repaintTrees(); });
+R.matSw = s2.readout('paint switches this frame (material binds)'); R.geoSw = s2.readout('shape switches this frame (mesh binds)');
+
+const s3 = sb.panel.section('03 · One order, thousands of trees', 'Three ways to send the forest: one order per tree, every tree copied into one giant shape, or one shape plus one order that says draw it N times, each copy at its own spot (instancing).');
+const modeSeg = s3.segment('How the props are sent', [{ value: 'each', label: 'one order per prop' }, { value: 'sorted', label: 'sorted by paint' }, { value: 'merged', label: 'one merged giant shape' }, { value: 'inst', label: 'one order, many copies' }], 'each', v => setMode(v));
+s3.toggle('wind: let the trees sway', false, v => { S.wind = v; windDirty = true; apply(); });
+s3.note('Copies can still move: the CPU rewrites a small record per tree. The merged shape cannot: every corner of every tree must be rebuilt and sent again each frame. Watch the CPU time when the wind is on.');
+R.mem = s3.readout('memory for shapes and positions'); R.fcalls = s3.readout('orders for the forest');
+
+const s4 = sb.panel.section('04 · Let the chip decide what to draw', 'Trees behind the camera need no order. Someone has to test each tree against the camera\'s view wedge (frustum): the CPU, one tree at a time, or the chip, inside the one big order.');
+const cullSeg = s4.segment('Who tests the trees against the camera', [{ value: 'cpu', label: 'the CPU, one by one' }, { value: 'gpu', label: 'the chip, inside the draw' }, { value: 'none', label: 'nobody, send them all' }], 'cpu', v => { S.cull = v; if (v === 'gpu' && S.mode !== 'inst') setMode('inst'); else apply(); });
+s4.note('The chip can only test copies inside one order, so choosing it switches the forest to one order, many copies. The CPU then says the same one thing every frame, however big the forest.');
+R.cullMs = s4.readout('CPU time spent testing'); R.reach = s4.readout('trees that reach the chip');
+
+const s5 = sb.panel.section('05 · Why paint jobs split the batch', 'The crates come in nine paint jobs (textures). Copies in one order must share the same texture, so nine textures split one order into nine. A sheet or a stack puts them back together.');
+const texSeg = s5.segment('How a crate gets its texture', [{ value: 'tex', label: 'one texture per order' }, { value: 'atlas', label: 'one big sheet (atlas)' }, { value: 'array', label: 'a stack of textures (array)' }], 'tex', v => { S.ctex = v; if (S.mode !== 'inst') setMode('inst'); else apply(); });
+s5.slider('Different paint jobs on the crates', { min: 1, max: NTEX, step: 1, value: NTEX }, v => { S.cpaints = v; repaintCrates(); });
+R.mcalls = s5.readout('orders for the market'); R.texSw = s5.readout('texture switches for the market');
+s5.note('Look at the far crates on the sheet: the distance blur (mipmaps) is built on the whole sheet, so a tile blurs into its neighbours at the edges. The stack keeps every paint job on its own layer.');
+
+// ---------------------------------------------------------------- applying state
+let windDirty = false, instDirty = true;
+function setMode(m) { S.mode = m; modeSeg.set(m, false); orderSeg.set(m === 'each' || m === 'sorted' ? m : null, false); apply(); }
+function repaintTrees() { for (let i = 0; i < MAXT; i++) assignMat(treeMeshes[i], tintMats[treePaint(i)]); paintMergedTrees(); paintInstTrees(); apply(); }
+function repaintCrates() { for (let j = 0; j < MAXC; j++) assignMat(crateMeshes[j], texMats[cratePaint(j)]); uvMergedCrates(); layoutInstCrates(); apply(); }
+function rebuild() {
+  nT = Math.round(S.count * 10 / 11); nC = S.count - nT;
+  for (let i = 0; i < MAXT; i++) treeMeshes[i].visible = i < nT;
+  for (let j = 0; j < MAXC; j++) crateMeshes[j].visible = j < nC;
+  mergedTreeGeo.setDrawRange(0, nT * VT); mergedCrateGeo.setDrawRange(0, nC * VC);
+  treeInst.count = nT; layoutInstCrates(); instDirty = true; apply();
+}
+function apply() {
+  const m = S.mode, perProp = m === 'each' || m === 'sorted';
+  gEach.visible = perProp; gMerged.visible = m === 'merged'; gInst.visible = m === 'inst';
+  for (let k = 0; k < NTEX; k++) crateInstByTex[k].visible = S.ctex === 'tex';
+  crateInstAtlas.visible = S.ctex === 'atlas'; crateInstArr.visible = S.ctex === 'array';
+  // the order of the list: the level's order, or grouped by paint
+  for (let i = 0; i < MAXT; i++) { const t = treeMeshes[i]; t.renderOrder = m === 'sorted' ? treePaint(i) * 100000 + i : i; t.frustumCulled = S.cull === 'cpu'; }
+  for (let j = 0; j < MAXC; j++) { const c = crateMeshes[j]; c.renderOrder = m === 'sorted' ? (50 + cratePaint(j)) * 100000 + j : j * 10 + 0.5; }
+  gpuCullU.value = m === 'inst' && S.cull === 'gpu' ? 1 : 0;
+  for (const p of propMeshes) p.castShadow = S.shadows;
+  instDirty = true; windDirty = true;
+  // memory: what the CPU had to store for this way of sending
+  let mem;
+  if (perProp) mem = fmtBytes(TREE_BYTES + CRATE_BYTES) + ' for the two shapes, plus 64 B of placement per order: ' + fmtBytes(TREE_BYTES + CRATE_BYTES + (nT + nC) * 64);
+  else if (m === 'merged') mem = 'the tree shape copied ' + fmtInt(nT) + ' times, the crate ' + fmtInt(nC) + ' times: ' + fmtBytes(nT * VT * 36 + nC * VC * 32);
+  else mem = fmtBytes(TREE_BYTES + CRATE_BYTES) + ' for the two shapes, plus a 64 B record and a colour per copy: ' + fmtBytes(TREE_BYTES + CRATE_BYTES + nT * 76 + nC * 72);
+  R.mem(mem);
+  sb.hud('mode', m === 'each' ? 'one order per prop, in the order the level lists them' : m === 'sorted' ? 'one order per prop, the list sorted so same paints sit together' : m === 'merged' ? 'the forest is one giant shape, the market another: two orders, positions baked into the corners' : 'one order for the whole forest: one shape, ' + fmtInt(nT) + ' copies, each with its own record');
+  sb.hud('test', m === 'inst' ? (S.cull === 'gpu' ? 'camera test: the chip drops copies outside the view wedge inside the draw' : S.cull === 'cpu' ? 'camera test: the CPU tests every copy and blanks the ones outside' : 'camera test: none, every copy goes to the chip') : m === 'merged' ? 'camera test: none possible, the whole forest is one shape' : (S.cull === 'cpu' ? 'camera test: the CPU tests every prop before writing its order' : 'camera test: none, every prop gets an order and the chip clips what is outside'));
+}
+function setColour(on) {
+  S.colour = on;
+  scene.traverse(o => { if (!o.isMesh) return; if (on) { if (!o.userData.mat) o.userData.mat = o.material; o.material = colourMat; o.onBeforeRender = hueFn; } else { o.material = o.userData.mat || o.material; o.onBeforeRender = noop; } });
+  sb.hud('view', on ? 'colour by order: one colour per draw call, red first, violet last' : null);
+}
+
+// ---------------------------------------------------------------- per frame
+const frustum = new THREE.Frustum(), pv = new M4(), tmpM = new M4();
+let renderMs = 0, propMs = 0, cullMs = 0, frameMs = 16, lastNow = 0, vis = 0, matSw = 0, geoSw = 0, fCalls = 0, mCalls = 0, texSw = 0, treesInList = 0;
+let smooth = { cpu: 0, prop: 0, frame: 16, cull: 0 };
+const ease = (a, b) => a + (b - a) * 0.1;
+sb.onFrame((dt, t) => {
+  const now = performance.now(); if (lastNow) frameMs = now - lastNow; lastNow = now;
+  const t0 = performance.now();
+  camera.updateMatrixWorld(); frustum.setFromProjectionMatrix(pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+  for (let k = 0; k < 6; k++) { const p = frustum.planes[k]; planesU[k].set(p.normal.x, p.normal.y, p.normal.z, p.constant); }
+  const m = S.mode; cullMs = 0; vis = nT;
+  if (m === 'each' || m === 'sorted') {
+    if (S.wind) { for (let i = 0; i < nT; i++) treeMeshes[i].rotation.z = 0.08 * Math.sin(t * 1.6 + tPhase[i]); }
+    else if (windDirty) { for (let i = 0; i < MAXT; i++) treeMeshes[i].rotation.z = 0; }
+  } else if (m === 'merged') {
+    if (S.wind) {
+      const n = nT * VT * 3; for (let i = 0; i < nT; i++) { const a = 0.08 * Math.sin(t * 1.6 + tPhase[i]), o = i * VT * 3; for (let k = o; k < o + VT * 3; k += 3) mPos[k] = mBase[k] + mBase[k + 1] * a; }
+      const at = mergedTreeGeo.attributes.position; at.clearUpdateRanges(); at.addUpdateRange(0, n); at.needsUpdate = true;
+    } else if (windDirty) { mPos.set(mBase); const at = mergedTreeGeo.attributes.position; at.clearUpdateRanges(); at.needsUpdate = true; }
+  } else {
+    const cpu = S.cull === 'cpu';
+    if (cpu || S.wind || instDirty) {
+      const tc = performance.now(); const arr = treeInst.instanceMatrix.array, pl = frustum.planes; vis = 0;
+      for (let i = 0; i < nT; i++) {
+        let gone = false;
+        if (cpu) { const s = tScale[i], cx = tX[i], cy = 2 * s, cz = tZ[i], r = 2.4 * s; for (let k = 0; k < 6; k++) { const n = pl[k].normal; if (n.x * cx + n.y * cy + n.z * cz + pl[k].constant < -r) { gone = true; break; } } }
+        if (!gone) vis++;
+        const b = i * 16;
+        if (gone) { for (let k = 0; k < 12; k++) arr[b + k] = 0; arr[b + 12] = tX[i]; arr[b + 13] = 0; arr[b + 14] = tZ[i]; arr[b + 15] = 1; }
+        else if (S.wind) { dummy.position.set(tX[i], 0, tZ[i]); dummy.rotation.set(0, tRot[i], 0.08 * Math.sin(t * 1.6 + tPhase[i])); dummy.scale.setScalar(tScale[i]); dummy.updateMatrix(); dummy.matrix.toArray(arr, b); }
+        else for (let k = 0; k < 16; k++) arr[b + k] = baseM[b + k];
+      }
+      treeInst.instanceMatrix.needsUpdate = true; instDirty = false;
+      if (cpu) cullMs = performance.now() - tc;
+    }
+  }
+  windDirty = false;
+  propMs = performance.now() - t0;
+  drawIdx = 0;
+});
+sb.onRender((scene, camera, renderer) => {
+  const t0 = performance.now(); renderer.render(scene, camera); renderMs = performance.now() - t0;
+  lastDrawIdx = Math.max(1, drawIdx);
+  // walk the real list the renderer just drew and count where the setup changed
+  const list = renderer.renderLists.get(scene, 0), items = list ? list.opaque : [];
+  let pm = null, pg = null, pcm = null; matSw = 0; geoSw = 0; fCalls = 0; mCalls = 0; texSw = 0; treesInList = 0;
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i], mat = S.colour ? (it.object.userData.mat || it.material) : it.material;
+    if (mat !== pm) { matSw++; pm = mat; } if (it.geometry !== pg) { geoSw++; pg = it.geometry; }
+    const kind = it.object.userData.kind;
+    if (kind === 'ftree') { fCalls++; treesInList += it.object.isInstancedMesh ? 0 : 1; }
+    else if (kind === 'fcrate') { mCalls++; if (mat !== pcm) { texSw++; pcm = mat; } }
+  }
+});
+let tick = 0;
+sb.onFrame(() => {
+  smooth.cpu = ease(smooth.cpu, renderMs); smooth.prop = ease(smooth.prop, propMs); smooth.frame = ease(smooth.frame, frameMs); smooth.cull = ease(smooth.cull, cullMs);
+  if (++tick % 6) return;
+  const info = renderer.info.render;
+  R.calls(fmtInt(info.calls)); R.tris(fmtInt(info.triangles)); R.cpu(smooth.cpu.toFixed(2) + ' ms'); R.prop(smooth.prop.toFixed(2) + ' ms');
+  R.frame(smooth.frame.toFixed(1) + ' ms, ' + fmtInt(1000 / Math.max(0.1, smooth.frame)) + ' frames a second');
+  R.matSw(fmtInt(matSw)); R.geoSw(fmtInt(geoSw)); R.fcalls(fmtInt(fCalls)); R.mcalls(fmtInt(mCalls)); R.texSw(fmtInt(texSw));
+  const m = S.mode;
+  if (m === 'inst') {
+    R.cullMs(S.cull === 'cpu' ? smooth.cull.toFixed(2) + ' ms for ' + fmtInt(nT) + ' copies' : S.cull === 'gpu' ? '0 ms, the chip tests inside the draw' : '0 ms, no test');
+    R.reach(S.cull === 'cpu' ? fmtInt(vis) + ' of ' + fmtInt(nT) : S.cull === 'gpu' ? 'all ' + fmtInt(nT) + ', the chip keeps the ones in view' : 'all ' + fmtInt(nT));
+  } else if (m === 'merged') { R.cullMs('0 ms, nothing to test'); R.reach('all ' + fmtInt(nT) + ', as one shape'); }
+  else { R.cullMs(S.cull === 'cpu' ? 'inside the order-writing time above' : '0 ms, no test'); R.reach(fmtInt(treesInList) + ' of ' + fmtInt(nT)); }
+});
+rebuild();
+sb.start();
+</script>
+</body>
+</html>
