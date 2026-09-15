@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ambient Occlusion · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'ambient-occlusion', title: 'Ambient Occlusion',
+  blurb: 'The camp\'s cellar with the roof off, drawn by a real GPU with a real screen-space ambient occlusion pass. Fire true rays for the answer, then guess it from the depth photo with test dots or a skyline march, clean the noise up with a blur and last frames, and see where the photo gets it wrong.',
+  camera: { pos: [3.5, 7.5, 12], target: [0.2, 0.6, -1.2], near: 0.1, far: 200 }
+});
+const scene = sb.scene, camera = sb.camera, renderer = sb.renderer;
+scene.background = null;
+sb.lights.hemi.intensity = 1.15; sb.lights.sun.intensity = 1.0;
+
+// ---- the cellar: every prop is a box, cylinder or sphere so the true-answer pass can trace the same shapes
+const world = sb.world;
+world.ground(60, PAL.grass);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(9.6, 7.6), sb.mat(PAL.wall)); floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0.012, 0); floor.receiveShadow = true; floor.userData.sdf = false; scene.add(floor);
+const box = (w, h, d, x, y, z, colour, rotY = 0, rotZ = 0) => { const m = sb.mesh(new THREE.BoxGeometry(w, h, d), sb.mat(colour), x, y, z); m.rotation.set(0, rotY, rotZ); scene.add(m); return m; };
+const cyl = (r, h, x, y, z, colour, rotZ = 0, rotY = 0) => { const m = sb.mesh(new THREE.CylinderGeometry(r, r, h, 18), sb.mat(colour), x, y, z); m.rotation.set(0, rotY, rotZ); scene.add(m); return m; };
+const H = 3.0;
+box(10.4, H, 0.4, 0, H / 2, -4, PAL.stone); box(0.4, H, 8.4, -5, H / 2, 0, PAL.stone); const rightWall = box(0.4, H, 8.4, 5, H / 2, 0, PAL.stone);
+for (let k = 0; k < 4; k++) box(0.8, 0.45 * (k + 1), 1.4, 1.9 + k * 0.8, 0.225 * (k + 1), -3.1, PAL.stoneLite);
+const shelf = box(3.2, 0.06, 0.8, 3.2, 2.35, -3.4, PAL.wood);
+const shelfLegs = [box(0.06, 0.5, 0.06, 1.65, 2.05, -3.05, PAL.wood), box(0.06, 0.5, 0.06, 4.75, 2.05, -3.05, PAL.wood)];
+world.crate(2.2, 1.3, 0.9, 0.3); world.crate(3.1, 2.2, 0.7, -0.4); const stacked = world.crate(2.2, 1.3, 0.7, 0.1); stacked.position.y = 0.9 + 0.35;
+world.crate(-0.6, -3.3, 0.8, 0); const slider = world.crate(0.3, 0.4, 0.8, 0);
+const barrel = (x, z, lying, rotY) => { const b = cyl(0.42, 1.1, x, lying ? 0.42 : 0.55, z, PAL.woodLite, lying ? Math.PI / 2 : 0, rotY); for (const dy of [-0.35, 0.35]) { const band = new THREE.Mesh(new THREE.CylinderGeometry(0.435, 0.435, 0.08, 18), sb.mat(PAL.metal)); band.position.y = dy; band.userData.sdf = false; b.add(band); } return b; };
+barrel(-3.7, -2.7, false, 0); barrel(-2.7, -3.2, false, 0.4); barrel(-3.3, 1.2, true, 0.5);
+const knight = world.knight(-1.4, 1.9, 1.8, 0.6);
+world.tree(-9, 5, 4.5); world.tree(9.5, -8, 5); world.rock(8, 4, 0.7); world.rock(-8.5, -6.5, 0.5); world.fire(-1, 7.2);
+sb.label('a crate on the floor: the dark line where they meet', slider, 'blue').off.set(0, 1.05, 0);
+const shelfLabel = sb.label('the shelf: the photo cannot see under it', shelf, 'amber'); shelfLabel.off.set(0, 0.4, 0);
+sb.label('the right wall', rightWall).off.set(0, 1.8, 0);
+
+// ---- shapes for the true answer: the same boxes, cylinders and spheres, as a list the ray shader walks
+const MAXP = 48; const primA = [], primB = [], primR = []; for (let i = 0; i < MAXP; i++) { primA.push(new THREE.Vector4()); primB.push(new THREE.Vector4()); primR.push(new THREE.Matrix3()); }
+const primOf = new Map(); let primN = 0;
+const m3 = new THREE.Matrix3(), wp = new THREE.Vector3();
+function primFor(mesh, i) {
+  const g = mesh.geometry, P = g.parameters || {}; let type = -1, b = [0, 0, 0], bound = 0;
+  if (g.type === 'BoxGeometry') { type = 0; b = [P.width / 2, P.height / 2, P.depth / 2]; bound = Math.hypot(...b); }
+  else if (g.type === 'CylinderGeometry' && Math.abs(P.radiusTop - P.radiusBottom) < 0.03 && P.radiusTop > 0) { type = 1; b = [(P.radiusTop + P.radiusBottom) / 2, P.height / 2, 0]; bound = Math.hypot(b[0], b[1]); }
+  else if (/Sphere|Icosahedron|Dodecahedron/.test(g.type)) { type = 2; b = [P.radius * (g.type === 'SphereGeometry' ? 1 : g.type === 'IcosahedronGeometry' ? 0.9 : 0.8), 0, 0]; bound = P.radius; }
+  if (type < 0) return false;
+  mesh.getWorldPosition(wp); primA[i].set(wp.x, wp.y, wp.z, type); primB[i].set(b[0], b[1], b[2], bound);
+  m3.setFromMatrix4(mesh.matrixWorld); primR[i].copy(m3).invert(); return true;
+}
+function rebuildPrims() {
+  scene.updateMatrixWorld(true); primN = 0; primOf.clear();
+  scene.traverse(o => { if (!o.isMesh || o.userData.sdf === false || primN >= MAXP) return; let vis = true; o.traverseAncestors(a => { if (!a.visible) vis = false; }); if (!vis || !o.visible) return; if (primFor(o, primN)) { primOf.set(o, primN); primN++; } });
+  truthDirty = true;
+}
+
+// ---- the AO pipeline: depth+normal photo, the AO term, blur, history, then the lit picture reads the term
+const GL3 = THREE.GLSL3;
+const quadScene = new THREE.Scene(), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2)); quadScene.add(quad);
+const VS = 'out vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const COMMON = `precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D tG; uniform mat4 uProj, uInvProj; uniform vec2 uRes, uGRes; uniform float uRadius, uSeed;
+vec3 viewPos(vec2 uv, float d) { vec4 c = uInvProj * vec4(uv * 2.0 - 1.0, 1.0, 1.0); vec3 ray = c.xyz / c.w; return ray * (d / -ray.z); }
+float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+bool inside(vec2 uv) { return uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0; }
+#define PI 3.14159265
+#define HALF_PI 1.57079633`;
+
+const gMat = new THREE.ShaderMaterial({ glslVersion: GL3, side: THREE.FrontSide,
+  vertexShader: 'out vec3 vN; out float vD; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalMatrix * normal; vD = -mv.z; gl_Position = projectionMatrix * mv; }',
+  fragmentShader: 'precision highp float; in vec3 vN; in float vD; out vec4 o; void main(){ o = vec4(normalize(vN), vD); }' });
+
+const kernel = []; { let s = 7; const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+  for (let i = 0; i < 64; i++) { let v; do { v = new THREE.Vector3(rnd() * 2 - 1, rnd() * 2 - 1, rnd()); } while (v.lengthSq() > 1 || v.lengthSq() < 0.01); kernel.push(v.normalize()); } }
+
+const aoMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, fragmentShader: COMMON + `
+uniform int uN, uMethod, uSteps, uDirs; uniform float uBias, uSphere, uRange, uNoiseOn; uniform vec3 uKernel[64];
+vec3 noiseVec(vec3 n) { vec3 rv; if (uNoiseOn < 0.5) rv = vec3(0.37, 0.61, 0.70); else { float a = hash(mod(floor(gl_FragCoord.xy), 4.0) + uSeed) * 6.2831853; rv = vec3(cos(a), sin(a), 0.0); }
+  vec3 t = rv - n * dot(rv, n); if (dot(t, t) < 1e-4) t = cross(n, vec3(0.0, 1.0, 0.0)); if (dot(t, t) < 1e-4) t = cross(n, vec3(1.0, 0.0, 0.0)); return normalize(t); }
+float ssao(vec3 p, vec3 n) {
+  vec3 t = noiseVec(n), b = cross(n, t); mat3 tbn = mat3(t, b, n); float occ = 0.0, cnt = 0.0;
+  for (int i = 0; i < 64; i++) { if (i >= uN) break; float f = (float(i) + 0.5) / float(uN); vec3 k = uKernel[i] * mix(0.1, 1.0, f * f); if (uSphere > 0.5 && (i - (i / 2) * 2) == 1) k.z = -k.z;
+    vec3 s = p + tbn * k * uRadius; vec4 c = uProj * vec4(s, 1.0); vec2 suv = c.xy / c.w * 0.5 + 0.5; cnt += 1.0;
+    if (!inside(suv)) continue; float sd = texture(tG, suv).a; if (sd <= 0.0) continue; float sceneZ = -sd;
+    float w = uRange > 0.5 ? smoothstep(0.0, 1.0, uRadius / abs(p.z - sceneZ)) : 1.0;
+    occ += (sceneZ >= s.z + uBias ? 1.0 : 0.0) * w; }
+  return 1.0 - occ / max(cnt, 1.0); }
+float gtao(vec3 p, vec3 n) {
+  vec3 v = normalize(-p); vec2 tile = mod(floor(gl_FragCoord.xy), 4.0); float nA = uNoiseOn > 0.5 ? hash(tile + uSeed) : 0.5, nB = uNoiseOn > 0.5 ? hash(tile + uSeed + 7.1) : 0.5; float vis = 0.0;
+  for (int si = 0; si < 4; si++) { if (si >= uDirs) break;
+    float phi = (float(si) + nA) / float(uDirs) * PI; vec3 dirV = vec3(cos(phi), sin(phi), 0.0);
+    vec3 ortho = dirV - dot(dirV, v) * v; vec3 axis = normalize(cross(ortho, v)); vec3 pn = n - axis * dot(n, axis); float pnl = length(pn);
+    float sgn = sign(dot(ortho, pn)); float cosN = clamp(dot(pn, v) / max(pnl, 1e-4), -1.0, 1.0); float nAng = sgn * acos(cosN);
+    vec4 c2 = uProj * vec4(p + dirV * uRadius, 1.0); vec2 uvR = (c2.xy / c2.w * 0.5 + 0.5) - vUv;
+    float hc0 = -1.0, hc1 = -1.0;
+    for (int k = 0; k < 16; k++) { if (k >= uSteps) break; float s = (float(k) + nB) / float(uSteps); s = s * s; vec2 off = uvR * s; if (length(off * uRes) < 1.0) off = normalize(uvR) / uRes;
+      vec2 u0 = vUv - off, u1 = vUv + off;
+      if (inside(u0)) { float d0 = texture(tG, u0).a; if (d0 > 0.0) { vec3 sp = viewPos(u0, d0) - p; float dist = length(sp); float shc = dot(sp, v) / dist; shc = mix(-1.0, shc, 1.0 - smoothstep(0.7 * uRadius, uRadius, dist)); hc0 = max(hc0, shc); } }
+      if (inside(u1)) { float d1 = texture(tG, u1).a; if (d1 > 0.0) { vec3 sp = viewPos(u1, d1) - p; float dist = length(sp); float shc = dot(sp, v) / dist; shc = mix(-1.0, shc, 1.0 - smoothstep(0.7 * uRadius, uRadius, dist)); hc1 = max(hc1, shc); } } }
+    float h0 = -acos(hc0), h1 = acos(hc1); h0 = nAng + max(h0 - nAng, -HALF_PI); h1 = nAng + min(h1 - nAng, HALF_PI);
+    float ia0 = (cosN + 2.0 * h0 * sin(nAng) - cos(2.0 * h0 - nAng)) * 0.25, ia1 = (cosN + 2.0 * h1 * sin(nAng) - cos(2.0 * h1 - nAng)) * 0.25;
+    vis += pnl * (ia0 + ia1); }
+  return clamp(vis / float(uDirs), 0.0, 1.0); }
+void main() { vec4 g = texture(tG, vUv); float d = g.a; if (d <= 0.0) { o = vec4(1.0, 0.0, 0.0, 1.0); return; } vec3 p = viewPos(vUv, d), n = normalize(g.rgb);
+  float ao = uMethod == 0 ? ssao(p, n) : gtao(p, n); o = vec4(ao, 0.0, 0.0, 1.0); }`,
+  uniforms: { tG: { value: null }, uProj: { value: camera.projectionMatrix }, uInvProj: { value: camera.projectionMatrixInverse }, uRes: { value: new THREE.Vector2(1, 1) }, uGRes: { value: new THREE.Vector2(1, 1) }, uRadius: { value: 1.5 }, uSeed: { value: 0 },
+    uN: { value: 16 }, uMethod: { value: 0 }, uSteps: { value: 8 }, uDirs: { value: 2 }, uBias: { value: 0.03 }, uSphere: { value: 0 }, uRange: { value: 1 }, uNoiseOn: { value: 1 }, uKernel: { value: kernel } } });
+
+const truthMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, fragmentShader: COMMON + `
+#define MAXP ${MAXP}
+uniform vec4 uPrimA[MAXP]; uniform vec4 uPrimB[MAXP]; uniform mat3 uPrimR[MAXP]; uniform int uPrimN, uRays; uniform mat4 uCamWorld; uniform sampler2D tPrev; uniform float uBlend;
+int near[16]; int nn;
+float sdBox(vec3 p, vec3 b) { vec3 q = abs(p) - b; return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0); }
+float sdCyl(vec3 p, float r, float hh) { vec2 dd = abs(vec2(length(p.xz), p.y)) - vec2(r, hh); return min(max(dd.x, dd.y), 0.0) + length(max(dd, 0.0)); }
+float map(vec3 p) { float d = p.y; for (int k = 0; k < 16; k++) { if (k >= nn) break; int i = near[k]; vec3 q = uPrimR[i] * (p - uPrimA[i].xyz); float t = uPrimA[i].w;
+  float dd = t < 0.5 ? sdBox(q, uPrimB[i].xyz) : t < 1.5 ? sdCyl(q, uPrimB[i].x, uPrimB[i].y) : length(q) - uPrimB[i].x; d = min(d, dd); } return d; }
+bool blocked(vec3 org, vec3 dir) { float t = 0.0; for (int i = 0; i < 28; i++) { float d = map(org + dir * t); if (d < 0.004) return true; t += max(d, 0.015); if (t > uRadius) return false; } return false; }
+float radInv(uint b) { b = (b << 16u) | (b >> 16u); b = ((b & 0x55555555u) << 1u) | ((b & 0xAAAAAAAAu) >> 1u); b = ((b & 0x33333333u) << 2u) | ((b & 0xCCCCCCCCu) >> 2u); b = ((b & 0x0F0F0F0Fu) << 4u) | ((b & 0xF0F0F0F0u) >> 4u); b = ((b & 0x00FF00FFu) << 8u) | ((b & 0xFF00FF00u) >> 8u); return float(b) * 2.3283064365386963e-10; }
+void main() { vec4 g = texture(tG, vUv); float d = g.a; if (d <= 0.0) { o = vec4(1.0, 0.0, 0.0, 1.0); return; }
+  vec2 tuv = (floor(vUv * uGRes) + 0.5) / uGRes; vec3 P = (uCamWorld * vec4(viewPos(tuv, d), 1.0)).xyz; vec3 N = normalize(mat3(uCamWorld) * normalize(g.rgb));
+  nn = 0; for (int i = 0; i < MAXP; i++) { if (i >= uPrimN || nn >= 16) break; if (distance(P, uPrimA[i].xyz) - uPrimB[i].w < uRadius + 0.05) { near[nn] = i; nn++; } }
+  vec3 up = abs(N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0); vec3 T = normalize(cross(up, N)), B = cross(N, T);
+  float rot = hash(gl_FragCoord.xy + uSeed), jit = hash(gl_FragCoord.yx * 1.7 + uSeed); vec3 org = P + N * 0.03; float open = 0.0;
+  for (int i = 0; i < 64; i++) { if (i >= uRays) break; float u1 = fract((float(i) + 0.5) / float(uRays) + jit), u2 = fract(radInv(uint(i)) + rot);
+    float r = sqrt(u1), th = 6.2831853 * u2; vec3 dir = T * (r * cos(th)) + B * (r * sin(th)) + N * sqrt(max(0.0, 1.0 - u1));
+    if (!blocked(org, dir)) open += 1.0; }
+  float ao = open / float(uRays); float prev = texture(tPrev, vUv).r; o = vec4(mix(prev, ao, uBlend), 0.0, 0.0, 1.0); }`,
+  uniforms: { tG: { value: null }, uProj: { value: camera.projectionMatrix }, uInvProj: { value: camera.projectionMatrixInverse }, uRes: { value: new THREE.Vector2(1, 1) }, uGRes: { value: new THREE.Vector2(1, 1) }, uRadius: aoMat.uniforms.uRadius, uSeed: { value: 0 },
+    uPrimA: { value: primA }, uPrimB: { value: primB }, uPrimR: { value: primR }, uPrimN: { value: 0 }, uRays: { value: 16 }, uCamWorld: { value: camera.matrixWorld }, tPrev: { value: null }, uBlend: { value: 1 } } });
+
+const blurMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, fragmentShader: COMMON + `
+uniform sampler2D tRaw; uniform vec2 uTexel; uniform float uSigma, uMode;
+void main() { float a0 = texture(tRaw, vUv).r; if (uMode < 0.5) { o = vec4(a0, 0.0, 0.0, 1.0); return; } float z0 = texture(tG, vUv).a; float sum = 0.0, ws = 0.0;
+  for (int j = -2; j < 2; j++) for (int i = -2; i < 2; i++) { vec2 uv = vUv + (vec2(float(i), float(j)) + 0.5) * uTexel; float dz = texture(tG, uv).a - z0; float w = uMode > 1.5 ? exp(-dz * dz / (uSigma * uSigma)) : 1.0; sum += texture(tRaw, uv).r * w; ws += w; }
+  o = vec4(sum / max(ws, 1e-5), 0.0, 0.0, 1.0); }`,
+  uniforms: { tG: { value: null }, tRaw: { value: null }, uProj: { value: camera.projectionMatrix }, uInvProj: { value: camera.projectionMatrixInverse }, uRes: { value: new THREE.Vector2(1, 1) }, uGRes: { value: new THREE.Vector2(1, 1) }, uRadius: aoMat.uniforms.uRadius, uSeed: { value: 0 }, uTexel: { value: new THREE.Vector2() }, uSigma: { value: 0.2 }, uMode: { value: 2 } } });
+
+const histMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, fragmentShader: COMMON + `
+uniform sampler2D tBlur, tHist; uniform mat4 uCamWorld, uPrevView, uPrevProj; uniform float uAlpha, uTau, uReject, uOn;
+void main() { float d = texture(tG, vUv).a; float a = texture(tBlur, vUv).r; if (d <= 0.0 || uOn < 0.5) { o = vec4(a, d, 0.0, 1.0); return; }
+  vec4 w = uCamWorld * vec4(viewPos(vUv, d), 1.0); vec4 pv = uPrevView * w; vec4 pc = uPrevProj * pv; vec2 puv = pc.xy / pc.w * 0.5 + 0.5; float alpha = uAlpha, h = a;
+  if (pc.w > 0.0 && inside(puv)) { vec4 hs = texture(tHist, puv); bool bad = uReject > 0.5 && abs(hs.g + pv.z) > uTau; if (!bad && hs.a > 0.5) h = hs.r; else alpha = 1.0; } else alpha = 1.0;
+  o = vec4(mix(h, a, alpha), d, 0.0, 1.0); }`,
+  uniforms: { tG: { value: null }, tBlur: { value: null }, tHist: { value: null }, uProj: { value: camera.projectionMatrix }, uInvProj: { value: camera.projectionMatrixInverse }, uRes: { value: new THREE.Vector2(1, 1) }, uGRes: { value: new THREE.Vector2(1, 1) }, uRadius: aoMat.uniforms.uRadius, uSeed: { value: 0 },
+    uCamWorld: { value: camera.matrixWorld }, uPrevView: { value: new THREE.Matrix4() }, uPrevProj: { value: new THREE.Matrix4() }, uAlpha: { value: 0.1 }, uTau: { value: 0.2 }, uReject: { value: 1 }, uOn: { value: 1 } } });
+
+const showMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D tG, tAO, tTruth; uniform int uMode; uniform float uFar;
+vec3 srgb(float v) { return vec3(pow(clamp(v, 0.0, 1.0), 1.0 / 2.2)); }
+void main() { float d = texture(tG, vUv).a; if (d <= 0.0) { o = vec4(0.04, 0.055, 0.075, 1.0); return; }
+  if (uMode == 1) { o = vec4(srgb(1.0 - d / uFar), 1.0); return; }
+  float ao = texture(tAO, vUv).r; if (uMode == 2) { o = vec4(srgb(ao), 1.0); return; }
+  float tr = texture(tTruth, vUv).r; if (uMode == 3) { o = vec4(srgb(tr), 1.0); return; }
+  float e = abs(ao - tr); vec3 c = e < 0.15 ? mix(vec3(0.05, 0.08, 0.14), vec3(0.29, 0.64, 1.0), e / 0.15) : e < 0.35 ? mix(vec3(0.29, 0.64, 1.0), vec3(0.95, 0.64, 0.25), (e - 0.15) / 0.2) : mix(vec3(0.95, 0.64, 0.25), vec3(1.0), clamp((e - 0.35) / 0.3, 0.0, 1.0)); o = vec4(c, 1.0); }`,
+  uniforms: { tG: { value: null }, tAO: { value: null }, tTruth: { value: null }, uMode: { value: 0 }, uFar: { value: 32 } } });
+const errMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D tG, tAO, tTruth;
+void main() { float d = texture(tG, vUv).a; if (d <= 0.0) { o = vec4(0.0); return; } o = vec4(abs(texture(tAO, vUv).r - texture(tTruth, vUv).r), 1.0, 0.0, 1.0); }`,
+  uniforms: { tG: { value: null }, tAO: { value: null }, tTruth: { value: null } } });
+
+// the lit picture reads the AO term at its own pixel and darkens only the soft light, or everything, or nothing
+const aoTex = { value: null }, aoMode = { value: 1 }, aoPow = { value: 2 }, screenInv = { value: new THREE.Vector2() };
+scene.traverse(o => { if (!o.isMesh || !o.material.isMeshLambertMaterial) return; const m = o.material;
+  m.onBeforeCompile = sh => { sh.uniforms.tAO = aoTex; sh.uniforms.uAOMode = aoMode; sh.uniforms.uAOPow = aoPow; sh.uniforms.uScreenInv = screenInv;
+    sh.fragmentShader = 'uniform sampler2D tAO; uniform int uAOMode; uniform float uAOPow; uniform vec2 uScreenInv;\n' + sh.fragmentShader.replace('#include <aomap_fragment>',
+      'float sao = pow(clamp(texture2D(tAO, gl_FragCoord.xy * uScreenInv).r, 0.0, 1.0), uAOPow); if (uAOMode >= 1) reflectedLight.indirectDiffuse *= sao; if (uAOMode == 2) reflectedLight.directDiffuse *= sao;'); };
+  m.customProgramCacheKey = () => 'cellar-ao'; m.needsUpdate = true; });
+
+// ---- render targets
+const mkRT = (w, h, linear) => new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, minFilter: linear ? THREE.LinearFilter : THREE.NearestFilter, magFilter: linear ? THREE.LinearFilter : THREE.NearestFilter, depthBuffer: false });
+let gbuf = null, rtRaw = null, rtBlur = null, hist = [null, null], truth = [null, null], curH = 0, curT = 0, rtErr = new THREE.WebGLRenderTarget(48, 48, { depthBuffer: false });
+const errPx = new Uint8Array(48 * 48 * 4); const size = new THREE.Vector2();
+function ensureTargets() {
+  renderer.getDrawingBufferSize(size); const w = Math.max(2, size.x | 0), h = Math.max(2, size.y | 0); const aw = Math.max(2, Math.round(w * aoScale)), ah = Math.max(2, Math.round(h * aoScale)); const tw = Math.max(2, Math.round(w * 0.5)), th = Math.max(2, Math.round(h * 0.5));
+  if (!gbuf || gbuf.width !== w || gbuf.height !== h) { if (gbuf) gbuf.dispose(); gbuf = new THREE.WebGLRenderTarget(w, h, { type: THREE.FloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true }); }
+  if (!rtRaw || rtRaw.width !== aw || rtRaw.height !== ah) { for (const r of [rtRaw, rtBlur, ...hist]) if (r) r.dispose(); rtRaw = mkRT(aw, ah, true); rtBlur = mkRT(aw, ah, true); hist = [mkRT(aw, ah, true), mkRT(aw, ah, true)]; histValid = false; }
+  if (!truth[0] || truth[0].width !== tw || truth[0].height !== th) { for (const r of truth) if (r) r.dispose(); truth = [mkRT(tw, th, true), mkRT(tw, th, true)]; truthDirty = true; }
+  screenInv.value.set(1 / w, 1 / h);
+}
+
+// ---- state
+let view = 'picture', stage = 'final', aoScale = 1, method = 'ssao', sliding = false, histValid = false, truthDirty = true, truthFrames = 0, frame = 0, sunOn = true;
+const prevView = new THREE.Matrix4(), prevProj = new THREE.Matrix4(), lastView = new THREE.Matrix4(), lastProj = new THREE.Matrix4();
+const flame = scene.getObjectByName('flame'); const sliderHome = slider.position.x;
+
+// ---- 1 the true answer
+const s1 = sb.panel.section('01 · The true answer', 'From every point on every surface, fire rays up and count how many get away. That share of open sky is the answer every trick below is chasing. It is traced against the real shapes here, not the depth photo.');
+const showSeg = s1.segment('Show', [{ value: 'picture', label: 'the picture' }, { value: 'depth', label: 'the depth photo' }, { value: 'ao', label: 'the AO term' }, { value: 'truth', label: 'the true answer' }, { value: 'error', label: 'error against the truth' }], 'picture', v => { view = v; apply(); });
+s1.slider('Rays per point, each frame', { min: 4, max: 64, step: 4, value: 16 }, v => { truthMat.uniforms.uRays.value = v; truthDirty = true; });
+s1.slider('How far a ray, a dot or a march goes (radius)', { min: 0.3, max: 3, step: 0.1, value: 1.5, unit: ' m' }, v => { aoMat.uniforms.uRadius.value = v; truthDirty = true; histValid = false; });
+s1.note('The true answer adds up over frames while the camera holds still, so it gets cleaner the longer you wait. Move, and it starts over.');
+const raysRead = s1.readout('rays per point so far');
+const errRead = s1.readout('average error, whole screen');
+
+// ---- 2 ssao
+const s2 = sb.panel.section('02 · SSAO: guessing from the depth photo', 'The GPU keeps a photo of how far away every pixel is. Scatter test dots around a point and ask the photo whether each dot is buried inside something. No rays, no shapes, only lookups.');
+const dotsS = s2.slider('Test dots per pixel', { min: 4, max: 64, step: 4, value: 16 }, v => { aoMat.uniforms.uN.value = v; useMethod('ssao'); });
+s2.segment('Where the dots go', [{ value: 'hemi', label: 'a half dome, facing out' }, { value: 'sphere', label: 'a full ball' }], 'hemi', v => { aoMat.uniforms.uSphere.value = v === 'sphere' ? 1 : 0; useMethod('ssao'); });
+s2.toggle('ignore a blocker far in front of the point (range check)', true, v => { aoMat.uniforms.uRange.value = v ? 1 : 0; useMethod('ssao'); });
+s2.slider('Lift on each dot so a surface cannot block itself (bias)', { min: 0, max: 0.2, step: 0.005, value: 0.03, unit: ' m' }, v => { aoMat.uniforms.uBias.value = v; useMethod('ssao'); });
+s2.note('A full ball puts half the dots under the floor, so open ground reads half dark. Turn the range check off and the far wall darkens the knight standing in front of it. Drop the bias to zero and flat floors go speckled.');
+const lookRead = s2.readout('photo lookups per pixel');
+
+// ---- 3 skylines
+const s3 = sb.panel.section('03 · Skylines: march out, keep the steepest angle', 'Instead of scattered dots, walk away from the point along the photo in a few directions and remember the highest thing seen. Everything under that skyline is blocked. Smoother for the same number of lookups.');
+const methodSeg = s3.segment('How the AO term is made', [{ value: 'ssao', label: 'test dots (SSAO)' }, { value: 'gtao', label: 'skyline march (GTAO)' }], 'ssao', v => { method = v; aoMat.uniforms.uMethod.value = v === 'gtao' ? 1 : 0; histValid = false; apply(); });
+const stepsS = s3.slider('Steps each way', { min: 2, max: 16, step: 1, value: 8 }, v => { aoMat.uniforms.uSteps.value = v; useMethod('gtao'); });
+const dirsS = s3.slider('Directions per pixel', { min: 1, max: 4, step: 1, value: 2 }, v => { aoMat.uniforms.uDirs.value = v; useMethod('gtao'); });
+s3.note('Compare the AO term view with the same lookups in both methods: 16 dots against 2 directions of 4 steps. The march is less speckled and its creases stay sharp.');
+
+// ---- 4 noise, blur, history
+const s4 = sb.panel.section('04 · Noise, blur, history', 'Few lookups means noise. Make the noise a known 4 by 4 pattern, blur it away without crossing edges, then average with the last frames, and a dozen dots do the work of hundreds.');
+s4.segment('Stage of the AO term to show', [{ value: 'raw', label: 'raw' }, { value: 'blur', label: 'blurred' }, { value: 'final', label: 'after history' }], 'final', v => { stage = v; view = 'ao'; showSeg.set('ao', false); apply(); });
+s4.segment('Noise pattern', [{ value: 'none', label: 'same dots every pixel' }, { value: 'tile', label: '4 by 4 random turn' }], 'tile', v => { aoMat.uniforms.uNoiseOn.value = v === 'tile' ? 1 : 0; histValid = false; });
+s4.segment('Blur', [{ value: 0, label: 'none' }, { value: 1, label: 'plain 4 by 4' }, { value: 2, label: 'stops at edges (bilateral)' }], 2, v => { blurMat.uniforms.uMode.value = +v; });
+s4.slider('Depth jump that counts as an edge', { min: 0.02, max: 1, step: 0.02, value: 0.2, unit: ' m' }, v => { blurMat.uniforms.uSigma.value = v; });
+s4.toggle('average with the last frames (temporal accumulation)', true, v => { histMat.uniforms.uOn.value = v ? 1 : 0; histValid = false; apply(); });
+s4.slider('Share of each new frame that goes into the history', { min: 0.02, max: 1, step: 0.02, value: 0.1, fmt: v => (+v).toFixed(2) }, v => { histMat.uniforms.uAlpha.value = v; });
+s4.toggle('throw the history away where the depth changed', true, v => { histMat.uniforms.uReject.value = v ? 1 : 0; });
+s4.toggle('slide a crate back and forth', false, v => { sliding = v; if (!v) { slider.position.x = sliderHome; rebuildPrims(); } });
+s4.note('Slide the crate with the throw-away switch off and a ghost of its shadow trails behind it. Switch it back on and the trail vanishes, at the cost of fresh noise where it moved.');
+
+// ---- 5 beyond the photo
+const s5 = sb.panel.section('05 · What the depth photo cannot see', 'The photo stores one surface per pixel, the nearest, and nothing outside the frame. Under a shelf the photo thinks it is solid; a wall just past the edge of the screen does not exist.');
+s5.toggle('a shelf over the steps', true, v => { shelf.visible = v; for (const l of shelfLegs) l.visible = v; shelfLabel.hide(!v); rebuildPrims(); histValid = false; });
+s5.button('Look straight down, the right wall just off screen', () => { camera.position.set(-0.8, 9, -1); sb.controls.target.set(-0.8, 0, -1.4); truthDirty = true; });
+s5.button('Back to the overview', () => { camera.position.set(3.5, 7.5, 12); sb.controls.target.set(0.2, 0.6, -1.2); truthDirty = true; });
+s5.note('Pick the error view. Looking straight down, the floor and steps under the shelf light up as wrong, and so does the strip of floor along the right edge: the wall next to it is outside the photo, so the floor stays bright. Orbit a little and the error moves with the frame. The true answer traces the real shapes, so it has no blind spots.');
+
+// ---- 6 where the darkening goes
+const s6 = sb.panel.section('06 · Where the darkening goes', 'AO estimates how much of the soft, from-everywhere light a point misses. The sun already casts its own shadows, so darkening it again is a mistake many games still make.');
+s6.segment('Apply the AO term to', [{ value: 1, label: 'only the soft light' }, { value: 2, label: 'everything (the common mistake)' }, { value: 0, label: 'nothing' }], 1, v => { aoMode.value = +v; view = 'picture'; showSeg.set('picture', false); apply(); });
+s6.slider('How strong', { min: 0.5, max: 4, step: 0.1, value: 2 }, v => { aoPow.value = v; });
+s6.toggle('the sun', true, v => { sunOn = v; sb.lights.sun.visible = v; });
+s6.toggle('compute AO at half the pixels', false, v => { aoScale = v ? 0.5 : 1; });
+s6.note('Turn the sun off and the cellar is lit only by the soft sky light, so AO does all the grounding. Turn it back on with everything darkened and a sunlit corner goes dark twice.');
+const msRead = s6.readout('milliseconds per frame');
+
+function useMethod(m) { if (method !== m) methodSeg.set(m); }
+function apply() {
+  sb.hud('mode', view === 'picture' ? (aoMode.value === 0 ? 'the picture with no AO at all' : aoMode.value === 1 ? 'the picture, AO darkening only the soft light' : 'the picture, AO darkening sun and soft light alike')
+    : view === 'depth' ? 'the depth photo the guesses read: bright is near, dark is far' : view === 'ao' ? 'the AO term from the ' + (method === 'ssao' ? 'test dots' : 'skyline march') + ', ' + (stage === 'raw' ? 'raw and noisy' : stage === 'blur' ? 'after the blur' : 'after the blur and the last frames') + ': white is open sky, dark is buried'
+    : view === 'truth' ? 'the true answer, traced against the real shapes, adding up over frames' : 'error of the AO term against the truth: blue is small, amber is wrong, white is very wrong');
+  errRead(view === 'error' ? '…' : 'pick the error view');
+}
+rebuildPrims(); apply();
+
+// ---- the frame
+let msAvg = 0, lastNow = 0;
+const drift = (a, b) => { let s = 0; for (let i = 0; i < 16; i++) s += Math.abs(a.elements[i] - b.elements[i]); return s; };
+sb.onFrame((dt, t) => {
+  if (sliding) { slider.position.x = sliderHome + Math.sin(t * 1.3) * 1.6; slider.updateMatrixWorld(); const i = primOf.get(slider); if (i != null) primA[i].set(slider.position.x, slider.position.y, slider.position.z, 0); truthDirty = true; }
+  flame.visible = view === 'picture';
+  const now = performance.now(); if (lastNow) msAvg += ((now - lastNow) - msAvg) * 0.08; lastNow = now; msRead(msAvg.toFixed(1) + ' ms');
+  lookRead(method === 'ssao' ? aoMat.uniforms.uN.value + ' dots' : aoMat.uniforms.uDirs.value + ' directions × ' + aoMat.uniforms.uSteps.value + ' steps × 2 = ' + (aoMat.uniforms.uDirs.value * aoMat.uniforms.uSteps.value * 2));
+});
+sb.onRender((scene, camera, renderer) => {
+  ensureTargets(); frame++;
+  camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+  if (drift(lastView, camera.matrixWorldInverse) > 1e-5 || drift(lastProj, camera.projectionMatrix) > 1e-7) truthDirty = true;
+  // 1 the depth and normal photo
+  renderer.shadowMap.autoUpdate = false;
+  scene.overrideMaterial = gMat; renderer.setRenderTarget(gbuf); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, camera); scene.overrideMaterial = null;
+  const seed = histMat.uniforms.uOn.value > 0.5 || view === 'truth' || view === 'error' ? (frame % 64) * 0.618 : 0;
+  // 2 the AO term, raw
+  for (const m of [aoMat, blurMat, histMat, truthMat]) { m.uniforms.tG.value = gbuf.texture; m.uniforms.uSeed.value = seed; m.uniforms.uGRes.value.set(gbuf.width, gbuf.height); }
+  aoMat.uniforms.uRes.value.set(rtRaw.width, rtRaw.height);
+  quad.material = aoMat; renderer.setRenderTarget(rtRaw); renderer.render(quadScene, quadCam);
+  // 3 the blur
+  blurMat.uniforms.tRaw.value = rtRaw.texture; blurMat.uniforms.uTexel.value.set(1 / rtRaw.width, 1 / rtRaw.height);
+  quad.material = blurMat; renderer.setRenderTarget(rtBlur); renderer.render(quadScene, quadCam);
+  // 4 the history
+  const prevH = hist[curH], nextH = hist[1 - curH]; if (!histValid) { renderer.setRenderTarget(prevH); renderer.setClearColor(0x000000, 0); renderer.clear(); histValid = true; }
+  histMat.uniforms.tBlur.value = rtBlur.texture; histMat.uniforms.tHist.value = prevH.texture; histMat.uniforms.uPrevView.value.copy(prevView); histMat.uniforms.uPrevProj.value.copy(prevProj);
+  quad.material = histMat; renderer.setRenderTarget(nextH); renderer.render(quadScene, quadCam); curH = 1 - curH;
+  prevView.copy(camera.matrixWorldInverse); prevProj.copy(camera.projectionMatrix); lastView.copy(camera.matrixWorldInverse); lastProj.copy(camera.projectionMatrix);
+  const term = stage === 'raw' ? rtRaw : stage === 'blur' ? rtBlur : nextH;
+  // 5 the true answer, only when asked for, adding up over still frames
+  if (view === 'truth' || view === 'error') {
+    if (truthDirty) { truthFrames = 0; truthDirty = false; }
+    truthMat.uniforms.uPrimN.value = primN; truthMat.uniforms.tPrev.value = truth[curT].texture; truthMat.uniforms.uBlend.value = 1 / (truthFrames + 1); truthMat.uniforms.uRes.value.set(truth[0].width, truth[0].height);
+    quad.material = truthMat; renderer.setRenderTarget(truth[1 - curT]); renderer.render(quadScene, quadCam); curT = 1 - curT; truthFrames++;
+    raysRead((truthFrames * truthMat.uniforms.uRays.value).toLocaleString() + ' over ' + truthFrames + ' frame' + (truthFrames === 1 ? '' : 's'));
+    if (view === 'error' && frame % 12 === 0) {
+      errMat.uniforms.tG.value = gbuf.texture; errMat.uniforms.tAO.value = term.texture; errMat.uniforms.tTruth.value = truth[curT].texture;
+      quad.material = errMat; renderer.setRenderTarget(rtErr); renderer.render(quadScene, quadCam); renderer.readRenderTargetPixels(rtErr, 0, 0, 48, 48, errPx);
+      let s = 0, n = 0; for (let i = 0; i < errPx.length; i += 4) if (errPx[i + 1] > 127) { s += errPx[i]; n++; } errRead(n ? (s / n / 255 * 100).toFixed(1) + ' % of full dark' : 'no surface on screen');
+    }
+  } else raysRead('pick the true answer or error view');
+  // 6 the picture, or one of the views
+  renderer.setRenderTarget(null); renderer.setClearColor(PAL.sky, 1); renderer.clear();
+  if (view === 'picture') { aoTex.value = nextH.texture; renderer.shadowMap.needsUpdate = true; renderer.render(scene, camera); }
+  else { showMat.uniforms.tG.value = gbuf.texture; showMat.uniforms.tAO.value = term.texture; showMat.uniforms.tTruth.value = truth[curT].texture; showMat.uniforms.uMode.value = view === 'depth' ? 1 : view === 'ao' ? 2 : view === 'truth' ? 3 : 4; quad.material = showMat; renderer.render(quadScene, quadCam); }
+});
+sb.start();
+</script>
+</body>
+</html>
