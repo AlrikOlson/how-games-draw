@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forward, Deferred &amp; Clustered · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'lighting-architectures', title: 'Forward, Deferred & Clustered',
+  blurb: 'A village square at night, lit by up to 300 lanterns on a real GPU. Light it the forward way (every object carries every lantern) or the deferred way (write down each pixel\'s surface first, light it after), then hand each tile or cluster its own short lantern list. Watch the frame time, the bytes each pixel keeps, and how many lanterns each pixel adds up.',
+  camera: { pos: [13, 8.5, 16], target: [0, 1.2, -1.5], near: 0.1, far: 200 }
+});
+const { scene, camera, renderer } = sb;
+scene.background = null;                       // we composite our own passes to the screen
+renderer.info.autoReset = false;               // count draw calls across all our passes
+renderer.sortObjects = false;                  // scene order for every pass, so the heat count sees the same order the colour pass did
+sb.lights.sun.visible = false;                 // night: no sun, a faint blue sky glow only
+const hemi = sb.lights.hemi; hemi.color.set(0x3a4a70); hemi.groundColor.set(0x121a14); hemi.intensity = 1.5;
+const SKY = new THREE.Color(PAL.sky);
+
+// ---- the village square: cobbles in the middle, a church at the back, houses around, a market stall and a well
+const W = sb.world;
+W.ground(64);
+const cobbles = sb.mesh(new THREE.BoxGeometry(26, 0.06, 26), sb.mat(PAL.stoneLite), 0, 0.03, 0); cobbles.castShadow = false; scene.add(cobbles);
+const church = W.house(0, -15.5, 8, 6, 5, 0); W.house(5.6, -15, 2.6, 2.6, 9, 0);
+W.house(-11.5, -7, 4.5, 3.2, 2.8, 0.55); W.house(12, -5, 4.5, 3.2, 2.8, -0.7); W.house(-12.5, 4.5, 4, 3, 2.6, 1.25); W.house(12, 8, 4.2, 3, 2.6, 2.6);
+[[-16, -12, 5, true], [16, -13, 5.5, true], [-17, 11, 4.5, false], [17, 13, 4, false], [-7, -19, 4, true], [8, 17, 4.5, false]].forEach(t => W.tree(...t));
+const stall = new THREE.Group(); stall.position.set(-3, 0, 3.5); scene.add(stall);
+stall.add(sb.mesh(new THREE.BoxGeometry(3.6, 1.0, 0.6), sb.mat(PAL.wood), 0, 0.5, -0.9));
+for (const [x, z] of [[-1.7, -1.1], [1.7, -1.1], [-1.7, 1.1], [1.7, 1.1]]) stall.add(sb.mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.6, 6), sb.mat(PAL.wood), x, 1.3, z));
+const canopy = sb.mesh(new THREE.BoxGeometry(3.9, 0.08, 2.6), sb.mat(PAL.roof), 0, 2.62, 0); canopy.rotation.x = 0.12; stall.add(canopy);
+W.crate(-3.6, 4.9, 0.7, 0.2); W.crate(-2.3, 5.1, 0.55, 0.6); W.crate(9, 2.5, 0.9); W.crate(9.7, 3.4, 0.7, 0.4);
+const well = sb.mesh(new THREE.CylinderGeometry(0.9, 0.95, 0.9, 12), sb.mat(PAL.stone), 3.5, 0.45, 0.5); scene.add(well);
+W.rock(-8, 9.5, 0.6); W.rock(7.5, -9.5, 0.5); W.rock(-9.5, -2, 0.45);
+const knight = W.knight(-0.8, 6.8, 1.8, Math.PI);
+
+// ---- lanterns: 12 on posts around the square, the rest hung over it. Each is a real three.js point light.
+const MAXL = 320, INTENSITY = 30;
+let seed = 7; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+const blocked = [[0, -15.5, 4.6, 3.6], [5.6, -15, 1.8, 1.8], [-11.5, -7, 3, 2.6], [12, -5, 3, 2.6], [-12.5, 4.5, 2.8, 2.4], [12, 8, 2.8, 2.4], [-3, 3.5, 2.2, 1.6]];
+const lanterns = [];
+const bulbs = new THREE.InstancedMesh(new THREE.SphereGeometry(0.14, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }), MAXL);
+bulbs.frustumCulled = false; bulbs.name = 'bulbs'; scene.add(bulbs);
+const tmpM = new THREE.Matrix4(); const postParts = [];
+for (let i = 0; i < MAXL; i++) {
+  let x, y, z;
+  if (i < 12) { const a = i / 12 * Math.PI * 2 + 0.26; x = Math.cos(a) * 10.8; z = Math.sin(a) * 10.8; y = 3.1; }
+  else { let tries = 0; do { x = (rnd() * 2 - 1) * 12.5; z = (rnd() * 2 - 1) * 12.5; tries++; } while (tries < 30 && blocked.some(b => Math.abs(x - b[0]) < b[2] && Math.abs(z - b[1]) < b[3])); y = 2.2 + rnd() * 2.0; }
+  const col = new THREE.Color(i % 6 === 5 ? 0x9ad4ff : [0xffd27a, 0xffb75c, 0xffe3a6][i % 3]);
+  const light = new THREE.PointLight(col, INTENSITY, 7, 2); light.position.set(x, y, z); light.visible = false; scene.add(light);
+  if (i < 12) { const g = new THREE.CylinderGeometry(0.05, 0.07, y, 8).toNonIndexed(); g.translate(x, y / 2, z); postParts.push(g); }
+  tmpM.makeTranslation(x, y, z); bulbs.setMatrixAt(i, tmpM); bulbs.setColorAt(i, col);
+  lanterns.push({ pos: new THREE.Vector3(x, y, z), col, light });
+}
+bulbs.instanceMatrix.needsUpdate = true; bulbs.instanceColor.needsUpdate = true; bulbs.count = 48;
+// the 12 posts as one draw call
+{ const n = postParts.reduce((a, g) => a + g.attributes.position.count, 0); const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3); let o = 0;
+  for (const g of postParts) { pos.set(g.attributes.position.array, o); nor.set(g.attributes.normal.array, o); o += g.attributes.position.array.length; }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  const posts = sb.mesh(geo, sb.mat(PAL.metal), 0, 0, 0); posts.name = 'posts'; scene.add(posts); }
+
+sb.label('the player', knight).off.set(0, 2.1, 0);
+sb.label('a lantern', lanterns[0].light, 'amber').off.set(0, 0.5, 0);
+sb.label('the market stall', canopy).off.set(0, 0.6, 0);
+sb.label('the church', church).off.set(0, 9.2, 0);
+
+// ---- state
+let path = 'forward';          // 'forward' | 'deferred'
+let method = 'all';            // deferred lighting: 'all' | 'sphere' | 'rect' | 'tiled' | 'clustered'
+let view = 'lit';              // 'lit' | 'albedo' | 'normal' | 'depth' | 'tri'
+let layout = 'standard';       // G-buffer layout: 'lean' | 'standard' | 'fat'
+let nL = 48, reach = 7, prepass = false, msaa = true, heat = false, bands = false, tilePx = 64, slices = 16;
+const GROUPS = 16;             // 16 texels of 4 slots per list: 1 count + 63 lantern indices
+const CNEAR = 0.5, CFAR = 64;  // the cluster grid's depth range
+const GAP_M = 8;               // a tile whose depth range spans more than this, and more than half the biggest gap, is a "gap tile"
+
+// ---- shaders
+const GLSL_LIGHT = /* glsl */`
+#define RECIPROCAL_PI 0.3183098861837907
+#define saturate(a) clamp(a, 0.0, 1.0)
+float pow2(float x) { return x * x; }
+float pow4(float x) { float y = x * x; return y * y; }
+vec3 octDecode(vec2 e) { vec3 n = vec3(e, 1.0 - abs(e.x) - abs(e.y)); if (n.z < 0.0) n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0); return normalize(n); }
+// one lantern's light on one pixel: the same falloff three.js uses for a point light with decay 2
+vec3 shade(vec3 P, vec3 N, vec3 alb, int i) {
+  vec4 a = texelFetch(uLights, ivec2(i, 0), 0); vec4 b = texelFetch(uLights, ivec2(i, 1), 0);
+  vec3 L = a.xyz - P; float d = length(L); L /= max(d, 1e-4);
+  float fall = 1.0 / max(d * d, 0.01); fall *= pow2(saturate(1.0 - pow4(d / a.w)));
+  return alb * RECIPROCAL_PI * b.rgb * fall * saturate(dot(N, L));
+}
+vec3 viewPos(vec2 uv, float z) { vec4 vp = uInvProj * vec4(uv * 2.0 - 1.0, z * 2.0 - 1.0, 1.0); return vp.xyz / vp.w; }
+vec3 readNormal(vec2 uv) { vec4 nn = texture(uNor, uv); return uNormalRaw > 0.5 ? normalize(nn.xyz) : octDecode(nn.xy * 2.0 - 1.0); }`;
+
+const QUAD_V = /* glsl */`varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+
+// geometry pass: write the notes (colour, facing, material) and let the depth buffer keep the distance
+const G_V = /* glsl */`
+varying vec3 vN; varying vec3 vIC;
+void main() {
+  #include <beginnormal_vertex>
+  #include <defaultnormal_vertex>
+  #include <begin_vertex>
+  #include <project_vertex>
+  vN = normalize(transformedNormal); vIC = vec3(1.0);
+  #ifdef USE_INSTANCING_COLOR
+  vIC = instanceColor;
+  #endif
+}`;
+const G_F = /* glsl */`
+uniform vec3 uAlbedo; uniform float uEmissive, uUnlit, uNormalRaw;
+varying vec3 vN; varying vec3 vIC;
+layout(location = 0) out vec4 gAlbedo; layout(location = 1) out vec4 gNormal; layout(location = 2) out vec4 gMat;
+vec2 octEncode(vec3 n) { n /= (abs(n.x) + abs(n.y) + abs(n.z)); vec2 e = n.xy; if (n.z < 0.0) e = (1.0 - abs(e.yx)) * vec2(e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0); return e; }
+void main() {
+  vec3 n = normalize(vN); vec3 alb = uAlbedo * vIC;
+  gAlbedo = vec4(alb, 1.0);
+  gNormal = uNormalRaw > 0.5 ? vec4(n, 1.0) : vec4(octEncode(n) * 0.5 + 0.5, 0.0, 1.0);
+  gMat = vec4(uEmissive, uUnlit, 0.0, 1.0);
+}`;
+
+// forward heat: each fragment that runs the light loop adds N to its pixel
+const CNT_V = /* glsl */`void main() {
+  #include <begin_vertex>
+  #include <project_vertex>
+}`;
+const CNT_F = /* glsl */`uniform float uN; void main() { gl_FragColor = vec4(uN, 1.0, 0.0, 0.0); }`;
+
+// visibility buffer: which object and which triangle landed on the pixel, nothing else
+const VIS_V = /* glsl */`attribute float triId; uniform float uObj; varying vec2 vId;
+void main() {
+  #include <begin_vertex>
+  #include <project_vertex>
+  float ob = uObj;
+  #ifdef USE_INSTANCING
+  ob += float(gl_InstanceID);
+  #endif
+  vId = vec2(ob, triId);
+}`;
+const VIS_F = /* glsl */`varying vec2 vId; layout(location = 0) out vec4 o; void main() { o = vec4(vId, 0.0, 1.0); }`;
+
+// lighting pass, full screen: sky glow plus either every lantern, or the tile's list, or the cluster's list
+const LIGHT_F = /* glsl */`
+uniform sampler2D uAlb, uNor, uMat, uDepth, uLights, uList;
+uniform int uNum, uListMode, uSlices, uGroups;
+uniform float uNormalRaw, uCNear, uCFar;
+uniform mat4 uInvProj; uniform vec2 uTiles;
+uniform vec3 uHemiSky, uHemiGround, uHemiDir, uSky;
+varying vec2 vUv;
+layout(location = 0) out vec4 oLit; layout(location = 1) out vec4 oCount;
+${GLSL_LIGHT}
+float slot(vec4 g, int ch) { return ch == 0 ? g.r : ch == 1 ? g.g : ch == 2 ? g.b : g.a; }
+void main() {
+  float z = texture(uDepth, vUv).r;
+  if (z >= 1.0) { oLit = vec4(uSky, 1.0); oCount = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  vec3 P = viewPos(vUv, z); vec3 alb = texture(uAlb, vUv).rgb; vec4 m = texture(uMat, vUv); vec3 N = readNormal(vUv);
+  vec3 col; float cnt = 0.0;
+  if (m.g > 0.5) col = alb;
+  else {
+    float w = 0.5 * dot(N, uHemiDir) + 0.5;
+    col = alb * RECIPROCAL_PI * mix(uHemiGround, uHemiSky, w) + alb * m.r;
+    if (uListMode == 0) { for (int i = 0; i < uNum; i++) col += shade(P, N, alb, i); cnt = float(uNum); }
+    else if (uListMode == 1 || uListMode == 2) {
+      ivec2 t = ivec2(floor(vUv * uTiles)); int row = t.y;
+      if (uListMode == 2) { float s = floor(log(max(-P.z, uCNear) / uCNear) / log(uCFar / uCNear) * float(uSlices)); row = t.y * uSlices + int(clamp(s, 0.0, float(uSlices - 1))); }
+      int base = t.x * uGroups; vec4 g0 = texelFetch(uList, ivec2(base, row), 0);
+      int count = int(g0.r + 0.5); cnt = float(count); int n = min(count, uGroups * 4 - 1);
+      for (int i = 0; i < n; i++) { int gi = (i + 1) / 4; int ch = (i + 1) - gi * 4; vec4 g = gi == 0 ? g0 : texelFetch(uList, ivec2(base + gi, row), 0); col += shade(P, N, alb, int(slot(g, ch) + 0.5) - 1); }
+    }
+  }
+  oLit = vec4(col, 1.0); oCount = vec4(cnt, 1.0, 0.0, 1.0);
+}`;
+
+// light volumes: one sphere (or one screen rectangle) per lantern, added on top, touching only the pixels under it
+const VOL_V = /* glsl */`uniform sampler2D uLights; uniform float uShape; varying float vIdx;
+void main() {
+  vec4 a = texelFetch(uLights, ivec2(gl_InstanceID, 0), 0);
+  vec3 vp = uShape < 0.5 ? a.xyz + position * a.w * 1.05 : a.xyz + vec3(position.xy, 0.0) * a.w * 1.15;
+  gl_Position = projectionMatrix * vec4(vp, 1.0); vIdx = float(gl_InstanceID);
+}`;
+const VOL_F = /* glsl */`
+uniform sampler2D uAlb, uNor, uMat, uDepth, uLights; uniform float uNormalRaw; uniform mat4 uInvProj; uniform vec2 uRes;
+varying float vIdx; layout(location = 0) out vec4 oLit; layout(location = 1) out vec4 oCount;
+${GLSL_LIGHT}
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes; float z = texture(uDepth, uv).r; oCount = vec4(1.0, 0.0, 0.0, 0.0);
+  if (z >= 1.0) { oLit = vec4(0.0); return; }
+  vec4 m = texture(uMat, uv); if (m.g > 0.5) { oLit = vec4(0.0); return; }
+  oLit = vec4(shade(viewPos(uv, z), readNormal(uv), texture(uAlb, uv).rgb, int(vIdx + 0.5)), 0.0);
+}`;
+
+// tile pass 1: nearest and farthest distance inside each tile
+const TDEPTH_F = /* glsl */`uniform sampler2D uDepth; uniform int uTS; uniform vec2 uRes; uniform float uNear, uFar;
+void main() {
+  ivec2 o = ivec2(gl_FragCoord.xy) * uTS; float mn = 1e9, mx = -1e9;
+  for (int j = 0; j < uTS; j++) for (int i = 0; i < uTS; i++) {
+    ivec2 p = o + ivec2(i, j); if (p.x >= int(uRes.x) || p.y >= int(uRes.y)) continue;
+    float d = texelFetch(uDepth, p, 0).r; if (d >= 1.0) continue;
+    float z = (uNear * uFar) / (uFar - (uFar - uNear) * d); mn = min(mn, z); mx = max(mx, z);
+  }
+  gl_FragColor = vec4(mn, mx, 0.0, 1.0);
+}`;
+// tile pass 2: four tilted planes through the eye plus the depth range; keep the lanterns whose sphere pokes inside
+const GLSL_LIST_STORE = /* glsl */`
+    int s = count - first; float v = float(i + 1); if (g == 0) s += 1;
+    if (s == 0) o.r = v; else if (s == 1) o.g = v; else if (s == 2) o.b = v; else if (s == 3) o.a = v;
+    count++;`;
+const TLIST_F = /* glsl */`uniform sampler2D uLights, uTileDepth; uniform int uNum, uGroups; uniform vec2 uTiles; uniform float uTanH, uTanV;
+void main() {
+  ivec2 fc = ivec2(gl_FragCoord.xy); int tx = fc.x / uGroups; int g = fc.x - tx * uGroups; int ty = fc.y;
+  vec2 zr = texelFetch(uTileDepth, ivec2(tx, ty), 0).rg;
+  float xa = (float(tx) / uTiles.x) * 2.0 - 1.0, xb = (float(tx + 1) / uTiles.x) * 2.0 - 1.0;
+  float ya = (float(ty) / uTiles.y) * 2.0 - 1.0, yb = (float(ty + 1) / uTiles.y) * 2.0 - 1.0;
+  vec3 nL = normalize(vec3(1.0, 0.0, xa * uTanH)), nR = normalize(vec3(-1.0, 0.0, -xb * uTanH));
+  vec3 nB = normalize(vec3(0.0, 1.0, ya * uTanV)), nT = normalize(vec3(0.0, -1.0, -yb * uTanV));
+  int first = g == 0 ? 0 : g * 4 - 1; int count = 0; vec4 o = vec4(0.0);
+  if (zr.x <= zr.y) for (int i = 0; i < uNum; i++) {
+    vec4 a = texelFetch(uLights, ivec2(i, 0), 0); vec3 c = a.xyz; float r = a.w;
+    if (dot(nL, c) < -r || dot(nR, c) < -r || dot(nB, c) < -r || dot(nT, c) < -r) continue;
+    float cz = -c.z; if (cz + r < zr.x || cz - r > zr.y) continue;
+    ${GLSL_LIST_STORE}
+  }
+  if (g == 0) o.r = float(count);
+  gl_FragColor = o;
+}`;
+// clusters: a fixed grid of boxes (tile times depth slice); keep a lantern if its sphere touches the box. No depth read needed.
+const CLIST_F = /* glsl */`uniform sampler2D uLights; uniform int uNum, uGroups, uSlices; uniform vec2 uTiles; uniform float uTanH, uTanV, uCNear, uCFar;
+void main() {
+  ivec2 fc = ivec2(gl_FragCoord.xy); int tx = fc.x / uGroups; int g = fc.x - tx * uGroups; int ty = fc.y / uSlices; int k = fc.y - ty * uSlices;
+  float zn = uCNear * pow(uCFar / uCNear, float(k) / float(uSlices)), zf = uCNear * pow(uCFar / uCNear, float(k + 1) / float(uSlices));
+  float xa = (float(tx) / uTiles.x) * 2.0 - 1.0, xb = (float(tx + 1) / uTiles.x) * 2.0 - 1.0;
+  float ya = (float(ty) / uTiles.y) * 2.0 - 1.0, yb = (float(ty + 1) / uTiles.y) * 2.0 - 1.0;
+  vec3 mn = vec3(min(xa * uTanH * zn, xa * uTanH * zf), min(ya * uTanV * zn, ya * uTanV * zf), zn);
+  vec3 mx = vec3(max(xb * uTanH * zn, xb * uTanH * zf), max(yb * uTanV * zn, yb * uTanV * zf), zf);
+  int first = g == 0 ? 0 : g * 4 - 1; int count = 0; vec4 o = vec4(0.0);
+  for (int i = 0; i < uNum; i++) {
+    vec4 a = texelFetch(uLights, ivec2(i, 0), 0); vec3 c = vec3(a.x, a.y, -a.z); float r = a.w;
+    vec3 q = clamp(c, mn, mx) - c; if (dot(q, q) > r * r) continue;
+    ${GLSL_LIST_STORE}
+  }
+  if (g == 0) o.r = float(count);
+  gl_FragColor = o;
+}`;
+
+// the last pass: pick what to show, add the heat overlay, the tile grid, the gap tiles and the slice edges
+const COMP_F = /* glsl */`
+uniform sampler2D uLit, uCount, uAlb, uNor, uDepth, uVis, uTileDepth;
+uniform int uView, uGrid, uSlices; uniform float uHeat, uHeatMax, uNormalRaw, uNear, uFar, uCNear, uCFar, uGapM, uBands, uTilePx;
+uniform vec2 uTiles; uniform vec3 uSky;
+varying vec2 vUv; layout(location = 0) out vec4 o;
+vec3 octDecode(vec2 e) { vec3 n = vec3(e, 1.0 - abs(e.x) - abs(e.y)); if (n.z < 0.0) n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0); return normalize(n); }
+vec3 heatColor(float t) { return t < 0.5 ? mix(vec3(0.05, 0.10, 0.38), vec3(0.95, 0.64, 0.25), t * 2.0) : mix(vec3(0.95, 0.64, 0.25), vec3(1.0), (t - 0.5) * 2.0); }
+float hashId(vec2 p, float s) { return fract(sin(dot(p, vec2(12.9898, 78.233)) + s) * 43758.5453); }
+vec3 toSrgb(vec3 c) { c = max(c, 0.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+void main() {
+  float d = texture(uDepth, vUv).r; bool sky = d >= 1.0;
+  float z = (uNear * uFar) / (uFar - (uFar - uNear) * d);
+  vec3 c;
+  if (uView == 0) { c = texture(uLit, vUv).rgb; c = 1.0 - exp(-c); c = toSrgb(c); }
+  else if (uView == 1) c = toSrgb(sky ? uSky : texture(uAlb, vUv).rgb);
+  else if (uView == 2) { vec4 nn = texture(uNor, vUv); vec3 N = uNormalRaw > 0.5 ? normalize(nn.xyz) : octDecode(nn.xy * 2.0 - 1.0); c = sky ? vec3(0.0) : toSrgb(N * 0.5 + 0.5); }
+  else if (uView == 3) c = sky ? vec3(0.0) : vec3(1.0 - clamp((z - uNear) / (45.0 - uNear), 0.0, 1.0));
+  else { vec2 id = texture(uVis, vUv).rg; c = sky ? toSrgb(uSky) : vec3(hashId(id, 0.0), hashId(id, 1.7), hashId(id, 3.9)) * 0.85 + 0.1; }
+  if (uHeat > 0.5) {
+    vec4 k = texture(uCount, vUv);
+    if (k.g > 0.5) { float t = clamp(k.r / max(uHeatMax, 1.0), 0.0, 1.0); c = mix(c * 0.25, heatColor(t), 0.85); } else c *= 0.35;
+    if (uGrid > 0) {
+      vec2 f = fract(vUv * uTiles) * uTilePx;
+      c = mix(c, vec3(0.75), (f.x < 1.0 || f.y < 1.0) ? 0.6 : 0.0);
+      if (uGrid == 1) { ivec2 t = ivec2(floor(vUv * uTiles)); vec2 zr = texelFetch(uTileDepth, t, 0).rg;
+        if (zr.y - zr.x > uGapM && (f.x < 3.0 || f.y < 3.0 || f.x > uTilePx - 3.0 || f.y > uTilePx - 3.0)) c = vec3(0.94, 0.36, 0.36); }
+    }
+    if (uBands > 0.5 && !sky) { float s = log(max(z, uCNear) / uCNear) / log(uCFar / uCNear) * float(uSlices); float fs = fract(s); if (s < float(uSlices) && (fs < 0.025 || fs > 0.975)) c = mix(c, vec3(0.6, 0.85, 1.0), 0.8); }
+  }
+  o = vec4(c, 1.0);
+}`;
+
+// stats: shrink the count picture to 64 x 36 (average, worst, share covered) so the CPU can read it back cheaply
+const STAT_F = /* glsl */`uniform sampler2D uCount; uniform vec2 uStat; varying vec2 vUv;
+void main() { vec2 cell = 1.0 / uStat; float sum = 0.0, mx = 0.0, cov = 0.0;
+  for (int j = 0; j < 4; j++) for (int i = 0; i < 4; i++) { vec2 uv = vUv + (vec2(float(i), float(j)) + 0.5 - 2.0) / 4.0 * cell; vec4 k = texture(uCount, uv); sum += k.r; mx = max(mx, k.r); cov += min(k.g, 1.0); }
+  gl_FragColor = vec4(sum / 16.0, mx, cov / 16.0, 1.0); }`;
+
+// ---- shared uniforms and the lantern table (a small float texture: row 0 = position in view space + reach, row 1 = colour)
+const NEAREST = { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter };
+const lightData = new Float32Array(MAXL * 2 * 4);
+const lightTex = new THREE.DataTexture(lightData, MAXL, 2, THREE.RGBAFormat, THREE.FloatType); lightTex.minFilter = lightTex.magFilter = THREE.NearestFilter;
+for (let i = 0; i < MAXL; i++) { const p = (MAXL + i) * 4, c = lanterns[i].col; lightData[p] = c.r * INTENSITY; lightData[p + 1] = c.g * INTENSITY; lightData[p + 2] = c.b * INTENSITY; lightData[p + 3] = 0; }
+lightTex.needsUpdate = true;
+const U = {
+  lights: { value: lightTex }, num: { value: nL }, normalRaw: { value: 0 }, invProj: { value: new THREE.Matrix4() }, res: { value: new THREE.Vector2(1, 1) },
+  tiles: { value: new THREE.Vector2(1, 1) }, alb: { value: null }, nor: { value: null }, mat: { value: null }, depth: { value: null }, list: { value: null }, tileDepth: { value: null },
+  hemiSky: { value: new THREE.Color() }, hemiGround: { value: new THREE.Color() }, hemiDir: { value: new THREE.Vector3(0, 1, 0) }, sky: { value: SKY },
+  cnear: { value: CNEAR }, cfar: { value: CFAR }, slices: { value: slices }, groups: { value: GROUPS }, N: { value: nL }, zero: { value: 0 }
+};
+
+// ---- per-mesh materials for each pass, plus a triangle id on every vertex for the visibility buffer
+const meshes = []; let objId = 1; const geoCache = new Map();
+function withTri(geo) { if (geoCache.has(geo)) return geoCache.get(geo); const g = geo.index ? geo.toNonIndexed() : geo; const n = g.attributes.position.count; const tri = new Float32Array(n); for (let i = 0; i < n; i++) tri[i] = Math.floor(i / 3); g.setAttribute('triId', new THREE.BufferAttribute(tri, 1)); geoCache.set(geo, g); return g; }
+const ADD = { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneFactor, blendEquation: THREE.AddEquation, transparent: true, depthWrite: false };
+const cntLit = new THREE.ShaderMaterial(Object.assign({ uniforms: { uN: U.N }, vertexShader: CNT_V, fragmentShader: CNT_F, depthTest: false }, ADD));
+const cntUnlit = new THREE.ShaderMaterial(Object.assign({ uniforms: { uN: U.zero }, vertexShader: CNT_V, fragmentShader: CNT_F, depthTest: false }, ADD));
+const depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false });
+scene.traverse(o => {
+  if (!o.isMesh) return;
+  const src = o.material, unlit = !!src.isMeshBasicMaterial;
+  const emis = src.emissive && (src.emissive.r + src.emissive.g + src.emissive.b) > 0 ? src.emissiveIntensity : 0;
+  o.geometry = withTri(o.geometry);
+  o.userData.fwd = src; o.userData.cnt = unlit ? cntUnlit : cntLit;
+  o.userData.g = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: { uAlbedo: { value: src.color.clone() }, uEmissive: { value: emis }, uUnlit: { value: unlit ? 1 : 0 }, uNormalRaw: U.normalRaw }, vertexShader: G_V, fragmentShader: G_F });
+  o.userData.vis = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: { uObj: { value: objId++ } }, vertexShader: VIS_V, fragmentShader: VIS_F });
+  meshes.push(o);
+});
+function swap(kind) { for (const m of meshes) m.material = kind === 'fwd' ? m.userData.fwd : kind === 'depth' ? depthOnly : m.userData[kind]; }
+
+// ---- full-screen passes
+const quadScene = new THREE.Scene(), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2)); quad.frustumCulled = false; quadScene.add(quad);
+const lightMat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: QUAD_V, fragmentShader: LIGHT_F, depthTest: false, depthWrite: false, uniforms: {
+  uAlb: U.alb, uNor: U.nor, uMat: U.mat, uDepth: U.depth, uLights: U.lights, uList: U.list, uNum: U.num, uListMode: { value: 0 }, uSlices: U.slices, uGroups: U.groups,
+  uNormalRaw: U.normalRaw, uCNear: U.cnear, uCFar: U.cfar, uInvProj: U.invProj, uTiles: U.tiles, uHemiSky: U.hemiSky, uHemiGround: U.hemiGround, uHemiDir: U.hemiDir, uSky: U.sky } });
+const tdepthMat = new THREE.ShaderMaterial({ vertexShader: QUAD_V, fragmentShader: TDEPTH_F, depthTest: false, depthWrite: false, uniforms: { uDepth: U.depth, uTS: { value: 64 }, uRes: U.res, uNear: { value: camera.near }, uFar: { value: camera.far } } });
+const tlistMat = new THREE.ShaderMaterial({ vertexShader: QUAD_V, fragmentShader: TLIST_F, depthTest: false, depthWrite: false, uniforms: { uLights: U.lights, uTileDepth: U.tileDepth, uNum: U.num, uGroups: U.groups, uTiles: U.tiles, uTanH: { value: 1 }, uTanV: { value: 1 } } });
+const clistMat = new THREE.ShaderMaterial({ vertexShader: QUAD_V, fragmentShader: CLIST_F, depthTest: false, depthWrite: false, uniforms: { uLights: U.lights, uNum: U.num, uGroups: U.groups, uSlices: U.slices, uTiles: U.tiles, uTanH: tlistMat.uniforms.uTanH, uTanV: tlistMat.uniforms.uTanV, uCNear: U.cnear, uCFar: U.cfar } });
+const compMat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: QUAD_V, fragmentShader: COMP_F, depthTest: false, depthWrite: false, uniforms: {
+  uLit: { value: null }, uCount: { value: null }, uAlb: U.alb, uNor: U.nor, uDepth: U.depth, uVis: { value: null }, uTileDepth: U.tileDepth, uView: { value: 0 }, uGrid: { value: 0 }, uSlices: U.slices,
+  uHeat: { value: 0 }, uHeatMax: { value: nL }, uNormalRaw: U.normalRaw, uNear: { value: camera.near }, uFar: { value: camera.far }, uCNear: U.cnear, uCFar: U.cfar, uGapM: { value: GAP_M }, uBands: { value: 0 }, uTilePx: { value: 64 }, uTiles: U.tiles, uSky: U.sky } });
+const statMat = new THREE.ShaderMaterial({ vertexShader: QUAD_V, fragmentShader: STAT_F, depthTest: false, depthWrite: false, uniforms: { uCount: { value: null }, uStat: { value: new THREE.Vector2(64, 36) } } });
+// light volumes: one instanced sphere or one instanced camera-facing square per lantern
+const volScene = new THREE.Scene();
+const sphereGeo = new THREE.InstancedBufferGeometry().copy(new THREE.SphereGeometry(1, 14, 10));
+const rectGeo = new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry(2, 2));
+// a sphere's back faces touch each pixel under it exactly once; the flat rectangle faces the camera, so it needs both sides
+const volMatOf = (shape, side) => new THREE.ShaderMaterial(Object.assign({ glslVersion: THREE.GLSL3, vertexShader: VOL_V, fragmentShader: VOL_F, depthTest: false, side, uniforms: {
+  uLights: U.lights, uShape: { value: shape }, uAlb: U.alb, uNor: U.nor, uMat: U.mat, uDepth: U.depth, uNormalRaw: U.normalRaw, uInvProj: U.invProj, uRes: U.res } }, ADD));
+const volSphereMat = volMatOf(0, THREE.BackSide), volRectMat = volMatOf(1, THREE.DoubleSide);
+const volMesh = new THREE.Mesh(sphereGeo, volSphereMat); volMesh.frustumCulled = false; volScene.add(volMesh);
+
+// ---- render targets
+const LAYOUTS = {
+  lean: { alb: [THREE.RGBAFormat, THREE.UnsignedByteType], nor: [THREE.RGFormat, THREE.UnsignedByteType], mat: [THREE.RGFormat, THREE.UnsignedByteType], depth: THREE.UnsignedShortType, raw: false, bytes: 10, desc: 'colour 4 × 8-bit, facing 2 × 8-bit folded, material 2 × 8-bit, distance 16-bit' },
+  standard: { alb: [THREE.RGBAFormat, THREE.UnsignedByteType], nor: [THREE.RGFormat, THREE.HalfFloatType], mat: [THREE.RGBAFormat, THREE.UnsignedByteType], depth: THREE.UnsignedIntType, raw: false, bytes: 16, desc: 'colour 4 × 8-bit, facing 2 × 16-bit folded, material 4 × 8-bit, distance 24-bit' },
+  fat: { alb: [THREE.RGBAFormat, THREE.HalfFloatType], nor: [THREE.RGBAFormat, THREE.HalfFloatType], mat: [THREE.RGBAFormat, THREE.HalfFloatType], depth: THREE.FloatType, raw: true, bytes: 28, desc: 'colour, facing and material 4 × 16-bit float each, distance 32-bit float' }
+};
+let RW = 0, RH = 0, dpr = 1, TS = 64, tilesX = 1, tilesY = 1, tileBuf = null;
+const rts = {}; const statBuf = new Float32Array(64 * 36 * 4);
+const kill = k => { if (rts[k]) { rts[k].dispose(); rts[k] = null; } };
+function makeGBuffer() {
+  kill('g'); const L = LAYOUTS[layout];
+  const depthTexture = new THREE.DepthTexture(RW, RH, L.depth); depthTexture.minFilter = depthTexture.magFilter = THREE.NearestFilter;
+  rts.g = new THREE.WebGLRenderTarget(RW, RH, Object.assign({ count: 3, depthTexture, depthBuffer: true }, NEAREST));
+  const [ta, tn, tm] = rts.g.textures; ta.format = L.alb[0]; ta.type = L.alb[1]; tn.format = L.nor[0]; tn.type = L.nor[1]; tm.format = L.mat[0]; tm.type = L.mat[1];
+  U.alb.value = ta; U.nor.value = tn; U.mat.value = tm; U.depth.value = depthTexture; U.normalRaw.value = L.raw ? 1 : 0;
+}
+function makeForward() { kill('fwd'); rts.fwd = new THREE.WebGLRenderTarget(RW, RH, Object.assign({ type: THREE.HalfFloatType, samples: msaa ? 4 : 0, depthBuffer: true }, NEAREST)); }
+function makeTiles() {
+  kill('tileDepth'); kill('tileList'); kill('clusterList');
+  TS = Math.max(8, Math.round(tilePx * dpr)); tilesX = Math.ceil(RW / TS); tilesY = Math.ceil(RH / TS);
+  rts.tileDepth = new THREE.WebGLRenderTarget(tilesX, tilesY, Object.assign({ type: THREE.FloatType, depthBuffer: false }, NEAREST));
+  rts.tileList = new THREE.WebGLRenderTarget(tilesX * GROUPS, tilesY, Object.assign({ type: THREE.HalfFloatType, depthBuffer: false }, NEAREST));
+  rts.clusterList = new THREE.WebGLRenderTarget(tilesX * GROUPS, tilesY * slices, Object.assign({ type: THREE.HalfFloatType, depthBuffer: false }, NEAREST));
+  tileBuf = new Float32Array(tilesX * tilesY * 4);
+  U.tiles.value.set(RW / TS, RH / TS); U.tileDepth.value = rts.tileDepth.texture; tdepthMat.uniforms.uTS.value = TS; compMat.uniforms.uTilePx.value = TS;
+}
+const sizeV = new THREE.Vector2();
+function sizeCheck() {
+  renderer.getDrawingBufferSize(sizeV); const w = Math.max(1, sizeV.x), h = Math.max(1, sizeV.y);
+  if (w === RW && h === RH) return;
+  RW = w; RH = h; dpr = renderer.getPixelRatio(); U.res.value.set(RW, RH);
+  makeGBuffer(); makeForward(); makeTiles();
+  kill('count'); rts.count = new THREE.WebGLRenderTarget(RW, RH, Object.assign({ type: THREE.HalfFloatType, depthBuffer: true }, NEAREST));
+  kill('light'); rts.light = new THREE.WebGLRenderTarget(RW, RH, Object.assign({ count: 2, type: THREE.HalfFloatType, depthBuffer: false }, NEAREST));
+  kill('vis'); rts.vis = new THREE.WebGLRenderTarget(RW, RH, Object.assign({ type: THREE.HalfFloatType, format: THREE.RGFormat, depthBuffer: true }, NEAREST));
+  if (!rts.stat) rts.stat = new THREE.WebGLRenderTarget(64, 36, Object.assign({ type: THREE.FloatType, depthBuffer: false }, NEAREST));
+}
+
+// ---- GPU timer (EXT_disjoint_timer_query_webgl2), with the plain frame interval as the fallback
+const gl = renderer.getContext(); const timerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+const queries = []; let qActive = null, gpuMs = 0, frameMs = 0;
+function timerBegin() {
+  if (!timerExt) return;
+  while (queries.length) { const q = queries[0]; const ready = gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE), disjoint = gl.getParameter(timerExt.GPU_DISJOINT_EXT); if (ready && !disjoint) { const ms = gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6; gpuMs = gpuMs ? gpuMs * 0.9 + ms * 0.1 : ms; } if (ready || disjoint) { gl.deleteQuery(q); queries.shift(); } else break; }
+  if (queries.length < 6) { qActive = gl.createQuery(); gl.beginQuery(timerExt.TIME_ELAPSED_EXT, qActive); }
+}
+function timerEnd() { if (qActive) { gl.endQuery(timerExt.TIME_ELAPSED_EXT); queries.push(qActive); qActive = null; } }
+
+// ---- the frame
+const tmpV = new THREE.Vector3(); let frame = 0, litTex = null, countTex = null, mainCalls = 0;
+const stats = { avg: 0, worst: 0, perFrame: 0, covered: 0, gapTiles: 0, biggestGap: 0, gapThr: GAP_M };
+function fillLights() {
+  for (let i = 0; i < nL; i++) { const o = i * 4; tmpV.copy(lanterns[i].pos).applyMatrix4(camera.matrixWorldInverse); lightData[o] = tmpV.x; lightData[o + 1] = tmpV.y; lightData[o + 2] = tmpV.z; lightData[o + 3] = reach; }
+  lightTex.needsUpdate = true; U.num.value = nL; U.N.value = nL;
+  U.hemiSky.value.copy(hemi.color).multiplyScalar(hemi.intensity); U.hemiGround.value.copy(hemi.groundColor).multiplyScalar(hemi.intensity);
+  U.hemiDir.value.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
+  U.invProj.value.copy(camera.projectionMatrixInverse);
+  const tv = Math.tan(THREE.MathUtils.DEG2RAD * camera.fov / 2); tlistMat.uniforms.uTanV.value = tv; tlistMat.uniforms.uTanH.value = tv * camera.aspect;
+}
+function fullScreen(mat, target) { quad.material = mat; renderer.setRenderTarget(target); renderer.render(quadScene, quadCam); }
+function renderFrame(scene, camera, renderer) {
+  sizeCheck(); renderer.info.reset(); timerBegin();
+  camera.updateMatrixWorld(); camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+  fillLights();
+  const statDue = frame % 15 === 0;
+  const needG = path === 'deferred' || view === 'albedo' || view === 'normal' || view === 'depth';
+  const needCount = heat || statDue;
+  renderer.autoClear = false;
+  if (needG) { swap('g'); renderer.setRenderTarget(rts.g); renderer.setClearColor(0x000000, 0); renderer.clear(true, true, false); renderer.render(scene, camera); }
+  if (view === 'tri') { swap('vis'); renderer.setRenderTarget(rts.vis); renderer.setClearColor(0x000000, 0); renderer.clear(true, true, false); renderer.render(scene, camera); }
+  if (path === 'forward') {
+    renderer.setRenderTarget(rts.fwd); renderer.setClearColor(SKY, 1); renderer.clear(true, true, false);
+    if (prepass) { swap('depth'); renderer.render(scene, camera); }
+    swap('fwd'); renderer.render(scene, camera); mainCalls = renderer.info.render.calls;
+    if (needCount) {
+      renderer.setRenderTarget(rts.count); renderer.setClearColor(0x000000, 0); renderer.clear(true, true, false);
+      if (prepass) { swap('depth'); renderer.render(scene, camera); }
+      cntLit.depthTest = cntUnlit.depthTest = true; cntLit.depthWrite = cntUnlit.depthWrite = !prepass; swap('cnt'); renderer.render(scene, camera);
+    }
+    litTex = rts.fwd.texture; countTex = rts.count.texture;
+  } else {
+    if (method === 'tiled') { fullScreen(tdepthMat, rts.tileDepth); fullScreen(tlistMat, rts.tileList); U.list.value = rts.tileList.texture; }
+    else if (method === 'clustered') { fullScreen(clistMat, rts.clusterList); U.list.value = rts.clusterList.texture; }
+    else U.list.value = rts.tileList.texture;
+    lightMat.uniforms.uListMode.value = method === 'all' ? 0 : method === 'tiled' ? 1 : method === 'clustered' ? 2 : 3;
+    renderer.setRenderTarget(rts.light); renderer.setClearColor(0x000000, 0); renderer.clear(true, false, false);
+    fullScreen(lightMat, rts.light);
+    if (method === 'sphere' || method === 'rect') {
+      volMesh.geometry = method === 'sphere' ? sphereGeo : rectGeo; volMesh.geometry.instanceCount = nL; volMesh.material = method === 'sphere' ? volSphereMat : volRectMat;
+      renderer.render(volScene, camera);
+    }
+    mainCalls = renderer.info.render.calls; litTex = rts.light.textures[0]; countTex = rts.light.textures[1];
+  }
+  swap('fwd');
+  const cu = compMat.uniforms;
+  cu.uLit.value = litTex; cu.uCount.value = countTex; cu.uVis.value = rts.vis.texture;
+  cu.uView.value = ['lit', 'albedo', 'normal', 'depth', 'tri'].indexOf(view); cu.uHeat.value = heat ? 1 : 0; cu.uHeatMax.value = nL * 2;
+  cu.uGrid.value = path === 'deferred' && method === 'tiled' ? 1 : path === 'deferred' && method === 'clustered' ? 2 : 0;
+  cu.uBands.value = bands && path === 'deferred' && method === 'clustered' ? 1 : 0;
+  fullScreen(compMat, null);
+  timerEnd();
+  if (statDue) {
+    statMat.uniforms.uCount.value = countTex; fullScreen(statMat, rts.stat); renderer.readRenderTargetPixels(rts.stat, 0, 0, 64, 36, statBuf);
+    let sum = 0, mx = 0, cov = 0; for (let i = 0; i < statBuf.length; i += 4) { sum += statBuf[i]; mx = Math.max(mx, statBuf[i + 1]); cov += statBuf[i + 2]; }
+    const n = statBuf.length / 4; stats.avg = cov > 0 ? sum / cov : 0; stats.worst = mx; stats.covered = cov / n; stats.perFrame = sum / n * RW * RH;
+    if (path === 'deferred' && method === 'tiled') {
+      renderer.readRenderTargetPixels(rts.tileDepth, 0, 0, tilesX, tilesY, tileBuf); let gaps = 0, big = 0;
+      for (let i = 0; i < tileBuf.length; i += 4) { const mn = tileBuf[i], mxz = tileBuf[i + 1]; if (mn > 1e8) continue; const gap = mxz - mn; if (gap > big) big = gap; }
+      const thr = Math.max(GAP_M, big * 0.55);
+      for (let i = 0; i < tileBuf.length; i += 4) { const mn = tileBuf[i], mxz = tileBuf[i + 1]; if (mn > 1e8) continue; if (mxz - mn > thr) gaps++; }
+      stats.gapTiles = gaps; stats.biggestGap = big; stats.gapThr = thr; compMat.uniforms.uGapM.value = thr;
+    }
+  }
+  renderer.setRenderTarget(null); frame++;
+}
+sb.onRender(renderFrame);
+
+// ---- the panel
+const fmt = n => n >= 1e9 ? (n / 1e9).toFixed(2) + ' G' : n >= 1e6 ? (n / 1e6).toFixed(1) + ' M' : n >= 1e3 ? (n / 1e3).toFixed(0) + ' k' : String(Math.round(n));
+const mb = b => (b / 1048576).toFixed(1) + ' MB';
+let lightTimer = 0;
+function applyLights() { for (let i = 0; i < MAXL; i++) lanterns[i].light.visible = i < nL; }
+
+const s1 = sb.panel.section('01 · Forward: light it while you draw', 'Every object is drawn with the whole lantern list, and every pixel it covers adds up every lantern, even pixels that something drawn later then hides.');
+s1.slider('Lanterns', { min: 1, max: 300, step: 1, value: nL }, v => { nL = v; bulbs.count = v; if (path === 'forward') { clearTimeout(lightTimer); lightTimer = setTimeout(applyLights, 60); } else applyLights(); apply(); });
+s1.slider('Lantern reach', { min: 2, max: 12, step: 0.5, value: reach, unit: ' m' }, v => { reach = v; for (const l of lanterns) l.light.distance = v; });
+const segPath = s1.segment('Renderer', [{ value: 'forward', label: 'forward: light while drawing' }, { value: 'deferred', label: 'deferred: notes first' }], 'forward', v => { path = v; if (v === 'forward') applyLights(); apply(); });
+const togPrepass = s1.toggle('depth prepass: write distance first, colour only the winner', false, v => { prepass = v; setPath('forward'); setHeat(true); apply(); });
+const rTime = s1.readout('time per frame'); const rBound = s1.readout('lanterns bound to every draw'); const rCalls = s1.readout('draw calls');
+const rLoops = s1.readout('lantern loops per pixel, average'); const rLoopsF = s1.readout('lantern loops per frame');
+s1.note('Forward pays covered pixels times lanterns. The prepass removes the hidden pixels from the bill; it does nothing about the lantern count, and the shader has to be rebuilt every time that count changes.');
+
+const s2 = sb.panel.section('02 · Deferred: write the notes first (G-buffer)', 'The deferred path first writes down what each pixel\'s surface looks like: its colour, which way it faces, its material, its distance. Only then does it light anything.');
+const segShow = s2.segment('Show', [{ value: 'lit', label: 'the lit picture' }, { value: 'albedo', label: 'colour' }, { value: 'normal', label: 'facing' }, { value: 'depth', label: 'distance' }], 'lit', v => { view = v; segKeep.set(v === 'lit' ? 'picture' : '-', false); apply(); });
+const segLayout = s2.segment('How fat the notes are', [{ value: 'lean', label: 'lean, 10 B' }, { value: 'standard', label: 'standard, 16 B' }, { value: 'fat', label: 'fat, 28 B' }], 'standard', v => { layout = v; if (RW) makeGBuffer(); setPath('deferred'); apply(); });
+const rBytes = s2.readout('bytes kept per pixel'); const rMem = s2.readout('notes at this window size'); const rMoved = s2.readout('moved per frame, write then read'); const rSec = s2.readout('at 60 frames a second');
+s2.note('That memory bill is the same with one lantern or three hundred. The lean layout keeps a 16-bit distance, so far surfaces are placed less precisely when they are lit.');
+
+const s3 = sb.panel.section('03 · Lighting from the notes', 'The lighting pass reads the notes back. It can loop over every lantern at every pixel, or draw each lantern as a shape and touch only the pixels underneath it.');
+const segTouch = s3.segment('Each lantern touches', [{ value: 'all', label: 'every pixel' }, { value: 'sphere', label: 'its sphere' }, { value: 'rect', label: 'a screen rectangle' }], 'all', v => { method = v; segTiles.set('off', false); segClusters.set('off', false); setPath('deferred'); setHeat(true); apply(); });
+const togHeat = s3.toggle('heat overlay: lanterns evaluated per pixel', false, v => { heat = v; apply(); });
+s3.key([['#0d1a61', 'a few lanterns'], ['#f2a341', 'every lantern once'], ['#ffffff', 'every lantern twice or more']]);
+const rTouch = s3.readout('pixels each lantern touches, average');
+s3.note('A sphere touches only the pixels it can reach. A flat rectangle is cheaper to draw but covers more pixels than the light can reach, so more pixels run the loop for nothing.');
+
+const s4 = sb.panel.section('04 · Tiled: a short list per tile', 'Cut the screen into tiles, find each tile\'s nearest and farthest distance, and keep only the lanterns that reach into that wedge. Tiles that span a big depth gap get a long list; they are outlined in red.');
+const segTiles = s4.segment('Tile lists', [{ value: 'off', label: 'off' }, { value: 32, label: '32 px tiles' }, { value: 64, label: '64 px tiles' }, { value: 128, label: '128 px tiles' }], 'off', v => { if (v === 'off') { method = 'all'; segTouch.set('all', false); } else { method = 'tiled'; tilePx = +v; if (RW) makeTiles(); segTouch.set('-', false); } segClusters.set('off', false); setPath('deferred'); setHeat(true); apply(); });
+const rTiles = s4.readout('tiles on screen'); const rTileList = s4.readout('lanterns per tile, average'); const rTileWorst = s4.readout('longest list'); const rGap = s4.readout('tiles with a big near-to-far gap'); const rGapBig = s4.readout('the biggest gap');
+s4.note('Where the stall or the player stands against the far cobbles, one tile holds near and far at once, and every lantern along that line of sight lands on its list.');
+
+const s5 = sb.panel.section('05 · Clustered: slice the tiles by distance', 'Slice each tile by distance as well, so the near stall and the far church stop sharing one list. The grid is fixed ahead of time, so the lists need no depth read and serve glass and smoke too.');
+const segClusters = s5.segment('Cluster lists', [{ value: 'off', label: 'off' }, { value: 8, label: '8 slices' }, { value: 16, label: '16 slices' }, { value: 32, label: '32 slices' }], 'off', v => { if (v === 'off') { method = 'all'; segTouch.set('all', false); } else { method = 'clustered'; slices = +v; U.slices.value = slices; if (RW) makeTiles(); segTouch.set('-', false); } segTiles.set('off', false); setPath('deferred'); setHeat(true); apply(); });
+const togBands = s5.toggle('show the slice edges', false, v => { bands = v; if (v && method !== 'clustered') { method = 'clustered'; segClusters.set(slices, false); segTiles.set('off', false); segTouch.set('-', false); } setPath('deferred'); setHeat(true); apply(); });
+const rClusters = s5.readout('clusters'); const rClMem = s5.readout('list memory on the GPU'); const rClRange = s5.readout('sliced from');
+s5.note('Slices are spaced so each one is the same fraction deeper than the last, which matches how perspective squeezes distance. Most clusters hold one or two lanterns.');
+
+const s6 = sb.panel.section('06 · What one pixel keeps', 'Between drawing and lighting, forward keeps nothing but the frame, deferred keeps the notes, and a visibility buffer keeps only which triangle landed on the pixel.');
+const togMsaa = s6.toggle('4 samples per pixel at the edges (MSAA anti-aliasing)', true, v => { msaa = v; if (RW) makeForward(); setPath('forward'); apply(); });
+const segKeep = s6.segment('Show', [{ value: 'picture', label: 'the picture' }, { value: 'tri', label: 'which triangle (visibility buffer)' }], 'picture', v => { view = v === 'tri' ? 'tri' : 'lit'; segShow.set(v === 'tri' ? '-' : 'lit', false); apply(); });
+const rKeepF = s6.readout('forward, per pixel'); const rKeepD = s6.readout('deferred, per pixel'); const rKeepV = s6.readout('visibility buffer, per pixel'); const rAA = s6.readout('edge anti-aliasing now');
+s6.note('The notes cannot be kept four times per pixel, so deferred gives up hardware anti-aliasing and smooths edges over time instead. A triangle id can, which is why the newest engines store that and rebuild the surface later.');
+
+function setPath(p) { if (path !== p) { path = p; segPath.set(p, false); if (p === 'forward') applyLights(); } }
+function setHeat(h) { if (heat !== h) { heat = h; togHeat.set(h, false); } }
+function apply() {
+  const L = LAYOUTS[layout];
+  const how = path === 'forward' ? 'forward: every draw carries all ' + nL + ' lanterns' + (prepass ? ', distance written first' : '')
+    : 'deferred: ' + L.bytes + ' B of notes per pixel, lit ' + ({ all: 'with every lantern at every pixel', sphere: 'by one sphere per lantern', rect: 'by one screen rectangle per lantern', tiled: 'from a list per ' + tilePx + ' px tile', clustered: 'from a list per cluster, ' + slices + ' depth slices' })[method];
+  const what = { lit: '', albedo: ' · showing the colour notes', normal: ' · showing which way each pixel faces', depth: ' · showing distance, bright is near', tri: ' · showing the triangle id per pixel' }[view];
+  sb.hud('mode', how + what + (heat ? ' · heat: lanterns evaluated per pixel' : ''));
+}
+apply(); applyLights();
+
+let readTick = 0;
+sb.onFrame(dt => {
+  frameMs = frameMs ? frameMs * 0.9 + dt * 1000 * 0.1 : dt * 1000;
+  if (readTick++ % 8) return;
+  const L = LAYOUTS[layout], px = RW * RH;
+  rTime(timerExt && gpuMs ? gpuMs.toFixed(1) + ' ms on the GPU' : frameMs.toFixed(1) + ' ms between frames');
+  rBound(path === 'forward' ? nL + ' (one shader loop of ' + nL + ' per pixel)' : '0, the notes are lit later');
+  rCalls(mainCalls + 1 + ' (the last one puts the picture on screen)');
+  rLoops(stats.avg.toFixed(1) + (stats.worst > stats.avg * 1.05 ? ' (worst pixel ' + Math.round(stats.worst) + ')' : ''));
+  rLoopsF(fmt(stats.perFrame));
+  rBytes(path === 'forward' ? '0 B of notes (forward lights while drawing)' : L.bytes + ' B: ' + L.desc);
+  rMem(path === 'forward' ? 'none' : mb(L.bytes * px) + ' for ' + RW + ' × ' + RH);
+  rMoved(path === 'forward' ? 'none' : mb(L.bytes * px * 2) + ', more with overdraw');
+  rSec(path === 'forward' ? 'none' : (L.bytes * px * 2 * 60 / 1e9).toFixed(1) + ' GB per second');
+  rTouch(path === 'deferred' && nL ? fmt(stats.perFrame / nL) + ' of ' + fmt(px * stats.covered) : 'forward: every covered pixel, ' + fmt(px * stats.covered));
+  const tiled = path === 'deferred' && method === 'tiled', clustered = path === 'deferred' && method === 'clustered';
+  rTiles(tilesX + ' × ' + tilesY + ' tiles of ' + TS + ' × ' + TS + ' pixels');
+  rTileList(tiled ? stats.avg.toFixed(1) : 'tile lists off'); rTileWorst(tiled ? Math.round(stats.worst) + (stats.worst > GROUPS * 4 - 1 ? ', over the ' + (GROUPS * 4 - 1) + ' the list can hold' : '') : 'not in use');
+  rGap(tiled ? stats.gapTiles + ' (more than ' + stats.gapThr.toFixed(0) + ' m)' : 'not in use'); rGapBig(tiled ? stats.biggestGap.toFixed(1) + ' m near to far in one tile' : 'not in use');
+  rClusters(tilesX + ' × ' + tilesY + ' × ' + slices + ' = ' + fmt(tilesX * tilesY * slices) + (clustered ? ', ' + stats.avg.toFixed(1) + ' lanterns per pixel' : ''));
+  rClMem(mb(tilesX * GROUPS * tilesY * slices * 8) + ' (' + GROUPS * 4 * 2 + ' B per cluster)'); rClRange(CNEAR + ' m to ' + CFAR + ' m, ' + slices + ' slices');
+  rKeepF('0 B of notes; the frame is 12 B (colour 8, distance 4)'); rKeepD(L.bytes + ' B of notes'); rKeepV('4 B, one object and triangle id');
+  rAA(path === 'forward' ? (msaa ? '4 samples per pixel' : 'off') : 'not possible on the notes');
+});
+sb.start();
+</script>
+</body>
+</html>
