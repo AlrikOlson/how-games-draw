@@ -78,11 +78,16 @@ function terrainH(x, z) { const d = Math.hypot(x, z); const flat = sstep(38, 130
 const t0 = performance.now();
 { const g = new THREE.PlaneGeometry(2600, 2600, 300, 300); g.rotateX(-Math.PI / 2); const pos = g.attributes.position; for (let i = 0; i < pos.count; i++) pos.setY(i, terrainH(pos.getX(i), pos.getZ(i))); g.computeVertexNormals(); const bi = newBlas(); addPart(bi, g, M.TERRAIN); addInst(bi, new THREE.Matrix4()); }
 
-// grass: one bent blade, placed tens of thousands of times
+// grass: one bent blade, copied tens of thousands of times straight into world space (one flat tree of boxes beats a box per blade)
 function clearOf(x, z) { if (Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE_R + 1) return false; if (Math.hypot(x - FIRE.x, z - FIRE.z) < 2.4) return false; const dx = x - CABIN.x, dz = z - CABIN.z, ca = Math.cos(0.55), sa = Math.sin(0.55); const lx = dx * ca - dz * sa, lz = dx * sa + dz * ca; if (Math.abs(lx) < 4.4 && Math.abs(lz) < 3.6) return false; if (Math.abs(x - 13) < 4.2 && Math.abs(z - 6) < 1.8) return false; return true; }
-{ const segs = 3, w = 0.03; const P = [], U = [], I = []; for (let i = 0; i <= segs; i++) { const t = i / segs, ww = w * (1 - t * 0.85); P.push(-ww, t, t * t * 0.18, ww, t, t * t * 0.18); U.push(0, t, 1, t); } for (let i = 0; i < segs; i++) { const a = i * 2; I.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); g.setIndex(I); g.computeVertexNormals(); const bi = newBlas(); addPart(bi, g, M.GRASS);
-  let n = 0, tries = 0; const p = new THREE.Vector3(), sc = new THREE.Vector3(); while (n < 45000 && tries++ < 300000) { const a = rnd() * Math.PI * 2, r = 36 * Math.sqrt(rnd()); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (!clearOf(x, z)) continue; if (rnd() > 0.35 + 0.65 * fbm(x / 9, z / 9, 2)) continue; p.set(x, terrainH(x, z) - 0.02, z); sc.set(1 + rnd() * 0.5, 0.16 + rnd() * 0.28, 1); addInst(bi, compose(p, rnd() * Math.PI * 2, sc)); n++; } }
+{ const segs = 3, w = 0.03; const P = [], Uv = [], I = []; for (let i = 0; i <= segs; i++) { const t = i / segs, ww = w * (1 - t * 0.85); P.push(-ww, t, t * t * 0.18, ww, t, t * t * 0.18); Uv.push(0, t, 1, t); } for (let i = 0; i < segs; i++) { const a = i * 2; I.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  const g0 = new THREE.BufferGeometry(); g0.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g0.setAttribute('uv', new THREE.Float32BufferAttribute(Uv, 2)); g0.setIndex(I); g0.computeVertexNormals(); const g = g0.toNonIndexed();
+  const bp = g.attributes.position.array, bn = g.attributes.normal.array, bu = g.attributes.uv.array, nv = g.attributes.position.count; const bi = newBlas(); const B = blas[bi];
+  let n = 0, tries = 0; const m = new THREE.Matrix4(), nm = new THREE.Matrix3(), p = new THREE.Vector3(), sc = new THREE.Vector3(), vv = new THREE.Vector3(), vn3 = new THREE.Vector3();
+  while (n < 45000 && tries++ < 300000) { const a = rnd() * Math.PI * 2, r = 36 * Math.sqrt(rnd()); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (!clearOf(x, z)) continue; if (rnd() > 0.35 + 0.65 * fbm(x / 9, z / 9, 2)) continue;
+    p.set(x, terrainH(x, z) - 0.02, z); sc.set(1 + rnd() * 0.5, 0.16 + rnd() * 0.28, 1); m.compose(p, new THREE.Quaternion().setFromAxisAngle(UPV, rnd() * Math.PI * 2), sc); nm.getNormalMatrix(m);
+    for (let i = 0; i < nv; i++) { vv.set(bp[i * 3], bp[i * 3 + 1], bp[i * 3 + 2]).applyMatrix4(m); vn3.set(bn[i * 3], bn[i * 3 + 1], bn[i * 3 + 2]).applyMatrix3(nm).normalize(); B.tris.push(vv.x, vv.y, vv.z); B.nrms.push(vn3.x, vn3.y, vn3.z); B.uvs.push(bu[i * 2], bu[i * 2 + 1]); if (i % 3 === 0) B.mats.push(M.GRASS); } n++; }
+  addInst(bi, new THREE.Matrix4()); }
 
 // trees: a trunk with branches and a cloud of leaf cards whose normals point out from the crown, three kinds, two of each
 function limb(rB, rT, len, bend) { const g = new THREE.CylinderGeometry(rT, rB, len, 9, 5, false); g.translate(0, len / 2, 0); const pos = g.attributes.position; for (let i = 0; i < pos.count; i++) { const t = pos.getY(i) / len; pos.setX(i, pos.getX(i) + bend * t * t * len); } g.computeVertexNormals(); return g; }
@@ -383,6 +388,232 @@ const mkRT = (w, h, count, linear) => new THREE.WebGLRenderTarget(w, h, { count,
 function ensureRT(scale) { const w = Math.max(2, Math.round(sb.stage.clientWidth * scale)), h = Math.max(2, Math.round(sb.stage.clientHeight * scale)); if (rtG && rtG.width === w && rtG.height === h) return; for (const r of [rtG, rtS, rtS2, rtGi, rtGi2, rtR, acc, accPrev]) if (r) r.dispose();
   const lw = Math.max(2, w >> 1), lh = Math.max(2, h >> 1), qw = Math.max(2, w >> 2), qh = Math.max(2, h >> 2); rtG = mkRT(w, h, 4, false); rtS = mkRT(lw, lh, 1, false); rtS2 = mkRT(lw, lh, 1, false); rtGi = mkRT(qw, qh, 1, false); rtGi2 = mkRT(qw, qh, 1, false); rtR = mkRT(w, h, 1, false); acc = mkRT(w, h, 1, true); accPrev = mkRT(w, h, 1, true); accN = 0; U.uRes.value.set(w, h); U.uLoRes.value.set(lw, lh); giMat.uniforms.uGiRes.value.set(qw, qh); compMat.uniforms.uGiRes.value.set(qw, qh); }
 
+// ---- the same tracer on WebGPU: compute shaders and real buffers, several times faster where the browser has it
+const WG_COMMON = `
+struct Params { invPV: mat4x4f, camPos: vec4f, sunDir: vec4f, sunCol: vec4f, moonDir: vec4f, moonCol: vec4f, fogCol: vec4f, skyZen: vec4f, skyHor: vec4f, betaR: vec4f, betaM: vec4f,
+  res: vec2f, loRes: vec2f, giRes: vec2f, jitter: vec2f,
+  sunE: f32, sunfade: f32, mieG: f32, sunCos: f32, night: f32, skyOn: f32, bounceOn: f32, fogD: f32, sunSize: f32, moonSize: f32, noiseShift: f32, blend: f32,
+  tlasRoot: i32, nsph: i32, shadowK: i32, giK: i32, view: i32, frame: i32, pad0: i32, pad1: i32,
+  matA: array<vec4f, ${MATN}>, matB: array<vec4f, ${MATN}>, matC: array<vec4f, ${MATN}>, sphA: array<vec4f, 24>, sphB: array<vec4f, 24> };
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read> nodes: array<vec4f>;
+@group(0) @binding(2) var<storage, read> tris: array<vec4f>;
+@group(0) @binding(3) var<storage, read> attrs: array<vec4f>;
+@group(0) @binding(4) var<storage, read> insts: array<vec4f>;
+@group(0) @binding(5) var texArr: texture_2d_array<f32>;
+@group(0) @binding(6) var samp: sampler;
+const PI: f32 = 3.14159265;
+const LAKE: vec2f = vec2f(${LAKE.x.toFixed(1)}, ${LAKE.z.toFixed(1)});
+const LAKE_R: f32 = ${LAKE_R.toFixed(1)};
+const FIRE: vec2f = vec2f(${FIRE.x.toFixed(1)}, ${FIRE.z.toFixed(1)});
+fn ign(px: vec2f) -> f32 { return fract(52.9829189 * fract(0.06711056 * px.x + 0.00583715 * px.y) + P.noiseShift); }
+fn h21(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453); }
+fn vn(p: vec2f) -> f32 { let i = floor(p); var f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h21(i), h21(i + vec2f(1.0, 0.0)), f.x), mix(h21(i + vec2f(0.0, 1.0)), h21(i + vec2f(1.0, 1.0)), f.x), f.y); }
+fn fb3(p: vec2f) -> f32 { return (0.5 * vn(p) + 0.25 * vn(p * 2.03 + 7.0) + 0.125 * vn(p * 4.1 + 3.0)) / 0.875; }
+fn safeDir(d: vec3f) -> vec3f { return vec3f(select(d.x, 1e-6, abs(d.x) < 1e-6), select(d.y, 1e-6, abs(d.y) < 1e-6), select(d.z, 1e-6, abs(d.z) < 1e-6)); }
+fn sampleTex(id: i32, uv: vec2f, lod: f32) -> vec4f { var c = textureSampleLevel(texArr, samp, uv, id - 1, lod); if (id != 9) { c = vec4f(pow(c.rgb, vec3f(2.2)), c.a); } return c; }
+fn leafAlpha(id: i32, uv: vec2f) -> f32 { return textureSampleLevel(texArr, samp, uv, id - 1, 0.0).a; }
+fn rayleighPhase(c: f32) -> f32 { return 0.05968310365946075 * (1.0 + c * c); }
+fn hgPhase(c: f32, g: f32) -> f32 { let g2 = g * g; return 0.07957747154594767 * ((1.0 - g2) / pow(1.0 - 2.0 * g * c + g2, 1.5)); }
+fn skyRad(d: vec3f, disk: bool) -> vec3f {
+  let zen = acos(max(0.0, d.y)); let inv = 1.0 / (cos(zen) + 0.15 * pow(93.885 - zen * 180.0 / PI, -1.253)); let sR = 8.4e3 * inv; let sM = 1.25e3 * inv;
+  let Fex = exp(-(P.betaR.xyz * sR + P.betaM.xyz * sM)); let cosT = dot(d, P.sunDir.xyz);
+  let ratio = (P.betaR.xyz * rayleighPhase(cosT * 0.5 + 0.5) + P.betaM.xyz * hgPhase(cosT, P.mieG)) / (P.betaR.xyz + P.betaM.xyz);
+  var Lin = pow(P.sunE * ratio * (1.0 - Fex), vec3f(1.5)); Lin *= mix(vec3f(1.0), pow(P.sunE * ratio * Fex, vec3f(0.5)), clamp(pow(1.0 - P.sunDir.y, 5.0), 0.0, 1.0));
+  var L0 = vec3f(0.1) * Fex; if (disk) { L0 += P.sunE * 19000.0 * Fex * smoothstep(P.sunCos, P.sunCos + (1.0 - P.sunCos) * 0.35, cosT); }
+  let tex = (Lin + L0) * 0.04 + vec3f(0.0, 0.0003, 0.00075); return pow(tex, vec3f(1.0 / (1.2 + 1.2 * P.sunfade))) * P.night; }
+fn skyAmb(n: vec3f) -> vec3f { return mix(P.skyHor.xyz, P.skyZen.xyz, n.y * 0.5 + 0.5) * PI * P.skyOn; }
+fn slab(bmin: vec3f, bmax: vec3f, o: vec3f, invD: vec3f, tMax: f32) -> bool { let t0 = (bmin - o) * invD; let t1 = (bmax - o) * invD; let tmin = min(t0, t1); let tmax = max(t0, t1); let tN = max(max(tmin.x, tmin.y), max(tmin.z, 0.0)); let tF = min(min(tmax.x, tmax.y), min(tmax.z, tMax)); return tN <= tF; }
+fn alphaOK(ti: i32, u: f32, w: f32) -> bool { let mid = i32(tris[ti * 3].w); let mb = P.matB[mid]; if (mb.w != 4.0) { return true; }
+  let a0 = attrs[ti * 4]; let a1 = attrs[ti * 4 + 1]; let a2 = attrs[ti * 4 + 2]; let a3 = attrs[ti * 4 + 3]; let b0 = 1.0 - u - w; let uv = vec2f(a0.w * b0 + a1.w * u + a2.w * w, a3.x * b0 + a3.y * u + a3.z * w);
+  return leafAlpha(i32(mb.z), uv * P.matC[mid].xy) >= 0.5; }
+fn triT(ti: i32, o: vec3f, d: vec3f, uo: ptr<function, f32>, wo: ptr<function, f32>) -> f32 { let v0 = tris[ti * 3].xyz; let v1 = tris[ti * 3 + 1].xyz; let v2 = tris[ti * 3 + 2].xyz; let e1 = v1 - v0; let e2 = v2 - v0; let pv = cross(d, e2); let det = dot(e1, pv); if (abs(det) < 1e-9) { return -1.0; }
+  let inv = 1.0 / det; let tv = o - v0; let u = dot(tv, pv) * inv; if (u < 0.0 || u > 1.0) { return -1.0; } let q = cross(tv, e1); let w = dot(d, q) * inv; if (w < 0.0 || u + w > 1.0) { return -1.0; } *uo = u; *wo = w; return dot(e2, q) * inv; }
+fn walkTree(root: i32, o: vec3f, d: vec3f, tMax: ptr<function, f32>, hitTri: ptr<function, i32>, bary: ptr<function, vec2f>, anyHit: bool) -> bool {
+  var stack: array<i32, 40>; var sp = 0; stack[0] = root; sp = 1; let invD = 1.0 / safeDir(d); var found = false;
+  for (var guard = 0; guard < 8192 && sp > 0; guard++) { sp -= 1; let ni = stack[sp]; let a = nodes[ni * 2]; let b = nodes[ni * 2 + 1]; if (!slab(a.xyz, b.xyz, o, invD, *tMax)) { continue; } let cnt = i32(b.w);
+    if (cnt > 0) { let first = i32(a.w); for (var k = 0; k < cnt; k++) { var u: f32; var w: f32; let t = triT(first + k, o, d, &u, &w); if (t > 1e-4 && t < *tMax && alphaOK(first + k, u, w)) { *tMax = t; *hitTri = first + k; *bary = vec2f(u, w); found = true; if (anyHit) { return true; } } } }
+    else { let axis = -cnt - 1; let left = i32(a.w); let dc = select(select(d.z, d.y, axis == 1), d.x, axis == 0); let lf = dc >= 0.0; if (sp < 38) { stack[sp] = select(left, left + 1, lf); sp += 1; stack[sp] = select(left + 1, left, lf); sp += 1; } } }
+  return found; }
+fn instRay(s: i32, o: vec3f, d: vec3f, ol: ptr<function, vec3f>, dl: ptr<function, vec3f>) { let r0 = insts[s * 4]; let r1 = insts[s * 4 + 1]; let r2 = insts[s * 4 + 2]; let oh = vec4f(o, 1.0); *ol = vec3f(dot(r0, oh), dot(r1, oh), dot(r2, oh)); *dl = vec3f(dot(r0.xyz, d), dot(r1.xyz, d), dot(r2.xyz, d)); }
+struct Hit { hit: bool, t: f32, tri: i32, inst: i32, sph: i32, bary: vec2f };
+fn trace(o: vec3f, d: vec3f, tMaxIn: f32, anyHit: bool) -> Hit {
+  var H: Hit; H.hit = false; H.t = tMaxIn; H.tri = -1; H.inst = -1; H.sph = -1; H.bary = vec2f(0.0);
+  for (var i = 0; i < 24; i++) { if (i >= P.nsph) { break; } let s = P.sphA[i]; let oc = o - s.xyz; let b = dot(oc, d); let c = dot(oc, oc) - s.w * s.w; let disc = b * b - c; if (disc < 0.0) { continue; } let t = -b - sqrt(disc); if (t > 1e-4 && t < H.t) { H.t = t; H.sph = i; H.hit = true; if (anyHit) { return H; } } }
+  var stack: array<i32, 40>; var sp = 1; stack[0] = P.tlasRoot; let invD = 1.0 / safeDir(d);
+  for (var guard = 0; guard < 4096 && sp > 0; guard++) { sp -= 1; let ni = stack[sp]; let a = nodes[ni * 2]; let b = nodes[ni * 2 + 1]; if (!slab(a.xyz, b.xyz, o, invD, H.t)) { continue; } let cnt = i32(b.w);
+    if (cnt > 0) { let first = i32(a.w); for (var k = 0; k < cnt; k++) { let s = first + k; var ol: vec3f; var dl: vec3f; instRay(s, o, d, &ol, &dl); var ht = -1; var bb = vec2f(0.0); var tm = H.t;
+        if (walkTree(i32(insts[s * 4 + 3].x), ol, dl, &tm, &ht, &bb, anyHit)) { H.t = tm; H.tri = ht; H.inst = s; H.bary = bb; H.sph = -1; H.hit = true; if (anyHit) { return H; } } } }
+    else { let axis = -cnt - 1; let left = i32(a.w); let dc = select(select(d.z, d.y, axis == 1), d.x, axis == 0); let lf = dc >= 0.0; if (sp < 38) { stack[sp] = select(left, left + 1, lf); sp += 1; stack[sp] = select(left + 1, left, lf); sp += 1; } } }
+  return H; }
+fn occluded(o: vec3f, d: vec3f, tMax: f32) -> bool { return trace(o, d, tMax, true).hit; }
+struct Surf { p: vec3f, n: vec3f, mid: i32, uv: vec2f };
+fn hitInfo(ro: vec3f, d: vec3f, H: Hit) -> Surf { var S: Surf; S.p = ro + d * H.t;
+  if (H.sph >= 0) { S.n = normalize(S.p - P.sphA[H.sph].xyz); S.mid = i32(P.sphB[H.sph].x); S.uv = vec2f(atan2(S.n.z, S.n.x) / 6.2831853 + 0.5, S.n.y * 0.5 + 0.5); }
+  else { let a0 = attrs[H.tri * 4]; let a1 = attrs[H.tri * 4 + 1]; let a2 = attrs[H.tri * 4 + 2]; let a3 = attrs[H.tri * 4 + 3]; let b0 = 1.0 - H.bary.x - H.bary.y; let nl = normalize(a0.xyz * b0 + a1.xyz * H.bary.x + a2.xyz * H.bary.y);
+    let r0 = insts[H.inst * 4]; let r1 = insts[H.inst * 4 + 1]; let r2 = insts[H.inst * 4 + 2]; S.n = normalize(r0.xyz * nl.x + r1.xyz * nl.y + r2.xyz * nl.z); S.mid = i32(tris[H.tri * 3].w); S.uv = vec2f(a0.w * b0 + a1.w * H.bary.x + a2.w * H.bary.y, a3.x * b0 + a3.y * H.bary.x + a3.z * H.bary.y); }
+  if (dot(S.n, d) > 0.0) { S.n = -S.n; }
+  if (P.matB[S.mid].w == 3.0) { let g = vec2f(vn(S.p.xz * 2.1 + 5.0) - vn(S.p.xz * 2.1 + 5.3), vn(S.p.zx * 2.3 + 1.0) - vn(S.p.zx * 2.3 + 1.3)); S.n = normalize(S.n + vec3f(g.x, 0.0, g.y) * 0.25); }
+  return S; }
+fn frameOf(w: vec3f) -> mat3x3f { let u = normalize(cross(select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(w.y) < 0.9), w)); let v = cross(w, u); return mat3x3f(u, v, w); }
+fn coneK(w: vec3f, ang: f32, k: i32, K: i32, rot: f32) -> vec3f { let F = frameOf(w); let r = sqrt((f32(k) + 0.5) / f32(K)) * tan(ang); let ph = 6.2831853 * (f32(k) * 0.618034 + rot); return normalize(w + F[0] * (r * cos(ph)) + F[1] * (r * sin(ph))); }
+fn cosK(n: vec3f, k: i32, K: i32, rot: f32) -> vec3f { let u1 = (f32(k) + 0.5) / f32(K); let ph = 6.2831853 * fract(f32(k) * 0.618034 + rot); let r = sqrt(u1); let F = frameOf(n); return normalize(F[0] * (r * cos(ph)) + F[1] * (r * sin(ph)) + n * sqrt(max(1.0 - u1, 0.0))); }
+fn hemiK(toward: vec3f, k: i32, K: i32, rot: f32) -> vec3f { let z = (f32(k) + 0.5) / f32(K); let ph = 6.2831853 * fract(f32(k) * 0.618034 + rot); let r = sqrt(max(0.0, 1.0 - z * z)); let F = frameOf(toward); return normalize(F[0] * (r * cos(ph)) + F[1] * (r * sin(ph)) + toward * z); }
+fn specBRDF(n: vec3f, v: vec3f, l: vec3f, rough: f32, F0: vec3f) -> vec3f { let h = normalize(v + l); let a = max(rough * rough, 0.01); let ndh = max(dot(n, h), 0.0); let ndv = max(dot(n, v), 1e-3); let ndl = max(dot(n, l), 1e-3); let vdh = max(dot(v, h), 0.0); let a2 = a * a; let D = a2 / (PI * pow(ndh * ndh * (a2 - 1.0) + 1.0, 2.0)); let k = a / 2.0; let G = (ndv / (ndv * (1.0 - k) + k)) * (ndl / (ndl * (1.0 - k) + k)); let F = F0 + (1.0 - F0) * pow(1.0 - vdh, 5.0); return min(D * G * F / (4.0 * ndv * ndl), vec3f(20.0)); }
+fn sphereLights(p: vec3f, n: vec3f, v: vec3f, diffuse: vec3f, F0: vec3f, rough: f32, rot: f32, K: i32, range: f32) -> vec3f {
+  var L = vec3f(0.0);
+  for (var i = 0; i < 24; i++) { if (i >= P.nsph) { break; } if (P.sphB[i].y < 0.5) { continue; } let s = P.sphA[i]; let lm = i32(P.sphB[i].x); let emis = P.matA[lm].rgb * P.matB[lm].y; if (dot(emis, emis) <= 0.0) { continue; }
+    let toP = p - s.xyz; let dc = length(toP); if (dc > range) { continue; } let tw = toP / dc; var lSum = vec3f(0.0);
+    for (var k = 0; k < 4; k++) { if (k >= K) { break; } let sn = hemiK(tw, k, K, rot + f32(i) * 0.31); let q = s.xyz + s.w * sn; let dq = q - p; let dist = length(dq); let l = dq / dist; let ndl = dot(n, l); let nl = dot(sn, -l); if (ndl <= 0.0 || nl <= 0.0) { continue; } if (occluded(p, l, dist - 1e-3)) { continue; }
+      lSum += (diffuse + specBRDF(n, v, l, rough, F0)) * ndl * nl / (dist * dist); }
+    L += emis * lSum * (2.0 * PI * s.w * s.w) / f32(K); }
+  return L; }
+fn terrainColor(p: vec3f, n: vec3f) -> vec3f { let slope = 1.0 - n.y; let macroN = fb3(p.xz / 60.0 + 2.0); let micro = fb3(p.xz / 7.0);
+  var c = mix(${v3s(0x4f7a2f).replace('vec3(', 'vec3f(')}, ${v3s(0x6f8a3a).replace('vec3(', 'vec3f(')}, smoothstep(0.35, 0.65, macroN)); c = mix(c, ${v3s(0x3f6a33).replace('vec3(', 'vec3f(')}, smoothstep(0.3, 0.7, micro) * 0.5);
+  c = mix(c, ${v3s(0x6b5a3c).replace('vec3(', 'vec3f(')}, smoothstep(0.22, 0.45, slope + (micro - 0.5) * 0.15)); c = mix(c, ${v3s(0x76726a).replace('vec3(', 'vec3f(')}, smoothstep(0.4, 0.62, slope));
+  let snowLine = 150.0 + (macroN - 0.5) * 60.0; c = mix(c, ${v3s(0xf2f5f8).replace('vec3(', 'vec3f(')}, smoothstep(snowLine, snowLine + 35.0, p.y) * (1.0 - smoothstep(0.5, 0.75, slope)));
+  let dl = distance(p.xz, LAKE); c = mix(c, ${v3s(0x8c7d5c).replace('vec3(', 'vec3f(')}, (1.0 - smoothstep(LAKE_R + 0.5, LAKE_R + 4.0, dl)) * 0.85);
+  let df = distance(p.xz, FIRE); c = mix(c, ${v3s(0x6b5a3c).replace('vec3(', 'vec3f(')}, (1.0 - smoothstep(2.5, 5.0, df + (micro - 0.5) * 2.0)) * 0.8);
+  let det = textureSampleLevel(texArr, samp, p.xz * 0.14, 8, 0.0).r; return c * (0.75 + 0.6 * det); }
+fn grassColor(p: vec3f, uv: vec2f) -> vec3f { let h = vn(p.xz * 0.15 + 3.0); let g = mix(${v3s(0x3f7a22).replace('vec3(', 'vec3f(')}, ${v3s(0x86a83a).replace('vec3(', 'vec3f(')}, h); return g * mix(0.35, 1.05, uv.y); }
+struct Mat { alb: vec3f, rough: f32, metal: f32, emis: vec3f };
+fn matEval(mid: i32, p: vec3f, n: vec3f, uv: vec2f, dist: f32) -> Mat { var M: Mat; let a = P.matA[mid]; let b = P.matB[mid]; let c = P.matC[mid]; M.alb = a.rgb; M.rough = a.w; M.metal = b.x; M.emis = a.rgb * b.y;
+  let tex = i32(b.z); if (tex > 0) { M.alb *= sampleTex(tex, uv * c.xy, clamp(log2(max(dist, 1.0)) - 2.5, 0.0, 5.0)).rgb; }
+  if (b.w == 1.0) { M.alb = terrainColor(p, n); } else if (b.w == 2.0) { M.alb = grassColor(p, uv); } return M; }
+fn bounceShade(S: Surf, v: vec3f, dist: f32, rot: f32) -> vec3f { let M = matEval(S.mid, S.p, S.n, S.uv, dist);
+  let diffuse = M.alb * (1.0 - M.metal) / PI; let F0 = mix(vec3f(0.04), M.alb, M.metal); var L = M.emis; let qo = S.p + S.n * 3e-3;
+  if (dot(P.sunCol.xyz, P.sunCol.xyz) > 0.0) { let ndl = dot(S.n, P.sunDir.xyz); if (ndl > 0.0 && !occluded(qo, P.sunDir.xyz, 1e9)) { L += P.sunCol.xyz * ndl * (diffuse + specBRDF(S.n, v, P.sunDir.xyz, M.rough, F0)); } }
+  if (dot(P.moonCol.xyz, P.moonCol.xyz) > 0.0) { let ndl = dot(S.n, P.moonDir.xyz); if (ndl > 0.0 && !occluded(qo, P.moonDir.xyz, 1e9)) { L += P.moonCol.xyz * ndl * diffuse; } }
+  L += sphereLights(qo, S.n, v, diffuse, F0, M.rough, rot, 1, 12.0);
+  L += diffuse * skyAmb(S.n) * 0.55 * P.bounceOn; return L; }
+`;
+const WG_GBUF = WG_COMMON + `
+@group(1) @binding(0) var oA: texture_storage_2d<rgba32float, write>; @group(1) @binding(1) var oB: texture_storage_2d<rgba32float, write>; @group(1) @binding(2) var oC: texture_storage_2d<rgba32float, write>; @group(1) @binding(3) var oD: texture_storage_2d<rgba32float, write>;
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.res.x || f32(px.y) >= P.res.y) { return; }
+  let uv = (vec2f(px) + 0.5 + P.jitter) / P.res; let w = P.invPV * vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0); let d = normalize(w.xyz / w.w - P.camPos.xyz);
+  let H = trace(P.camPos.xyz, d, 1e9, false);
+  if (!H.hit) { textureStore(oA, px, vec4f(d, -1.0)); textureStore(oB, px, vec4f(0.0)); textureStore(oC, px, vec4f(0.0)); textureStore(oD, px, vec4f(0.0)); return; }
+  let S = hitInfo(P.camPos.xyz, d, H); let M = matEval(S.mid, S.p, S.n, S.uv, H.t);
+  textureStore(oA, px, vec4f(S.p, H.t)); textureStore(oB, px, vec4f(S.n, M.rough)); textureStore(oC, px, vec4f(M.alb, M.metal)); textureStore(oD, px, vec4f(M.emis, f32(S.mid))); }`;
+const WG_SHADOW = WG_COMMON + `
+@group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var oV: texture_storage_2d<rgba16float, write>;
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.loRes.x || f32(px.y) >= P.loRes.y) { return; } let fp = min(px * 2, vec2i(P.res) - 1);
+  let A = textureLoad(gA, fp, 0); if (A.w < 0.0) { textureStore(oV, px, vec4f(1.0, 1.0, 0.0, 0.0)); return; } let p = A.xyz; let n = textureLoad(gB, fp, 0).xyz; let po = p + n * 3e-3; let rot = ign(vec2f(px));
+  var sv = 1.0; if (dot(P.sunCol.xyz, P.sunCol.xyz) > 0.0) { sv = 0.0; if (dot(n, P.sunDir.xyz) > -0.1) { for (var k = 0; k < 8; k++) { if (k >= P.shadowK) { break; } let l = coneK(P.sunDir.xyz, P.sunSize, k, P.shadowK, rot); if (!occluded(po, l, 1e9)) { sv += 1.0; } } sv /= f32(P.shadowK); } }
+  var mv = 1.0; if (dot(P.moonCol.xyz, P.moonCol.xyz) > 0.0) { mv = 0.0; let l = coneK(P.moonDir.xyz, P.moonSize, 0, 1, rot); if (dot(n, l) > 0.0 && !occluded(po, l, 1e9)) { mv = 1.0; } }
+  textureStore(oV, px, vec4f(sv, mv, 0.0, 1.0)); }`;
+const WG_GI = WG_COMMON + `
+@group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var oG: texture_storage_2d<rgba16float, write>;
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.giRes.x || f32(px.y) >= P.giRes.y) { return; } let fp = min(px * 4, vec2i(P.res) - 1);
+  let A = textureLoad(gA, fp, 0); if (A.w < 0.0) { textureStore(oG, px, vec4f(0.0)); return; } let p = A.xyz; let n = textureLoad(gB, fp, 0).xyz; let po = p + n * 3e-3; let rot = ign(vec2f(px)) + 0.37;
+  var E = vec3f(0.0); for (var k = 0; k < 8; k++) { if (k >= P.giK) { break; } let dd = cosK(n, k, P.giK, rot); let H = trace(po, dd, 1e9, false);
+    if (!H.hit) { E += skyRad(dd, false) * P.skyOn; } else if (P.bounceOn > 0.5) { let S = hitInfo(po, dd, H); E += bounceShade(S, -dd, H.t + A.w, rot + f32(k) * 0.13); } }
+  textureStore(oG, px, vec4f(E * PI / f32(P.giK), 1.0)); }`;
+const WG_BLUR = WG_COMMON + `
+struct BlurP { dir: vec2f, stride: f32, size: f32, res: vec2f, pad: vec2f };
+@group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var tIn: texture_2d<f32>; @group(1) @binding(3) var oOut: texture_storage_2d<rgba16float, write>; @group(1) @binding(4) var<uniform> B: BlurP;
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= B.res.x || f32(px.y) >= B.res.y) { return; } let st = i32(B.stride); let full = vec2i(P.res) - 1;
+  let A0 = textureLoad(gA, min(px * st, full), 0); let c0 = textureLoad(tIn, px, 0); if (A0.w < 0.0) { textureStore(oOut, px, c0); return; } let n0 = textureLoad(gB, min(px * st, full), 0).xyz; let z0 = A0.w; var sum = vec4f(0.0); var ws = 0.0;
+  for (var i = -3; i <= 3; i++) { let q = px + vec2i(B.dir) * i; if (q.x < 0 || q.y < 0 || f32(q.x) >= B.res.x || f32(q.y) >= B.res.y) { continue; } let A = textureLoad(gA, min(q * st, full), 0); if (A.w < 0.0) { continue; } let n = textureLoad(gB, min(q * st, full), 0).xyz;
+    let w = exp(-abs(A.w - z0) / (0.03 * z0 + 0.05)) * pow(max(dot(n, n0), 0.0), 12.0) * exp(-f32(i * i) / 5.0); sum += textureLoad(tIn, q, 0) * w; ws += w; }
+  textureStore(oOut, px, select(c0, sum / ws, ws > 0.0)); }`;
+const WG_REFL = WG_COMMON + `
+@group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var oR: texture_storage_2d<rgba16float, write>;
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.res.x || f32(px.y) >= P.res.y) { return; }
+  let A = textureLoad(gA, px, 0); let Bv = textureLoad(gB, px, 0); if (A.w < 0.0 || Bv.w >= 0.45) { textureStore(oR, px, vec4f(0.0)); return; } let p = A.xyz; let n = Bv.xyz; let v = normalize(P.camPos.xyz - p); let r = reflect(-v, n); if (dot(r, n) <= 0.0) { textureStore(oR, px, vec4f(0.0)); return; }
+  let po = p + n * 3e-3; let H = trace(po, r, 1e9, false); var col: vec3f;
+  if (!H.hit) { col = skyRad(r, true); } else { let S = hitInfo(po, r, H); col = bounceShade(S, -r, H.t + A.w, ign(vec2f(px))); col = mix(P.fogCol.xyz, col, exp(-P.fogD * H.t)); }
+  textureStore(oR, px, vec4f(col, 1.0)); }`;
+const WG_COMP = WG_COMMON + `
+@group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var gC: texture_2d<f32>; @group(1) @binding(3) var gD: texture_2d<f32>; @group(1) @binding(4) var tV: texture_2d<f32>; @group(1) @binding(5) var tG: texture_2d<f32>; @group(1) @binding(6) var tR: texture_2d<f32>; @group(1) @binding(7) var tPrev: texture_2d<f32>; @group(1) @binding(8) var oAcc: texture_storage_2d<rgba16float, write>;
+fn upsampleV(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let lc = (vec2f(px) + 0.5) / 2.0 - 0.5; let f = fract(lc); let base = vec2i(floor(lc)); var sum = vec4f(0.0); var ws = 0.0; let full = vec2i(P.res) - 1; let lo = vec2i(P.loRes) - 1;
+  for (var j = 0; j < 4; j++) { let q = clamp(base + vec2i(j & 1, j >> 1), vec2i(0), lo); let Al = textureLoad(gA, min(q * 2, full), 0); if (Al.w < 0.0) { continue; } let nl = textureLoad(gB, min(q * 2, full), 0).xyz; let bw = select(select(select(f.x * f.y, (1.0 - f.x) * f.y, j == 2), f.x * (1.0 - f.y), j == 1), (1.0 - f.x) * (1.0 - f.y), j == 0); let w = bw * exp(-abs(Al.w - A.w) / (0.03 * A.w + 0.05)) * pow(max(dot(nl, n), 0.0), 8.0) + 1e-4; sum += textureLoad(tV, q, 0) * w; ws += w; }
+  return select(vec4f(1.0, 1.0, 0.0, 0.0), sum / ws, ws > 0.0); }
+fn upsampleG(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let lc = (vec2f(px) + 0.5) / 4.0 - 0.5; let f = fract(lc); let base = vec2i(floor(lc)); var sum = vec4f(0.0); var ws = 0.0; let full = vec2i(P.res) - 1; let lo = vec2i(P.giRes) - 1;
+  for (var j = 0; j < 4; j++) { let q = clamp(base + vec2i(j & 1, j >> 1), vec2i(0), lo); let Al = textureLoad(gA, min(q * 4, full), 0); if (Al.w < 0.0) { continue; } let nl = textureLoad(gB, min(q * 4, full), 0).xyz; let bw = select(select(select(f.x * f.y, (1.0 - f.x) * f.y, j == 2), f.x * (1.0 - f.y), j == 1), (1.0 - f.x) * (1.0 - f.y), j == 0); let w = bw * exp(-abs(Al.w - A.w) / (0.03 * A.w + 0.05)) * pow(max(dot(nl, n), 0.0), 8.0) + 1e-4; sum += textureLoad(tG, q, 0) * w; ws += w; }
+  return select(vec4f(0.0), sum / ws, ws > 0.0); }
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.res.x || f32(px.y) >= P.res.y) { return; }
+  let A = textureLoad(gA, px, 0); var col: vec3f;
+  if (A.w < 0.0) { col = skyRad(A.xyz, true); }
+  else { let Bv = textureLoad(gB, px, 0); let C = textureLoad(gC, px, 0); let D = textureLoad(gD, px, 0); let p = A.xyz; let n = Bv.xyz; let alb = C.rgb; let rough = Bv.w; let metal = C.w; let emis = D.rgb; let v = normalize(P.camPos.xyz - p);
+    let vG = upsampleV(px, A, n); let E = upsampleG(px, A, n).rgb; let sunVis = vG.x; let moonVis = vG.y;
+    let diffuse = alb * (1.0 - metal) / PI; let F0 = mix(vec3f(0.04), alb, metal); let ndv = max(dot(n, v), 0.0); let F = F0 + (1.0 - F0) * pow(1.0 - ndv, 5.0);
+    col = emis;
+    let ndl = max(dot(n, P.sunDir.xyz), 0.0); col += P.sunCol.xyz * sunVis * ndl * (diffuse + specBRDF(n, v, P.sunDir.xyz, rough, F0));
+    let ndm = max(dot(n, P.moonDir.xyz), 0.0); col += P.moonCol.xyz * moonVis * ndm * diffuse;
+    col += sphereLights(p + n * 3e-3, n, v, diffuse, F0, rough, ign(vec2f(px)), 1, 24.0);
+    col += diffuse * E;
+    let R = textureLoad(tR, px, 0); let open = clamp(dot(E, vec3f(0.33)) / max(dot(skyAmb(n), vec3f(0.33)), 1e-3), 0.0, 1.0);
+    let specAmb = F * mix(P.skyHor.xyz, P.skyZen.xyz, reflect(-v, n).y * 0.5 + 0.5) * P.skyOn * open;
+    let sharp = select(0.0, 1.0 - smoothstep(0.12, 0.45, rough), R.a > 0.5); col += mix(specAmb, F * R.rgb, sharp) * select(vec3f(1.0), alb, metal > 0.5);
+    col = mix(P.fogCol.xyz, col, exp(-P.fogD * A.w));
+    if (P.view == 1) { col = vec3f(sunVis); } else if (P.view == 2) { col = E * 0.5; } else if (P.view == 3) { col = select(vec3f(0.0), R.rgb, R.a > 0.5); } }
+  let prev = textureLoad(tPrev, px, 0).rgb; textureStore(oAcc, px, vec4f(mix(prev, col, P.blend), 1.0)); }`;
+const WG_DISP = `
+struct DP { exposure: f32, curve: f32, pad0: f32, pad1: f32 };
+@group(0) @binding(0) var tSrc: texture_2d<f32>; @group(0) @binding(1) var samp: sampler; @group(0) @binding(2) var<uniform> D: DP;
+struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@vertex fn vs(@builtin(vertex_index) i: u32) -> VO { var o: VO; let x = f32(i & 1u) * 4.0 - 1.0; let y = f32(i >> 1u) * 4.0 - 1.0; o.pos = vec4f(x, y, 0.0, 1.0); o.uv = vec2f(x * 0.5 + 0.5, 0.5 - y * 0.5); return o; }
+fn aces(x: vec3f) -> vec3f { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3f(0.0), vec3f(1.0)); }
+fn srgb(c0: vec3f) -> vec3f { let c = clamp(c0, vec3f(0.0), vec3f(1.0)); return select(1.055 * pow(c, vec3f(1.0 / 2.4)) - 0.055, c * 12.92, c < vec3f(0.0031308)); }
+@fragment fn fs(i: VO) -> @location(0) vec4f { var c = textureSampleLevel(tSrc, samp, i.uv, 0.0).rgb * D.exposure; if (D.curve == 1.0) { c = aces(c); } else if (D.curve == 2.0) { c = c / (1.0 + c); } return vec4f(srgb(c), 1.0); }`;
+let gpu = null;
+async function startWebGPU() {
+  if (!navigator.gpu) return null; const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null); if (!adapter) return null;
+  const need = Math.max(nodeData.byteLength, triData.byteLength, attrData.byteLength, instData.byteLength); if (adapter.limits.maxStorageBufferBindingSize < need) return null;
+  const device = await adapter.requestDevice({ requiredLimits: { maxStorageBufferBindingSize: Math.max(need, 134217728), maxBufferSize: Math.max(need, 268435456) } }).catch(() => null); if (!device) return null;
+  const canvas = document.createElement('canvas'); canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;'; sb.stage.insertBefore(canvas, sb.stage.firstChild); renderer.domElement.style.opacity = '0';
+  const ctx = canvas.getContext('webgpu'); const format = navigator.gpu.getPreferredCanvasFormat(); ctx.configure({ device, format, alphaMode: 'opaque' });
+  const mkBuf = (arr, usage) => { const b = device.createBuffer({ size: Math.ceil(arr.byteLength / 16) * 16, usage, mappedAtCreation: true }); new Float32Array(b.getMappedRange()).set(arr); b.unmap(); return b; };
+  const bNodes = mkBuf(nodeData, GPUBufferUsage.STORAGE), bTris = mkBuf(triData, GPUBufferUsage.STORAGE), bAttr = mkBuf(attrData, GPUBufferUsage.STORAGE), bInst = mkBuf(instData, GPUBufferUsage.STORAGE);
+  const PARAMS_F = 2640 / 4; const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: 2640, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const layers = [barkTex, birchTex, leafO, leafP, leafB, rockTex, woodTex, stoneTex, groundTex]; const texArr = device.createTexture({ size: [256, 256, layers.length], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+  layers.forEach((t, i) => device.queue.copyExternalImageToTexture({ source: t.image }, { texture: texArr, origin: [0, 0, i] }, [256, 256]));
+  const samp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat' });
+  const g0Layout = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, ...[1, 2, 3, 4].map(b => ({ binding: b, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } })), { binding: 5, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '2d-array' } }, { binding: 6, visibility: GPUShaderStage.COMPUTE, sampler: {} }] });
+  const g0 = device.createBindGroup({ layout: g0Layout, entries: [{ binding: 0, resource: { buffer: bParams } }, { binding: 1, resource: { buffer: bNodes } }, { binding: 2, resource: { buffer: bTris } }, { binding: 3, resource: { buffer: bAttr } }, { binding: 4, resource: { buffer: bInst } }, { binding: 5, resource: texArr.createView({ dimension: '2d-array' }) }, { binding: 6, resource: samp }] });
+  const T = (b) => ({ binding: b, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'unfilterable-float' } }), W = (b, fmt) => ({ binding: b, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: fmt } });
+  const layouts = { gbuf: device.createBindGroupLayout({ entries: [W(0, 'rgba32float'), W(1, 'rgba32float'), W(2, 'rgba32float'), W(3, 'rgba32float')] }), shadow: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }), gi: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }),
+    blur: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), W(3, 'rgba16float'), { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }), refl: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }), comp: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), T(3), T(4), T(5), T(6), T(7), W(8, 'rgba16float')] }) };
+  const pipe = (code, l1) => device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [g0Layout, l1] }), compute: { module: device.createShaderModule({ code }), entryPoint: 'main' } });
+  const pipes = { gbuf: pipe(WG_GBUF, layouts.gbuf), shadow: pipe(WG_SHADOW, layouts.shadow), gi: pipe(WG_GI, layouts.gi), blur: pipe(WG_BLUR, layouts.blur), refl: pipe(WG_REFL, layouts.refl), comp: pipe(WG_COMP, layouts.comp) };
+  const dispLayout = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: {} }, { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: {} }, { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }] });
+  const dispMod = device.createShaderModule({ code: WG_DISP }); const dispPipe = device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [dispLayout] }), vertex: { module: dispMod, entryPoint: 'vs' }, fragment: { module: dispMod, entryPoint: 'fs', targets: [{ format }] }, primitive: { topology: 'triangle-list' } });
+  const bDisp = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); const dispSamp = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+  const blurBufs = [0, 1, 2, 3].map(() => device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+  const st = { w: 0, h: 0, tex: null, groups: null };
+  const mkTex = (w, h, fmt) => device.createTexture({ size: [w, h], format: fmt, usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
+  function ensure(w, h) { if (st.w === w && st.h === h) return; if (st.tex) for (const k in st.tex) st.tex[k].destroy(); const lw = Math.max(2, w >> 1), lh = Math.max(2, h >> 1), qw = Math.max(2, w >> 2), qh = Math.max(2, h >> 2);
+    const t = st.tex = { gA: mkTex(w, h, 'rgba32float'), gB: mkTex(w, h, 'rgba32float'), gC: mkTex(w, h, 'rgba32float'), gD: mkTex(w, h, 'rgba32float'), sV: mkTex(lw, lh, 'rgba16float'), sV2: mkTex(lw, lh, 'rgba16float'), gi: mkTex(qw, qh, 'rgba16float'), gi2: mkTex(qw, qh, 'rgba16float'), refl: mkTex(w, h, 'rgba16float'), acc0: mkTex(w, h, 'rgba16float'), acc1: mkTex(w, h, 'rgba16float') };
+    const v = {}; for (const k in t) v[k] = t[k].createView(); const E = (b, r) => ({ binding: b, resource: r });
+    const bg = (layout, list) => device.createBindGroup({ layout, entries: list.map((r, i) => E(i, r)) });
+    const blurP = (i, dir, stride, rw, rh) => { device.queue.writeBuffer(blurBufs[i], 0, new Float32Array([dir[0], dir[1], stride, 0, rw, rh, 0, 0])); return blurBufs[i]; };
+    st.groups = { gbuf: bg(layouts.gbuf, [v.gA, v.gB, v.gC, v.gD]), shadow: bg(layouts.shadow, [v.gA, v.gB, v.sV]), gi: bg(layouts.gi, [v.gA, v.gB, v.gi]),
+      blurS1: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.sV), E(3, v.sV2), E(4, { buffer: blurP(0, [1, 0], 2, lw, lh) })] }), blurS2: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.sV2), E(3, v.sV), E(4, { buffer: blurP(1, [0, 1], 2, lw, lh) })] }),
+      blurG1: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.gi), E(3, v.gi2), E(4, { buffer: blurP(2, [1, 0], 4, qw, qh) })] }), blurG2: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.gi2), E(3, v.gi), E(4, { buffer: blurP(3, [0, 1], 4, qw, qh) })] }),
+      refl: bg(layouts.refl, [v.gA, v.gB, v.refl]), comp: [bg(layouts.comp, [v.gA, v.gB, v.gC, v.gD, v.sV, v.gi, v.refl, v.acc1, v.acc0]), bg(layouts.comp, [v.gA, v.gB, v.gC, v.gD, v.sV, v.gi, v.refl, v.acc0, v.acc1])],
+      disp: [device.createBindGroup({ layout: dispLayout, entries: [E(0, v.acc0), E(1, dispSamp), E(2, { buffer: bDisp })] }), device.createBindGroup({ layout: dispLayout, entries: [E(0, v.acc1), E(1, dispSamp), E(2, { buffer: bDisp })] })] };
+    st.w = w; st.h = h; st.lw = lw; st.lh = lh; st.qw = qw; st.qh = qh; }
+  let cur = 0;
+  function fillParams(w, h, blend, view, jitter) { const f = paramsArr; f.set(U.uInvPV.value.elements, 0); const v3 = (o, v) => { f[o] = v.x; f[o + 1] = v.y; f[o + 2] = v.z; f[o + 3] = 0; };
+    v3(16, U.uCamPos.value); v3(20, sunDir); v3(24, U.uSunCol.value); v3(28, moonDir); v3(32, U.uMoonCol.value); v3(36, U.uFogCol.value); v3(40, U.uSkyZen.value); v3(44, U.uSkyHor.value); v3(48, U.uBetaR.value); v3(52, U.uBetaM.value);
+    f[56] = w; f[57] = h; f[58] = st.lw; f[59] = st.lh; f[60] = st.qw; f[61] = st.qh; f[62] = jitter.x; f[63] = jitter.y;
+    f[64] = U.uSunE.value; f[65] = U.uSunfade.value; f[66] = U.uMieG.value; f[67] = U.uSunCos.value; f[68] = U.uNight.value; f[69] = U.uSkyOn.value; f[70] = U.uBounceOn.value; f[71] = U.uFogD.value; f[72] = U.uSunSize.value; f[73] = U.uMoonSize.value; f[74] = U.uNoiseShift.value; f[75] = blend;
+    paramsI[76] = tlasRoot; paramsI[77] = NSPH; paramsI[78] = U.uShadowK.value; paramsI[79] = U.uGiK.value; paramsI[80] = view; paramsI[81] = U.uFrame.value; paramsI[82] = 0; paramsI[83] = 0;
+    f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 96); device.queue.writeBuffer(bParams, 0, paramsArr); }
+  function render(w, h, blend, view, jitter, doBlur) {
+    ensure(w, h); fillParams(w, h, blend, view, jitter); device.queue.writeBuffer(bDisp, 0, new Float32Array([dispU.uExposure.value, dispU.uCurve.value, 0, 0]));
+    const cw = Math.max(1, Math.round(sb.stage.clientWidth * Math.min(devicePixelRatio || 1, 2))), ch = Math.max(1, Math.round(sb.stage.clientHeight * Math.min(devicePixelRatio || 1, 2))); if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
+    const enc = device.createCommandEncoder(); const G = st.groups; const run = (p, g, x, y) => { const c = enc.beginComputePass(); c.setPipeline(p); c.setBindGroup(0, g0); c.setBindGroup(1, g); c.dispatchWorkgroups(Math.ceil(x / 8), Math.ceil(y / 8)); c.end(); };
+    run(pipes.gbuf, G.gbuf, w, h); run(pipes.shadow, G.shadow, st.lw, st.lh); run(pipes.gi, G.gi, st.qw, st.qh);
+    if (doBlur) { run(pipes.blur, G.blurS1, st.lw, st.lh); run(pipes.blur, G.blurS2, st.lw, st.lh); run(pipes.blur, G.blurG1, st.qw, st.qh); run(pipes.blur, G.blurG2, st.qw, st.qh); }
+    run(pipes.refl, G.refl, w, h); run(pipes.comp, G.comp[cur], w, h);
+    const rp = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] }); rp.setPipeline(dispPipe); rp.setBindGroup(0, G.disp[cur]); rp.draw(3); rp.end();
+    device.queue.submit([enc.finish()]); cur = 1 - cur; }
+  return { device, render, adapter };
+}
+gpu = await startWebGPU();
+
 // ---- state
 let hour = 9.5, running = false, sunStrength = 1, moonOn = true, lightFrom = 'both', autoExp = true, exposure = 0.42, fogOn = true, fogDensity = 0.0025, stillScale = 1, moveScale = 0.35, accumulate = true, fireOn = true, lampsOn = true, rowsOn = true, denoise = true;
 let lastMove = 0, runT = 0; const lastCam = new THREE.Matrix4(); let stateKey = '';
@@ -446,7 +677,7 @@ s6.segment('Picture size while still', [{ value: 1, label: 'full' }, { value: 0.
 s6.segment('Picture size while moving', [{ value: 0.5, label: 'half' }, { value: 0.35, label: 'a third' }, { value: 0.25, label: 'a quarter' }], 0.35, v => { moveScale = +v; });
 s6.toggle('anti-alias by blending frames while still', true, v => { accumulate = v; dirty(); });
 const triRead = s6.readout('triangles in the scene'), instRead = s6.readout('placed copies'), boxRead = s6.readout('boxes in the trees'), buildRead = s6.readout('building the trees took'), accRead = s6.readout('frames blended for anti-aliasing'), msRead = s6.readout('milliseconds per frame');
-triRead(totalTris.toLocaleString()); instRead(NI.toLocaleString() + ' (' + treeCount + ' trees, 45,000 blades of grass)'); boxRead(nodeTotal.toLocaleString()); buildRead((genMs + buildMs).toFixed(0) + ' ms');
+triRead(totalTris.toLocaleString() + (gpu ? ' · WebGPU' : ' · WebGL')); instRead(NI.toLocaleString() + ' (' + treeCount + ' trees, 45,000 blades of grass)'); boxRead(nodeTotal.toLocaleString()); buildRead((genMs + buildMs).toFixed(0) + ' ms');
 
 const sunPos = new THREE.Vector3(); const sunLabel = sb.label('the sun', sunPos, 'amber');
 sb.label('the lake: the sky, reflected', new THREE.Vector3(LAKE.x, 0, LAKE.z)).off.set(0, 0.6, 0);
@@ -467,6 +698,15 @@ sb.onFrame((dt) => {
 });
 sb.onRender((scene, camera, renderer) => {
   camera.updateMatrixWorld(); invPV.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).invert();
+  if (gpu) {
+    if (!lastCam.equals(camera.matrixWorld)) { lastCam.copy(camera.matrixWorld); lastMove = performance.now(); dirty(); }
+    const moving = performance.now() - lastMove < 300; const scale = moving ? moveScale : stillScale; if (scale !== rtScale) { rtScale = scale; dirty(); }
+    const w = Math.max(2, Math.round(sb.stage.clientWidth * scale)), h = Math.max(2, Math.round(sb.stage.clientHeight * scale));
+    const still = !moving && accumulate; const k = accN % 16; const jit = new THREE.Vector2(still ? (k % 4) / 4 - 0.375 : 0, still ? Math.floor(k / 4) / 4 - 0.375 : 0); U.uNoiseShift.value = still ? accN * 0.618034 : 0;
+    U.uInvPV.value.copy(invPV); U.uCamPos.value.copy(camera.position); U.uFrame.value = frame++;
+    if (!still) accN = 0; const blend = still ? 1 / (Math.min(accN, 31) + 1) : 1; if (still) accN++;
+    gpu.render(w, h, blend, compMat.uniforms.uView.value, jit, denoise); return;
+  }
   if (!lastCam.equals(camera.matrixWorld)) { lastCam.copy(camera.matrixWorld); lastMove = performance.now(); dirty(); }
   const moving = performance.now() - lastMove < 300; const scale = moving ? moveScale : stillScale; if (scale !== rtScale) { rtScale = scale; ensureRT(scale); dirty(); } else ensureRT(scale);
   const still = !moving && accumulate; const k = accN % 16; U.uJitter.value.set(still ? (k % 4) / 4 - 0.375 : 0, still ? Math.floor(k / 4) / 4 - 0.375 : 0); U.uNoiseShift.value = still ? accN * 0.618034 : 0;
