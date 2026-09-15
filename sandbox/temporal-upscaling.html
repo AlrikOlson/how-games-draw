@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Temporal Upscaling · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'temporal-upscaling', title: 'Temporal Upscaling',
+  blurb: 'The knight runs past a picket fence while the GPU draws the camp at a third of the screen size, shifted a little each frame. A real upscaler, written in this page, slides the old frames into place and adds them up. Break it on purpose: drop the checks and watch the ghost trail, weaken the blend and watch it flicker, then compare against one stretched frame and against drawing every pixel.',
+  camera: { pos: [7.5, 4.6, 13.2], target: [0.5, 1.0, 3.5], near: 0.1, far: 300 },
+  renderer: { antialias: false }
+});
+const R = sb.renderer, scene = sb.scene, cam = sb.camera;
+const camp = sb.world.camp();
+camp.ground.scale.set(2.5, 2.5, 1);
+scene.add(cam);
+
+// ---- extra props: a picket fence for the knight to run along, a paved lane, a firefly, a health bar
+const FENCE_Z = 5.5, RUN_Z = 4.3, NP = 122;
+const pickets = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1.1, 0.05), sb.mat(PAL.woodLite), NP);
+pickets.castShadow = pickets.receiveShadow = true; pickets.frustumCulled = false; pickets.name = 'fence'; scene.add(pickets);
+const layM = new THREE.Matrix4();
+function layPickets(cm) {
+  const w = cm / 100;
+  for (let i = 0; i < NP; i++) { layM.makeScale(w, 1, 1); layM.setPosition(-15.1 + i * 0.25, 0.6, FENCE_Z); pickets.setMatrixAt(i, layM); }
+  pickets.instanceMatrix.needsUpdate = true;
+}
+for (const y of [0.32, 0.92]) scene.add(sb.mesh(new THREE.BoxGeometry(30.5, 0.05, 0.04), sb.mat(PAL.wood), 0, y, FENCE_Z));
+
+// a cobbled lane with a real texture and real mip levels (the smaller copies the GPU picks by size on screen)
+const cobble = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  g.fillStyle = '#2a2d33'; g.fillRect(0, 0, 256, 256);
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+    const l = 62 + Math.floor(rnd() * 30); g.fillStyle = `rgb(${l},${l + 4},${l + 10})`;
+    const ox = (y % 2) * 16; g.beginPath(); g.roundRect(((x * 32 + ox + 3) % 256), y * 32 + 3, 26, 26, 6); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(24, 2.2); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 1; return t;
+})();
+const mipBias = { value: 0 };
+const laneMat = new THREE.MeshLambertMaterial({ map: cobble });
+laneMat.onBeforeCompile = sh => {
+  sh.uniforms.uMipBias = mipBias;
+  sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'uniform float uMipBias;\nvoid main() {')
+    .replace('#include <map_fragment>', 'vec4 sampledDiffuseColor = texture2D( map, vMapUv, uMipBias ); diffuseColor *= sampledDiffuseColor;');
+};
+const lane = new THREE.Mesh(new THREE.PlaneGeometry(32, 3), laneMat); lane.rotation.x = -Math.PI / 2; lane.position.set(0, 0.02, 7.9); lane.receiveShadow = true; lane.name = 'lane'; scene.add(lane);
+
+// the firefly: see-through, so it writes no depth; it only reports where it moved if the toggle says so
+const firefly = new THREE.Group(); firefly.name = 'firefly';
+const glowMat = new THREE.MeshBasicMaterial({ color: 0xd8ff8a, transparent: true, opacity: 0.9, depthWrite: false });
+const haloMat = new THREE.MeshBasicMaterial({ color: 0xa8ff60, transparent: true, opacity: 0.22, depthWrite: false });
+firefly.add(new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), glowMat), new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 10), haloMat));
+firefly.children.forEach(m => { m.renderOrder = 5; m.userData.firefly = true; }); scene.add(firefly);
+
+// the health bar drawn before the upscale: a flat shape glued to the camera, so it goes through the small drawing like everything else
+const hudBefore = new THREE.Group(); cam.add(hudBefore);
+const barBack = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x0b0e13, depthTest: false, depthWrite: false }));
+const barFill = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: PAL.red, depthTest: false, depthWrite: false }));
+const barRim = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0xe7eaef, depthTest: false, depthWrite: false }));
+barRim.renderOrder = 20; barBack.renderOrder = 21; barFill.renderOrder = 22; hudBefore.add(barRim, barBack, barFill);
+for (const m of hudBefore.children) { m.castShadow = m.receiveShadow = false; m.frustumCulled = false; }
+// the same bar drawn after the upscale: its own flat scene, laid over the finished picture at full size
+const hudAfter = new THREE.Scene(), hudCam = new THREE.OrthographicCamera(0, 1, 1, 0, 0, 1);
+const aRim = barRim.clone(), aBack = barBack.clone(), aFill = barFill.clone(); hudAfter.add(aRim, aBack, aFill);
+function layoutBars(cssW, cssH) {
+  const bw = 180, bh = 14, x0 = 16, y0 = 16, rim = 2, fill = 0.72;
+  // after: pixel coordinates, y down from the top
+  hudCam.right = cssW; hudCam.top = cssH; hudCam.updateProjectionMatrix();
+  const place = (m, x, y, w, h, z) => { m.position.set(x + w / 2, cssH - (y + h / 2), z); m.scale.set(w, h, 1); };
+  place(aRim, x0 - rim, y0 - rim, bw + 2 * rim, bh + 2 * rim, -0.3); place(aBack, x0, y0, bw, bh, -0.2); place(aFill, x0, y0, bw * fill, bh, -0.1);
+  // before: the same rectangle one metre in front of the camera
+  const hh = Math.tan(THREE.MathUtils.DEG2RAD * cam.fov / 2), u = 2 * hh / cssH, hw = hh * cam.aspect;
+  const p3 = (m, x, y, w, h, z) => { m.position.set(-hw + (x + w / 2) * u, hh - (y + h / 2) * u, -1 + z); m.scale.set(w * u, h * u, 1); };
+  p3(barRim, x0 - rim, y0 - rim, bw + 2 * rim, bh + 2 * rim, -0.003); p3(barBack, x0, y0, bw, bh, -0.002); p3(barFill, x0, y0, bw * fill, bh, -0.001);
+}
+
+const fenceLabelPt = new THREE.Vector3(-4.5, 1.05, FENCE_Z);
+sb.label('the knight', camp.knight).off.set(0, 2.0, 0);
+const fenceLabel = sb.label('fence, pickets 3 cm wide', fenceLabelPt, 'amber'); fenceLabel.off.set(0, 0.5, 0);
+sb.label('firefly, see-through', firefly, 'blue').off.set(0, 0.45, 0);
+
+// ---- state
+const state = { div: 3, jitter: true, view: 'finished', run: true, speed: 4, reproject: true, depthTest: true, clamp: true, eps: 0.6, alpha: 0.05, sharpen: 0.4,
+  split: 'bilinear', splitX: 0.5, jitterSign: 1, picket: 3, fireflyMotion: false, hudAfter: false, mipBias: false, thumbs: false };
+
+// ---- panel
+const s1 = sb.panel.section('01 · Draw small, shift the grid', 'The GPU draws the camp at a fraction of the screen, then shifts that small grid by less than one drawn pixel each frame (jitter, from a Halton sequence). After a few frames every screen pixel has been hit by a real sample.');
+s1.segment('How much smaller the GPU draws', [{ value: 1.5, label: '1/1.5' }, { value: 2, label: '1/2' }, { value: 3, label: '1/3' }, { value: 4, label: '1/4' }], 3, v => { state.div = +v; histValid = false; apply(); });
+s1.toggle('shift the grid each frame (jitter)', true, v => { state.jitter = v; apply(); });
+const sizeRead = s1.readout('the GPU draws'), shadeRead = s1.readout('pixels shaded per frame'), screenRead = s1.readout('the screen has'), phaseRead = s1.readout('shifts before the pattern repeats');
+s1.note('Turn the jitter off and the finished picture falls back to blocks: without the shift, old frames hold nothing new.');
+
+const s2 = sb.panel.section('02 · Reuse last frame, or throw it away', 'Each screen pixel looks back along its motion arrow to find its own history. If the distance stored there does not match what was just drawn, or the colour is nowhere near the new samples, the history belongs to something else and is thrown away.');
+s2.segment('Show', [{ value: 'finished', label: 'finished picture' }, { value: 'input', label: 'the small drawing' }, { value: 'motion', label: 'how far pixels moved' }, { value: 'reject', label: 'history thrown away' }], 'finished', v => { state.view = v; apply(); });
+s2.toggle('the knight runs along the fence', true, v => { state.run = v; });
+s2.slider('Run speed', { min: 0.5, max: 10, step: 0.5, value: 4, unit: ' m/s' }, v => { state.speed = v; });
+s2.toggle('look up history where things were (reprojection)', true, v => { state.reproject = v; apply(); });
+s2.toggle('throw history away when the distance does not match', true, v => { state.depthTest = v; apply(); });
+s2.slider('Distance mismatch that counts', { min: 0.1, max: 5, step: 0.1, value: 0.6, unit: ' m' }, v => { state.eps = v; apply(); });
+s2.toggle('pull history toward the new colours (neighbourhood clamp)', true, v => { state.clamp = v; apply(); });
+const rejRead = s2.readout('pixels that threw history away');
+s2.note('Turn both checks off while the knight runs: a ghost trail follows him, because the grass he uncovers inherits his old colour. Turn reprojection off and drag the camera: the whole camp smears.');
+
+const s3 = sb.panel.section('03 · Add the frames up, then sharpen', 'Each pixel keeps a running average of every sample that landed near it, weighted by how close it landed. The share below caps how much the old frames may count, so the picture can still change. A sharpen pass (RCAS) undoes the softness of the average.');
+s3.slider('Share of the new frame in the blend', { min: 0.02, max: 1, step: 0.01, value: 0.05 }, v => { state.alpha = v; apply(); });
+s3.slider('Sharpen amount', { min: 0, max: 1, step: 0.05, value: 0.4 }, v => { state.sharpen = v; apply(); });
+s3.button('Camera cut (forget everything)', () => { histValid = false; });
+const nRead = s3.readout('samples per pixel, in effect'), cutRead = s3.readout('frames since the cut');
+s3.note('Drag the share up to 1 and the blend is gone: every frame shows only its own shifted samples and the fence flickers. Around 0.05 the picture settles in about twenty frames.');
+
+const s4 = sb.panel.section('04 · Compare', 'Split the screen. The left side is always the upscaler above. The right side is either the one small frame stretched with plain smoothing (bilinear, what a one-frame upscaler has to work with) or the camp drawn at full size, every pixel shaded.');
+s4.segment('Right side of the split', [{ value: 'none', label: 'no split' }, { value: 'bilinear', label: 'one frame stretched' }, { value: 'native', label: 'drawn at full size' }], 'bilinear', v => { state.split = v; apply(); });
+s4.slider('Split position', { min: 0.1, max: 0.9, step: 0.01, value: 0.5 }, v => { state.splitX = v; apply(); });
+
+const s5 = sb.panel.section('05 · Where it breaks', 'Everything the engine forgets to tell the upscaler shows up as a fault. Each control here fixes one of them, and all of them start in the broken state except the picket width.');
+s5.slider('Picket width', { min: 1, max: 12, step: 0.5, value: 3, unit: ' cm' }, v => { state.picket = v; layPickets(v); fenceLabel.set('fence, pickets ' + v + ' cm wide'); });
+s5.toggle('the firefly reports its motion', false, v => { state.fireflyMotion = v; apply(); });
+s5.toggle('draw the health bar after the upscale', false, v => { state.hudAfter = v; apply(); });
+s5.toggle('pick the sharper texture copy on the lane (mip bias)', false, v => { state.mipBias = v; apply(); });
+s5.note('Thin pickets miss most drawn pixels, so they flicker; make them wider than one drawn pixel. The firefly is see-through and writes no depth, so its glow smears along its path until it reports motion. The health bar is soft until it is drawn after the upscale. The lane is blurry until the texture lookup is nudged to the sharper copy.');
+
+const s6 = sb.panel.section('06 · What it costs', 'Only the pixel-bound part of the frame shrinks. The history buffers are full-size and stay in memory, and the upscaler itself runs once per screen pixel, whatever the drawn size.');
+s6.toggle('show the pictures the GPU keeps', false, v => { state.thumbs = v; apply(); });
+const costRead = s6.readout('pixels shaded, vs full size'), memRead = s6.readout('memory the upscaler keeps'), callRead = s6.readout('draw calls this frame'), msRead = s6.readout('one frame, this browser (CPU side)');
+
+// ---- overlay captions for the thumbnail strip
+const style = document.createElement('style');
+style.textContent = '.tu-cap{position:absolute;font-family:var(--font-mono);font-size:12px;color:#c7cdd8;background:rgba(11,14,19,.82);padding:3px 8px;border-radius:4px;pointer-events:none;white-space:nowrap;display:none}';
+document.head.appendChild(style);
+const thumbCaps = [0, 1, 2].map(() => { const e = document.createElement('div'); e.className = 'tu-cap'; sb.stage.appendChild(e); return e; });
+
+// ---- render targets
+R.shadowMap.autoUpdate = false; R.info.autoReset = false;
+const hasFloat = R.extensions.has('EXT_color_buffer_float') || R.extensions.has('EXT_color_buffer_half_float');
+const HF = hasFloat ? THREE.HalfFloatType : THREE.UnsignedByteType;
+const bufSize = new THREE.Vector2(); const sky = new THREE.Color(PAL.sky);
+let rtIn = null, rtMotion = null, rtNative = null, hist = [null, null], histIdx = 0, histValid = false, rtSharp = null;
+let W = 0, H = 0, rw = 0, rh = 0, cfgKey = '', frame = 0, framesSinceCut = 0;
+const inSize = new THREE.Vector2(1, 1), outSize = new THREE.Vector2(1, 1), scaleV = new THREE.Vector2(1, 1);
+const mkRT = (w, h, o) => new THREE.WebGLRenderTarget(w, h, Object.assign({ type: HF, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, generateMipmaps: false }, o || {}));
+function ensureTargets() {
+  R.getDrawingBufferSize(bufSize);
+  const w = Math.max(8, Math.round(bufSize.x / state.div)), h = Math.max(8, Math.round(bufSize.y / state.div));
+  const key = bufSize.x + 'x' + bufSize.y + '/' + w + 'x' + h; if (key === cfgKey) return;
+  cfgKey = key; W = bufSize.x; H = bufSize.y; rw = w; rh = h; histValid = false;
+  for (const t of [rtIn, rtMotion, rtNative, hist[0], hist[1], rtSharp]) if (t) t.dispose();
+  const dt = new THREE.DepthTexture(w, h, THREE.UnsignedIntType); dt.format = THREE.DepthFormat; dt.minFilter = dt.magFilter = THREE.NearestFilter;
+  rtIn = mkRT(w, h, { depthBuffer: true, depthTexture: dt });
+  rtMotion = mkRT(w, h, { depthBuffer: true, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+  rtNative = mkRT(W, H, { depthBuffer: true });
+  hist = [mkRT(W, H, { count: 2 }), mkRT(W, H, { count: 2 })];
+  rtSharp = mkRT(W, H);
+  if (!hasFloat) { rtIn.texture.colorSpace = rtNative.texture.colorSpace = THREE.SRGBColorSpace; }
+  inSize.set(w, h); outSize.set(W, H); scaleV.set(W / w, H / h);
+  updateReadouts();
+}
+
+const quadScene = new THREE.Scene(), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2)); quad.frustumCulled = false; quadScene.add(quad);
+function pass(mat, target) { quad.material = mat; R.setRenderTarget(target); R.render(quadScene, quadCam); }
+const VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const ENC = hasFloat ? 'vec4 encM(vec2 m){ return vec4(m, 0.0, 1.0); } vec2 decM(vec4 c){ return c.xy; }'
+                     : 'vec4 encM(vec2 m){ return vec4(clamp(m * 4.0 + 0.5, 0.0, 1.0), 0.0, 1.0); } vec2 decM(vec4 c){ return (c.xy - 0.5) / 4.0; }';
+const SRGB = 'vec3 toSRGB(vec3 c){ return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }';
+
+// ---- motion vectors: each object hands over where it was last frame; the shader writes how far its pixels moved, in picture units
+const motionMat = new THREE.ShaderMaterial({
+  uniforms: { uPrevVP: { value: new THREE.Matrix4() }, uPrevModel: { value: new THREE.Matrix4() } },
+  vertexShader: `uniform mat4 uPrevVP; uniform mat4 uPrevModel; varying vec4 vCur; varying vec4 vPrev;
+    void main(){ vec4 lp = vec4(position, 1.0);
+      #ifdef USE_INSTANCING
+      lp = instanceMatrix * lp;
+      #endif
+      vCur = projectionMatrix * viewMatrix * modelMatrix * lp; vPrev = uPrevVP * uPrevModel * lp; gl_Position = vCur; }`,
+  fragmentShader: ENC + ' varying vec4 vCur; varying vec4 vPrev; void main(){ vec2 m = (vCur.xy / vCur.w - vPrev.xy / vPrev.w) * 0.5; gl_FragColor = encM(m); }'
+});
+const meshes = []; scene.traverse(o => { if (o.isMesh) meshes.push(o); });
+for (const m of meshes) {
+  m.updateWorldMatrix(true, false); m.userData.prev = m.matrixWorld.clone();
+  m.onBeforeRender = (r, s, c, g, material) => { if (material === motionMat) { motionMat.uniforms.uPrevModel.value.copy(m.userData.prev); motionMat.uniformsNeedUpdate = true; } };
+}
+
+// ---- the upscaler: one pass per screen pixel. Gathers the 3 by 3 drawn samples around it, weighted by how close each landed
+// once the jitter is undone; fetches the history where the motion vector says this pixel was; throws it away or clamps it; blends.
+// Two outputs: colour + count, and (distance in metres, thrown-away flag, count) for the views and the readouts.
+const resolveMat = new THREE.ShaderMaterial({
+  glslVersion: THREE.GLSL3,
+  uniforms: { tIn: { value: null }, tDepth: { value: null }, tMotion: { value: null }, tHist: { value: null }, tAux: { value: null },
+    uInSize: { value: inSize }, uOutSize: { value: outSize }, uScale: { value: scaleV }, uJitter: { value: new THREE.Vector2() },
+    uNMax: { value: 19 }, uFirst: { value: true }, uReproject: { value: true }, uDepthTest: { value: true }, uClamp: { value: true }, uEps: { value: 0.6 },
+    uNear: { value: 0.1 }, uFar: { value: 300 } },
+  vertexShader: VS,
+  fragmentShader: ENC + `uniform sampler2D tIn; uniform sampler2D tDepth; uniform sampler2D tMotion; uniform sampler2D tHist; uniform sampler2D tAux;
+    uniform vec2 uInSize; uniform vec2 uOutSize; uniform vec2 uScale; uniform vec2 uJitter; uniform float uNMax; uniform bool uFirst; uniform bool uReproject; uniform bool uDepthTest; uniform bool uClamp; uniform float uEps; uniform float uNear; uniform float uFar;
+    varying vec2 vUv;
+    layout(location = 0) out vec4 oCol; layout(location = 1) out vec4 oAux;
+    float linZ(float d){ float z = d * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
+    // history is read with a bicubic filter (Catmull-Rom); plain bilinear would blur it a little more every frame
+    vec4 sampleCR(sampler2D tex, vec2 uv, vec2 size){
+      vec2 sp = uv * size; vec2 t1 = floor(sp - 0.5) + 0.5; vec2 f = sp - t1;
+      vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f)); vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f); vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f)); vec2 w3 = f * f * (-0.5 + 0.5 * f);
+      vec2 w12 = w1 + w2; vec2 o12 = w2 / w12; vec2 t0 = (t1 - 1.0) / size, t3 = (t1 + 2.0) / size, t12 = (t1 + o12) / size;
+      vec4 r = vec4(0.0);
+      r += texture2D(tex, vec2(t0.x, t0.y)) * w0.x * w0.y; r += texture2D(tex, vec2(t12.x, t0.y)) * w12.x * w0.y; r += texture2D(tex, vec2(t3.x, t0.y)) * w3.x * w0.y;
+      r += texture2D(tex, vec2(t0.x, t12.y)) * w0.x * w12.y; r += texture2D(tex, vec2(t12.x, t12.y)) * w12.x * w12.y; r += texture2D(tex, vec2(t3.x, t12.y)) * w3.x * w12.y;
+      r += texture2D(tex, vec2(t0.x, t3.y)) * w0.x * w3.y; r += texture2D(tex, vec2(t12.x, t3.y)) * w12.x * w3.y; r += texture2D(tex, vec2(t3.x, t3.y)) * w3.x * w3.y;
+      return r;
+    }
+    void main(){
+      vec2 p = vUv * uOutSize;                      // this screen pixel, in screen pixels
+      vec2 q = p / uScale - 0.5 - uJitter;          // the same spot in drawn-sample space, jitter undone
+      vec2 c = floor(q + 0.5);                      // nearest drawn sample
+      vec3 sum = vec3(0.0); float wsum = 0.0; vec3 bmin = vec3(1e9), bmax = vec3(-1e9); float zmin = 1e9, zmax = -1e9;
+      for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
+        vec2 t = clamp(c + vec2(float(dx), float(dy)), vec2(0.0), uInSize - 1.0); vec2 tuv = (t + 0.5) / uInSize;
+        vec3 ci = texture2D(tIn, tuv).rgb; vec2 dp = (q - t) * uScale; float w = exp(-2.0 * dot(dp, dp));
+        if (dx == 0 && dy == 0) w = max(w, 1e-3);
+        sum += w * ci; wsum += w; bmin = min(bmin, ci); bmax = max(bmax, ci);
+        float z = linZ(texture2D(tDepth, tuv).x); zmin = min(zmin, z); zmax = max(zmax, z);
+      }
+      vec2 cuv = (clamp(c, vec2(0.0), uInSize - 1.0) + 0.5) / uInSize;
+      float zNow = linZ(texture2D(tDepth, cuv).x);
+      vec3 cur = sum / wsum;
+      if (uFirst) { oCol = vec4(cur, wsum); oAux = vec4(zNow / uFar, 0.0, wsum, 1.0); return; }
+      vec2 mv = uReproject ? decM(texture2D(tMotion, cuv)) : vec2(0.0);
+      vec2 puv = vUv - mv;
+      bool off = any(lessThan(puv, vec2(0.0))) || any(greaterThan(puv, vec2(1.0)));
+      vec4 h = sampleCR(tHist, puv, uOutSize); vec4 ha = texture2D(tAux, puv);
+      float n = max(h.a, 0.0); vec3 hc = h.rgb;
+      bool reject = off;
+      float zh = ha.x * uFar; if (uDepthTest && (zh < zmin - uEps || zh > zmax + uEps)) reject = true;
+      if (uClamp) hc = clamp(hc, bmin, bmax);
+      if (reject) n = 0.0;
+      vec3 col = (n * hc + sum) / (n + wsum);
+      float nn = min(n + wsum, uNMax);
+      oCol = vec4(col, nn); oAux = vec4(zNow / uFar, reject ? 1.0 : 0.0, nn, 1.0);
+    }` });
+
+// RCAS sharpen: pull each pixel away from the average of its four neighbours, limited by the local min and max so edges get no halo
+const sharpMat = new THREE.ShaderMaterial({
+  uniforms: { tex: { value: null }, uTexel: { value: new THREE.Vector2() }, uSharp: { value: 0.4 } }, vertexShader: VS,
+  fragmentShader: `uniform sampler2D tex; uniform vec2 uTexel; uniform float uSharp; varying vec2 vUv;
+    void main(){
+      vec3 e = texture2D(tex, vUv).rgb; vec3 b = texture2D(tex, vUv + vec2(0.0, uTexel.y)).rgb, d = texture2D(tex, vUv - vec2(uTexel.x, 0.0)).rgb, f = texture2D(tex, vUv + vec2(uTexel.x, 0.0)).rgb, h = texture2D(tex, vUv - vec2(0.0, uTexel.y)).rgb;
+      vec3 mn4 = min(min(b, d), min(f, h)), mx4 = max(max(b, d), max(f, h)); vec3 mn = min(mn4, e), mx = max(mx4, e);
+      vec3 hitMin = mn / (4.0 * mx + 1e-4); vec3 hitMax = (1.0 - mx) / (4.0 * mn - 4.0 - 1e-4);
+      vec3 lobe3 = max(-hitMin, hitMax); float lobe = max(-0.1875, min(max(lobe3.r, max(lobe3.g, lobe3.b)), 0.0)) * uSharp;
+      gl_FragColor = vec4((lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0), 1.0);
+    }` });
+
+// display: the finished picture with an optional split, or one of the views (small drawing, motion arrows, thrown-away history)
+const dispMat = new THREE.ShaderMaterial({
+  uniforms: { tMain: { value: null }, tIn: { value: null }, tNative: { value: null }, tMotion: { value: null }, tAux: { value: null },
+    uInSize: { value: inSize }, uOutSize: { value: outSize }, uJitter: { value: new THREE.Vector2() }, uMode: { value: 0 }, uSplit: { value: 1 }, uSplitX: { value: 0.5 }, uEncode: { value: hasFloat }, uCell: { value: 28 } },
+  vertexShader: VS,
+  fragmentShader: ENC + SRGB + `uniform sampler2D tMain; uniform sampler2D tIn; uniform sampler2D tNative; uniform sampler2D tMotion; uniform sampler2D tAux;
+    uniform vec2 uInSize; uniform vec2 uOutSize; uniform vec2 uJitter; uniform int uMode; uniform int uSplit; uniform float uSplitX; uniform bool uEncode; uniform float uCell; varying vec2 vUv;
+    float seg(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; float t = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0); return length(pa - ba * t); }
+    void main(){
+      vec3 rgb;
+      if (uMode == 1) { vec2 uv = (floor(vUv * uInSize) + 0.5) / uInSize; rgb = texture2D(tIn, uv).rgb; }
+      else if (uMode == 4) { vec2 m = decM(texture2D(tMotion, vUv)) * uOutSize * 0.05; gl_FragColor = vec4(0.5 + m.x, 0.5 + m.y, 0.5, 1.0); return; }
+      else if (uMode == 2) {
+        rgb = texture2D(tMain, vUv).rgb * 0.35;
+        vec2 p = vUv * uOutSize; vec2 cc = (floor(p / uCell) + 0.5) * uCell;
+        vec2 m = decM(texture2D(tMotion, cc / uOutSize)) * uOutSize * 3.0;
+        float len = length(m);
+        if (len > 1.5) { float dl = seg(p, cc, cc - m); float dh = length(p - cc); if (dl < 1.0 || dh < 2.5) { gl_FragColor = vec4(dh < 2.5 ? vec3(1.0, 0.64, 0.25) : vec3(1.0), 1.0); return; } }
+        else if (length(p - cc) < 1.2) { gl_FragColor = vec4(0.45, 0.5, 0.6, 1.0); return; }
+      }
+      else if (uMode == 3) { rgb = texture2D(tMain, vUv).rgb; float r = texture2D(tAux, vUv).g; rgb = mix(rgb * 0.45, vec3(1.0, 0.25, 0.85), r * 0.85); }
+      else {
+        bool right = uSplit > 0 && vUv.x > uSplitX;
+        if (!right) rgb = texture2D(tMain, vUv).rgb;
+        else if (uSplit == 1) rgb = texture2D(tIn, vUv - uJitter / uInSize).rgb;
+        else rgb = texture2D(tNative, vUv).rgb;
+        if (uSplit > 0 && abs(vUv.x - uSplitX) * uOutSize.x < 1.0) { gl_FragColor = vec4(0.95, 0.64, 0.25, 1.0); return; }
+      }
+      if (uMode == 5) rgb = texture2D(tMain, vUv).rgb;
+      gl_FragColor = vec4(uEncode ? toSRGB(rgb) : rgb, 1.0);
+    }` });
+// probe: a 24 by 24 sample of the counts and the thrown-away flags, read back for the readouts
+const PN = 24, rtProbe = new THREE.WebGLRenderTarget(PN, PN, { depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter }), probeBuf = new Uint8Array(PN * PN * 4);
+const probeMat = new THREE.ShaderMaterial({ uniforms: { tAux: { value: null } }, vertexShader: VS,
+  fragmentShader: 'uniform sampler2D tAux; varying vec2 vUv; void main(){ vec4 a = texture2D(tAux, vUv); gl_FragColor = vec4(clamp(a.b / 64.0, 0.0, 1.0), a.g, 0.0, 1.0); }' });
+const frameMat = new THREE.MeshBasicMaterial({ color: 0x2a3140, depthTest: false, depthWrite: false });
+for (const m of [resolveMat, sharpMat, dispMat, probeMat]) { m.depthTest = false; m.depthWrite = false; }
+
+// ---- Halton (2,3) jitter: a fixed list of shifts that spreads evenly inside one drawn pixel without repeating soon
+function halton(i, b) { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; }
+const JIT = []; for (let i = 1; i <= 128; i++) JIT.push(new THREE.Vector2(halton(i, 2) - 0.5, halton(i, 3) - 0.5));
+const phases = () => Math.min(128, Math.round(8 * state.div * state.div));
+const vpNow = new THREE.Matrix4(), prevVP = new THREE.Matrix4(); const clearCol = new THREE.Color();
+let cssW = 0, cssH = 0, cpuMs = 0, lastLayout = '', probeN = 0, probeRej = 0;
+
+// ---- the frame: the kit hands the draw to this function
+sb.onRender((scene, camera, renderer) => {
+  const t0 = performance.now(); R.info.reset();
+  ensureTargets();
+  cssW = sb.stage.clientWidth; cssH = sb.stage.clientHeight;
+  layoutBars(cssW, cssH); hudBefore.visible = !state.hudAfter;
+  if (cam.view && cam.view.enabled) cam.clearViewOffset();
+  cam.updateMatrixWorld(); vpNow.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+  R.shadowMap.needsUpdate = true;
+  // 1. the small drawing, shifted by this frame's jitter (the shift goes into the projection, not the camera position)
+  const j = state.jitter ? JIT[frame % phases()] : JIT[0]; const jx = state.jitter ? j.x * state.jitterSign : 0, jy = state.jitter ? j.y * state.jitterSign : 0;
+  if (state.jitter) cam.setViewOffset(W, H, jx * scaleV.x, jy * scaleV.y, W, H);
+  scene.background = sky; firefly.visible = true; R.setRenderTarget(rtIn); R.render(scene, cam);
+  if (state.jitter) cam.clearViewOffset();
+  // 2. motion vectors for the same frame, without the jitter; the firefly only takes part if it reports its motion
+  scene.background = null; scene.overrideMaterial = motionMat; motionMat.uniforms.uPrevVP.value.copy(prevVP); firefly.visible = state.fireflyMotion;
+  R.getClearColor(clearCol); const ca = R.getClearAlpha(); R.setClearColor(hasFloat ? 0x000000 : 0x808080, 1);
+  R.setRenderTarget(rtMotion); R.clear(); R.render(scene, cam);
+  R.setClearColor(clearCol, ca); scene.overrideMaterial = null; scene.background = sky; firefly.visible = true;
+  // 3. the comparison: the camp drawn at full size, every pixel shaded, only when the split asks for it
+  if ((state.split === 'native' && state.view === 'finished') || state.view === 'native') { R.setRenderTarget(rtNative); R.render(scene, cam); }
+  // 4. the upscaler, into the other history buffer
+  const hIn = hist[histIdx], hOut = hist[histIdx ^ 1];
+  const u = resolveMat.uniforms; u.tIn.value = rtIn.texture; u.tDepth.value = rtIn.depthTexture; u.tMotion.value = rtMotion.texture; u.tHist.value = hIn.textures[0]; u.tAux.value = hIn.textures[1];
+  u.uJitter.value.set(jx, -jy); u.uFirst.value = !histValid; u.uNear.value = cam.near; u.uFar.value = cam.far;
+  pass(resolveMat, hOut); framesSinceCut = histValid ? framesSinceCut + 1 : 0; histValid = true; histIdx ^= 1;
+  // 5. sharpen, for the screen only; the history stays unsharpened so the sharpening cannot pile up
+  sharpMat.uniforms.tex.value = hOut.textures[0]; sharpMat.uniforms.uTexel.value.set(1 / W, 1 / H); pass(sharpMat, rtSharp);
+  // 6. to the screen
+  R.setRenderTarget(null); R.autoClear = true;
+  const du = dispMat.uniforms; du.tMain.value = rtSharp.texture; du.tIn.value = rtIn.texture; du.tNative.value = rtNative.texture; du.tMotion.value = rtMotion.texture; du.tAux.value = hOut.textures[1];
+  du.uJitter.value.set(jx, -jy); du.uMode.value = { finished: 0, input: 1, motion: 2, reject: 3, native: 0 }[state.view]; du.uSplit.value = state.view === 'finished' ? { none: 0, bilinear: 1, native: 2 }[state.split] : state.view === 'native' ? 2 : 0; du.uSplitX.value = state.view === 'native' ? -1 : state.splitX;
+  R.setViewport(0, 0, cssW, cssH); pass(dispMat, null);
+  R.autoClear = false;
+  if (state.hudAfter) { R.render(hudAfter, hudCam); }
+  // 7. the pictures the GPU keeps, as a strip along the bottom
+  const TW = Math.round(Math.min(220, cssW * 0.22)), TH = Math.round(TW * H / W);
+  if (state.thumbs) {
+    let x = 16; const y = 44;
+    const draw = (mode, tex) => {
+      quad.material = frameMat; R.setViewport(x - 2, y - 2, TW + 4, TH + 4); R.render(quadScene, quadCam);
+      du.uMode.value = mode; du.uSplit.value = 0; if (tex) du.tMain.value = tex;
+      R.setViewport(x, y, TW, TH); pass(dispMat, null); x += TW + 12;
+    };
+    draw(1); draw(4); draw(5, hOut.textures[0]);
+  }
+  R.setViewport(0, 0, cssW, cssH); R.autoClear = true;
+  // 8. every few frames, read a few numbers back for the panel
+  if (frame % 6 === 0) {
+    probeMat.uniforms.tAux.value = hOut.textures[1]; pass(probeMat, rtProbe); R.readRenderTargetPixels(rtProbe, 0, 0, PN, PN, probeBuf);
+    let n = 0, rej = 0; for (let i = 0; i < probeBuf.length; i += 4) { n += probeBuf[i]; rej += probeBuf[i + 1]; }
+    probeN = n / (PN * PN) / 255 * 64; probeRej = rej / (PN * PN) / 255;
+    R.setRenderTarget(null);
+  }
+  for (const m of meshes) m.userData.prev.copy(m.matrixWorld);
+  prevVP.copy(vpNow);
+  frame++;
+  cpuMs = cpuMs * 0.9 + (performance.now() - t0) * 0.1;
+  layoutCaptions(TW, TH);
+});
+
+function layoutCaptions(TW, TH) {
+  const key = cssW + '/' + cssH + '/' + state.thumbs + '/' + rw; if (key === lastLayout) return; lastLayout = key;
+  const names = state.thumbs ? ['the small drawing', 'how far pixels moved', 'kept picture (history)'] : [];
+  thumbCaps.forEach((c, i) => { if (i < names.length) { c.style.display = 'block'; c.style.left = (16 + i * (TW + 12)) + 'px'; c.style.bottom = (44 + TH + 6) + 'px'; c.textContent = names[i]; } else c.style.display = 'none'; });
+}
+
+// ---- readouts, hud and settings
+function fmtMB(bytes) { return bytes >= 1e6 ? (bytes / 1e6).toFixed(1) + ' MB' : (bytes / 1e3).toFixed(0) + ' kB'; }
+function updateReadouts() {
+  if (!W) return;
+  const shaded = rw * rh, full = W * H;
+  sizeRead(rw + ' × ' + rh + ' px'); shadeRead(shaded.toLocaleString()); screenRead(W + ' × ' + H + ' = ' + full.toLocaleString() + ' px');
+  phaseRead(state.jitter ? phases() + ' (8 × scale²)' : 'no shift');
+  costRead((100 * shaded / full).toFixed(0) + ' % (' + shaded.toLocaleString() + ' of ' + full.toLocaleString() + ')');
+  const B = hasFloat ? 8 : 4; memRead(fmtMB(full * B * 4 + full * B + shaded * B * 2 + shaded * 4) + ' (two history pairs at full size, plus the small drawing, its distances and motion)');
+  let mode;
+  if (state.view === 'input') mode = 'the small drawing, one drawn pixel per block; it wobbles with the jitter';
+  else if (state.view === 'motion') mode = 'how far each pixel moved, drawn 3 times longer; the dot is where it is now';
+  else if (state.view === 'reject') mode = 'pink: pixels that threw their history away this frame';
+  else mode = state.split === 'none' ? 'built from many small frames' : state.split === 'bilinear' ? 'left: built from many small frames · right: one small frame stretched' : 'left: built from many small frames · right: drawn at full size';
+  sb.hud('mode', mode);
+  const warn = [];
+  if (!state.jitter) warn.push('jitter off');
+  if (!state.depthTest && !state.clamp) warn.push('no rejection: ghost trails');
+  if (state.alpha >= 0.5) warn.push('barely any history: flicker');
+  sb.hud('warn', warn.length ? warn.join(' · ') : null);
+}
+function apply() {
+  const u = resolveMat.uniforms; u.uNMax.value = Math.max(0, 1 / state.alpha - 1); u.uReproject.value = state.reproject; u.uDepthTest.value = state.depthTest; u.uClamp.value = state.clamp; u.uEps.value = state.eps;
+  sharpMat.uniforms.uSharp.value = state.sharpen;
+  mipBias.value = state.mipBias ? -Math.log2(state.div) : 0;
+  updateReadouts();
+}
+apply();
+
+// ---- the run, the firefly, and live numbers
+let runT = 0, tick = 0;
+sb.onFrame((dt, t) => {
+  if (state.run) {
+    runT += dt * state.speed; const L = 13, p = runT % (2 * L); const x = p < L ? -6.5 + p : 6.5 - (p - L);
+    camp.knight.position.set(x, Math.abs(Math.sin(runT * 2.2)) * 0.07, RUN_Z); camp.knight.rotation.y = p < L ? Math.PI / 2 : -Math.PI / 2;
+  }
+  firefly.position.set(2.2 + 2.6 * Math.sin(t * 0.7), 1.25 + 0.4 * Math.sin(t * 1.9), 5.1 + 1.1 * Math.cos(t * 0.5));
+  if (++tick % 12 === 0) {
+    callRead(R.info.render.calls); msRead(cpuMs.toFixed(1) + ' ms'); cutRead(framesSinceCut);
+    nRead(probeN.toFixed(1) + (state.alpha >= 1 ? ' (only this frame)' : ' of at most ' + (1 / state.alpha - 1).toFixed(0)));
+    rejRead((probeRej * 100).toFixed(1) + ' %');
+  }
+});
+layPickets(state.picket); sb.state = state;
+sb.start();
+</script>
+</body>
+</html>
