@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ray Tracing &amp; the BVH · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'ray-tracing-and-bvh', title: 'Ray Tracing & the BVH',
+  blurb: 'The knight\'s camp drawn twice: left of the line by the usual triangle rasterizer, right of it by a real ray tracer running in a shader over the same triangles. Drag one ray through the camp and watch which boxes it opens, build the tree of boxes two ways, move the house, and count the rays a frame can afford.',
+  camera: { pos: [10, 4.5, 13], target: [0, 1, -1], near: 0.1, far: 300 }
+});
+const { scene, camera, renderer } = sb;
+scene.background = null; renderer.setClearColor(PAL.sky, 1);
+const camp = sb.world.camp();
+// the camp plus a pond: a mirror, so the ray traced side has something to reflect
+const pond = sb.mesh(new THREE.CircleGeometry(2.6, 24), sb.mat(0x14304a), 5, 0.02, 0.6); pond.rotation.x = -Math.PI / 2; pond.castShadow = false; pond.name = 'pond'; scene.add(pond);
+const shield = camp.knight.children[3];
+const fireLight = camp.fire.getObjectByName('firelight');
+
+// ---- materials for the tracer: linear colour plus how mirror-like the surface is (-1 = glows, unlit)
+const MATS = [], matKey = new Map();
+function matId(mesh) {
+  const m = mesh.material, refl = mesh === pond ? 0.8 : mesh === shield ? 0.5 : 0;
+  const unlit = !!m.isMeshBasicMaterial, glow = !!(m.emissive && m.emissiveIntensity > 0 && (m.emissive.r + m.emissive.g + m.emissive.b) > 0);
+  const key = m.color.getHex() + '|' + unlit + '|' + glow + '|' + refl;
+  if (matKey.has(key)) return matKey.get(key);
+  const c = m.color.clone(); if (glow) c.multiplyScalar(0.45).add(m.emissive.clone().multiplyScalar(m.emissiveIntensity * 1.4));
+  MATS.push(new THREE.Vector4(c.r, c.g, c.b, unlit || glow ? -1 : refl)); matKey.set(key, MATS.length - 1); return MATS.length - 1;
+}
+
+// ---- props: every prop keeps its triangles in its own space, so it can have its own tree (a BLAS) in two-level mode
+const props = [];
+const v = new THREE.Vector3(), tmpM = new THREE.Matrix4(), localM = new THREE.Matrix4();
+function addProp(obj, name, canDrag) {
+  const meshes = []; obj.traverse(o => { if (o.isMesh) meshes.push(o); });
+  let n = 0; const ids = [];
+  for (const m of meshes) { const g = m.geometry, c = (g.index ? g.index.count : g.attributes.position.count) / 3; n += c; const id = matId(m); for (let i = 0; i < c; i++) ids.push(id); }
+  const p = { name, obj, meshes, n, canDrag, matIds: Int32Array.from(ids), tris: new Float32Array(n * 9), bmin: new Float32Array(n * 3), bmax: new Float32Array(n * 3), cen: new Float32Array(n * 3),
+    blas: null, m: obj.matrixWorld, inv: new THREE.Matrix4(), slot: 0, root: 0, triOff: 0, tree: false, h: 0 };
+  props.push(p); return p;
+}
+addProp(camp.ground, 'the ground');
+for (const t of camp.trees) { const p = addProp(t, 'a tree'); p.tree = true; for (const m of p.meshes.slice(1)) { m.userData.base = m.geometry.attributes.position.array.slice(); let top = 0; for (let i = 1; i < m.userData.base.length; i += 3) top = Math.max(top, m.userData.base[i]); p.h = Math.max(p.h, m.position.y + top); } }
+addProp(camp.house, 'the house', true); addProp(camp.knight, 'the knight', true); addProp(camp.fire, 'the campfire');
+for (const c of camp.crates) addProp(c, 'a crate'); for (const r of camp.rocks) addProp(r, 'a rock'); addProp(pond, 'the pond');
+const total = props.reduce((s, p) => s + p.n, 0);
+while (MATS.length < 24) MATS.push(new THREE.Vector4(0, 0, 0, 0));
+
+function fillTris(p) { // p.tris in the prop's own space (mesh transforms baked in)
+  p.obj.updateMatrixWorld(true); tmpM.copy(p.obj.matrixWorld).invert(); let k = 0;
+  for (const m of p.meshes) {
+    localM.multiplyMatrices(tmpM, m.matrixWorld); const g = m.geometry, pos = g.attributes.position, idx = g.index, n = idx ? idx.count : pos.count;
+    for (let i = 0; i < n; i++) { v.fromBufferAttribute(pos, idx ? idx.getX(i) : i).applyMatrix4(localM); p.tris[k++] = v.x; p.tris[k++] = v.y; p.tris[k++] = v.z; }
+  }
+}
+function triBounds(s) { // per-triangle boxes and centres, for the builder and for refit
+  const tr = s.tris; for (let i = 0; i < s.n; i++) { const b = i * 9; for (let a = 0; a < 3; a++) { const x0 = tr[b + a], x1 = tr[b + 3 + a], x2 = tr[b + 6 + a]; const lo = Math.min(x0, x1, x2), hi = Math.max(x0, x1, x2); s.bmin[i * 3 + a] = lo; s.bmax[i * 3 + a] = hi; s.cen[i * 3 + a] = (lo + hi) * 0.5; } }
+}
+// the whole camp as one list of world-space triangles, for one-level mode
+const W = { n: total, tris: new Float32Array(total * 9), bmin: new Float32Array(total * 3), bmax: new Float32Array(total * 3), cen: new Float32Array(total * 3), matIds: new Int32Array(total), propIds: new Int32Array(total), blas: null };
+const WORLDP = { name: 'the camp', obj: null, m: new THREE.Matrix4(), inv: new THREE.Matrix4(), n: total, root: 0, triOff: 0 };
+function fillWorld() {
+  let k = 0, t = 0;
+  for (let pi = 0; pi < props.length; pi++) { const p = props[pi]; p.obj.updateMatrixWorld(true); const m = p.obj.matrixWorld;
+    for (let i = 0; i < p.n * 3; i++) { v.set(p.tris[i * 3], p.tris[i * 3 + 1], p.tris[i * 3 + 2]).applyMatrix4(m); W.tris[k++] = v.x; W.tris[k++] = v.y; W.tris[k++] = v.z; }
+    for (let i = 0; i < p.n; i++) { W.matIds[t] = p.matIds[i]; W.propIds[t] = pi; t++; } }
+  triBounds(W);
+}
+
+// ---- the builder: a tree of boxes over a list of boxes, cut down the middle or by cost (binned SAH)
+const NB = 12, binN = new Int32Array(NB), binMin = new Float32Array(NB * 3), binMax = new Float32Array(NB * 3), rMin = new Float32Array(NB * 3), rMax = new Float32Array(NB * 3), rN = new Int32Array(NB);
+const sa = (mn, mx) => { const x = Math.max(mx[0] - mn[0], 0), y = Math.max(mx[1] - mn[1], 0), z = Math.max(mx[2] - mn[2], 0); return 2 * (x * y + y * z + z * x); };
+function buildTree(n, bmin, bmax, cen, opt) {
+  const order = new Int32Array(n); for (let i = 0; i < n; i++) order[i] = i;
+  const nodes = [], leafSize = opt.leafSize, sah = opt.split === 'sah'; let maxDepth = 0;
+  const L = [0, 0, 0], Lx = [0, 0, 0];
+  function rec(ni, s, e, depth) {
+    const node = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity], a: 0, b: 0, depth }; nodes[ni] = node; if (depth > maxDepth) maxDepth = depth;
+    const cmin = [Infinity, Infinity, Infinity], cmax = [-Infinity, -Infinity, -Infinity];
+    for (let i = s; i < e; i++) { const p = order[i] * 3; for (let a = 0; a < 3; a++) { const lo = bmin[p + a], hi = bmax[p + a], c = cen[p + a]; if (lo < node.min[a]) node.min[a] = lo; if (hi > node.max[a]) node.max[a] = hi; if (c < cmin[a]) cmin[a] = c; if (c > cmax[a]) cmax[a] = c; } }
+    const count = e - s;
+    if (count <= leafSize || depth >= 28) { node.a = s; node.b = count; return; }
+    const ex = cmax[0] - cmin[0], ey = cmax[1] - cmin[1], ez = cmax[2] - cmin[2];
+    let axis = ex >= ey && ex >= ez ? 0 : ey >= ez ? 1 : 2, mid = -1;
+    if (sah) {
+      let best = Infinity, bestAxis = -1, bestPlane = 0, bestLo = 0, bestExt = 1; const area = sa(node.min, node.max) || 1;
+      for (let ax = 0; ax < 3; ax++) {
+        const lo = cmin[ax], ext = cmax[ax] - lo; if (ext <= 1e-6) continue;
+        binN.fill(0); binMin.fill(Infinity); binMax.fill(-Infinity);
+        for (let i = s; i < e; i++) { const p = order[i] * 3; let k = Math.floor((cen[p + ax] - lo) / ext * NB); if (k >= NB) k = NB - 1; if (k < 0) k = 0; binN[k]++; for (let a = 0; a < 3; a++) { if (bmin[p + a] < binMin[k * 3 + a]) binMin[k * 3 + a] = bmin[p + a]; if (bmax[p + a] > binMax[k * 3 + a]) binMax[k * 3 + a] = bmax[p + a]; } }
+        // sweep from the right: R[k] = everything in bins k..NB-1
+        for (let a = 0; a < 3; a++) { rMin[(NB - 1) * 3 + a] = binMin[(NB - 1) * 3 + a]; rMax[(NB - 1) * 3 + a] = binMax[(NB - 1) * 3 + a]; } rN[NB - 1] = binN[NB - 1];
+        for (let k = NB - 2; k >= 1; k--) { rN[k] = rN[k + 1] + binN[k]; for (let a = 0; a < 3; a++) { rMin[k * 3 + a] = Math.min(rMin[(k + 1) * 3 + a], binMin[k * 3 + a]); rMax[k * 3 + a] = Math.max(rMax[(k + 1) * 3 + a], binMax[k * 3 + a]); } }
+        // then from the left, pricing every cut between two bins
+        L[0] = L[1] = L[2] = Infinity; Lx[0] = Lx[1] = Lx[2] = -Infinity; let nL = 0;
+        for (let k = 0; k <= NB - 2; k++) {
+          for (let a = 0; a < 3; a++) { L[a] = Math.min(L[a], binMin[k * 3 + a]); Lx[a] = Math.max(Lx[a], binMax[k * 3 + a]); } nL += binN[k]; const nR = rN[k + 1]; if (nL === 0 || nR === 0) continue;
+          const rmn = [rMin[(k + 1) * 3], rMin[(k + 1) * 3 + 1], rMin[(k + 1) * 3 + 2]], rmx = [rMax[(k + 1) * 3], rMax[(k + 1) * 3 + 1], rMax[(k + 1) * 3 + 2]];
+          const cost = 1 + (sa(L, Lx) * nL + sa(rmn, rmx) * nR) / area;
+          if (cost < best) { best = cost; bestAxis = ax; bestPlane = k + 1; bestLo = lo; bestExt = ext; }
+        }
+      }
+      if (bestAxis < 0) { if (count <= 16) { node.a = s; node.b = count; return; } }
+      else if (best >= count && count <= 16) { node.a = s; node.b = count; return; }
+      else {
+        axis = bestAxis; let i = s, j = e - 1;
+        while (i <= j) { const p = order[i] * 3; let k = Math.floor((cen[p + axis] - bestLo) / bestExt * NB); if (k >= NB) k = NB - 1; if (k < 0) k = 0; if (k < bestPlane) i++; else { const t = order[i]; order[i] = order[j]; order[j] = t; j--; } }
+        mid = i; if (mid <= s || mid >= e) mid = -1;
+      }
+    }
+    if (mid < 0) { order.subarray(s, e).sort((p, q) => cen[p * 3 + axis] - cen[q * 3 + axis]); mid = s + (count >> 1); }
+    const l = nodes.length; nodes.push(null, null); node.a = l; node.b = -(axis + 1);
+    rec(l, s, mid, depth + 1); rec(l + 1, mid, e, depth + 1);
+  }
+  nodes.push(null); rec(0, 0, n, 0);
+  return { nodes, order, depth: maxDepth, n };
+}
+function refit(blas, src) { // keep the tree, regrow every box from the bottom up
+  const nodes = blas.nodes, order = blas.order, bmin = src.bmin, bmax = src.bmax;
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const nd = nodes[i]; nd.min[0] = nd.min[1] = nd.min[2] = Infinity; nd.max[0] = nd.max[1] = nd.max[2] = -Infinity;
+    if (nd.b > 0) { for (let k = nd.a; k < nd.a + nd.b; k++) { const p = order[k] * 3; for (let a = 0; a < 3; a++) { if (bmin[p + a] < nd.min[a]) nd.min[a] = bmin[p + a]; if (bmax[p + a] > nd.max[a]) nd.max[a] = bmax[p + a]; } } }
+    else { const l = nodes[nd.a], r = nodes[nd.a + 1]; for (let a = 0; a < 3; a++) { nd.min[a] = Math.min(l.min[a], r.min[a]); nd.max[a] = Math.max(l.max[a], r.max[a]); } }
+  }
+}
+
+// ---- the GPU copy: nodes, triangles and instances as float textures
+const NW = 1024, TW = 1024, IW = 64;
+const maxNodes = 2 * total + 128, nodeRows = Math.ceil(maxNodes * 2 / NW), triRows = Math.ceil(total * 3 / TW);
+const nodeData = new Float32Array(NW * nodeRows * 4), triData = new Float32Array(TW * triRows * 4), instData = new Float32Array(IW * 4);
+const nodeDepth = new Int32Array(maxNodes), nodeInst = new Int32Array(maxNodes), triProp = new Int32Array(total);
+const dataTex = (arr, w, h) => { const t = new THREE.DataTexture(arr, w, h, THREE.RGBAFormat, THREE.FloatType); t.minFilter = t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; t.needsUpdate = true; return t; };
+const nodeTex = dataTex(nodeData, NW, nodeRows), triTex = dataTex(triData, TW, triRows), instTex = dataTex(instData, IW, 1);
+let nodeCount = 0, tlasRoot = 0, tlas = null; const inst = [];
+const ibmin = new Float32Array(props.length * 3), ibmax = new Float32Array(props.length * 3), icen = new Float32Array(props.length * 3);
+
+function writeNodes(blas, nodeOff, triOff, slot) {
+  const nodes = blas.nodes;
+  for (let i = 0; i < nodes.length; i++) { const nd = nodes[i], k = (nodeOff + i) * 8; nodeData[k] = nd.min[0]; nodeData[k + 1] = nd.min[1]; nodeData[k + 2] = nd.min[2]; nodeData[k + 3] = nd.b > 0 ? triOff + nd.a : nodeOff + nd.a; nodeData[k + 4] = nd.max[0]; nodeData[k + 5] = nd.max[1]; nodeData[k + 6] = nd.max[2]; nodeData[k + 7] = nd.b; nodeDepth[nodeOff + i] = nd.depth; nodeInst[nodeOff + i] = slot; }
+}
+function writeTris(src, blas, triOff, propOf) {
+  for (let i = 0; i < blas.n; i++) { const o = blas.order[i], s = o * 9, k = (triOff + i) * 12; triData[k] = src.tris[s]; triData[k + 1] = src.tris[s + 1]; triData[k + 2] = src.tris[s + 2]; triData[k + 3] = src.matIds[o]; triData[k + 4] = src.tris[s + 3]; triData[k + 5] = src.tris[s + 4]; triData[k + 6] = src.tris[s + 5]; triData[k + 7] = 0; triData[k + 8] = src.tris[s + 6]; triData[k + 9] = src.tris[s + 7]; triData[k + 10] = src.tris[s + 8]; triData[k + 11] = 0; triProp[triOff + i] = propOf(o); }
+}
+function writeInst(s, it) {
+  it.inv.copy(it.m).invert(); const e = it.inv.elements, b = s * 16;
+  instData[b] = e[0]; instData[b + 1] = e[4]; instData[b + 2] = e[8]; instData[b + 3] = e[12];
+  instData[b + 4] = e[1]; instData[b + 5] = e[5]; instData[b + 6] = e[9]; instData[b + 7] = e[13];
+  instData[b + 8] = e[2]; instData[b + 9] = e[6]; instData[b + 10] = e[10]; instData[b + 11] = e[14];
+  instData[b + 12] = it.root; instData[b + 13] = it.triOff; instData[b + 14] = it.n; instData[b + 15] = 0;
+}
+function pack() {
+  let n = 0, t = 0; inst.length = 0;
+  if (twoLevel) {
+    // the top tree (TLAS): one box per prop, around the prop's own root box moved into the world
+    for (let i = 0; i < props.length; i++) { const p = props[i], r = p.blas.nodes[0]; p.obj.updateMatrixWorld(true); let mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+      for (let c = 0; c < 8; c++) { v.set(c & 1 ? r.max[0] : r.min[0], c & 2 ? r.max[1] : r.min[1], c & 4 ? r.max[2] : r.min[2]).applyMatrix4(p.obj.matrixWorld); mn[0] = Math.min(mn[0], v.x); mn[1] = Math.min(mn[1], v.y); mn[2] = Math.min(mn[2], v.z); mx[0] = Math.max(mx[0], v.x); mx[1] = Math.max(mx[1], v.y); mx[2] = Math.max(mx[2], v.z); }
+      for (let a = 0; a < 3; a++) { ibmin[i * 3 + a] = mn[a]; ibmax[i * 3 + a] = mx[a]; icen[i * 3 + a] = (mn[a] + mx[a]) / 2; } }
+    tlas = buildTree(props.length, ibmin, ibmax, icen, { split: 'sah', leafSize: 1 });
+    for (let s = 0; s < props.length; s++) { const p = props[tlas.order[s]]; p.slot = s; p.root = n; p.triOff = t; inst.push(p); writeNodes(p.blas, n, t, s); writeTris(p, p.blas, t, () => props.indexOf(p)); writeInst(s, p); n += p.blas.nodes.length; t += p.n; }
+    tlasRoot = n;
+    for (let i = 0; i < tlas.nodes.length; i++) { const nd = tlas.nodes[i], k = (n + i) * 8; nodeData[k] = nd.min[0]; nodeData[k + 1] = nd.min[1]; nodeData[k + 2] = nd.min[2]; nodeData[k + 3] = nd.b > 0 ? nd.a : n + nd.a; nodeData[k + 4] = nd.max[0]; nodeData[k + 5] = nd.max[1]; nodeData[k + 6] = nd.max[2]; nodeData[k + 7] = nd.b; nodeDepth[n + i] = nd.depth; nodeInst[n + i] = -1; }
+    n += tlas.nodes.length;
+  } else {
+    tlas = null; WORLDP.root = 0; WORLDP.triOff = 0; inst.push(WORLDP); writeNodes(W.blas, 0, 0, 0); writeTris(W, W.blas, 0, i => W.propIds[i]); writeInst(0, WORLDP); n = W.blas.nodes.length;
+    tlasRoot = n; const r = W.blas.nodes[0], k = n * 8; nodeData[k] = r.min[0]; nodeData[k + 1] = r.min[1]; nodeData[k + 2] = r.min[2]; nodeData[k + 3] = 0; nodeData[k + 4] = r.max[0]; nodeData[k + 5] = r.max[1]; nodeData[k + 6] = r.max[2]; nodeData[k + 7] = 1; nodeDepth[n] = 0; nodeInst[n] = -1; n += 1;
+  }
+  nodeCount = n; nodeTex.needsUpdate = triTex.needsUpdate = instTex.needsUpdate = true;
+  U.uTlasRoot.value = tlasRoot; U.uNInst.value = inst.length;
+  walkDirty = levelDirty = statsDirty = true;
+}
+
+// ---- state
+let view = 'split', splitF = 0.5, findBy = 'tree', opt = { split: 'sah', leafSize: 4 }, level = 2, showLevel = true, nearFirst = true, anyHit = false, stepWanted = -1;
+let twoLevel = false, update = 'rebuild', wind = false, shadowN = 1, sunSize = 1.5, bounces = 1, rtScale = 0.5;
+let walkDirty = true, levelDirty = true, statsDirty = true, windMs = 0, frame = 0;
+
+// ---- shaders
+const GL3 = THREE.GLSL3;
+const VS = 'out vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const SKYFN = `
+vec3 srgb(vec3 c) { c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+vec3 sky(vec3 d) { vec3 base = vec3(0.0033, 0.0046, 0.0083); vec3 horizon = vec3(0.05, 0.07, 0.11) * exp(-abs(d.y) * 5.0); float s = dot(d, uSunDir);
+  vec3 sun = uSunCol * (smoothstep(0.9985, 0.9997, s) * 2.5 + pow(max(s, 0.0), 48.0) * 0.06); return base + horizon + sun; }`;
+const skyU = { uInvPV: { value: new THREE.Matrix4() }, uCamPos: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Vector3() } };
+const skyMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: skyU, vertexShader: VS, depthTest: false, depthWrite: false, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform mat4 uInvPV; uniform vec3 uCamPos, uSunDir, uSunCol; ${SKYFN}
+void main(){ vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, 1.0, 1.0); vec3 d = normalize(w.xyz / w.w - uCamPos); o = vec4(srgb(sky(d)), 1.0); }` });
+
+const U = {
+  uNodes: { value: nodeTex }, uTris: { value: triTex }, uInst: { value: instTex }, uNW: { value: NW }, uTW: { value: TW }, uIW: { value: IW },
+  uTlasRoot: { value: 0 }, uNInst: { value: 1 }, uBrute: { value: 0 }, uNearFirst: { value: 1 }, uShadowN: { value: 1 }, uBounces: { value: 1 }, uFrame: { value: 0 }, uHeat: { value: 0 },
+  uSplit: { value: 0.5 }, uSunSize: { value: 0.03 }, uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Vector3() }, uHemiSky: { value: new THREE.Vector3() }, uHemiGnd: { value: new THREE.Vector3() },
+  uCamPos: { value: new THREE.Vector3() }, uFirePos: { value: new THREE.Vector3() }, uFireCol: { value: new THREE.Vector3() }, uInvPV: { value: new THREE.Matrix4() }, uMat: { value: MATS }
+};
+const TRACE = `precision highp float; precision highp int; precision highp sampler2D;
+in vec2 vUv; out vec4 o;
+uniform sampler2D uNodes, uTris, uInst; uniform int uNW, uTW, uIW, uTlasRoot, uNInst, uBrute, uNearFirst, uShadowN, uBounces, uFrame, uHeat;
+uniform float uSplit, uSunSize; uniform vec3 uSunDir, uSunCol, uHemiSky, uHemiGnd, uCamPos, uFirePos, uFireCol; uniform mat4 uInvPV; uniform vec4 uMat[24];
+#define PI 3.14159265
+${SKYFN}
+vec4 fetchN(int i) { return texelFetch(uNodes, ivec2(i - (i / uNW) * uNW, i / uNW), 0); }
+vec4 fetchT(int i) { return texelFetch(uTris, ivec2(i - (i / uTW) * uTW, i / uTW), 0); }
+vec4 fetchI(int i) { return texelFetch(uInst, ivec2(i - (i / uIW) * uIW, i / uIW), 0); }
+float hash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }
+vec3 safeDir(vec3 d) { return vec3(abs(d.x) < 1e-6 ? 1e-6 : d.x, abs(d.y) < 1e-6 ? 1e-6 : d.y, abs(d.z) < 1e-6 ? 1e-6 : d.z); }
+// the slab test: where does the ray enter and leave each pair of box walls
+bool slab(vec3 bmin, vec3 bmax, vec3 o, vec3 invD, float tMax) {
+  vec3 t0 = (bmin - o) * invD, t1 = (bmax - o) * invD; vec3 tmin = min(t0, t1), tmax = max(t0, t1);
+  float tNear = max(max(tmin.x, tmin.y), max(tmin.z, 0.0)); float tFar = min(min(tmax.x, tmax.y), min(tmax.z, tMax)); return tNear <= tFar; }
+// Moller-Trumbore: distance along the ray to a triangle, or -1
+float triT(int ti, vec3 o, vec3 d) {
+  vec3 v0 = fetchT(ti * 3).xyz, v1 = fetchT(ti * 3 + 1).xyz, v2 = fetchT(ti * 3 + 2).xyz;
+  vec3 e1 = v1 - v0, e2 = v2 - v0, p = cross(d, e2); float det = dot(e1, p); if (abs(det) < 1e-9) return -1.0;
+  float inv = 1.0 / det; vec3 tv = o - v0; float u = dot(tv, p) * inv; if (u < 0.0 || u > 1.0) return -1.0;
+  vec3 q = cross(tv, e1); float w = dot(d, q) * inv; if (w < 0.0 || u + w > 1.0) return -1.0;
+  return dot(e2, q) * inv; }
+// walk one prop's tree (or the whole camp's) with a small stack of boxes still to open
+bool walkTree(int root, vec3 o, vec3 d, inout float tMax, inout int hitTri, bool anyHit, inout int boxes, inout int tests) {
+  int stack[32]; int sp = 0; stack[sp++] = root; vec3 invD = 1.0 / safeDir(d); bool found = false;
+  for (int guard = 0; guard < 4096 && sp > 0; guard++) {
+    int ni = stack[--sp]; vec4 a = fetchN(ni * 2), b = fetchN(ni * 2 + 1); boxes++;
+    if (!slab(a.xyz, b.xyz, o, invD, tMax)) continue;
+    int cnt = int(b.w);
+    if (cnt > 0) { int first = int(a.w); for (int k = 0; k < cnt; k++) { tests++; float t = triT(first + k, o, d); if (t > 0.0 && t < tMax) { tMax = t; hitTri = first + k; found = true; if (anyHit) return true; } } }
+    else { int axis = -cnt - 1; int left = int(a.w); float dc = axis == 0 ? d.x : (axis == 1 ? d.y : d.z); bool lf = uNearFirst == 0 || dc >= 0.0;
+      if (sp < 30) { stack[sp++] = lf ? left + 1 : left; stack[sp++] = lf ? left : left + 1; } }
+  }
+  return found; }
+void instRay(int s, vec3 o, vec3 d, out vec3 ol, out vec3 dl) { vec4 r0 = fetchI(s * 4), r1 = fetchI(s * 4 + 1), r2 = fetchI(s * 4 + 2); vec4 oh = vec4(o, 1.0);
+  ol = vec3(dot(r0, oh), dot(r1, oh), dot(r2, oh)); dl = vec3(dot(r0.xyz, d), dot(r1.xyz, d), dot(r2.xyz, d)); }
+// the top tree over the props, then down into each prop's own tree
+bool trace(vec3 o, vec3 d, inout float tMax, out int hitTri, out int hitInst, bool anyHit, bool brute, inout int boxes, inout int tests) {
+  hitTri = -1; hitInst = -1;
+  if (brute) { for (int s = 0; s < uNInst; s++) { vec3 ol, dl; instRay(s, o, d, ol, dl); vec4 r3 = fetchI(s * 4 + 3); int off = int(r3.y), cnt = int(r3.z);
+      for (int k = 0; k < cnt; k++) { tests++; float t = triT(off + k, ol, dl); if (t > 0.0 && t < tMax) { tMax = t; hitTri = off + k; hitInst = s; } } } return hitTri >= 0; }
+  int stack[16]; int sp = 0; stack[sp++] = uTlasRoot; vec3 invD = 1.0 / safeDir(d);
+  for (int guard = 0; guard < 256 && sp > 0; guard++) {
+    int ni = stack[--sp]; vec4 a = fetchN(ni * 2), b = fetchN(ni * 2 + 1); boxes++;
+    if (!slab(a.xyz, b.xyz, o, invD, tMax)) continue;
+    int cnt = int(b.w);
+    if (cnt > 0) { int first = int(a.w); for (int k = 0; k < cnt; k++) { int s = first + k; vec3 ol, dl; instRay(s, o, d, ol, dl); int ht = -1;
+        if (walkTree(int(fetchI(s * 4 + 3).x), ol, dl, tMax, ht, anyHit, boxes, tests)) { hitTri = ht; hitInst = s; if (anyHit) return true; } } }
+    else { int axis = -cnt - 1; int left = int(a.w); float dc = axis == 0 ? d.x : (axis == 1 ? d.y : d.z); bool lf = uNearFirst == 0 || dc >= 0.0;
+      if (sp < 14) { stack[sp++] = lf ? left + 1 : left; stack[sp++] = lf ? left : left + 1; } }
+  }
+  return hitTri >= 0; }
+vec3 hitNormal(int ti, int s) { vec3 v0 = fetchT(ti * 3).xyz, v1 = fetchT(ti * 3 + 1).xyz, v2 = fetchT(ti * 3 + 2).xyz; vec3 nl = normalize(cross(v1 - v0, v2 - v0));
+  vec4 r0 = fetchI(s * 4), r1 = fetchI(s * 4 + 1), r2 = fetchI(s * 4 + 2); return normalize(r0.xyz * nl.x + r1.xyz * nl.y + r2.xyz * nl.z); }
+vec3 sunSample(float seed) { vec3 w = uSunDir; vec3 u = normalize(cross(abs(w.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), w)); vec3 vv = cross(w, u);
+  float r = sqrt(hash(vec3(gl_FragCoord.xy, seed))) * tan(uSunSize); float ph = 6.2831853 * hash(vec3(gl_FragCoord.yx, seed + 3.7)); return normalize(w + u * (r * cos(ph)) + vv * (r * sin(ph))); }
+// the same lighting the rasterized side uses: sun, sky dome, campfire; shadows come from real rays here
+vec3 shade(vec3 p, vec3 n, vec4 m, inout int boxes, inout int tests, float seed) {
+  if (m.w < 0.0) return m.rgb;
+  vec3 col = mix(uHemiGnd, uHemiSky, dot(n, vec3(0.0, 1.0, 0.0)) * 0.5 + 0.5);
+  float ndl = max(dot(n, uSunDir), 0.0);
+  if (ndl > 0.0) { float vis = 1.0;
+    if (uShadowN > 0) { vis = 0.0; for (int k = 0; k < 8; k++) { if (k >= uShadowN) break; vec3 sd = sunSample(seed + float(k) * 1.618); float tm = 1e9; int ht, hi; if (!trace(p + n * 1e-3, sd, tm, ht, hi, true, false, boxes, tests)) vis += 1.0; } vis /= float(uShadowN); }
+    col += uSunCol * ndl * vis; }
+  vec3 fv = uFirePos - p; float fd = length(fv); vec3 fl = fv / fd; float nfl = max(dot(n, fl), 0.0);
+  if (nfl > 0.0 && fd < 12.0) { float att = 1.0 / max(fd * fd, 0.01); float c = 1.0 - pow(fd / 12.0, 4.0); att *= c * c; float tm = fd - 2e-3; int ht, hi;
+    if (!trace(p + n * 1e-3, fl, tm, ht, hi, true, false, boxes, tests)) col += uFireCol * att * nfl; }
+  return m.rgb * col / PI; }
+vec3 heat(float n) { float x = clamp(n / 96.0, 0.0, 1.0); vec3 a = vec3(0.03, 0.05, 0.12), b = vec3(0.29, 0.64, 1.0), c = vec3(0.95, 0.64, 0.25), d = vec3(1.0);
+  return x < 0.34 ? mix(a, b, x / 0.34) : x < 0.67 ? mix(b, c, (x - 0.34) / 0.33) : mix(c, d, (x - 0.67) / 0.33); }
+void main() {
+  if (vUv.x < uSplit) discard;
+  vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, 1.0, 1.0); vec3 d = normalize(w.xyz / w.w - uCamPos); vec3 ro = uCamPos;
+  float seed = float(uFrame) * 0.37; int boxes = 0, tests = 0; vec3 acc = vec3(0.0), thr = vec3(1.0);
+  for (int b = 0; b < 3; b++) {
+    if (b > uBounces) break;
+    float tMax = 1e9; int ht, hi;
+    bool hit = trace(ro, d, tMax, ht, hi, false, uBrute == 1 && b == 0, boxes, tests);
+    if (!hit) { acc += thr * sky(d); break; }
+    vec3 p = ro + d * tMax; vec3 n = hitNormal(ht, hi); if (dot(n, d) > 0.0) n = -n;
+    vec4 m = uMat[int(fetchT(ht * 3).w)]; float refl = max(m.w, 0.0);
+    acc += thr * shade(p, n, m, boxes, tests, seed + float(b) * 7.3) * (1.0 - refl);
+    if (refl <= 0.0 || b == uBounces) break;
+    thr *= refl; d = reflect(d, n); ro = p + n * 1e-3;
+  }
+  o = uHeat == 1 ? vec4(heat(float(boxes)), 1.0) : vec4(srgb(acc), 1.0);
+}`;
+const traceMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: U, vertexShader: VS, fragmentShader: TRACE, depthTest: false, depthWrite: false });
+const compU = { tRT: { value: null }, uSplit: { value: 0.5 }, uRes: { value: new THREE.Vector2(1, 1) } };
+const compMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: compU, vertexShader: VS, depthTest: false, depthWrite: false, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D tRT; uniform float uSplit; uniform vec2 uRes;
+void main(){ if (vUv.x < uSplit) discard; if (uSplit > 0.0 && uSplit < 1.0 && (vUv.x - uSplit) * uRes.x < 2.0) { o = vec4(0.95, 0.85, 0.6, 1.0); return; } o = vec4(texture(tRT, vUv).rgb, 1.0); }` });
+const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quadGeo = new THREE.PlaneGeometry(2, 2);
+const skyScene = new THREE.Scene(); skyScene.add(new THREE.Mesh(quadGeo, skyMat));
+const traceScene = new THREE.Scene(); traceScene.add(new THREE.Mesh(quadGeo, traceMat));
+const compScene = new THREE.Scene(); compScene.add(new THREE.Mesh(quadGeo, compMat));
+let rt = null, rtW = 0, rtH = 0;
+function ensureRT() { const w = Math.max(2, Math.round(sb.stage.clientWidth * rtScale)), h = Math.max(2, Math.round(sb.stage.clientHeight * rtScale)); if (rt && rt.width === w && rt.height === h) return; if (rt) rt.dispose(); rt = new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false }); rtW = w; rtH = h; }
+// light values copied from the kit's lights, so both halves agree
+U.uSunDir.value.copy(sb.lights.sun.position).normalize(); skyU.uSunDir.value.copy(U.uSunDir.value);
+U.uSunCol.value.set(sb.lights.sun.color.r, sb.lights.sun.color.g, sb.lights.sun.color.b).multiplyScalar(sb.lights.sun.intensity); skyU.uSunCol.value.copy(U.uSunCol.value);
+U.uHemiSky.value.set(sb.lights.hemi.color.r, sb.lights.hemi.color.g, sb.lights.hemi.color.b).multiplyScalar(sb.lights.hemi.intensity);
+U.uHemiGnd.value.set(sb.lights.hemi.groundColor.r, sb.lights.hemi.groundColor.g, sb.lights.hemi.groundColor.b).multiplyScalar(sb.lights.hemi.intensity);
+U.uFireCol.value.set(fireLight.color.r, fireLight.color.g, fireLight.color.b).multiplyScalar(fireLight.intensity);
+U.uFirePos.value.set(camp.fire.position.x, 1.0, camp.fire.position.z);
+
+// ---- the overlay: the ray, its handles, the boxes, the tested triangles (drawn to illustrate, always on top)
+const overlay = new THREE.Scene();
+function lineBuf(maxSegs, opacity) {
+  const g = new THREE.BufferGeometry(), pos = new Float32Array(maxSegs * 6), col = new Float32Array(maxSegs * 6);
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setDrawRange(0, 0);
+  const l = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity, depthTest: false, depthWrite: false })); l.frustumCulled = false; overlay.add(l);
+  const b = { l, n: 0, max: maxSegs, begin() { b.n = 0; }, seg(ax, ay, az, bx, by, bz, c) { if (b.n >= b.max) return; const i = b.n * 6; pos[i] = ax; pos[i + 1] = ay; pos[i + 2] = az; pos[i + 3] = bx; pos[i + 4] = by; pos[i + 5] = bz; col[i] = col[i + 3] = c.r; col[i + 1] = col[i + 4] = c.g; col[i + 2] = col[i + 5] = c.b; b.n++; },
+    end() { g.setDrawRange(0, b.n * 2); g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; } };
+  return b;
+}
+const levelLines = lineBuf(30000, 0.55), walkLines = lineBuf(4000, 0.9), triLines = lineBuf(8192, 0.8);
+const C = { pass: new THREE.Color(PAL.green), fail: new THREE.Color(PAL.red), level: new THREE.Color(PAL.blue), top: new THREE.Color(PAL.amber), tri: new THREE.Color(PAL.amber), now: new THREE.Color(PAL.white) };
+const corner = new Float32Array(24), EDGES = [0, 1, 2, 3, 4, 5, 6, 7, 0, 2, 1, 3, 4, 6, 5, 7, 0, 4, 1, 5, 2, 6, 3, 7];
+function boxSegs(buf, nodeIdx, m, c) {
+  const k = nodeIdx * 8;
+  for (let i = 0; i < 8; i++) { v.set(i & 1 ? nodeData[k + 4] : nodeData[k], i & 2 ? nodeData[k + 5] : nodeData[k + 1], i & 4 ? nodeData[k + 6] : nodeData[k + 2]); if (m) v.applyMatrix4(m); corner[i * 3] = v.x; corner[i * 3 + 1] = v.y; corner[i * 3 + 2] = v.z; }
+  for (let e = 0; e < 24; e += 2) { const a = EDGES[e] * 3, b = EDGES[e + 1] * 3; buf.seg(corner[a], corner[a + 1], corner[a + 2], corner[b], corner[b + 1], corner[b + 2], c); }
+}
+const va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3();
+function triSegs(buf, ti, c) {
+  const k = ti * 12, m = inst[triInstOf(ti)].m;
+  va.set(triData[k], triData[k + 1], triData[k + 2]).applyMatrix4(m); vb.set(triData[k + 4], triData[k + 5], triData[k + 6]).applyMatrix4(m); vc.set(triData[k + 8], triData[k + 9], triData[k + 10]).applyMatrix4(m);
+  buf.seg(va.x, va.y, va.z, vb.x, vb.y, vb.z, c); buf.seg(vb.x, vb.y, vb.z, vc.x, vc.y, vc.z, c); buf.seg(vc.x, vc.y, vc.z, va.x, va.y, va.z, c);
+}
+function triInstOf(ti) { for (let s = inst.length - 1; s >= 0; s--) if (ti >= inst[s].triOff) return s; return 0; }
+const rayStart = new THREE.Vector3(-10, 1.8, 7), rayAim = new THREE.Vector3(4, 1.4, -4), rayDir = new THREE.Vector3();
+const startH = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 10), new THREE.MeshBasicMaterial({ color: PAL.blue, depthTest: false })); startH.position.copy(rayStart); overlay.add(startH);
+const aimH = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 10), new THREE.MeshBasicMaterial({ color: PAL.amber, depthTest: false })); aimH.position.copy(rayAim); overlay.add(aimH);
+const hitH = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 8), new THREE.MeshBasicMaterial({ color: PAL.white, depthTest: false })); overlay.add(hitH);
+const rayGeo = new THREE.BufferGeometry(); rayGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+const rayLine = new THREE.Line(rayGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false })); rayLine.frustumCulled = false; overlay.add(rayLine);
+const rayTail = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3)), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.18, depthTest: false })); rayTail.frustumCulled = false; overlay.add(rayTail);
+sb.label('ray start, drag me', startH, 'blue').off.set(0, 0.5, 0);
+sb.label('aim, drag me', aimH, 'amber').off.set(0, 0.45, 0);
+const pondLabel = sb.label('the pond: a mirror only the ray tracer can draw', pond); pondLabel.off.set(0, 0.5, 0);
+const houseLabel = sb.label('the house, drag me', camp.house); houseLabel.off.set(0, 4.6, 0);
+
+// ---- the CPU walk of the same tree, for the one drawn ray (mirrors the shader step for step)
+const stackA = new Int32Array(64), stackB = new Int32Array(64), ol = new THREE.Vector3(), dl = new THREE.Vector3();
+const res = { t: 1e9, tri: -1, inst: -1, boxes: 0, tests: 0 };
+const rec = { n: 0, node: new Int32Array(2048), inst: new Int32Array(2048), pass: new Uint8Array(2048), tEnd: new Int32Array(2048), tBest: new Float32Array(2048), tris: new Int32Array(8192), tn: 0 };
+const safe = x => Math.abs(x) < 1e-6 ? 1e-6 : x;
+function slabJS(ni, ox, oy, oz, ix, iy, iz, tMax) {
+  const b = ni * 8; const t0x = (nodeData[b] - ox) * ix, t1x = (nodeData[b + 4] - ox) * ix, t0y = (nodeData[b + 1] - oy) * iy, t1y = (nodeData[b + 5] - oy) * iy, t0z = (nodeData[b + 2] - oz) * iz, t1z = (nodeData[b + 6] - oz) * iz;
+  const tn = Math.max(Math.min(t0x, t1x), Math.min(t0y, t1y), Math.min(t0z, t1z), 0), tf = Math.min(Math.max(t0x, t1x), Math.max(t0y, t1y), Math.max(t0z, t1z), tMax); return tn <= tf ? tn : -1;
+}
+function triJS(ti, ox, oy, oz, dx, dy, dz) {
+  const k = ti * 12; const v0x = triData[k], v0y = triData[k + 1], v0z = triData[k + 2];
+  const e1x = triData[k + 4] - v0x, e1y = triData[k + 5] - v0y, e1z = triData[k + 6] - v0z, e2x = triData[k + 8] - v0x, e2y = triData[k + 9] - v0y, e2z = triData[k + 10] - v0z;
+  const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x; const det = e1x * px + e1y * py + e1z * pz; if (Math.abs(det) < 1e-9) return -1;
+  const inv = 1 / det, tx = ox - v0x, ty = oy - v0y, tz = oz - v0z; const u = (tx * px + ty * py + tz * pz) * inv; if (u < 0 || u > 1) return -1;
+  const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x; const w = (dx * qx + dy * qy + dz * qz) * inv; if (w < 0 || u + w > 1) return -1;
+  return (e2x * qx + e2y * qy + e2z * qz) * inv;
+}
+function walkJS(root, o, d, slot, any, r) {
+  const ix = 1 / safe(d.x), iy = 1 / safe(d.y), iz = 1 / safe(d.z); let sp = 0; stackB[sp++] = root; let found = false;
+  while (sp > 0) {
+    const ni = stackB[--sp]; res.boxes++; const tn = slabJS(ni, o.x, o.y, o.z, ix, iy, iz, res.t);
+    let ri = -1; if (r && r.n < 2048) { ri = r.n++; r.node[ri] = ni; r.inst[ri] = slot; r.pass[ri] = tn >= 0 ? 1 : 0; r.tEnd[ri] = r.tn; r.tBest[ri] = res.t; }
+    if (tn < 0) continue;
+    const a = nodeData[ni * 8 + 3], b = nodeData[ni * 8 + 7];
+    if (b > 0) { for (let k = 0; k < b; k++) { res.tests++; if (r && r.tn < 8192) r.tris[r.tn++] = a + k; const t = triJS(a + k, o.x, o.y, o.z, d.x, d.y, d.z); if (t > 0 && t < res.t) { res.t = t; res.tri = a + k; found = true; if (any) { if (ri >= 0) { r.tEnd[ri] = r.tn; r.tBest[ri] = res.t; } return true; } } }
+      if (ri >= 0) { r.tEnd[ri] = r.tn; r.tBest[ri] = res.t; } }
+    else { const axis = -b - 1, left = a; const dc = axis === 0 ? d.x : axis === 1 ? d.y : d.z; const lf = !nearFirst || dc >= 0; if (sp < 62) { stackB[sp++] = lf ? left + 1 : left; stackB[sp++] = lf ? left : left + 1; } }
+  }
+  return found;
+}
+function traverse(o, d, any, r) {
+  res.t = 1e9; res.tri = -1; res.inst = -1; res.boxes = 0; res.tests = 0; if (r) { r.n = 0; r.tn = 0; }
+  const ix = 1 / safe(d.x), iy = 1 / safe(d.y), iz = 1 / safe(d.z); let sp = 0; stackA[sp++] = tlasRoot;
+  outer: while (sp > 0) {
+    const ni = stackA[--sp]; res.boxes++; const tn = slabJS(ni, o.x, o.y, o.z, ix, iy, iz, res.t);
+    if (r && r.n < 2048) { const ri = r.n++; r.node[ri] = ni; r.inst[ri] = -1; r.pass[ri] = tn >= 0 ? 1 : 0; r.tEnd[ri] = r.tn; r.tBest[ri] = res.t; }
+    if (tn < 0) continue;
+    const a = nodeData[ni * 8 + 3], b = nodeData[ni * 8 + 7];
+    if (b > 0) { for (let k = 0; k < b; k++) { const s = a + k, it = inst[s]; const e = it.inv.elements; ol.copy(o).applyMatrix4(it.inv); dl.set(e[0] * d.x + e[4] * d.y + e[8] * d.z, e[1] * d.x + e[5] * d.y + e[9] * d.z, e[2] * d.x + e[6] * d.y + e[10] * d.z);
+        if (walkJS(it.root, ol, dl, s, any, r)) { res.inst = s; if (any) break outer; } } }
+    else { const axis = -b - 1; const dc = axis === 0 ? d.x : axis === 1 ? d.y : d.z; const lf = !nearFirst || dc >= 0; if (sp < 62) { stackA[sp++] = lf ? a + 1 : a; stackA[sp++] = lf ? a : a + 1; } }
+  }
+  return res.tri >= 0;
+}
+function bruteJS(o, d) { // every triangle, no boxes
+  res.t = 1e9; res.tri = -1; res.inst = -1; res.boxes = 0; res.tests = 0;
+  for (let s = 0; s < inst.length; s++) { const it = inst[s], e = it.inv.elements; ol.copy(o).applyMatrix4(it.inv); dl.set(e[0] * d.x + e[4] * d.y + e[8] * d.z, e[1] * d.x + e[5] * d.y + e[9] * d.z, e[2] * d.x + e[6] * d.y + e[10] * d.z);
+    for (let k = 0; k < it.n; k++) { res.tests++; const t = triJS(it.triOff + k, ol.x, ol.y, ol.z, dl.x, dl.y, dl.z); if (t > 0 && t < res.t) { res.t = t; res.tri = it.triOff + k; res.inst = s; } } }
+  return res.tri >= 0;
+}
+
+// ---- panel
+const s1 = sb.panel.section('01 · Two ways to draw the camp', 'Left of the line the usual rasterizer paints triangles onto the screen and shadows come from a shadow map. Right of the line a ray tracer fires one ray per pixel into the same triangles and asks what it hits first. Orbit, and the ray traced side keeps up.');
+s1.segment('Show', [{ value: 'raster', label: 'rasterized' }, { value: 'split', label: 'split' }, { value: 'rt', label: 'ray traced' }, { value: 'heat', label: 'boxes per pixel' }], 'split', v => { view = v; applyView(); });
+s1.slider('Where the ray traced side begins', { min: 0, max: 100, step: 1, value: 50, unit: ' %' }, x => { splitF = x / 100; });
+s1.key([['#4aa3ff', 'boxes per pixel view: a few boxes opened'], ['#f2a341', 'dozens of boxes opened'], ['#ffffff', 'a hundred or more (the leaves)']]);
+
+const s2 = sb.panel.section('02 · One ray, two ways', 'Drag the blue start and the amber aim to fire one ray through the camp. The slow way tests every triangle. With the tree, the ray only opens the boxes it touches and tests the few triangles inside the last ones.');
+s2.segment('Find the first hit by', [{ value: 'brute', label: 'checking every triangle' }, { value: 'tree', label: 'with the tree' }], 'tree', x => { findBy = x; U.uBrute.value = x === 'brute' ? 1 : 0; walkDirty = true; applyView(); });
+const startHS = s2.slider('Ray start height', { min: 0.2, max: 8, step: 0.1, value: 1.8, unit: ' m' }, x => { rayStart.y = x; startH.position.y = x; walkDirty = true; });
+const aimHS = s2.slider('Aim height', { min: 0.2, max: 8, step: 0.1, value: 1.4, unit: ' m' }, x => { rayAim.y = x; aimH.position.y = x; walkDirty = true; });
+s2.button('Aim the ray from the camera', () => { rayStart.copy(camera.position).addScaledVector(v.copy(sb.controls.target).sub(camera.position).normalize(), 2); rayAim.copy(sb.controls.target); clampRay(); });
+const triTotal = s2.readout('triangles in the camp'), bruteRead = s2.readout('triangle checks, every triangle'), boxRead = s2.readout('boxes opened, with the tree'), treeTests = s2.readout('triangle checks, with the tree'), hitRead = s2.readout('first thing hit');
+s2.key([['#f2a341', 'triangle checked'], ['#5ad48a', 'box check passed'], ['#ef5d5d', 'box check failed, or starts beyond the hit']]);
+s2.note('On the GPU side, checking every triangle applies to the camera rays only; the shadow rays keep the tree, or one frame would take seconds. Watch the milliseconds readout in 06 jump.');
+
+const s3 = sb.panel.section('03 · Building the tree', 'Every box holds two smaller boxes, down to finished boxes holding a few triangles. Step through the levels and compare cutting a box down the middle with cutting where the cost says.');
+const levelS = s3.slider('Level of the tree shown', { min: 0, max: 12, step: 1, value: 2 }, x => { level = x; levelDirty = true; });
+s3.toggle('show the boxes of that level', true, x => { showLevel = x; levelDirty = true; });
+s3.segment('Where to cut each box', [{ value: 'median', label: 'down the middle' }, { value: 'sah', label: 'by cost (SAH)' }], 'sah', x => { opt.split = x; rebuildAll('rebuilt the tree, cut ' + (x === 'sah' ? 'by cost' : 'down the middle')); });
+s3.slider('Triangles per finished box', { min: 1, max: 8, step: 1, value: 4 }, x => { opt.leafSize = x; rebuildAll('rebuilt the tree with ' + x + ' triangles per finished box'); });
+const nodesRead = s3.readout('boxes in the tree'), depthRead = s3.readout('levels'), buildRead = s3.readout('build time'), avgBoxRead = s3.readout('boxes per ray, 100 random rays'), avgTestRead = s3.readout('triangle checks per ray');
+
+const s4 = sb.panel.section('04 · Walking the tree', 'The ray keeps a to-do list of boxes. Scrub through its walk: green boxes passed the test, red ones failed or start beyond the best hit so far, so they are never opened.');
+const stepS = s4.slider('Step of the walk shown', { min: 0, max: 60, step: 1, value: 60, fmt: x => x + ' of ' + (rec.n || 0) }, x => { stepWanted = x >= +stepS.el.querySelector('input').max ? -1 : x; drawWalk(); });
+s4.toggle('open the nearer half first', true, x => { nearFirst = x; U.uNearFirst.value = x ? 1 : 0; walkDirty = statsDirty = true; });
+s4.segment('What the ray asks', [{ value: 'closest', label: 'the nearest thing' }, { value: 'any', label: 'anything at all (a shadow ray)' }], 'closest', x => { anyHit = x === 'any'; walkDirty = true; });
+const stepBoxRead = s4.readout('boxes checked so far'), stepTestRead = s4.readout('triangles checked so far'), stepHitRead = s4.readout('closest hit so far');
+
+const s5 = sb.panel.section('05 · Moving props', 'One tree over the whole camp must change whenever anything moves. With two levels each prop keeps its own tree and a tiny top tree holds the props, so dragging the house rebuilds only the top tree. Wind changes the shape of the trees, so their own trees must be regrown every frame.');
+s5.toggle('two-level tree: one tree per prop, a small top tree over them', false, x => { twoLevel = x; rebuildAll(x ? 'built one tree per prop and the top tree over them' : 'built one tree over the whole camp'); });
+s5.segment('When a shape changes', [{ value: 'rebuild', label: 'rebuild from scratch' }, { value: 'refit', label: 'refit: regrow the boxes, keep the tree' }], 'rebuild', x => { update = x; if (!wind) rebuildAll('rebuilt the tree, fresh'); });
+s5.toggle('wind: bend the trees every frame', false, x => { wind = x; if (!x) { for (const p of props) if (p.tree) restoreTree(p); rebuildAll('wind stopped, rebuilt the tree'); } });
+s5.button('Put the house and the knight back', () => { camp.house.position.set(4, 0, -4); camp.knight.position.set(-1.2, 0, 1.5); propMoved(props.find(p => p.obj === camp.house), 'the house and the knight'); });
+const workRead = s5.readout('last tree work'), frameWorkRead = s5.readout('tree work per frame');
+s5.key([['#f2a341', 'the top tree over the props (two-level mode)'], ['#4aa3ff', 'boxes of the shown level']]);
+
+const s6 = sb.panel.section('06 · Rays a frame can afford', 'Every ray past the first costs the same walk again. Shadow rays go toward the sun and stop at the first thing they touch, one more goes to the campfire, and a mirror bounce follows the ray off the pond and the shield.');
+s6.slider('Shadow rays per pixel, toward the sun', { min: 0, max: 8, step: 1, value: 1 }, x => { shadowN = x; });
+s6.slider('Sun size (softer shadows, more noise)', { min: 0, max: 8, step: 0.5, value: 1.5, unit: '°' }, x => { sunSize = x; U.uSunSize.value = x * Math.PI / 180; });
+s6.slider('Mirror bounces', { min: 0, max: 2, step: 1, value: 1 }, x => { bounces = x; });
+s6.segment('Ray picture size', [{ value: 1, label: 'full' }, { value: 0.5, label: 'half' }, { value: 0.25, label: 'quarter' }], 0.5, x => { rtScale = +x; });
+const rtRead = s6.readout('ray picture'), rppRead = s6.readout('rays per pixel, at most'), rpfRead = s6.readout('rays per frame, at most'), msRead = s6.readout('milliseconds per frame');
+s6.note('Noise is what one random shadow ray per pixel really gives you; games clean it with a denoiser rather than firing more rays. The milliseconds count the whole frame on your graphics card.');
+U.uSunSize.value = sunSize * Math.PI / 180;
+
+// ---- tree work
+function report(what, ms) { workRead(what + ', ' + (ms < 0.1 ? '< 0.1' : ms.toFixed(1)) + ' ms'); }
+function rebuildAll(reason) {
+  const t0 = performance.now();
+  for (const p of props) fillTris(p);
+  if (twoLevel) { for (const p of props) { triBounds(p); p.blas = buildTree(p.n, p.bmin, p.bmax, p.cen, opt); } }
+  else { fillWorld(); W.blas = buildTree(total, W.bmin, W.bmax, W.cen, opt); }
+  pack(); const ms = performance.now() - t0; buildRead(ms.toFixed(1) + ' ms'); if (reason) report(reason, ms);
+  levelS.el.querySelector('input').max = treeDepth(); if (level > treeDepth()) levelS.set(treeDepth());
+}
+function treeDepth() { return twoLevel ? Math.max(...props.map(p => p.blas.depth)) : W.blas.depth; }
+function treeNodes() { return twoLevel ? props.reduce((s, p) => s + p.blas.nodes.length, 0) + tlas.nodes.length : W.blas.nodes.length; }
+function propMoved(p, what) {
+  const t0 = performance.now(); let did;
+  if (twoLevel) { pack(); did = 'moved ' + what + ': rebuilt only the top tree, ' + tlas.nodes.length + ' boxes'; }
+  else { fillWorld(); if (update === 'refit') { refit(W.blas, W); did = 'moved ' + what + ': refit the whole tree, ' + W.blas.nodes.length + ' boxes kept, regrown'; } else { W.blas = buildTree(total, W.bmin, W.bmax, W.cen, opt); did = 'moved ' + what + ': rebuilt the whole tree, ' + W.blas.nodes.length + ' boxes'; } pack(); }
+  report(did, performance.now() - t0);
+}
+function deform(p, t) {
+  for (const m of p.meshes) { const base = m.userData.base; if (!base) continue; const pos = m.geometry.attributes.position, arr = pos.array, my = m.position.y, ph = t * 1.7 + p.obj.position.x * 0.5;
+    for (let i = 0; i < arr.length; i += 3) { const y = base[i + 1] + my, f = (y / p.h) * (y / p.h); arr[i] = base[i] + Math.sin(ph + y * 0.6) * 0.3 * f; arr[i + 2] = base[i + 2] + Math.cos(ph * 0.8 + y * 0.4) * 0.14 * f; }
+    pos.needsUpdate = true; }
+}
+function restoreTree(p) { for (const m of p.meshes) { const base = m.userData.base; if (!base) continue; m.geometry.attributes.position.array.set(base); m.geometry.attributes.position.needsUpdate = true; } }
+function windStep(t) {
+  const t0 = performance.now();
+  for (const p of props) if (p.tree) { deform(p, t); fillTris(p); if (twoLevel) { triBounds(p); if (update === 'refit') refit(p.blas, p); else p.blas = buildTree(p.n, p.bmin, p.bmax, p.cen, opt); } }
+  if (!twoLevel) { fillWorld(); if (update === 'refit') refit(W.blas, W); else W.blas = buildTree(total, W.bmin, W.bmax, W.cen, opt); }
+  pack(); windMs = performance.now() - t0;
+  report(twoLevel ? (update === 'refit' ? 'wind: refit the four trees\' own trees and rebuilt the top tree' : 'wind: rebuilt the four trees\' own trees and the top tree') : (update === 'refit' ? 'wind: refit the whole tree' : 'wind: rebuilt the whole tree'), windMs);
+}
+
+// ---- the drawn ray and its walk
+function clampRay() { rayStart.x = THREE.MathUtils.clamp(rayStart.x, -19, 19); rayStart.z = THREE.MathUtils.clamp(rayStart.z, -19, 19); rayAim.x = THREE.MathUtils.clamp(rayAim.x, -19, 19); rayAim.z = THREE.MathUtils.clamp(rayAim.z, -19, 19); rayStart.y = THREE.MathUtils.clamp(rayStart.y, 0.2, 8); rayAim.y = THREE.MathUtils.clamp(rayAim.y, 0.2, 8); startH.position.copy(rayStart); aimH.position.copy(rayAim); startHS.set(rayStart.y, false); aimHS.set(rayAim.y, false); walkDirty = true; }
+let walkBoxes = 0, walkTests = 0, walkT = 1e9;
+function updateWalk() {
+  walkDirty = false; rayDir.copy(rayAim).sub(rayStart); if (rayDir.lengthSq() < 1e-6) rayDir.set(1, 0, 0); rayDir.normalize();
+  bruteJS(rayStart, rayDir); bruteRead(res.tests.toLocaleString()); const bruteT = res.t, bruteTri = res.tri;
+  traverse(rayStart, rayDir, anyHit, rec); walkBoxes = res.boxes; walkTests = res.tests; walkT = res.t;
+  boxRead(walkBoxes); treeTests(walkTests);
+  const tri = findBy === 'brute' ? bruteTri : res.tri; hitRead(tri >= 0 ? props[triProp[tri]].name + ', ' + (findBy === 'brute' ? bruteT : res.t).toFixed(1) + ' m along' : 'nothing, the ray leaves the camp');
+  const inp = stepS.el.querySelector('input'); inp.max = rec.n; if (stepWanted < 0 || stepWanted > rec.n) stepS.set(rec.n, false); else stepS.set(stepWanted, false);
+  drawWalk();
+}
+function drawWalk() {
+  const S = stepWanted < 0 ? rec.n : Math.min(stepWanted, rec.n);
+  walkLines.begin(); triLines.begin();
+  let tBest = 1e9;
+  if (findBy === 'brute') { for (let i = 0; i < total; i++) triSegs(triLines, i, C.tri); bruteJS(rayStart, rayDir); tBest = res.t; stepBoxRead('no boxes, every triangle'); stepTestRead(res.tests.toLocaleString()); }
+  else {
+    let tests = 0; for (let i = 0; i < S; i++) { const m = rec.inst[i] < 0 ? null : inst[rec.inst[i]].m; boxSegs(walkLines, rec.node[i], m, i === S - 1 ? C.now : rec.pass[i] ? C.pass : C.fail); }
+    if (S > 0) { tests = rec.tEnd[S - 1]; tBest = rec.tBest[S - 1]; for (let i = 0; i < tests; i++) triSegs(triLines, rec.tris[i], C.tri); }
+    stepBoxRead(S + ' of ' + rec.n); stepTestRead(tests + ' of ' + walkTests);
+  }
+  walkLines.end(); triLines.end();
+  stepHitRead(tBest < 1e8 ? tBest.toFixed(2) + ' m along the ray' : 'none yet');
+  const len = tBest < 1e8 ? tBest : 60; const a = rayGeo.attributes.position.array; a[0] = rayStart.x; a[1] = rayStart.y; a[2] = rayStart.z; a[3] = rayStart.x + rayDir.x * len; a[4] = rayStart.y + rayDir.y * len; a[5] = rayStart.z + rayDir.z * len; rayGeo.attributes.position.needsUpdate = true;
+  const b = rayTail.geometry.attributes.position.array; b[0] = a[3]; b[1] = a[4]; b[2] = a[5]; b[3] = rayStart.x + rayDir.x * 80; b[4] = rayStart.y + rayDir.y * 80; b[5] = rayStart.z + rayDir.z * 80; rayTail.geometry.attributes.position.needsUpdate = true; rayTail.visible = tBest < 1e8;
+  hitH.visible = tBest < 1e8; hitH.position.set(a[3], a[4], a[5]);
+}
+function updateLevel() {
+  levelDirty = false; levelLines.begin();
+  if (showLevel) for (let i = 0; i < nodeCount; i++) {
+    const s = nodeInst[i];
+    if (s < 0) { if (twoLevel) boxSegs(levelLines, i, null, C.top); continue; }
+    const d = nodeDepth[i], leaf = nodeData[i * 8 + 7] > 0; if (d === level || (leaf && d < level)) boxSegs(levelLines, i, inst[s].m, C.level);
+  }
+  levelLines.end();
+}
+const rnd = (() => { let s = 12345; return () => { s = (s * 16807) % 2147483647; return s / 2147483647; }; });
+const ro = new THREE.Vector3(), rd = new THREE.Vector3();
+function updateStats() {
+  statsDirty = false; const r = rnd(); let boxes = 0, tests = 0;
+  for (let i = 0; i < 100; i++) { const a = r() * Math.PI * 2; ro.set(Math.cos(a) * 16, 1 + r() * 3, Math.sin(a) * 16); rd.set(r() * 16 - 8, r() * 3, r() * 16 - 8).sub(ro).normalize(); traverse(ro, rd, false, null); boxes += res.boxes; tests += res.tests; }
+  avgBoxRead((boxes / 100).toFixed(1)); avgTestRead((tests / 100).toFixed(1)); nodesRead(treeNodes().toLocaleString()); depthRead(treeDepth() + 1);
+}
+
+// ---- dragging: the two ray handles, the house and the knight
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitP = new THREE.Vector3(), grabOff = new THREE.Vector3();
+let drag = null;
+const dragProps = props.filter(p => p.canDrag), pickMeshes = dragProps.flatMap(p => p.meshes);
+function toNdc(e) { const r = renderer.domElement.getBoundingClientRect(); ndc.set((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, camera); }
+function pick(e) { toNdc(e); overlay.updateMatrixWorld(true); if (ray.intersectObject(startH, false).length) return { kind: 'start' }; if (ray.intersectObject(aimH, false).length) return { kind: 'aim' }; const h = ray.intersectObjects(pickMeshes, false); if (h.length) { const p = dragProps.find(q => q.meshes.includes(h[0].object)); return { kind: 'prop', p }; } return null; }
+sb.stage.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || e.target !== renderer.domElement) return; const t = pick(e); if (!t) return;
+  drag = t; sb.controls.enabled = false; sb.stage.style.cursor = 'grabbing'; e.stopPropagation(); e.preventDefault();
+  const y = t.kind === 'start' ? rayStart.y : t.kind === 'aim' ? rayAim.y : 0; plane.constant = -y; if (ray.ray.intersectPlane(plane, hitP)) { const src = t.kind === 'start' ? rayStart : t.kind === 'aim' ? rayAim : t.p.obj.position; grabOff.copy(src).sub(hitP); }
+}, true);
+window.addEventListener('pointermove', e => {
+  if (!drag) { if (e.target === renderer.domElement) sb.stage.style.cursor = pick(e) ? 'grab' : ''; return; }
+  toNdc(e); if (!ray.ray.intersectPlane(plane, hitP)) return; hitP.add(grabOff);
+  if (drag.kind === 'start') { rayStart.x = hitP.x; rayStart.z = hitP.z; clampRay(); }
+  else if (drag.kind === 'aim') { rayAim.x = hitP.x; rayAim.z = hitP.z; clampRay(); }
+  else { const o = drag.p.obj; o.position.x = THREE.MathUtils.clamp(hitP.x, -17, 17); o.position.z = THREE.MathUtils.clamp(hitP.z, -17, 17); propMoved(drag.p, drag.p.name); }
+  e.stopPropagation();
+});
+window.addEventListener('pointerup', () => { if (drag) { drag = null; sb.controls.enabled = true; sb.stage.style.cursor = ''; } });
+
+// ---- views
+function applyView() {
+  sb.hud('mode', view === 'raster' ? 'rasterized only: triangles painted to the screen, shadows from a shadow map' : view === 'split' ? 'left: rasterized · right of the line: ray traced in a shader, ' + (findBy === 'brute' ? 'camera rays checking every triangle' : 'walking the tree of boxes') : view === 'rt' ? 'ray traced: every pixel is one ray asking what it hits first' : 'boxes opened per pixel: dark blue is cheap, white is a hundred or more');
+  pondLabel.hide(view === 'raster' || view === 'heat');
+}
+applyView();
+
+// ---- first build, then the loop
+rebuildAll(null); triTotal(total.toLocaleString());
+let msAvg = 0, lastNow = 0;
+const invPV = new THREE.Matrix4();
+sb.onFrame((dt, t) => {
+  if (wind) windStep(t); else windMs = 0;
+  frameWorkRead(wind ? windMs.toFixed(2) + ' ms' : 'nothing, the camp is still');
+  if (walkDirty) updateWalk(); if (levelDirty) updateLevel(); if (statsDirty) updateStats();
+  const now = performance.now(); if (lastNow) msAvg += ((now - lastNow) - msAvg) * 0.1; lastNow = now; msRead(msAvg.toFixed(1) + ' ms');
+  const frac = view === 'raster' ? 0 : view === 'split' ? 1 - splitF : 1; const heatOn = view === 'heat';
+  const rpp = heatOn ? 1 : (2 + shadowN) * (1 + bounces);
+  const px = rt ? Math.round(rt.width * frac) * rt.height : 0;
+  rtRead(rt && frac > 0 ? rtW + ' × ' + rtH + ' rays wide and tall' : 'off');
+  rppRead(heatOn ? '1, the camera ray only' : '1 camera + ' + shadowN + ' sun + 1 campfire, times ' + (1 + bounces) + ' = ' + rpp);
+  rpfRead(frac > 0 ? (px * rpp).toLocaleString() : '0');
+});
+sb.onRender((scene, camera, renderer) => {
+  camera.updateMatrixWorld(); invPV.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).invert();
+  U.uInvPV.value.copy(invPV); U.uCamPos.value.copy(camera.position); skyU.uInvPV.value.copy(invPV); skyU.uCamPos.value.copy(camera.position);
+  renderer.autoClear = false; renderer.setRenderTarget(null); renderer.setClearColor(PAL.sky, 1); renderer.clear();
+  renderer.render(skyScene, quadCam);
+  const split = view === 'split' ? splitF : view === 'raster' ? 1 : 0;
+  if (split > 0) renderer.render(scene, camera);
+  if (split < 1) {
+    ensureRT(); U.uSplit.value = split; U.uHeat.value = view === 'heat' ? 1 : 0; U.uShadowN.value = view === 'heat' ? 0 : shadowN; U.uBounces.value = view === 'heat' ? 0 : bounces; U.uFrame.value = frame++;
+    renderer.setRenderTarget(rt); renderer.clear(); renderer.render(traceScene, quadCam); renderer.setRenderTarget(null);
+    compU.tRT.value = rt.texture; compU.uSplit.value = split; compU.uRes.value.set(sb.stage.clientWidth, sb.stage.clientHeight); renderer.render(compScene, quadCam);
+  }
+  renderer.render(overlay, camera);
+});
+sb.start();
+</script>
+</body>
+</html>
