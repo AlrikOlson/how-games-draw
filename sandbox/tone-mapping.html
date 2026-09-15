@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HDR, Tone Mapping &amp; Color · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'tone-mapping', title: 'HDR, Tone Mapping & Color',
+  blurb: 'You stand in a cave mouth at the camp: a dim fire behind you, full daylight in front. The scene is drawn with real light values, thousands of times apart, and your screen can only show a slice. Pick the slice, pick the curve that squeezes the rest in, then break the picture into bands and fix it with grain.',
+  camera: { pos: [0.4, 1.5, -9.0], target: [0, 1.9, -2.6], fov: 60, near: 0.1, far: 400 },
+  hint: 'drag to look · scroll to move closer · buttons in 02 walk in and out'
+});
+const { scene, camera, renderer, controls } = sb;
+controls.minDistance = 0.5; controls.maxDistance = 40;
+
+// ---- the world: the camp outside, a cave around the camera
+scene.background = null; renderer.setClearColor(0x000000, 1);
+sb.world.ground(80);
+const cave = new THREE.Group(); scene.add(cave);
+const stone = () => new THREE.MeshLambertMaterial({ color: 0x3e4552, shadowSide: THREE.DoubleSide, flatShading: true });
+// a rocky wall: a plane bumped in and out at random, flat toward its edges so the walls meet without gaps
+const rocky = (w, h, amp) => { const g = new THREE.PlaneGeometry(w, h, Math.round(w * 2.2), Math.round(h * 2.2)), pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) { const x = pos.getX(i), y = pos.getY(i); const edge = Math.min(w / 2 - Math.abs(x), h / 2 - Math.abs(y)); const fade = Math.min(1, Math.max(0, edge / 0.9));
+    pos.setZ(i, (Math.abs(Math.sin(i * 12.9898 + x * 7.1 + y * 3.7) * 43758.5) % 1 - 0.5) * 2 * amp * fade); }
+  g.computeVertexNormals(); return g; };
+const plane = (w, h, x, y, z, rx, ry, amp, m) => { const p = sb.mesh(rocky(w, h, amp), m || stone(), x, y, z); p.rotation.x = rx; p.rotation.y = ry; cave.add(p); return p; };
+plane(10.6, 5.6, -5, 2.5, -7.5, 0, Math.PI / 2, 0.4);        // left wall, faces in
+plane(10.6, 5.6, 5, 2.5, -7.5, 0, -Math.PI / 2, 0.4);        // right wall
+plane(10.6, 10.6, 0, 5, -7.5, Math.PI / 2, 0, 0.45);         // ceiling, faces down
+plane(10.6, 5.6, 0, 2.5, -12.5, 0, 0, 0.4);                  // back wall
+plane(10.6, 10.6, 0, 0.12, -7.5, -Math.PI / 2, 0, 0.06, new THREE.MeshLambertMaterial({ color: PAL.dirt, flatShading: true })); // cave floor
+const mound = sb.mesh(new THREE.DodecahedronGeometry(1, 1), stone(), 0, 0.4, -7.6); mound.scale.set(7.8, 6.2, 9.2); cave.add(mound);
+cave.add(sb.mesh(new THREE.BoxGeometry(13.5, 1, 13.5), stone(), 0, 6.0, -7.5)); // a slab over the cave so no sun leaks in through the roof
+for (const [x, y, z, r] of [[-5.6, 0, -1.6, 1.3], [5.8, 0, -1.4, 1.1], [-3.8, 5.1, -2.0, 1.0], [3.6, 5.3, -1.9, 1.1], [0.2, 5.7, -1.8, 1.3], [-7.2, 0, 0.5, 0.8], [7.4, 0, 0.9, 0.7]]) {
+  const rk = sb.mesh(new THREE.DodecahedronGeometry(r, 0), stone(), x, y || r * 0.6, z); rk.rotation.set(x, z, y); cave.add(rk);
+}
+// the camp, out in the daylight
+sb.world.house(2.5, 12.5, 4, 3, 2.6, 0.5); sb.world.tree(12, 8, 4.6); sb.world.tree(9, 3, 3.8, false); sb.world.tree(-4, 16, 5); sb.world.tree(11, 12, 4.2, false);
+const knight = sb.world.knight(-1.4, 4.2, 1.8, Math.PI + 0.3); sb.world.crate(3.2, 3.4, 0.9, 0.4); sb.world.crate(3.9, 2.4, 0.7, -0.5); sb.world.rock(-5, 11, 0.7);
+// the fire, back in the cave: dim, warm, close
+const fire = sb.world.fire(-1.8, -9.2, 0.55);
+const flame = fire.getObjectByName('flame'); flame.material.color.setRGB(6, 2.2, 0.35);
+const fireLight = fire.getObjectByName('firelight'); fireLight.intensity = 5; fireLight.distance = 16; fireLight.castShadow = false;
+// five embers on the cave floor, each four times brighter than the last: the chapter's red strip
+const embers = [];
+[0.25, 1, 4, 16, 64].forEach((k, i) => { const e = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(1.0 * k, 0.07 * k, 0.02 * k) })); e.position.set(2.2 - i * 1.1, 0.14, -4.6); scene.add(e); embers.push(e); });
+// a glowing crystal: its colour can be pushed outside what a normal screen can make
+const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), new THREE.MeshBasicMaterial({ color: 0x40ff60 })); crystal.position.set(-3.1, 0.55, -3.5); scene.add(crystal);
+// sky and sun: bright, real-light values well above white
+const sunDir = new THREE.Vector3(0.9, 0.55, 0.7).normalize();
+const skyCol = new THREE.Color().setRGB(0.9, 1.4, 2.6);
+const sky = new THREE.Mesh(new THREE.SphereGeometry(150, 24, 16), new THREE.MeshBasicMaterial({ color: skyCol, side: THREE.BackSide })); scene.add(sky);
+const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(5, 16, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(40, 36, 30) })); sunDisc.position.copy(sunDir).multiplyScalar(140); scene.add(sunDisc);
+const sun = sb.lights.sun; sun.position.copy(sunDir).multiplyScalar(45); sun.intensity = 24; sun.color.setRGB(1, 0.93, 0.8);
+sun.shadow.camera.left = sun.shadow.camera.bottom = -24; sun.shadow.camera.right = sun.shadow.camera.top = 24; sun.shadow.camera.near = 1; sun.shadow.camera.far = 120; sun.shadow.camera.updateProjectionMatrix();
+sb.lights.hemi.color.copy(skyCol).multiplyScalar(0.3); sb.lights.hemi.groundColor.set(0x1a2a1a); sb.lights.hemi.intensity = 0.015;
+// the sky's own light as a soft shadowed lamp from straight above, so outdoor shadows are a few doublings under sunlight but the cave roof keeps it out
+const skyFill = new THREE.DirectionalLight(skyCol, 0.8); skyFill.position.set(2, 40, -4); skyFill.castShadow = true; skyFill.shadow.mapSize.set(1024, 1024);
+const fc = skyFill.shadow.camera; fc.left = fc.bottom = -26; fc.right = fc.top = 26; fc.near = 1; fc.far = 90; skyFill.shadow.bias = -0.001; skyFill.shadow.radius = 4; scene.add(skyFill, skyFill.target);
+// a little daylight bounces in off the floor at the mouth, so the near ceiling is not pure black
+const bounce = new THREE.PointLight(0xd8e4ff, 7, 18, 2); bounce.position.set(0.3, 2.2, -2.6); scene.add(bounce);
+// smoke across the cave mouth: drawn in its own pass, so it can blend two ways
+const smoke = new THREE.Mesh(new THREE.PlaneGeometry(13, 7.5), new THREE.ShaderMaterial({
+  uniforms: { tBack: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uExposure: { value: 1 }, uTrans: { value: 0.5 }, uMode: { value: 0 }, uTime: { value: 0 }, uSmoke: { value: new THREE.Vector3(1.0, 0.98, 0.95) } },
+  side: THREE.DoubleSide, depthWrite: false, blending: THREE.NoBlending, toneMapped: false,
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `
+    uniform sampler2D tBack; uniform vec2 uRes; uniform float uExposure, uTrans, uTime; uniform int uMode; uniform vec3 uSmoke; varying vec2 vUv;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
+    vec3 toSrgb(vec3 c){ return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+    vec3 fromSrgb(vec3 e){ return mix(e / 12.92, pow((e + 0.055) / 1.055, vec3(2.4)), step(0.04045, e)); }
+    void main(){
+      vec3 back = texture2D(tBack, gl_FragCoord.xy / uRes).rgb;
+      vec2 q = (vUv - 0.5) * vec2(1.0, 1.5);
+      float n = vnoise(vUv * 4.0 + vec2(uTime * 0.06, uTime * 0.02)) * 0.6 + vnoise(vUv * 9.0 - uTime * 0.05) * 0.4;
+      float mask = smoothstep(0.62, 0.18, length(q)) * (0.55 + 0.45 * n);
+      float a = (1.0 - uTrans) * mask;                       // how much of the pixel the smoke covers
+      bool bytes = uMode == 1 || (uMode == 0 && vUv.x > 0.5);   // the camera looks down +z, so plane x > 0 is the left of the screen
+      vec3 c;
+      if (bytes) {                                            // the wrong way: encode to bytes first, blend the bytes
+        vec3 be = toSrgb(clamp(back * uExposure, 0.0, 1.0)), se = toSrgb(clamp(uSmoke * uExposure, 0.0, 1.0));
+        c = fromSrgb(mix(be, se, a)) / uExposure;
+      } else c = mix(back, uSmoke, a);                        // the right way: blend the light itself
+      if (uMode == 0 && abs(vUv.x - 0.5) < 0.0035 && mask > 0.03 && fract(vUv.y * 14.0) < 0.55) c = mix(c, vec3(3.0), 0.7);
+      gl_FragColor = vec4(c, 1.0);
+    }`
+}));
+smoke.position.set(0.2, 2.6, -2.4); smoke.frustumCulled = false; smoke.castShadow = false; smoke.receiveShadow = false;
+const smokeScene = new THREE.Scene(); smokeScene.add(smoke);
+
+// ---- labels
+sb.label('the campfire', fire).off.set(0, 1.5, 0);
+sb.label('embers, each 4 times brighter', embers[2]).off.set(0, 0.5, 0);
+sb.label('the crystal', crystal).off.set(0, 0.7, 0);
+sb.label('the knight', knight).off.set(0, 2.0, 0);
+sb.label('the sun', sunDisc).off.set(0, 8, 0);
+const lblBytes = sb.label('blended in bytes (wrong)', new THREE.Vector3(3.2, 4.1, -2.4), 'amber');
+const lblLin = sb.label('blended in real light (right)', new THREE.Vector3(-2.8, 4.1, -2.4), 'blue');
+
+// ---- the frame: scene in real light to a half-float buffer, then one screen pass that exposes, curves, encodes and rounds
+const world = new THREE.Group(); for (const c of [...scene.children]) world.add(c); scene.add(world);
+const rtOpts = { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: true, samples: 4 };
+let rtA = new THREE.WebGLRenderTarget(4, 4, rtOpts), rtC = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, depthBuffer: false });
+const PN = 32, rtP = new THREE.WebGLRenderTarget(PN, PN, { type: THREE.FloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false });
+const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const passVert = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const copyScene = new THREE.Scene(); const copyMat = new THREE.MeshBasicMaterial({ map: rtA.texture, toneMapped: false }); copyScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), copyMat));
+// the light meter: average the log of brightness over the frame, 32 by 32 cells (a tiny luminance histogram)
+const probeScene = new THREE.Scene(); const probeMat = new THREE.ShaderMaterial({ uniforms: { tHdr: { value: null } }, vertexShader: passVert, fragmentShader: `
+  uniform sampler2D tHdr; varying vec2 vUv;
+  void main(){ float s = 0.0; for (int i = 0; i < 6; i++) for (int j = 0; j < 6; j++) {
+    vec2 uv = vUv + (vec2(float(i), float(j)) - 2.5) / (6.0 * ${PN}.0);
+    vec3 c = texture2D(tHdr, uv).rgb; s += log2(max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-4)); }
+    gl_FragColor = vec4(s / 36.0, 0.0, 0.0, 1.0); }` });
+probeScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), probeMat));
+const probeBuf = new Float32Array(PN * PN * 4), probeVals = new Float32Array(PN * PN);
+
+const quadMat = new THREE.ShaderMaterial({
+  uniforms: { tHdr: { value: null }, uExposure: { value: 1 }, uView: { value: 0 }, uGamut: { value: 1 }, uBits: { value: 8 }, uDither: { value: 0 }, uQuantLinear: { value: 0 }, uPQ: { value: 0 }, uPaperWhite: { value: 200 }, uTime: { value: 0 } },
+  depthTest: false, depthWrite: false, vertexShader: passVert,
+  fragmentShader: `
+    uniform sampler2D tHdr; uniform float uExposure, uBits, uPaperWhite, uTime; uniform int uView, uGamut, uDither, uQuantLinear, uPQ; varying vec2 vUv;
+    float lum(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    int b2(int x, int y){ return 2 * ((x ^ y) & 1) + (y & 1); }
+    float bayer4(vec2 p){ int x = int(mod(p.x, 4.0)), y = int(mod(p.y, 4.0)); return (float(4 * b2(x & 1, y & 1) + b2(x >> 1, y >> 1)) + 0.5) / 16.0; }
+    vec3 ramp(float t){ // black, blue, green, yellow, red, white
+      vec3 c0 = vec3(0.0), c1 = vec3(0.1, 0.2, 0.9), c2 = vec3(0.1, 0.8, 0.3), c3 = vec3(1.0, 0.9, 0.1), c4 = vec3(1.0, 0.2, 0.1), c5 = vec3(1.0);
+      t = clamp(t, 0.0, 1.0) * 5.0; int i = int(floor(t)); float f = fract(t);
+      if (i == 0) return mix(c0, c1, f); if (i == 1) return mix(c1, c2, f); if (i == 2) return mix(c2, c3, f); if (i == 3) return mix(c3, c4, f); return mix(c4, c5, min(f + float(i - 4), 1.0)); }
+    void main(){
+      vec3 c = texture2D(tHdr, vUv).rgb;
+      // colours no normal screen can make arrive with a channel below zero: cut it, or pull the colour toward white
+      float mn = min(c.r, min(c.g, c.b));
+      if (mn < 0.0) { if (uGamut == 0) c = max(c, 0.0); else { float y = max(lum(c), 1e-5); c = y + (c - y) * (y / (y - mn)); } }
+      vec3 exposed = c * uExposure;
+      if (uView == 2) { float st = log2(max(lum(exposed), 1e-6)); gl_FragColor = linearToOutputTexel(vec4(ramp((st + 8.0) / 12.0), 1.0)); return; }
+      gl_FragColor = vec4(c, 1.0);
+      #if defined( TONE_MAPPING )
+        gl_FragColor.rgb = toneMapping(gl_FragColor.rgb);          // the curve three.js was asked for, with its exposure
+      #else
+        gl_FragColor.rgb = clamp(exposed, 0.0, 1.0);              // no curve: a hard cut at white
+      #endif
+      vec3 disp = gl_FragColor.rgb;
+      if (uView == 1 && max(disp.r, max(disp.g, disp.b)) >= 0.985) { float s = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) / 14.0)); disp = mix(vec3(1.0, 0.25, 0.2), vec3(0.45, 0.04, 0.04), s); }
+      vec3 e;
+      if (uPQ == 1) { vec3 y = clamp(disp * uPaperWhite / 10000.0, 0.0, 1.0); vec3 ym = pow(y, vec3(0.1593017578125)); e = pow((0.8359375 + 18.8515625 * ym) / (1.0 + 18.6875 * ym), vec3(78.84375)); }
+      else e = linearToOutputTexel(vec4(disp, 1.0)).rgb;
+      // rounding to a fixed number of steps, with optional grain added before the rounding
+      float codes = exp2(uBits) - 1.0, d = 0.0;
+      if (uDither == 1) { float u1 = hash(gl_FragCoord.xy + fract(uTime) * 7.0), u2 = hash(gl_FragCoord.yx * 1.31 + fract(uTime * 1.7) * 5.0); d = u1 + u2 - 1.0; }
+      else if (uDither == 2) d = bayer4(gl_FragCoord.xy) - 0.5;
+      if (uQuantLinear == 1) e = linearToOutputTexel(vec4(floor(clamp(disp, 0.0, 1.0) * codes + 0.5 + d) / codes, 1.0)).rgb;
+      else e = floor(clamp(e, 0.0, 1.0) * codes + 0.5 + d) / codes;
+      gl_FragColor = vec4(e, 1.0);
+    }`
+});
+const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), quadMat); quad.frustumCulled = false; quad.visible = false; scene.add(quad);
+const U = quadMat.uniforms, SU = smoke.material.uniforms;
+
+// ---- state
+let ev = 0, evTarget = 0, autoOn = false, tau = 0.8, lAvg = 0.18, rangeStops = 0, split = 0, view = 0, curveName = 'none', bits = 8, dither = 0, frameN = 0, msAvg = 16, lastCalls = 0;
+const curves = [
+  { value: 'none', label: 'none: hard cut', tm: THREE.NoToneMapping, hud: 'no curve: above white is cut off' },
+  { value: 'linear', label: 'linear', tm: THREE.LinearToneMapping, hud: 'linear: exposure, then a hard cut' },
+  { value: 'reinhard', label: 'Reinhard', tm: THREE.ReinhardToneMapping, hud: 'Reinhard: never reaches white, flat' },
+  { value: 'cineon', label: 'Cineon', tm: THREE.CineonToneMapping, hud: 'Cineon: film S curve, per colour' },
+  { value: 'aces', label: 'ACES film', tm: THREE.ACESFilmicToneMapping, hud: 'ACES film: bright colours fade to white' },
+  { value: 'agx', label: 'AgX', tm: THREE.AgXToneMapping, hud: 'AgX: hue kept longer, gentle' },
+  { value: 'neutral', label: 'Neutral', tm: THREE.NeutralToneMapping, hud: 'Neutral: straight to 0.8, then a soft shoulder' }
+];
+function setExposure(v) { ev = v; renderer.toneMappingExposure = Math.pow(2, ev); }
+function hud() {
+  const c = curves.find(x => x.value === curveName);
+  sb.hud('mode', view === 2 ? 'brightness map: doublings from white' : view === 1 ? 'red stripes: reached white, got cut' : U.uPQ.value ? 'raw PQ codes, as sent to an HDR screen' : c.hud);
+  sb.hud('bits', bits < 8 ? bits + ' bits: ' + (1 << bits) + ' steps per colour' + (dither ? ', with grain' : '') : null);
+}
+
+// ---- 01 encoding
+const s1 = sb.panel.section('01 · Real light vs stored numbers', 'Smoke drifts across the cave mouth. The GPU can blend it as real light, or as the bytes a screen stores. Only one of those is right, and the wrong one comes out darker and muddier.');
+s1.segment('Blend the smoke', [{ value: 0, label: 'split: both ways' }, { value: 1, label: 'all in bytes (wrong)' }, { value: 2, label: 'all in real light (right)' }], 0, v => { split = +v; SU.uMode.value = split; lblBytes.hide(split !== 0); lblLin.hide(split !== 0); });
+s1.slider('How much light the smoke lets through', { min: 0, max: 1, step: 0.05, value: 0.5 }, v => { SU.uTrans.value = v; });
+s1.note('Half the light is stored as byte 188, not 128. Blend the bytes and the middle of the fade lands on a value that means much less light than it should. Blend the light and turn it into bytes once at the end, and it stays right.');
+
+// ---- 02 exposure
+const s2 = sb.panel.section('02 · Exposure: picking the slice to show', 'The sun out there is thousands of times brighter than the cave floor. Exposure picks which slice of that the screen shows; auto exposure aims the average at middle grey and eases there, the way your eyes adapt.');
+const expS = s2.slider('Exposure, in doublings (EV)', { min: -6, max: 6, step: 0.1, value: 0, fmt: v => (v >= 0 ? '+' : '') + v.toFixed(1) + ' EV, times ' + Math.pow(2, v).toFixed(2) }, v => setExposure(v));
+s2.toggle('let the game pick it (auto exposure)', false, v => { autoOn = v; });
+s2.slider('How long the eye takes to adapt', { min: 0.1, max: 3, step: 0.1, value: 0.8, unit: ' s' }, v => { tau = v; });
+s2.button('Turn round to the campfire (sudden dark)', () => { camera.position.set(1.6, 1.7, -3.6); controls.target.set(-1.8, 0.7, -9.2); });
+s2.button('Walk out into the daylight (sudden bright)', () => { camera.position.set(-0.4, 1.7, 0.4); controls.target.set(4.5, 4.2, 8.5); });
+s2.button('Back to the cave mouth', () => { camera.position.set(0.4, 1.5, -9.0); controls.target.set(0, 1.9, -2.6); });
+s2.segment('Show', [{ value: 0, label: 'the picture' }, { value: 1, label: 'mark what got cut' }, { value: 2, label: 'brightness in doublings' }], 0, v => { view = +v; U.uView.value = view; hud(); });
+s2.key([['#000000', 'black: 8 or more doublings under white'], ['#1a33e6', 'blue: 6 under'], ['#1acc4d', 'green: 3 under'], ['#ffe61a', 'yellow: white at this exposure'], ['#ff331a', 'red: 2 over, cut or squeezed'], ['#ffffff', 'white: 4 or more over']]);
+const avgRead = s2.readout('average brightness measured (1 = white)'), aimRead = s2.readout('exposure auto aims for'), nowRead = s2.readout('exposure now'), rangeRead = s2.readout('darkest to brightest, middle 93% of pixels');
+
+// ---- 03 curves
+const s3 = sb.panel.section('03 · Tone curves: the soft squeeze', 'Above white a curve decides what happens: a hard cut, or a soft squeeze toward white. These are the real curves built into three.js, switched on the renderer.');
+s3.segment('Curve', curves, 'none', v => { curveName = v; renderer.toneMapping = curves.find(x => x.value === v).tm; quadMat.needsUpdate = true; hud(); });
+s3.note('Watch the embers and the flame. Curves applied to each colour on its own (Cineon, ACES) turn a bright red into white, like film. AgX and Neutral hold the colour longer. Reinhard never reaches white, so nothing is cut but everything goes flat.');
+
+// ---- 04 banding
+const s4 = sb.panel.section('04 · Why 8 bits band, and the fix', 'Your screen stores each colour in 8 bits, 256 steps. Drop to 4 or 5 and the fire glow fading along the cave wall breaks into flat bands. Grain added just before the rounding hides them again.');
+s4.segment('Steps per colour', [{ value: 4, label: '4 bits: 16' }, { value: 5, label: '5 bits: 32' }, { value: 6, label: '6 bits: 64' }, { value: 8, label: '8 bits: 256, your screen' }], 8, v => { bits = +v; U.uBits.value = bits; hud(); });
+s4.segment('Grain before rounding (dither)', [{ value: 0, label: 'none' }, { value: 1, label: 'random grain' }, { value: 2, label: 'patterned grain' }], 0, v => { dither = +v; U.uDither.value = dither; hud(); });
+s4.segment('Spend the steps', [{ value: 0, label: 'on the byte curve (sRGB)' }, { value: 1, label: 'evenly in real light (linear)' }], 0, v => { U.uQuantLinear.value = +v; });
+s4.note('Spread evenly in real light, the dark end gets almost no steps: below 1% of white there are only two of them, so even 8 bits band in the cave. The byte curve spends 25 steps there instead.');
+
+// ---- 05 gamut
+const s5 = sb.panel.section('05 · Which colours a screen can show', 'The crystal by the fire glows green. Give it a green purer than any normal screen can make and the screen has to do something with it: cut the part it cannot show, or pull the colour in toward white.');
+let crystalPure = 0, crystalK = 0.6;
+const setCrystal = () => { if (crystalPure) crystal.material.color.setRGB(-0.35, 1.0, -0.05); else crystal.material.color.setRGB(0.12, 1.0, 0.18); crystal.material.color.multiplyScalar(crystalK); };
+setCrystal();
+s5.segment('Crystal colour', [{ value: 0, label: 'a green the screen can make' }, { value: 1, label: 'purer than the screen can make' }], 0, v => { crystalPure = +v; setCrystal(); });
+s5.segment('If it does not fit', [{ value: 0, label: 'cut to fit (hue shifts)' }, { value: 1, label: 'pull in toward white (hue kept)' }], 1, v => { U.uGamut.value = +v; });
+s5.slider('Crystal brightness', { min: 0.05, max: 8, step: 0.05, value: 0.6, fmt: v => v.toFixed(2) + ' times white' }, v => { crystalK = v; setCrystal(); });
+s5.note('Cut, the missing red is set to zero: the green shifts hue and looks brighter. Pulled in, the colour slides toward white until it fits, so the hue stays and only the purity is lost.');
+
+// ---- 06 hdr output
+const s6 = sb.panel.section('06 · Writing brightness for an HDR screen', 'A normal screen reads bytes as a fraction of its own white. An HDR screen reads PQ codes that mean real brightness in nits, so the game must decide how bright its white is. Show those codes raw on this screen and you get the flat grey look of an HDR screenshot.');
+s6.toggle('show the PQ codes as sent, raw on this normal screen', false, v => { U.uPQ.value = v ? 1 : 0; hud(); });
+s6.slider('How bright normal white is on the HDR screen', { min: 80, max: 400, step: 10, value: 200, unit: ' nits' }, v => { U.uPaperWhite.value = v; });
+s6.note('The codes look flat because PQ spends most of its range on brightness this screen cannot make. An HDR screen decodes them back to real nits, so 200 nits of white looks like paper, and the sun gets the room above.');
+const callRead = s6.readout('draw calls per frame'), msRead = s6.readout('time per frame');
+
+// ---- per frame: expose, draw the scene in real light, blend the smoke, meter, then hand the screen pass to the kit
+hud(); renderer.info.autoReset = false;
+const size = new THREE.Vector2();
+sb.onFrame((dt, t) => {
+  lastCalls = renderer.info.render.calls; renderer.info.reset(); msAvg += (dt * 1000 - msAvg) * 0.1;
+  if (autoOn) { setExposure(ev + (evTarget - ev) * (1 - Math.exp(-dt / tau))); expS.set(ev, false); }
+  renderer.getDrawingBufferSize(size);
+  if (rtA.width !== size.x || rtA.height !== size.y) { rtA.setSize(size.x, size.y); rtC.setSize(size.x, size.y); }
+  U.uExposure.value = SU.uExposure.value = renderer.toneMappingExposure; U.uTime.value = SU.uTime.value = t; SU.uRes.value.copy(size);
+  world.visible = true; quad.visible = false;
+  renderer.setRenderTarget(rtA); renderer.render(scene, camera);
+  copyMat.map = rtA.texture; renderer.setRenderTarget(rtC); renderer.render(copyScene, orthoCam);
+  SU.tBack.value = rtC.texture; renderer.setRenderTarget(rtA); renderer.autoClear = false; renderer.render(smokeScene, camera); renderer.autoClear = true;
+  probeMat.uniforms.tHdr.value = rtA.texture; renderer.setRenderTarget(rtP); renderer.render(probeScene, orthoCam);
+  if ((frameN++ & 1) === 0) {
+    renderer.readRenderTargetPixels(rtP, 0, 0, PN, PN, probeBuf);
+    for (let i = 0; i < PN * PN; i++) probeVals[i] = probeBuf[i * 4];
+    probeVals.sort(); const lo = Math.floor(PN * PN * 0.05), hi = Math.floor(PN * PN * 0.98); let s = 0; for (let i = lo; i < hi; i++) s += probeVals[i];
+    const avgLog2 = s / (hi - lo); lAvg = Math.pow(2, avgLog2); evTarget = Math.max(-6, Math.min(6, Math.log2(0.18) - avgLog2)); rangeStops = probeVals[hi - 1] - probeVals[lo];
+    avgRead(lAvg.toFixed(3)); aimRead((evTarget >= 0 ? '+' : '') + evTarget.toFixed(1) + ' EV'); nowRead((ev >= 0 ? '+' : '') + ev.toFixed(1) + ' EV, times ' + Math.pow(2, ev).toFixed(2)); rangeRead(rangeStops.toFixed(1) + ' doublings');
+    callRead(lastCalls); msRead(msAvg.toFixed(1) + ' ms');
+  }
+  renderer.setRenderTarget(null); U.tHdr.value = rtA.texture;
+  world.visible = false; quad.visible = true;
+});
+sb.start();
+</script>
+</body>
+</html>
