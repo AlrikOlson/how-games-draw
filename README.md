@@ -1,6 +1,6 @@
 # How Games Draw
 
-Twenty-two interactive pages on how a game draws its picture, one idea per page, each with
+Twenty-two interactive lessons on how a game draws its picture, built by Alrik Olson with GPT-6 Astra and Claude Fable 5.1. Twenty-two pages, one idea per page, each with
 live canvas demos you can drag. Plain HTML, no framework, no external scripts.
 
 Published at https://moistfridge.com/how-games-draw
