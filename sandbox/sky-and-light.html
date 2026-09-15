@@ -64,7 +64,7 @@ const YOUR = defMat('your ball', 0x2f6fd8, 0.25); const FLOWER_Y = defMat('flowe
 
 // ---- the world as triangles: each shape becomes a list (a BLAS), placed by instances; a few things are perfect spheres
 const blas = [], inst = [], spheres = [];
-function newBlas() { const b = { tris: [], uvs: [], nrms: [], mats: [] }; blas.push(b); return blas.length - 1; }
+function newBlas(pad) { const b = { tris: [], uvs: [], nrms: [], mats: [], pad: pad || 0 }; blas.push(b); return blas.length - 1; }
 const _p = new THREE.Vector3(), _n = new THREE.Vector3(), _nm = new THREE.Matrix3();
 function addPart(bi, geo, mat, matrix) {
   const g = geo.index ? geo.toNonIndexed() : geo; if (!g.attributes.normal) g.computeVertexNormals(); const b = blas[bi], pos = g.attributes.position, nrm = g.attributes.normal, uv = g.attributes.uv; if (matrix) _nm.getNormalMatrix(matrix);
@@ -75,9 +75,21 @@ const compose = (p, ry, s) => new THREE.Matrix4().compose(p, new THREE.Quaternio
 
 // the ground: flat around the camp, rolling hills, then mountains with snow, from noise
 const LAKE = new THREE.Vector3(-19, 0, 11), LAKE_R = 11.5, FIRE = new THREE.Vector3(1.5, 0, 4), CABIN = new THREE.Vector3(10.5, 0, -9);
-function terrainH(x, z) { const d = Math.hypot(x, z); const flat = sstep(38, 130, d); const hills = (fbm(x / 230 + 5, z / 230 + 9, 4) - 0.5) * 2 * 24; const far = sstep(380, 1000, d); const ridge = ridged(x / 760 + 3, z / 760 + 1, 5); const mountains = ridge * ridge * 300 * far; const detail = (fbm(x / 16, z / 16, 3) - 0.5) * 1.4; const dl = Math.hypot(x - LAKE.x, z - LAKE.z); const dip = -3.4 * (1 - sstep(LAKE_R - 4, LAKE_R + 2.5, dl)); return flat * (hills + mountains) + detail * (0.25 + 0.75 * flat) + dip; }
+function terrainH(x, z) { const d = Math.hypot(x, z); const flat = sstep(38, 130, d); const hills = (fbm(x / 230 + 5, z / 230 + 9, 4) - 0.5) * 2 * 24; const far = sstep(380, 1000, d); const ridge = ridged(x / 760 + 3, z / 760 + 1, 5); const mountains = ridge * ridge * 300 * far; const detail = (fbm(x / 16, z / 16, 3) - 0.5) * 1.4; const ang = Math.atan2(z - LAKE.z, x - LAKE.x); const rr = LAKE_R * (1 + 0.5 * (fbm(Math.cos(ang) * 1.6 + 7, Math.sin(ang) * 1.6 + 3, 3) - 0.5)); const dl = Math.hypot(x - LAKE.x, z - LAKE.z) * LAKE_R / rr; const dip = -3.4 * (1 - sstep(LAKE_R - 4, LAKE_R + 2.5, dl)); return flat * (hills + mountains) + detail * (0.25 + 0.75 * flat) + dip; }
 const t0 = performance.now();
-{ const g = new THREE.PlaneGeometry(2600, 2600, 300, 300); g.rotateX(-Math.PI / 2); const pos = g.attributes.position; for (let i = 0; i < pos.count; i++) pos.setY(i, terrainH(pos.getX(i), pos.getZ(i))); g.computeVertexNormals(); const bi = newBlas(); addPart(bi, g, M.TERRAIN); addInst(bi, new THREE.Matrix4()); }
+{ // a coarse grid over the whole valley, with a fine patch stitched in around the camp so the shore and the path are not made of nine-metre triangles
+  const TN = 300, TSIZE = 2600, c = TSIZE / TN, I0 = 138, I1 = 162, SUB = 12; const bi = newBlas(); const B = blas[bi];
+  const tn = (x, z) => { const e = 0.4; const dx = (terrainH(x + e, z) - terrainH(x - e, z)) / (2 * e), dz = (terrainH(x, z + e) - terrainH(x, z - e)) / (2 * e); const l = Math.hypot(dx, 1, dz); return [-dx / l, 1 / l, -dz / l]; };
+  const X = i => -TSIZE / 2 + i * c;
+  const tri = (a, b, d) => { for (const v of [a, b, d]) { B.tris.push(v[0], v[1], v[2]); const nn = tn(v[0], v[2]); B.nrms.push(nn[0], nn[1], nn[2]); B.uvs.push(0, 0); } B.mats.push(M.TERRAIN); };
+  const quad = (p00, p10, p01, p11) => { tri(p00, p01, p10); tri(p10, p01, p11); };
+  const vtx = (x, z) => [x, terrainH(x, z), z];
+  for (let j = 0; j < TN; j++) for (let i = 0; i < TN; i++) { if (i >= I0 && i < I1 && j >= I0 && j < I1) continue; quad(vtx(X(i), X(j)), vtx(X(i + 1), X(j)), vtx(X(i), X(j + 1)), vtx(X(i + 1), X(j + 1))); }
+  // the fine patch: border points take the coarse edge's straight-line height so the two meet exactly
+  const fine = (i, si, j, sj) => { const x = X(i) + si * c / SUB, z = X(j) + sj * c / SUB; const onL = i === I0 && si === 0, onR = i === I1 - 1 && si === SUB, onB = j === I0 && sj === 0, onT = j === I1 - 1 && sj === SUB;
+    if (onL || onR) { const t = sj / SUB; return [x, terrainH(x, X(j)) * (1 - t) + terrainH(x, X(j + 1)) * t, z]; } if (onB || onT) { const t = si / SUB; return [x, terrainH(X(i), z) * (1 - t) + terrainH(X(i + 1), z) * t, z]; } return [x, terrainH(x, z), z]; };
+  for (let j = I0; j < I1; j++) for (let i = I0; i < I1; i++) for (let sj = 0; sj < SUB; sj++) for (let si = 0; si < SUB; si++) quad(fine(i, si, j, sj), fine(i, si + 1, j, sj), fine(i, si, j, sj + 1), fine(i, si + 1, j, sj + 1));
+  addInst(bi, new THREE.Matrix4()); }
 
 // grass: one bent blade, copied tens of thousands of times straight into world space (one flat tree of boxes beats a box per blade)
 const PATH = [[CABIN.x - 1.2, CABIN.z + 3.2], [7, 0], [FIRE.x + 1.8, FIRE.z + 1.2], [-4, 8], [LAKE.x + LAKE_R - 1.5, LAKE.z - 3]];
@@ -85,7 +97,7 @@ function pathDist(x, z) { let d = 1e9; for (let i = 0; i + 1 < PATH.length; i++)
 function clearOf(x, z) { if (pathDist(x, z) < 0.75 + fbm(x * 0.5, z * 0.5, 2) * 0.4) return false; if (terrainH(x, z) < -0.35) return false; if (Math.hypot(x - FIRE.x, z - FIRE.z) < 2.4) return false; const dx = x - CABIN.x, dz = z - CABIN.z, ca = Math.cos(0.55), sa = Math.sin(0.55); const lx = dx * ca - dz * sa, lz = dx * sa + dz * ca; if (Math.abs(lx) < 4.4 && Math.abs(lz) < 3.6) return false; if (Math.abs(x - 13) < 4.2 && Math.abs(z - 6) < 1.8) return false; return true; }
 { const segs = 2, w = 0.03; const P = [], Uv = [], I = []; for (let i = 0; i <= segs; i++) { const t = i / segs, ww = w * (1 - t * 0.85); P.push(-ww, t, t * t * 0.18, ww, t, t * t * 0.18); Uv.push(0, t, 1, t); } for (let i = 0; i < segs; i++) { const a = i * 2; I.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
   const g0 = new THREE.BufferGeometry(); g0.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g0.setAttribute('uv', new THREE.Float32BufferAttribute(Uv, 2)); g0.setIndex(I); g0.computeVertexNormals(); const g = g0.toNonIndexed();
-  const bp = g.attributes.position.array, bn = g.attributes.normal.array, bu = g.attributes.uv.array, nv = g.attributes.position.count; const bi = newBlas(); const B = blas[bi];
+  const bp = g.attributes.position.array, bn = g.attributes.normal.array, bu = g.attributes.uv.array, nv = g.attributes.position.count; const bi = newBlas(0.22); const B = blas[bi];
   let n = 0, tries = 0; const m = new THREE.Matrix4(), nm = new THREE.Matrix3(), p = new THREE.Vector3(), sc = new THREE.Vector3(), vv = new THREE.Vector3(), vn3 = new THREE.Vector3();
   while (n < 32000 && tries++ < 300000) { const a = rnd() * Math.PI * 2, r = 36 * Math.sqrt(rnd()); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (!clearOf(x, z)) continue; if (rnd() > 0.35 + 0.65 * fbm(x / 9, z / 9, 2)) continue; const far = Math.pow(r / 36, 1.5);
     p.set(x, terrainH(x, z) - 0.02, z); sc.set((1 + rnd() * 0.5) * (1 + 2.2 * far), 0.16 + rnd() * 0.28 + 0.1 * far, 1); m.compose(p, new THREE.Quaternion().setFromAxisAngle(UPV, rnd() * Math.PI * 2), sc); nm.getNormalMatrix(m);
@@ -116,7 +128,7 @@ const treeSpots = { oak: [], pine: [], birch: [] };
 for (let t = 0; t < 2600; t++) { const a = rnd() * Math.PI * 2, r = 52 + Math.pow(rnd(), 0.7) * 400; const x = Math.cos(a) * r, z = Math.sin(a) * r; const y = terrainH(x, z); if (y > 125) continue; const forest = fbm(x / 110 + 8, z / 110 + 2, 3); if (rnd() > (forest - 0.42) * 2.4) continue; const slope = (terrainH(x + 2, z) - terrainH(x - 2, z)) / 4; if (Math.abs(slope) > 0.5) continue; const k = y > 60 ? 'pine' : rnd() < 0.55 ? 'oak' : rnd() < 0.7 ? 'pine' : 'birch'; treeSpots[k].push([x, y, z]); }
 for (const [x, z] of [[-9, -14], [16, 4], [-26, -4], [6, 20], [22, -18], [-4, 26]]) treeSpots[rnd() < 0.6 ? 'oak' : 'birch'].push([x, terrainH(x, z), z]);
 let treeCount = 0;
-for (const kind of ['oak', 'pine', 'birch']) { const spots = treeSpots[kind]; for (let v = 0; v < 2; v++) { const bi = newBlas(); buildTree(bi, kind); const mine = spots.filter((_, i) => i % 2 === v); for (const [x, y, z] of mine) { const s = 0.75 + rnd() * 0.55; addInst(bi, compose(new THREE.Vector3(x, y - 0.25, z), rnd() * Math.PI * 2, new THREE.Vector3(s, s * (0.9 + rnd() * 0.25), s))); treeCount++; } } }
+for (const kind of ['oak', 'pine', 'birch']) { const spots = treeSpots[kind]; for (let v = 0; v < 2; v++) { const bi = newBlas(0.3); buildTree(bi, kind); const mine = spots.filter((_, i) => i % 2 === v); for (const [x, y, z] of mine) { const s = 0.75 + rnd() * 0.55; addInst(bi, compose(new THREE.Vector3(x, y - 0.25, z), rnd() * Math.PI * 2, new THREE.Vector3(s, s * (0.9 + rnd() * 0.25), s))); treeCount++; } } }
 
 // rocks: a lumpy ball with noise on every vertex
 function rockGeo(seed) { const g = new THREE.IcosahedronGeometry(1, 3); const pos = g.attributes.position, v = new THREE.Vector3(); for (let i = 0; i < pos.count; i++) { v.set(pos.getX(i), pos.getY(i), pos.getZ(i)); const n = fbm(v.x * 1.6 + seed, v.y * 1.6 + v.z * 1.3 + seed * 2, 3) - 0.5; v.multiplyScalar(1 + n * 0.55); v.y *= 0.72; pos.setXYZ(i, v.x, v.y, v.z); } g.computeVertexNormals(); return g; }
@@ -190,7 +202,7 @@ let totalTris = 0; for (const b of blas) totalTris += b.mats.length;
 const triRows = Math.ceil(totalTris * 3 / TW), attrRows = Math.ceil(totalTris * 4 / TW); const triData = new Float32Array(TW * triRows * 4), attrData = new Float32Array(TW * attrRows * 4); const nodeChunks = []; let nodeTotal = 0;
 const tb0 = performance.now();
 { let triOff = 0; for (const b of blas) { const n = b.mats.length, bmin = new Float32Array(n * 3), bmax = new Float32Array(n * 3), cen = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) for (let a = 0; a < 3; a++) { const x0 = b.tris[i * 9 + a], x1 = b.tris[i * 9 + 3 + a], x2 = b.tris[i * 9 + 6 + a]; const lo = Math.min(x0, x1, x2), hi = Math.max(x0, x1, x2); bmin[i * 3 + a] = lo; bmax[i * 3 + a] = hi; cen[i * 3 + a] = (lo + hi) / 2; }
+    for (let i = 0; i < n; i++) for (let a = 0; a < 3; a++) { const x0 = b.tris[i * 9 + a], x1 = b.tris[i * 9 + 3 + a], x2 = b.tris[i * 9 + 6 + a]; const pad = b.pad && (b.mats[i] === M.GRASS || b.mats[i] === M.LEAF_OAK || b.mats[i] === M.LEAF_PINE || b.mats[i] === M.LEAF_BIRCH) ? b.pad : 0; const lo = Math.min(x0, x1, x2) - pad, hi = Math.max(x0, x1, x2) + pad; bmin[i * 3 + a] = lo; bmax[i * 3 + a] = hi; cen[i * 3 + a] = (lo + hi) / 2; }
     const bvh = buildBVH(n, bmin, bmax, cen, 4); b.root = nodeTotal; b.triOff = triOff;
     for (let i = 0; i < bvh.count; i++) { const o = i * 8; if (bvh.nodes[o + 7] > 0) bvh.nodes[o + 3] += triOff; else bvh.nodes[o + 3] += nodeTotal; }
     nodeChunks.push(bvh.nodes.subarray(0, bvh.count * 8)); nodeTotal += bvh.count;
@@ -651,7 +663,7 @@ fn srgb(c0: vec3f) -> vec3f { let c = clamp(c0, vec3f(0.0), vec3f(1.0)); return 
 @fragment fn fs(i: VO) -> @location(0) vec4f { var c = textureSampleLevel(tSrc, samp, i.uv, 0.0).rgb; let bl = textureSampleLevel(tBloom, samp, i.uv, 0.0).rgb; c += bl * D.bloom;
   if (D.shafts > 0.0 && D.sunUp > 0.0) { var sh = vec3f(0.0); let dv = (D.sunUv - i.uv) / 24.0; var uv = i.uv; var wsum = 0.0; for (var k = 0; k < 24; k++) { uv += dv; let w = 1.0 - f32(k) / 24.0; sh += textureSampleLevel(tBloom, samp, uv, 0.0).rgb * w; wsum += w; } let dist = length((D.sunUv - i.uv) * vec2f(1.0, 0.75)); c += sh / wsum * D.shafts * D.sunUp * (1.0 - smoothstep(0.35, 0.9, dist)); }
   c *= D.exposure; if (D.curve == 1.0) { c = aces(c); } else if (D.curve == 2.0) { c = c / (1.0 + c); } let lum = dot(c, vec3f(0.3, 0.59, 0.11)); c = mix(vec3f(lum), c, 1.1); let vd = length((i.uv - 0.5) * vec2f(1.0, 0.85)); c *= 1.0 - 0.28 * smoothstep(0.35, 0.95, vd); return vec4f(srgb(c), 1.0); }`;
-let gpu = null; const prevPV = new THREE.Matrix4(); const fx = { time: 0, dt: 0.016, mist: 0, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0.35, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1 };
+let gpu = null; const prevPV = new THREE.Matrix4(); const fx = { time: 0, dt: 0.016, mist: 0, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0.35, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true };
 // the simulation grids: a wave grid over the lake (with the shore as a wall), and two boxes of air over the fire and the chimney
 const SIM = (() => { const n = 256, size = 44, x0 = LAKE.x - size / 2, z0 = LAKE.z - size / 2; const land = new Uint8Array(n * n); for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = x0 + (i + 0.5) / n * size, z = z0 + (j + 0.5) / n * size; land[j * n + i] = terrainH(x, z) > -0.55 ? 255 : 0; }
   const fy = terrainH(FIRE.x, FIRE.z); const ca = Math.cos(-0.55), sa = Math.sin(-0.55); const cx = CABIN.x + (3.2 - 1.2) * ca + (-2.3 + 0.9) * sa, cz = CABIN.z - (3.2 - 1.2) * sa + (-2.3 + 0.9) * ca; const cy = terrainH(CABIN.x, CABIN.z) - 0.1 + 5.5;
@@ -672,6 +684,24 @@ fn hAt(q: vec2i) -> f32 { let n = i32(W.n); if (q.x < 0 || q.y < 0 || q.x >= n |
   if (W.rain > 0.0) { let cellId = vec2f(px / 3); let r = h21(cellId + floor(W.time * 40.0)); if (r < W.rain * 0.002) { h -= 0.05; } }
   for (var i = 0; i < 8; i++) { if (f32(i) >= W.nd) { break; } let d = W.drops[i]; let dd = length(vec2f(px) - d.xy * W.n); if (dd < d.z) { h -= d.w * (1.0 - dd / d.z) * (1.0 - dd / d.z); } }
   textureStore(oOut, px, vec4f(h, v, 0.0, 0.0)); }`;
+// wind: every blade of grass and every leaf card is pushed from its rest pose, tips more than roots
+const WG_WIND = `
+struct Params { invPV: mat4x4f, camPos: vec4f, sunDir: vec4f, sunCol: vec4f, moonDir: vec4f, moonCol: vec4f, fogCol: vec4f, skyZen: vec4f, skyHor: vec4f, betaR: vec4f, betaM: vec4f,
+  res: vec2f, loRes: vec2f, giRes: vec2f, jitter: vec2f, sunE: f32, sunfade: f32, mieG: f32, sunCos: f32, night: f32, skyOn: f32, bounceOn: f32, fogD: f32, sunSize: f32, moonSize: f32, noiseShift: f32, blend: f32,
+  tlasRoot: i32, nsph: i32, shadowK: i32, giK: i32, view: i32, frame: i32, shadowStride: i32, giStride: i32,
+  matA: array<vec4f, ${MATN}>, matB: array<vec4f, ${MATN}>, matC: array<vec4f, ${MATN}>, sphA: array<vec4f, 40>, sphB: array<vec4f, 40>, prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32 };
+@group(0) @binding(0) var<uniform> P: Params; @group(0) @binding(1) var<storage, read> rest: array<vec4f>; @group(0) @binding(2) var<storage, read_write> tris: array<vec4f>; @group(0) @binding(3) var<storage, read> attrs: array<vec4f>;
+fn h21(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453); }
+fn vn(p: vec2f) -> f32 { let i = floor(p); var f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h21(i), h21(i + vec2f(1.0, 0.0)), f.x), mix(h21(i + vec2f(0.0, 1.0)), h21(i + vec2f(1.0, 1.0)), f.x), f.y); }
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) gid: vec3u) { let ti = i32(gid.x); if (ti * 3 + 2 >= i32(arrayLength(&rest))) { return; } let v0 = rest[ti * 3]; let mid = i32(v0.w); let flag = P.matB[mid].w; if (flag != 2.0 && flag != 4.0) { return; }
+  let t = P.time; let w = P.wind; let a3 = attrs[ti * 4 + 3];
+  if (flag == 2.0) { // grass: a gust field in world space, the tip goes with it
+    for (var k = 0; k < 3; k++) { let r = rest[ti * 3 + k]; let hgt = select(select(a3.z, a3.y, k == 1), a3.x, k == 0); let g = vn(r.xz * 0.35 + vec2f(t * 1.1, t * 0.35)) * 0.7 + vn(r.xz * 1.4 - vec2f(t * 2.3, t * 0.8)) * 0.3; let bend = (g - 0.35) * 0.22 * w * hgt * hgt;
+      let dir = normalize(vec2f(1.0, 0.45) + (vn(r.xz * 0.07 + t * 0.1) - 0.5) * 1.2); tris[ti * 3 + k] = vec4f(r.x + dir.x * bend, r.y - abs(bend) * 0.3, r.z + dir.y * bend, r.w); } }
+  else { // leaves: each card sways as one, higher cards more, with a small flutter
+    let cid = f32(ti / 2); let ph = h21(vec2f(cid, cid * 0.37)) * 6.2831853; let c = (rest[ti * 3].xyz + rest[ti * 3 + 1].xyz + rest[ti * 3 + 2].xyz) / 3.0;
+    let sway = (sin(t * 1.3 + ph + c.y * 0.4) * 0.6 + sin(t * 2.9 + ph * 2.0) * 0.25 + (vn(c.xz * 0.5 + t * 0.6) - 0.5)) * 0.14 * w * smoothstep(0.0, 6.0, c.y);
+    for (var k = 0; k < 3; k++) { let r = rest[ti * 3 + k]; let fl = sin(t * 5.0 + ph + f32(k) * 2.1) * 0.02 * w; tris[ti * 3 + k] = vec4f(r.x + sway + fl, r.y + sway * 0.25, r.z + sway * 0.6 - fl, r.w); } } }`;
 const WG_SIMH = `
 struct FP { org: vec3f, cell: f32, dims: vec3f, dt: f32, src: vec3f, srcR: f32, buoy: f32, heat: f32, smoke: f32, wind: f32, time: f32, isFire: f32, p0: f32, p1: f32 };
 @group(0) @binding(0) var<uniform> F: FP;
@@ -711,7 +741,7 @@ async function startWebGPU() {
   const canvas = document.createElement('canvas'); canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;'; sb.stage.insertBefore(canvas, sb.stage.firstChild); renderer.domElement.style.opacity = '0';
   const ctx = canvas.getContext('webgpu'); const format = navigator.gpu.getPreferredCanvasFormat(); ctx.configure({ device, format, alphaMode: 'opaque' });
   const mkBuf = (arr, usage) => { const b = device.createBuffer({ size: Math.ceil(arr.byteLength / 16) * 16, usage, mappedAtCreation: true }); new Float32Array(b.getMappedRange()).set(arr); b.unmap(); return b; };
-  const bNodes = mkBuf(nodeData, GPUBufferUsage.STORAGE), bTris = mkBuf(triData, GPUBufferUsage.STORAGE), bAttr = mkBuf(attrData, GPUBufferUsage.STORAGE), bInst = mkBuf(instData, GPUBufferUsage.STORAGE);
+  const bNodes = mkBuf(nodeData, GPUBufferUsage.STORAGE), bTris = mkBuf(triData, GPUBufferUsage.STORAGE), bTris0 = mkBuf(triData, GPUBufferUsage.STORAGE), bAttr = mkBuf(attrData, GPUBufferUsage.STORAGE), bInst = mkBuf(instData, GPUBufferUsage.STORAGE);
   const PARAMS_F = 84 + MATN * 12 + 320 + 20 + 24; const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const layers = [barkTex, birchTex, leafO, leafP, leafB, rockTex, woodTex, stoneTex, groundTex, grassTex]; const texArr = device.createTexture({ size: [256, 256, layers.length], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   layers.forEach((t, i) => device.queue.copyExternalImageToTexture({ source: t.image }, { texture: texArr, origin: [0, 0, i] }, [256, 256]));
@@ -731,6 +761,8 @@ async function startWebGPU() {
     jac: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d', sampleType: 'unfilterable-float' } }, { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d', sampleType: 'unfilterable-float' } }, { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'r32float', viewDimension: '3d' } }] }),
     proj: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d', sampleType: 'unfilterable-float' } }, { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d', sampleType: 'unfilterable-float' } }, { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba16float', viewDimension: '3d' } }] }) };
   const simPipe = (code, l) => device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [l] }), compute: { module: device.createShaderModule({ code }), entryPoint: 'main' } });
+  const windL = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }] });
+  const windPipe = simPipe(WG_WIND, windL); const windGroup = device.createBindGroup({ layout: windL, entries: [{ binding: 0, resource: { buffer: bParams } }, { binding: 1, resource: { buffer: bTris0 } }, { binding: 2, resource: { buffer: bTris } }, { binding: 3, resource: { buffer: bAttr } }] });
   const simP = { water: simPipe(WG_WATER, simL.water), adv: simPipe(WG_ADV, simL.adv), div: simPipe(WG_DIV, simL.div), jac: simPipe(WG_JAC, simL.jac), proj: simPipe(WG_PROJ, simL.proj) };
   const wGroups = [0, 1].map(i => device.createBindGroup({ layout: simL.water, entries: [{ binding: 0, resource: { buffer: wBuf } }, { binding: 1, resource: wTex[i].createView() }, { binding: 2, resource: landTex.createView() }, { binding: 3, resource: wTex[1 - i].createView() }] }));
   const volSamp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge', addressModeW: 'clamp-to-edge' });
@@ -741,6 +773,7 @@ async function startWebGPU() {
       proj: [0, 1].map(i => device.createBindGroup({ layout: simL.proj, entries: [E(0, B), E(1, V.vel[1].createView()), E(2, V.pr[0].createView()), E(3, V.vel[0].createView())] })) }; }
   const drops = []; window.__drops = drops;
   function simStep(enc, dt, cur) {
+    if (fx.windOn) { const c = enc.beginComputePass(); c.setPipeline(windPipe); c.setBindGroup(0, windGroup); c.dispatchWorkgroups(Math.ceil(totalTris / 64)); c.end(); }
     if (fx.waterOn) { const a = new Float32Array(44); a.set([SIM.water.n, SIM.water.size, dt, fx.time, fx.wind, fx.rain, fx.wind, 0]); const nd = Math.min(drops.length, 8); for (let i = 0; i < nd; i++) { const d = drops[i]; a.set([d.u, d.v, d.r, d.s], 8 + i * 4); } a[40] = nd; drops.length = 0; device.queue.writeBuffer(wBuf, 0, a);
       for (let sub = 0; sub < 2; sub++) { const src = (cur + sub) & 1; const c = enc.beginComputePass(); c.setPipeline(simP.water); c.setBindGroup(0, wGroups[src]); c.dispatchWorkgroups(Math.ceil(WN / 8), Math.ceil(WN / 8)); c.end(); } }
     for (const k of ['fire', 'chim']) { if (!fx[k === 'fire' ? 'fireOn' : 'chimOn']) continue; const V = vols[k], G = vGroups[k], d = SIM[k].dims, S2 = SIM[k];
@@ -823,7 +856,7 @@ s1.slider('Haze strength', { min: 0.001, max: 0.03, step: 0.001, value: 0.005, f
 s1.slider('Glow around the sun', { min: 0.5, max: 0.97, step: 0.01, value: 0.8, fmt: v => (+v).toFixed(2) }, v => { atm.g = v; placeSun(); });
 s1.slider('Sun size (a bigger sun makes softer shadows)', { min: 0.2, max: 6, step: 0.1, value: 0.54, unit: '°' }, v => { atm.sunDeg = v; placeSun(); });
 s1.slider('Cloud cover', { min: 0, max: 1, step: 0.02, value: 0.35, fmt: v => Math.round(v * 100) + ' %' }, v => { fx.cover = v; });
-s1.slider('Wind (clouds and water)', { min: 0, max: 3, step: 0.1, value: 1 }, v => { fx.wind = v; });
+s1.slider('Wind (grass, trees, clouds and water)', { min: 0, max: 3, step: 0.1, value: 1 }, v => { fx.wind = v; });
 s1.toggle('a moon at night', true, v => { moonOn = v; placeSun(); });
 const sunHRead = s1.readout('sun height'), sunCRead = s1.readout('sun colour and strength, from the sky');
 
@@ -855,6 +888,7 @@ s5.slider('Glow around bright things (bloom)', { min: 0, max: 0.5, step: 0.01, v
 s5.slider('Sun shafts', { min: 0, max: 1, step: 0.02, value: 0.35, fmt: v => (+v).toFixed(2) }, v => { fx.shafts = v; });
 
 const s7 = sb.panel.section('07 · Fluids', 'The lake is a grid of water heights that push on their neighbours, so waves travel, bounce off the shore and cross. The fire and the chimney are boxes of air: heat rises, the flow is kept from piling up, and smoke and heat ride along. What you see is a ray marched through those boxes.');
+s7.toggle('wind in the grass and the trees', true, v => { fx.windOn = v; });
 s7.toggle('simulate the water', true, v => { fx.waterOn = v; });
 s7.slider('Rain', { min: 0, max: 1, step: 0.05, value: 0, fmt: v => (+v).toFixed(2) }, v => { fx.rain = v; });
 s7.note('Click on the lake to drop a stone in.');
