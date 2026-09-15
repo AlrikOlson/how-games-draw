@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sky, Sun &amp; Light · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'sky-and-light', title: 'Sky, Sun & Light', standalone: true,
+  blurb: 'One camp, one whole day. The sky is computed from how air and haze scatter sunlight, so it goes blue at noon and orange at dusk on its own. The sun takes its colour and strength from that same sky, casts soft shadows, and the sky itself lights everything else: rough or polished, plastic or metal, the lake, the far hills fading into haze. Then a camera has to squeeze all of it onto your screen.',
+  camera: { pos: [15, 5.5, 19], target: [1, 1.6, -1], near: 0.1, far: 8000 },
+  hint: 'drag to orbit · scroll to zoom · right-drag to pan'
+});
+const { scene, camera, renderer } = sb;
+scene.background = null; scene.remove(sb.lights.hemi);
+renderer.shadowMap.type = THREE.PCFShadowMap; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.42;
+
+// ---- the world: the camp, two lamps, a lake, a row of material balls, and hills far enough away for the air to show
+const camp = sb.world.camp();
+camp.ground.geometry.dispose(); camp.ground.geometry = new THREE.PlaneGeometry(1200, 1200, 1, 1);
+sb.world.lamp(7.5, 1); sb.world.lamp(-6, -1);
+const lake = sb.mesh(new THREE.CircleGeometry(7.5, 56), new THREE.MeshStandardMaterial({ color: 0x07131c, roughness: 0.04, metalness: 0.0 }), -10, 0.015, 7); lake.rotation.x = -Math.PI / 2; lake.castShadow = false; scene.add(lake);
+const plinth = sb.mesh(new THREE.BoxGeometry(7.4, 0.5, 2.6), new THREE.MeshStandardMaterial({ color: PAL.stoneLite, roughness: 0.9 }), 8, 0.25, 7.5); scene.add(plinth);
+const balls = []; const ballGeo = new THREE.SphereGeometry(0.42, 40, 28);
+for (let i = 0; i < 6; i++) for (let row = 0; row < 2; row++) {
+  const m = new THREE.MeshStandardMaterial({ color: row ? 0xd8b26a : 0xc4423a, roughness: i / 5, metalness: row ? 1 : 0 });
+  const b = sb.mesh(ballGeo, m, 8 - 2.75 + i * 1.1, 0.5 + 0.42, 7.5 + (row ? -0.6 : 0.6)); scene.add(b); balls.push(b);
+}
+const yourMat = new THREE.MeshStandardMaterial({ color: 0x2f6fd8, roughness: 0.25, metalness: 0 });
+const yourBall = sb.mesh(new THREE.SphereGeometry(0.9, 48, 32), yourMat, 4.6, 0.9, 10.5); scene.add(yourBall);
+const hills = []; { let s = 3; const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+  for (let i = 0; i < 18; i++) { const a = (i / 18) * Math.PI * 2 + rnd() * 0.3, d = 340 + rnd() * 320, r = 60 + rnd() * 130, hp = 14 + rnd() * 44;
+    const g = new THREE.IcosahedronGeometry(1, 1); const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x2c4a33, roughness: 1, flatShading: true }));
+    m.position.set(Math.cos(a) * d, -hp * 0.4, Math.sin(a) * d); m.scale.set(r, hp * 1.4, r); m.receiveShadow = true; scene.add(m); hills.push(m); } }
+// every kit material becomes a physically based one, with a roughness that fits what it is
+const seen = new Map();
+scene.traverse(o => { if (!o.isMesh || !o.material.isMeshLambertMaterial) return; const l = o.material;
+  if (!seen.has(l)) { const hex = l.color.getHex(); const metal = hex === PAL.metal; const rough = metal ? 0.3 : hex === PAL.wood || hex === PAL.woodLite ? 0.75 : hex === PAL.skin ? 0.55 : hex === PAL.window ? 0.4 : 0.92;
+    seen.set(l, new THREE.MeshStandardMaterial({ color: l.color, roughness: rough, metalness: metal ? 1 : 0, emissive: l.emissive, emissiveIntensity: l.emissiveIntensity, side: l.side })); }
+  o.material = seen.get(l); });
+
+// ---- the sun: one light whose direction, colour and strength come from the time of day and the sky model
+const sun = sb.lights.sun; sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.03; sun.shadow.radius = 2.5;
+const sc = sun.shadow.camera; sc.left = sc.bottom = -34; sc.right = sc.top = 34; sc.near = 1; sc.far = 260; sc.updateProjectionMatrix();
+sun.target.position.set(0, 0, 0); scene.add(sun.target);
+const sunDir = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
+
+// ---- the sky: single scattering of sunlight by air (Rayleigh) and haze (Mie), the model most game skies descend from
+const skyU = { sunPosition: { value: sunDir }, rayleigh: { value: 2 }, turbidity: { value: 4 }, mieCoefficient: { value: 0.006 }, mieDirectionalG: { value: 0.8 }, up: { value: UP }, uSunCos: { value: Math.cos(0.27 * Math.PI / 180) }, uNight: { value: 1 } };
+const skyMat = new THREE.ShaderMaterial({ uniforms: skyU, side: THREE.BackSide, depthWrite: false,
+  vertexShader: `uniform vec3 sunPosition; uniform float rayleigh, turbidity, mieCoefficient; uniform vec3 up;
+varying vec3 vWorldPosition, vSunDirection, vBetaR, vBetaM; varying float vSunfade, vSunE;
+const vec3 totalRayleigh = vec3(5.804542996261093E-6, 1.3562911419845635E-5, 3.0265902468824876E-5);
+const vec3 MieConst = vec3(1.8399918514433978E14, 2.7798023919660528E14, 4.0790479543861094E14);
+const float e = 2.718281828459045; const float cutoffAngle = 1.6110731556870734; const float steepness = 1.5; const float EE = 1000.0;
+float sunIntensity(float zc) { zc = clamp(zc, -1.0, 1.0); return EE * max(0.0, 1.0 - pow(e, -((cutoffAngle - acos(zc)) / steepness))); }
+vec3 totalMie(float T) { float c = (0.2 * T) * 10E-18; return 0.434 * c * MieConst; }
+void main() { vec4 wp = modelMatrix * vec4(position, 1.0); vWorldPosition = wp.xyz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z = gl_Position.w;
+  vSunDirection = normalize(sunPosition); vSunE = sunIntensity(dot(vSunDirection, up)); vSunfade = 1.0 - clamp(1.0 - exp(sunPosition.y / 450000.0), 0.0, 1.0);
+  float rc = rayleigh - (1.0 * (1.0 - vSunfade)); vBetaR = totalRayleigh * rc; vBetaM = totalMie(turbidity) * mieCoefficient; }`,
+  fragmentShader: `varying vec3 vWorldPosition, vSunDirection, vBetaR, vBetaM; varying float vSunfade, vSunE; uniform float mieDirectionalG, uSunCos, uNight; uniform vec3 up;
+const float pi = 3.141592653589793; const float rayleighZenithLength = 8.4E3; const float mieZenithLength = 1.25E3;
+const float THREE_OVER_SIXTEENPI = 0.05968310365946075; const float ONE_OVER_FOURPI = 0.07957747154594767;
+float rayleighPhase(float c) { return THREE_OVER_SIXTEENPI * (1.0 + pow(c, 2.0)); }
+float hgPhase(float c, float g) { float g2 = pow(g, 2.0); float inv = 1.0 / pow(1.0 - 2.0 * g * c + g2, 1.5); return ONE_OVER_FOURPI * ((1.0 - g2) * inv); }
+void main() {
+  vec3 direction = normalize(vWorldPosition - cameraPosition);
+  float zenithAngle = acos(max(0.0, dot(up, direction)));
+  float inverse = 1.0 / (cos(zenithAngle) + 0.15 * pow(93.885 - ((zenithAngle * 180.0) / pi), -1.253));
+  float sR = rayleighZenithLength * inverse, sM = mieZenithLength * inverse;
+  vec3 Fex = exp(-(vBetaR * sR + vBetaM * sM));
+  float cosTheta = dot(direction, vSunDirection);
+  vec3 betaRTheta = vBetaR * rayleighPhase(cosTheta * 0.5 + 0.5); vec3 betaMTheta = vBetaM * hgPhase(cosTheta, mieDirectionalG);
+  vec3 ratio = (betaRTheta + betaMTheta) / (vBetaR + vBetaM);
+  vec3 Lin = pow(vSunE * ratio * (1.0 - Fex), vec3(1.5));
+  Lin *= mix(vec3(1.0), pow(vSunE * ratio * Fex, vec3(0.5)), clamp(pow(1.0 - dot(up, vSunDirection), 5.0), 0.0, 1.0));
+  vec3 L0 = vec3(0.1) * Fex * uNight;
+  float sundisk = smoothstep(uSunCos, uSunCos + (1.0 - uSunCos) * 0.35, cosTheta);
+  L0 += (vSunE * 19000.0 * Fex) * sundisk;
+  vec3 texColor = (Lin + L0) * 0.04 + vec3(0.0, 0.0003, 0.00075) * uNight;
+  vec3 retColor = pow(texColor, vec3(1.0 / (1.2 + (1.2 * vSunfade))));
+  gl_FragColor = vec4(retColor, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}` });
+const skyMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), skyMat); skyMesh.scale.setScalar(6000); skyMesh.frustumCulled = false; scene.add(skyMesh);
+// the same sky on the CPU, for the sun's colour and the colour of the haze
+const TR = [5.804542996261093e-6, 1.3562911419845635e-5, 3.0265902468824876e-5], MC = [1.8399918514433978e14, 2.7798023919660528e14, 4.0790479543861094e14];
+function skyCPU(dx, dy, dz, withDisk) {
+  const s = sunDir, sunE = 1000 * Math.max(0, 1 - Math.exp(-((1.6110731556870734 - Math.acos(Math.max(-1, Math.min(1, s.y)))) / 1.5)));
+  const fade = 1 - Math.min(1, Math.max(0, 1 - Math.exp(s.y / 450000))), rc = skyU.rayleigh.value - (1 - fade), mie = 0.434 * (0.2 * skyU.turbidity.value) * 10e-18 * skyU.mieCoefficient.value;
+  const zen = Math.acos(Math.max(0, dy)), inv = 1 / (Math.cos(zen) + 0.15 * Math.pow(93.885 - zen * 180 / Math.PI, -1.253)), sR = 8.4e3 * inv, sM = 1.25e3 * inv;
+  const cosT = dx * s.x + dy * s.y + dz * s.z, rp = 0.05968310365946075 * (1 + Math.pow(cosT * 0.5 + 0.5, 2)), g = skyU.mieDirectionalG.value, hg = 0.07957747154594767 * ((1 - g * g) / Math.pow(1 - 2 * g * cosT + g * g, 1.5));
+  const out = [0, 0, 0], fex = [0, 0, 0]; const horizonMix = Math.min(1, Math.max(0, Math.pow(1 - s.y, 5)));
+  for (let k = 0; k < 3; k++) { const bR = TR[k] * rc, bM = MC[k] * mie; const F = Math.exp(-(bR * sR + bM * sM)); fex[k] = F; const ratio = (bR * rp + bM * hg) / (bR + bM);
+    let Lin = Math.pow(sunE * ratio * (1 - F), 1.5); Lin *= 1 + (Math.pow(sunE * ratio * F, 0.5) - 1) * horizonMix;
+    const L0 = 0.1 * F + (withDisk ? sunE * 19000 * F : 0); const tex = (Lin + L0) * 0.04 + [0, 0.0003, 0.00075][k]; out[k] = Math.pow(tex, 1 / (1.2 + 1.2 * fade)); }
+  return { c: out, fex };
+}
+
+// ---- the sky as the light: the sky is drawn into a small cube map and blurred into the shape the materials need (a PMREM)
+const pmrem = new THREE.PMREMGenerator(renderer); const envScene = new THREE.Scene(); { const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), skyMat); m.scale.setScalar(6000); m.frustumCulled = false; envScene.add(m); }
+let envRT = null, envDirty = true, lastEnv = 0, envMs = 0, envCount = 0;
+function rebuildEnv() { const t0 = performance.now(); const rt = pmrem.fromScene(envScene, 0, 1, 20000); if (envRT) envRT.dispose(); envRT = rt; scene.environment = iblOn ? rt.texture : null; envMs = performance.now() - t0; envCount++; envDirty = false; lastEnv = performance.now(); }
+
+// ---- state
+let hour = 9.5, running = false, sunStrength = 1, shadowsOn = true, iblOn = true, envStrength = 1, autoExp = true, exposure = 0.42, fogOn = true, fogDensity = 0.0025, fogFromSky = true, lightFrom = 'both';
+const fogCol = new THREE.Color(0.5, 0.6, 0.7); scene.fog = new THREE.FogExp2(fogCol, fogDensity);
+const sunPos = new THREE.Vector3(); const sunLabel = sb.label('the sun', sunPos, 'amber');
+const fireLight = camp.fire.getObjectByName('firelight'); const lampLights = []; scene.traverse(o => { if (o.name === 'lamplight') lampLights.push(o); });
+function placeSun() {
+  const el = 72 * Math.sin(Math.PI * (hour - 5) / 15) * Math.PI / 180, az = (90 + (hour - 12.5) * 15) * Math.PI / 180;
+  sunDir.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
+  sun.position.copy(sunDir).multiplyScalar(120); sunPos.copy(sunDir).multiplyScalar(5000);
+  const { fex } = skyCPU(sunDir.x, sunDir.y, sunDir.z, false); const mx = Math.max(fex[0], fex[1], fex[2], 1e-4);
+  const upness = THREE.MathUtils.smoothstep(sunDir.y, -0.03, 0.08);
+  sun.color.setRGB(fex[0] / mx, fex[1] / mx, fex[2] / mx); sun.intensity = (lightFrom === 'sky' ? 0 : sunStrength) * 13 * mx * upness; sun.visible = sun.intensity > 0.001; sun.castShadow = shadowsOn;
+  // the haze takes the colour of the sky at the horizon, averaged around the compass
+  let r = 0, g = 0, b = 0; for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; const c = skyCPU(Math.cos(a) * 0.999, 0.035, Math.sin(a) * 0.999, false).c; r += c[0]; g += c[1]; b += c[2]; }
+  if (fogFromSky) fogCol.setRGB(r / 8, g / 8, b / 8); else fogCol.setRGB(0.42, 0.45, 0.5);
+  // the eye adapts: at night the camera opens right up, so the fire and the lamps carry the camp
+  if (autoExp) exposure = THREE.MathUtils.lerp(4.5, 0.42, THREE.MathUtils.smoothstep(sunDir.y, -0.12, 0.12));
+  renderer.toneMappingExposure = exposure;
+  envDirty = true;
+  sunHRead((Math.asin(sunDir.y) * 180 / Math.PI).toFixed(0) + '° above the horizon'); sunCRead('#' + sun.color.getHexString() + ' × ' + sun.intensity.toFixed(1));
+}
+
+// ---- panel
+const s1 = sb.panel.section('01 · The sky', 'Sunlight comes in white. Air scatters the blue end of it in every direction, which is why the sky is blue and a low sun, seen through far more air, is orange. Haze scatters every colour and puts the glow around the sun.');
+const hourS = s1.slider('Time of day', { min: 4.5, max: 21, step: 0.05, value: hour, fmt: v => { const h = Math.floor(v), m = Math.round((v - h) * 60); return h + ':' + String(m).padStart(2, '0'); } }, v => { hour = v; placeSun(); });
+s1.toggle('let the day run', false, v => { running = v; });
+s1.slider('Air (how much blue it scatters)', { min: 0.3, max: 4, step: 0.1, value: 2 }, v => { skyU.rayleigh.value = v; placeSun(); });
+s1.slider('Haze (dust and water in the air)', { min: 1, max: 20, step: 0.5, value: 4 }, v => { skyU.turbidity.value = v; placeSun(); });
+s1.slider('Haze strength', { min: 0.001, max: 0.03, step: 0.001, value: 0.006, fmt: v => (+v).toFixed(3) }, v => { skyU.mieCoefficient.value = v; placeSun(); });
+s1.slider('Glow around the sun', { min: 0.5, max: 0.97, step: 0.01, value: 0.8, fmt: v => (+v).toFixed(2) }, v => { skyU.mieDirectionalG.value = v; placeSun(); });
+s1.slider('Sun size', { min: 0.2, max: 6, step: 0.1, value: 0.54, unit: '°' }, v => { skyU.uSunCos.value = Math.cos(v / 2 * Math.PI / 180); });
+const sunHRead = s1.readout('sun height'), sunCRead = s1.readout('sun colour and strength, from the sky');
+
+const s2 = sb.panel.section('02 · The sun and its shadows', 'The sun is one light. Its colour is whatever survives the trip through the air, so it is white at noon and orange at dusk without anyone painting it. Its shadows come from a shadow map, blurred a little.');
+s2.segment('Light from', [{ value: 'both', label: 'sun and sky' }, { value: 'sun', label: 'the sun only' }, { value: 'sky', label: 'the sky only' }], 'both', v => { lightFrom = v; scene.environment = (iblOn && v !== 'sun' && envRT) ? envRT.texture : null; placeSun(); });
+s2.slider('Sun strength', { min: 0, max: 3, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { sunStrength = v; placeSun(); });
+s2.toggle('shadows', true, v => { shadowsOn = v; placeSun(); });
+s2.slider('Shadow softness', { min: 0, max: 8, step: 0.5, value: 2.5 }, v => { sun.shadow.radius = v; });
+s2.segment('Shadow map size', [{ value: 1024, label: '1024' }, { value: 2048, label: '2048' }, { value: 4096, label: '4096' }], 2048, v => { sun.shadow.mapSize.set(+v, +v); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } });
+
+const s3 = sb.panel.section('03 · Light from the sky', 'Most of what you see is not lit by the sun at all but by the sky: the whole dome, from every direction. The sky is drawn into a small cube map and blurred into the shapes the materials need, then every surface reads it: rough ones read a blur, polished ones read a mirror.');
+s3.toggle('light the scene with the sky (image based lighting)', true, v => { iblOn = v; scene.environment = v && lightFrom !== 'sun' && envRT ? envRT.texture : null; });
+s3.slider('Sky light strength', { min: 0, max: 3, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { envStrength = v; scene.environmentIntensity = v; });
+const envRead = s3.readout('sky cube map rebuilt');
+s3.note('Turn the sky light off and everything in shadow goes black, because nothing else lights it. The lake and the polished balls are mirrors of that cube map.');
+
+const s4 = sb.panel.section('04 · Materials', 'The rows on the plinth go from rough to polished, red plastic in front and gold metal behind. Roughness decides how sharp the sky\'s reflection is; metal decides whether the reflection takes the surface\'s own colour and whether there is any diffuse colour under it at all.');
+s4.slider('Your ball: roughness', { min: 0, max: 1, step: 0.02, value: 0.25, fmt: v => (+v).toFixed(2) }, v => { yourMat.roughness = v; });
+s4.slider('Your ball: metal', { min: 0, max: 1, step: 0.02, value: 0, fmt: v => (+v).toFixed(2) }, v => { yourMat.metalness = v; });
+s4.segment('Your ball: colour', [{ value: 0x2f6fd8, label: 'blue' }, { value: 0xd8402f, label: 'red' }, { value: 0xe8e2d6, label: 'white' }, { value: 0x1b1b1f, label: 'black' }], 0x2f6fd8, v => { yourMat.color.setHex(+v); });
+s4.toggle('show the rows on the plinth', true, v => { for (const b of balls) b.visible = v; plinth.visible = v; });
+
+const s5 = sb.panel.section('05 · Exposure and tone mapping', 'The sun disc is thousands of times brighter than the grass. No screen can show that, so the camera picks an exposure and a curve squashes the rest. The eye does the same: at night it opens right up.');
+s5.segment('Curve', [{ value: 'aces', label: 'ACES (film)' }, { value: 'agx', label: 'AgX' }, { value: 'neutral', label: 'Neutral' }, { value: 'reinhard', label: 'Reinhard' }, { value: 'none', label: 'none, just clip' }], 'aces', v => { renderer.toneMapping = v === 'aces' ? THREE.ACESFilmicToneMapping : v === 'agx' ? THREE.AgXToneMapping : v === 'neutral' ? THREE.NeutralToneMapping : v === 'reinhard' ? THREE.ReinhardToneMapping : THREE.NoToneMapping; scene.traverse(o => { if (o.material) o.material.needsUpdate = true; }); });
+const autoT = s5.toggle('auto exposure: adapt to the time of day', true, v => { autoExp = v; if (!v) expS.set(exposure, false); placeSun(); });
+const expS = s5.slider('Exposure', { min: 0.05, max: 8, step: 0.05, value: 0.42, fmt: v => (+v).toFixed(2) }, v => { exposure = v; autoExp = false; autoT.set(false, false); renderer.toneMappingExposure = v; });
+const expRead = s5.readout('exposure in use');
+
+const s6 = sb.panel.section('06 · Air in the distance', 'Far things fade into the colour of the sky at the horizon, because there is a lot of lit air between you and them. That is aerial perspective, and it is the cheapest depth cue there is: a fog whose colour comes from the same sky.');
+s6.toggle('haze in the distance', true, v => { fogOn = v; scene.fog = v ? new THREE.FogExp2(fogCol, fogDensity) : null; });
+s6.slider('How thick', { min: 0, max: 0.02, step: 0.0005, value: 0.0025, fmt: v => (+v).toFixed(4) }, v => { fogDensity = v; if (scene.fog) scene.fog.density = v; });
+s6.toggle('colour the haze from the sky', true, v => { fogFromSky = v; placeSun(); });
+s6.note('Orbit until the hills are in view: at noon they go pale blue, at sunset they go pink, and with the haze off they sit there flat and green as if they were next door.');
+const msRead = s6.readout('milliseconds per frame');
+
+sb.label('the lake: the sky, reflected', lake).off.set(0, 0.6, 0);
+sb.label('rough to polished · plastic in front, metal behind', plinth).off.set(0, 1.4, 0);
+sb.label('your ball', yourBall, 'blue').off.set(0, 1.2, 0);
+sb.label('the knight', camp.knight).off.set(0, 2.0, 0);
+
+// ---- the frame
+let msAvg = 0, lastNow = 0;
+placeSun();
+sb.onFrame((dt) => {
+  if (running) { hour += dt / 2.5; if (hour > 21) hour = 4.5; hourS.set(hour, false); placeSun(); }
+  if (envDirty && performance.now() - lastEnv > 90) { rebuildEnv(); envRead(envCount + ' times, ' + envMs.toFixed(1) + ' ms last'); }
+  const night = 1 - THREE.MathUtils.smoothstep(sunDir.y, -0.02, 0.1); fireLight.intensity = 12 * (0.4 + 0.6 * night); for (const l of lampLights) l.intensity = 6 * night;
+  const now = performance.now(); if (lastNow) msAvg += ((now - lastNow) - msAvg) * 0.08; lastNow = now; msRead(msAvg.toFixed(1) + ' ms');
+  expRead(exposure.toFixed(2) + (autoExp ? ', automatic' : ', by hand'));
+  sb.hud('mode', (hour < 5 || hour > 20 ? 'night: the fire and the lamps carry the camp' : hour < 8 || hour > 17.5 ? 'a low sun through a lot of air: orange light, long soft shadows, a pink horizon' : 'high sun: white light, blue sky, hills fading into blue haze') + ' · ' + (lightFrom === 'both' ? 'sun and sky' : lightFrom === 'sun' ? 'the sun only, nothing fills the shadows' : 'the sky only: soft light from the whole dome'));
+});
+sb.start();
+</script>
+</body>
+</html>

@@ -29,11 +29,12 @@ export function boot(cfg) {
   // ---- chrome
   const app = $('div', 'sb-app');
   const top = $('div', 'sb-top');
-  const topics = pages ? '<select class="topics" aria-label="Chapter">' + pages.map(p => `<option value="${p.slug}"${p.slug === slug ? ' selected' : ''}>${String(p.n).padStart(2, '0')} · ${esc(p.title)}</option>`).join('') + '</select>' : '<span class="title">' + esc(title) + '</span>';
+  const topics = pages && !cfg.standalone ? '<select class="topics" aria-label="Chapter">' + pages.map(p => `<option value="${p.slug}"${p.slug === slug ? ' selected' : ''}>${String(p.n).padStart(2, '0')} · ${esc(p.title)}</option>`).join('') + '</select>' : '<span class="title">' + esc(title) + '</span>';
   top.innerHTML = `<a class="home">How Games Draw</a><span class="sep">/</span>${topics}<span class="grow"></span><button type="button" class="sb-fold">controls</button><div class="sb-mode"><a class="guided">Guided</a><a class="on">Sandbox</a></div>`;
   top.querySelector('.home').href = pages ? (base || '/') : '../index.html';
   top.querySelector('.guided').href = '../pages/' + slug + '.html';
-  if (pages) top.querySelector('.topics').addEventListener('change', e => { location.href = '../sandbox/' + e.target.value + '.html'; });
+  if (pages && !cfg.standalone) top.querySelector('.topics').addEventListener('change', e => { location.href = '../sandbox/' + e.target.value + '.html'; });
+  if (cfg.standalone) top.querySelector('.sb-mode').remove();
   top.querySelector('.sb-fold').addEventListener('click', () => app.classList.toggle('folded'));
   const panel = $('div', 'sb-panel');
   panel.appendChild($('h1', '', esc(title)));
