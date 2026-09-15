@@ -23,10 +23,12 @@ fs.mkdirSync('dist/pages', { recursive: true });
 const stagesOf = slug => [...fs.readFileSync('pages/' + slug + '.html', 'utf8').matchAll(/<section id="([^"]+)" class="stage">/g)].map(m => m[1]);
 const pagesTag = '<script>window.RL_PAGES=' + JSON.stringify(order.map((p, i) => ({ n: i + 1, slug: p.slug, title: p.title.replace(/&amp;/g, '&'), stages: stagesOf(p.slug) }))) + ';window.RL_BASE=' + JSON.stringify(base) + ';</script>';
 // the 3D sandboxes and the vendored three.js
-const sandboxes = fs.existsSync('sandbox') ? fs.readdirSync('sandbox').filter(f => f.endsWith('.html') && !f.startsWith('_')).map(f => f.replace(/\.html$/, '')) : [];
+// only sandboxes that are committed get published, so a page still being written never ships half done
+let tracked = null; try { tracked = execSync('git ls-files sandbox', { encoding: 'utf8' }).split('\n').filter(Boolean).map(p => p.replace(/^sandbox\//, '')); } catch (e) {}
+const sandboxes = fs.existsSync('sandbox') ? fs.readdirSync('sandbox').filter(f => f.endsWith('.html') && !f.startsWith('_') && (!tracked || tracked.includes(f))).map(f => f.replace(/\.html$/, '')) : [];
 const sandboxTag = '<script>window.RL_SANDBOX=' + JSON.stringify(sandboxes) + ';</script>';
 if (fs.existsSync('vendor')) { fs.mkdirSync('dist/vendor/addons', { recursive: true }); for (const f of fs.readdirSync('vendor')) { const p = 'vendor/' + f; if (fs.statSync(p).isFile()) fs.copyFileSync(p, 'dist/' + p); } for (const f of fs.readdirSync('vendor/addons')) fs.copyFileSync('vendor/addons/' + f, 'dist/vendor/addons/' + f); }
-if (sandboxes.length) { fs.mkdirSync('dist/sandbox', { recursive: true }); for (const f of fs.readdirSync('sandbox')) { let s = fs.readFileSync('sandbox/' + f, 'utf8'); if (f.endsWith('.html')) s = s.replace('</head>', pagesTag + '\n' + sandboxTag + '\n</head>'); fs.writeFileSync('dist/sandbox/' + f, s); } }
+if (sandboxes.length) { fs.mkdirSync('dist/sandbox', { recursive: true }); for (const f of fs.readdirSync('sandbox').filter(f => f.startsWith('_') || sandboxes.includes(f.replace(/\.html$/, '')))) { let s = fs.readFileSync('sandbox/' + f, 'utf8'); if (f.endsWith('.html')) s = s.replace('</head>', pagesTag + '\n' + sandboxTag + '\n</head>'); fs.writeFileSync('dist/sandbox/' + f, s); } }
 // card art for the hub, made by shared/build-art.cjs
 if (fs.existsSync('art')) { fs.mkdirSync('dist/art', { recursive: true }); for (const f of fs.readdirSync('art')) fs.copyFileSync('art/' + f, 'dist/art/' + f); }
 fs.writeFileSync('dist/index.html', hub.replace(/href="pages\//g, 'href="' + base + '/pages/').replace(/src="art\//g, 'src="' + base + '/art/').replace(/href="sandbox\//g, 'href="' + base + '/sandbox/').replace('</head>', pagesTag + '\n' + sandboxTag + '\n</head>'));
