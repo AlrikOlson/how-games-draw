@@ -15,18 +15,19 @@ import { boot, THREE, PAL } from './_kit.js';
 
 const sb = boot({
   slug: 'shadow-maps', title: 'Shadow Maps & Cascades',
-  blurb: 'The knight\'s camp under a real sun with real shadow maps. Drag the sun, watch the distance photo it takes at the top left, shrink the photo until the shadow edge turns to steps, take the slack away until the ground stripes itself, blur the edge, and cut the view into slices so each gets its own photo.',
+  blurb: 'The knight\'s camp under a real sun with real shadow maps, and right of the line the true shadow, found by firing rays at the sun from every pixel. Drag the sun, watch the distance photo at the top left, shrink the photo until the edge turns to steps, take the slack away until the ground stripes itself, blur the edge, cut the view into slices, and see in red every pixel the shortcut gets wrong.',
   camera: { pos: [12, 7, 15], target: [0, 1, 0], near: 0.1, far: 400 },
   hint: 'drag to orbit · scroll to zoom · drag the sun to move it'
 });
 const renderer = sb.renderer, scene = sb.scene, camera = sb.camera;
+scene.background = null; renderer.setClearColor(PAL.sky, 1);
 renderer.shadowMap.type = THREE.BasicShadowMap;
 renderer.shadowMap.autoUpdate = false;        // the kit's main render updates the maps once per frame; our preview pass must not
 scene.remove(sb.lights.sun, sb.lights.sun.target);
 
 // ---- the world: the camp, plus a long field so far slices of the view have something to shadow
 const camp = sb.world.camp();
-camp.ground.geometry.dispose(); camp.ground.geometry = new THREE.PlaneGeometry(260, 260, 1, 1);
+camp.ground.geometry.dispose(); camp.ground.geometry = new THREE.PlaneGeometry(260, 260, 1, 1); camp.ground.material.color.setHex(0x3f6a45);
 sb.world.wall(-13, 4, -6, 11, 2.2, 0.5);
 sb.world.wall(-6, 11, 3, 13, 1.6, 0.5);
 const farTrees = [[-18, -14, 5], [16, -16, 5.5], [24, 6, 4.5], [-24, 12, 5], [-30, -30, 6], [34, -28, 5], [40, 14, 6], [-40, 30, 5.5], [8, -44, 6], [-14, -48, 5], [52, -6, 6], [-56, -12, 6], [26, 46, 5], [-30, 54, 6], [70, 30, 6.5], [-72, -40, 6], [64, -58, 6], [-64, 60, 6.5], [4, 80, 6], [-90, 10, 7], [92, 60, 7], [30, -90, 7]];
@@ -48,13 +49,14 @@ camera.layers.enable(1); scene.add(camera);
 
 // every lit material gets one small patch: a light only counts where the pixel's distance from the camera falls in that light's slice.
 // this turns three ordinary shadow maps into real cascades, selected per pixel the way a game does it.
-const csmU = { uCsm: { value: [new THREE.Vector4(0, 1e9, 0, 1e9), new THREE.Vector4(1e9, 1e9, 1e9, 1e9), new THREE.Vector4(1e9, 1e9, 1e9, 1e9)] }, uCsmTint: { value: TINT }, uCsmTintOn: { value: 0 } };
+const whiteTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); whiteTex.needsUpdate = true;
+const csmU = { uCsm: { value: [new THREE.Vector4(0, 1e9, 0, 1e9), new THREE.Vector4(1e9, 1e9, 1e9, 1e9), new THREE.Vector4(1e9, 1e9, 1e9, 1e9)] }, uCsmTint: { value: TINT }, uCsmTintOn: { value: 0 }, tVis: { value: whiteTex }, uRes: { value: new THREE.Vector2(1, 1) }, uSplitPx: { value: 1e9 }, uTracedOn: { value: 0 }, uDiffOn: { value: 0 } };
 const dirBlockStart = '#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Direct )';
 const chunk = THREE.ShaderChunk.lights_fragment_begin;
 const a = chunk.indexOf(dirBlockStart), b = chunk.indexOf('#pragma unroll_loop_end', a) + '#pragma unroll_loop_end'.length;
 const patchedDir = `#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Direct )
 	DirectionalLight directionalLight;
-	float csmDepth = vViewPosition.z; float csmW = 1.0;
+	float csmDepth = vViewPosition.z; float csmW = 1.0; float smv = 1.0; float tv = texture2D( tVis, gl_FragCoord.xy / uRes ).r; float useT = uTracedOn * step( uSplitPx, gl_FragCoord.x ); float ndlT = 1.0;
 	#if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
 	DirectionalLightShadow directionalLightShadow;
 	#endif
@@ -63,10 +65,14 @@ const patchedDir = `#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Direct )
 		directionalLight = directionalLights[ i ];
 		getDirectionalLightInfo( directionalLight, directLight );
 		csmW = csmWeight( uCsm[ i ], csmDepth );
+		smv = 1.0;
 		#if defined( USE_SHADOWMAP ) && ( UNROLLED_LOOP_INDEX < NUM_DIR_LIGHT_SHADOWS )
 		directionalLightShadow = directionalLightShadows[ i ];
-		directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
+		smv = ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
 		#endif
+		directLight.color *= mix( smv, tv, useT );
+		ndlT = step( 0.02, dot( geometryNormal, directLight.direction ) );
+		reflectedLight.indirectDiffuse += vec3( 1.0, 0.08, 0.04 ) * ( abs( smv - tv ) * uDiffOn * csmW * ndlT * 0.7 );
 		directLight.color *= csmW;
 		directLight.color = mix( directLight.color, directLight.color * uCsmTint[ i ] * 2.4, uCsmTintOn );
 		reflectedLight.indirectDiffuse += uCsmTint[ i ] * ( 0.10 * csmW * uCsmTintOn );
@@ -74,7 +80,7 @@ const patchedDir = `#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Direct )
 	}
 	#pragma unroll_loop_end`;
 const patchedChunk = chunk.slice(0, a) + patchedDir + chunk.slice(b);
-const csmDecl = `uniform vec4 uCsm[ 3 ]; uniform vec3 uCsmTint[ 3 ]; uniform float uCsmTintOn;
+const csmDecl = `uniform vec4 uCsm[ 3 ]; uniform vec3 uCsmTint[ 3 ]; uniform float uCsmTintOn; uniform sampler2D tVis; uniform vec2 uRes; uniform float uSplitPx, uTracedOn, uDiffOn;
 float csmWeight( vec4 c, float d ) { if ( d < c.x || d >= c.y ) return 0.0; return smoothstep( c.x, max( c.z, c.x + 0.001 ), d ) * ( 1.0 - smoothstep( min( c.w, c.y - 0.001 ), c.y, d ) ); }
 #include <lights_pars_begin>`;
 function patch(m) {
@@ -131,6 +137,123 @@ function previewTarget(p, size) {
   p.rt = new THREE.WebGLRenderTarget(size, size, { depthTexture: dt, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false }); p.size = size; p.dirty = true;
   p.quad.material.uniforms.tDepth.value = dt; return p.rt;
 }
+
+
+// ---- the true shadow: every pixel fires rays at the sun and asks whether anything is in the way
+// the scene as exact convex stand-ins: a sphere for round things, otherwise the planes of the mesh's own faces (a box is six, a pine cone nine, a rock twelve)
+const shapes = [], planeList = []; const bb = new THREE.Box3(), pa = new THREE.Vector3(), pb = new THREE.Vector3(), pc = new THREE.Vector3(), pn = new THREE.Vector3();
+scene.updateMatrixWorld(true);
+scene.traverse(m => {
+  if (!m.isMesh || !m.material.isMeshLambertMaterial || m === camp.ground) return;
+  const g = m.geometry; bb.setFromObject(m, true); const c = bb.getCenter(new THREE.Vector3()), r = bb.min.distanceTo(bb.max) / 2;
+  if (g.type === 'SphereGeometry' || g.type === 'IcosahedronGeometry') { m.getWorldPosition(c); const sc = m.getWorldScale(new THREE.Vector3()); shapes.push({ c, r: g.parameters.radius * Math.max(sc.x, sc.y, sc.z), p0: 0, pn: 0 }); return; }
+  const pos = g.attributes.position, idx = g.index, n = (idx ? idx.count : pos.count) / 3, seen = new Set(), p0 = planeList.length;
+  for (let t = 0; t < n; t++) {
+    const i0 = idx ? idx.getX(t * 3) : t * 3, i1 = idx ? idx.getX(t * 3 + 1) : t * 3 + 1, i2 = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+    pa.fromBufferAttribute(pos, i0).applyMatrix4(m.matrixWorld); pb.fromBufferAttribute(pos, i1).applyMatrix4(m.matrixWorld); pc.fromBufferAttribute(pos, i2).applyMatrix4(m.matrixWorld);
+    pn.subVectors(pb, pa).cross(pc.clone().sub(pa)); if (pn.lengthSq() < 1e-12) continue; pn.normalize(); const d = -pn.dot(pa);
+    const key = pn.x.toFixed(3) + ',' + pn.y.toFixed(3) + ',' + pn.z.toFixed(3) + ',' + d.toFixed(2); if (seen.has(key)) continue; seen.add(key); planeList.push(pn.x, pn.y, pn.z, d);
+  }
+  shapes.push({ c, r, p0: p0 / 4, pn: (planeList.length - p0) / 4 });
+});
+const MAXS = 512, PW = 1024, shapeData = new Float32Array(MAXS * 8), planeRows = Math.max(1, Math.ceil(planeList.length / 4 / PW)), planeData = new Float32Array(PW * planeRows * 4);
+shapes.forEach((sh, i) => { const o = i * 8; shapeData[o] = sh.c.x; shapeData[o + 1] = sh.c.y; shapeData[o + 2] = sh.c.z; shapeData[o + 3] = sh.r; shapeData[o + 4] = sh.p0; shapeData[o + 5] = sh.pn; });
+planeData.set(planeList);
+const dataTex = (arr, w, h) => { const t = new THREE.DataTexture(arr, w, h, THREE.RGBAFormat, THREE.FloatType); t.minFilter = t.magFilter = THREE.NearestFilter; t.needsUpdate = true; return t; };
+const shapeTex = dataTex(shapeData, MAXS * 2, 1), planeTex = dataTex(planeData, PW, planeRows);
+const nShapes = Math.min(shapes.length, MAXS), nPlanes = planeList.length / 4;
+
+let compare = 'split', splitF = 0.5, sunSize = 2.5, nSun = 1, accumulate = true, accN = 0, frame = 0, timeOfDay = 'day';
+function dirty() { accN = 0; }
+const GL3 = THREE.GLSL3, QVS = 'out vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const SRGBFN = `vec3 srgb(vec3 c) { c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }`;
+const skyU = { uInvPV: { value: new THREE.Matrix4() }, uCamPos: { value: new THREE.Vector3() }, uSunDir: { value: dir }, uSunCol: { value: new THREE.Vector3() }, uSkyScale: { value: new THREE.Vector3(7, 8, 11) } };
+const skyMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: skyU, vertexShader: QVS, depthTest: false, depthWrite: false, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform mat4 uInvPV; uniform vec3 uCamPos, uSunDir, uSunCol, uSkyScale; ${SRGBFN}
+vec3 sky(vec3 d) { vec3 base = vec3(0.0033, 0.0046, 0.0083); vec3 horizon = vec3(0.05, 0.07, 0.11) * exp(-abs(d.y) * 5.0); float s = dot(d, uSunDir);
+  vec3 sun = uSunCol * (smoothstep(0.9985, 0.9997, s) * 2.5 + pow(max(s, 0.0), 48.0) * 0.06); return (base + horizon) * uSkyScale + sun; }
+void main(){ vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, 1.0, 1.0); vec3 d = normalize(w.xyz / w.w - uCamPos); o = vec4(srgb(sky(d)), 1.0); }` });
+const V = {
+  tDepth: { value: null }, tNormal: { value: null }, tPrev: { value: null }, uShapes: { value: shapeTex }, uPlanes: { value: planeTex }, uNShape: { value: nShapes }, uPW: { value: PW },
+  uFrame: { value: 0 }, uNSun: { value: 1 }, uSunSize: { value: 2.5 * Math.PI / 180 }, uBlend: { value: 1 }, uSunDir: { value: dir }, uInvPV: { value: new THREE.Matrix4() }, uCamRot: { value: new THREE.Matrix3() }
+};
+const VIS = `precision highp float; precision highp int; precision highp sampler2D;
+in vec2 vUv; out vec4 o;
+uniform sampler2D tDepth, tNormal, tPrev, uShapes, uPlanes; uniform int uNShape, uPW, uFrame, uNSun; uniform float uSunSize, uBlend; uniform vec3 uSunDir; uniform mat4 uInvPV; uniform mat3 uCamRot;
+float hash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }
+vec3 sunSample(float seed) { vec3 w = uSunDir; vec3 u = normalize(cross(abs(w.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), w)); vec3 vv = cross(w, u);
+  float r = sqrt(hash(vec3(gl_FragCoord.xy, seed))) * tan(uSunSize); float ph = 6.2831853 * hash(vec3(gl_FragCoord.yx, seed + 3.7)); return normalize(w + u * (r * cos(ph)) + vv * (r * sin(ph))); }
+vec4 fetchS(int i, int k) { return texelFetch(uShapes, ivec2(i * 2 + k, 0), 0); }
+vec4 fetchP(int i) { return texelFetch(uPlanes, ivec2(i - (i / uPW) * uPW, i / uPW), 0); }
+// is anything between this point and the sun? every shape's bounding sphere first, then its planes: inside all of them at once means a hit
+bool blocked(vec3 o, vec3 d) {
+  for (int i = 0; i < 512; i++) { if (i >= uNShape) break;
+    vec4 s = fetchS(i, 0); vec3 oc = o - s.xyz; float b = dot(oc, d), c = dot(oc, oc) - s.w * s.w, disc = b * b - c; if (disc < 0.0 || -b + sqrt(disc) < 0.0) continue;
+    vec4 m = fetchS(i, 1); int pn = int(m.y);
+    if (pn == 0) { if (-b - sqrt(disc) > 1e-3) return true; continue; }
+    int p0 = int(m.x); float tIn = -1e9, tOut = 1e9; bool miss = false;
+    for (int k = 0; k < 96; k++) { if (k >= pn) break; vec4 pl = fetchP(p0 + k); float nd = dot(pl.xyz, d), no = dot(pl.xyz, o) + pl.w;
+      if (abs(nd) < 1e-7) { if (no > 0.0) { miss = true; break; } continue; }
+      float t = -no / nd; if (nd < 0.0) tIn = max(tIn, t); else tOut = min(tOut, t); if (tIn > tOut) { miss = true; break; } }
+    if (!miss && tIn > 1e-3 && tIn <= tOut) return true;
+  }
+  return false; }
+void main() {
+  float dz = texture(tDepth, vUv).r; float prev = texture(tPrev, vUv).r;
+  if (dz >= 0.99999) { o = vec4(1.0); return; }
+  vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, dz * 2.0 - 1.0, 1.0); vec3 p = w.xyz / w.w;
+  vec3 n = normalize(uCamRot * (texture(tNormal, vUv).xyz * 2.0 - 1.0));
+  float vis = 1.0;
+  if (dot(n, uSunDir) > 0.0) { float seed = fract(float(uFrame) * 0.618034) * 97.0; vec3 po = p + n * 0.02; vis = 0.0;
+    for (int k = 0; k < 8; k++) { if (k >= uNSun) break; if (!blocked(po, sunSample(seed + float(k) * 1.618))) vis += 1.0; } vis /= float(uNSun); }
+  o = vec4(vec3(mix(prev, vis, uBlend)), 1.0);
+}`;
+const visMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: V, vertexShader: QVS, fragmentShader: VIS, depthTest: false, depthWrite: false });
+const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quadGeo = new THREE.PlaneGeometry(2, 2);
+const skyScene = new THREE.Scene(); skyScene.add(new THREE.Mesh(quadGeo, skyMat));
+const visScene = new THREE.Scene(); visScene.add(new THREE.Mesh(quadGeo, visMat));
+const normalMat = new THREE.MeshNormalMaterial();
+let preRT = null, visRT = null, visPrev = null;
+function ensureTraceRT() {
+  const w = Math.max(2, Math.round(sb.stage.clientWidth * renderer.getPixelRatio())), h = Math.max(2, Math.round(sb.stage.clientHeight * renderer.getPixelRatio()));
+  if (preRT && preRT.width === w && preRT.height === h) return;
+  if (preRT) { preRT.depthTexture.dispose(); preRT.dispose(); visRT.dispose(); visPrev.dispose(); }
+  const dt = new THREE.DepthTexture(w, h, THREE.UnsignedIntType); dt.format = THREE.DepthFormat; dt.minFilter = dt.magFilter = THREE.NearestFilter;
+  preRT = new THREE.WebGLRenderTarget(w, h, { depthTexture: dt, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false });
+  const mk = () => new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false }); visRT = mk(); visPrev = mk(); dirty();
+}
+const splitLine = document.createElement('div'); splitLine.style.cssText = 'position:absolute;top:0;bottom:0;width:2px;background:rgba(242,217,153,0.9);pointer-events:none;display:none;'; sb.stage.appendChild(splitLine);
+// times of day: the same sun for the shadow maps (left), the traced shadows (right) and the sky
+const TIMES = { day: { col: 0xffe2b0, i: 3.2, hemiSky: 0x8fa8c8, hemiGnd: 0x2a3a2a, hemiI: 0.9, sky: [7, 8, 11] }, sunset: { col: 0xffa050, i: 2.8, hemiSky: 0x7a86ad, hemiGnd: 0x3a2e24, hemiI: 0.55, sky: [7, 3.2, 1.6] } };
+function setTime(name) {
+  const t = TIMES[name]; timeOfDay = name; const hemi = sb.lights.hemi;
+  for (const L of lights) { L.color.setHex(t.col); L.intensity = t.i; } hemi.color.setHex(t.hemiSky); hemi.groundColor.setHex(t.hemiGnd); hemi.intensity = t.hemiI;
+  skyU.uSkyScale.value.set(...t.sky); skyU.uSunCol.value.set(lights[0].color.r, lights[0].color.g, lights[0].color.b).multiplyScalar(t.i); dirty();
+}
+setTime('day');
+const invPV = new THREE.Matrix4(), lastCam = new THREE.Matrix4(), lastDir = new THREE.Vector3();
+sb.onRender((scene, camera, renderer) => {
+  camera.updateMatrixWorld(); invPV.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).invert();
+  if (!lastCam.equals(camera.matrixWorld)) { lastCam.copy(camera.matrixWorld); dirty(); } if (!lastDir.equals(dir)) { lastDir.copy(dir); dirty(); }
+  skyU.uInvPV.value.copy(invPV); skyU.uCamPos.value.copy(camera.position);
+  renderer.autoClear = false; renderer.setRenderTarget(null); renderer.clear(); renderer.render(skyScene, quadCam);
+  const traced = compare !== 'game', split = compare === 'game' ? 1 : compare === 'truth' ? 0 : compare === 'diff' ? 1 : splitF;
+  const W = sb.stage.clientWidth, Hh = sb.stage.clientHeight, pr = renderer.getPixelRatio();
+  if (traced) {
+    ensureTraceRT();
+    // pass one: where is every pixel, and which way does it face
+    camera.layers.set(0); scene.overrideMaterial = normalMat; renderer.shadowMap.needsUpdate = false;
+    renderer.setRenderTarget(preRT); renderer.clear(); renderer.render(scene, camera); renderer.setRenderTarget(null);
+    scene.overrideMaterial = null; camera.layers.set(0); camera.layers.enable(1); renderer.shadowMap.needsUpdate = true;
+    // pass two: rays at the sun from every pixel, blended with the frames before
+    const blending = accumulate; if (!blending) accN = 0; V.uBlend.value = blending ? 1 / (accN + 1) : 1; if (blending && accN < 4096) accN++;
+    V.tDepth.value = preRT.depthTexture; V.tNormal.value = preRT.texture; V.tPrev.value = visPrev.texture; V.uInvPV.value.copy(invPV); V.uCamRot.value.setFromMatrix4(camera.matrixWorld); V.uFrame.value = frame++; V.uNSun.value = nSun;
+    renderer.setRenderTarget(visRT); renderer.render(visScene, quadCam); renderer.setRenderTarget(null);
+    csmU.tVis.value = visRT.texture; const sw = visRT; visRT = visPrev; visPrev = sw;
+  }
+  csmU.uRes.value.set(W * pr, Hh * pr); csmU.uSplitPx.value = split * W * pr; csmU.uTracedOn.value = traced && compare !== 'diff' ? 1 : 0; csmU.uDiffOn.value = compare === 'diff' ? 1 : 0;
+  renderer.render(scene, camera);
+  splitLine.style.display = compare === 'split' ? 'block' : 'none'; splitLine.style.left = (split * 100) + '%';
+});
 
 // ---- state
 const S = { az: 104, el: 34, showPhoto: true, showBox: true, shadows: true, mapSize: 1024, box: 48, faces: 'front', slackCm: 1, slackCells: 0.5, nudgeCm: 3, type: 'basic', radius: 1, blurSamples: 8,
@@ -204,7 +327,8 @@ function applyStatic() {
 function hud() {
   const N = activeCount();
   const typeName = S.type === 'pcf' ? 'blurred edge, 5 cells read (PCF)' : S.type === 'vsm' ? 'pre-blurred photo (VSM)' : 'one cell read, hard edge';
-  sb.hud('mode', !S.shadows ? 'shadows off: the photo is taken but never consulted' : S.mode === 'fixed' ? `one photo, ${S.mapSize} cells across, fixed ${S.box} m box · ${typeName}` : `${N} photos, ${S.mapSize} cells each, sliced by distance from the camera · ${typeName}`);
+  const game = !S.shadows ? 'shadows off: the photo is taken but never consulted' : S.mode === 'fixed' ? `one photo, ${S.mapSize} cells across, fixed ${S.box} m box · ${typeName}` : `${N} photos, ${S.mapSize} cells each, sliced by distance from the camera · ${typeName}`;
+  sb.hud('mode', compare === 'game' ? game : compare === 'truth' ? 'traced: every pixel fires rays at the sun, no photo at all' : compare === 'diff' ? game + ' · red: where the photo disagrees with the rays' : 'left: ' + game + ' · right: traced, rays at the sun');
   sb.hud('photo', S.showPhoto ? (N === 1 ? 'top left: the sun\'s photo, brighter = nearer the sun, with the flat ground\'s own ramp taken out' : 'top left: near, mid and far photos, top to bottom, ground ramp taken out') : null);
 }
 
@@ -219,26 +343,36 @@ s1.button('Step back to see the whole box', () => { camera.position.set(52, 34, 
 s1.button('Back to the camp', () => { camera.position.set(12, 7, 15); sb.controls.target.set(0, 1, 0); });
 const photosRead = s1.readout('photos taken this frame'), callsRead = s1.readout('draw calls, photo passes included'), msRead = s1.readout('time per frame');
 
-const s2 = sb.panel.section('02 · Blocky edges', 'The photo has a fixed number of cells. Spread over a bigger box each cell covers more ground, and the shadow edge turns into steps the size of one cell.');
+const sT = sb.panel.section('02 · The true shadow, traced', 'Right of the line there is no photo. Every pixel fires a ray straight at the sun and asks whether anything is in the way, and the frames blend until the answer settles. No steps, no stripes, no seams, and a sun with real size gives real soft edges. Everything on the left is a shortcut to this picture.');
+sT.segment('Compare', [{ value: 'game', label: 'shadow map' }, { value: 'split', label: 'split' }, { value: 'truth', label: 'traced' }, { value: 'diff', label: 'where they differ' }], 'split', v => { compare = v; hud(); });
+sT.slider('Where the traced side begins', { min: 0, max: 100, step: 1, value: 50, unit: ' %' }, x => { splitF = x / 100; });
+sT.segment('Time of day', [{ value: 'day', label: 'day' }, { value: 'sunset', label: 'sunset' }], 'day', x => { setTime(x); if (x === 'sunset' && S.el > 14) elS.set(9); if (x === 'day' && S.el < 14) elS.set(34); hud(); });
+sT.slider('Sun size (a bigger sun makes softer shadows)', { min: 0, max: 8, step: 0.5, value: 2.5, unit: '°' }, x => { sunSize = x; V.uSunSize.value = x * Math.PI / 180; });
+sT.slider('Rays per pixel, toward the sun', { min: 1, max: 8, step: 1, value: 1 }, x => { nSun = x; });
+sT.toggle('blend frames while nothing moves (the noise settles)', true, x => { accumulate = x; dirty(); });
+const accRead = sT.readout('frames blended'), shapeRead = sT.readout('things a ray can hit');
+sT.note('Pick "where they differ" and every pixel where the shadow map disagrees with the rays turns red: the steps on the edges, the acne stripes, the missing sliver at the foot of a wall, the seams between slices. Put the sun size at 0 first, so a hard edge is compared with a hard edge; the red that stays is the photo\'s own error. Then fix it with the controls below and watch the red go away.');
+
+const s2 = sb.panel.section('03 · Blocky edges', 'The photo has a fixed number of cells. Spread over a bigger box each cell covers more ground, and the shadow edge turns into steps the size of one cell.');
 const sizeSeg = s2.segment('Cells across the photo (shadow map size)', [{ value: 256, label: '256' }, { value: 512, label: '512' }, { value: 1024, label: '1024' }, { value: 2048, label: '2048' }, { value: 4096, label: '4096' }], S.mapSize, v => { S.mapSize = +v; applyStatic(); });
 const boxS = s2.slider('Box the photo covers (one fixed photo)', { min: 16, max: 200, step: 2, value: S.box, unit: ' m' }, v => { S.box = v; if (S.mode !== 'fixed') modeSeg.set('fixed'); hud(); });
 const cellRead = s2.readout('one cell on the ground'), memRead = s2.readout('memory for the photos');
 s2.note('Drop to 256 cells and widen the box: the knight\'s shadow becomes a staircase. A low sun stretches every cell along the ground, so the same photo looks blockier at sunset.');
 
-const s3 = sb.panel.section('03 · Self-shadowing', 'A surface in the photo compares against its own stored distance and can lose by a hair, which paints stripes of false shadow (acne). Slack fixes that, but too much and the shadow floats off the feet (peter-panning).');
+const s3 = sb.panel.section('04 · Self-shadowing', 'A surface in the photo compares against its own stored distance and can lose by a hair, which paints stripes of false shadow (acne). Slack fixes that, but too much and the shadow floats off the feet (peter-panning).');
 s3.segment('Faces stored in the photo', [{ value: 'front', label: 'front, the lit side' }, { value: 'back', label: 'back, the far side' }], S.faces, v => { S.faces = v; applyStatic(); });
 s3.slider('Slack in the compare (bias)', { min: 0, max: 60, step: 0.5, value: S.slackCm, unit: ' cm' }, v => { S.slackCm = v; });
 s3.slider('Extra slack per cell, grows with the cell size', { min: 0, max: 2, step: 0.1, value: S.slackCells, unit: ' cells' }, v => { S.slackCells = v; });
 s3.slider('Nudge the tested point off the surface (normal offset)', { min: 0, max: 60, step: 1, value: S.nudgeCm, unit: ' cm' }, v => { S.nudgeCm = v; applyStatic(); });
 s3.note('Drag all three to 0: the trees, the roof and the lit house wall break into stripes. Push the slack past 30 cm at a low sun and the knight\'s shadow detaches from his feet. Slack per cell is what a game uses across its slices, since a coarse photo needs more of it. Storing back faces instead hides the stripes on solid things, and the ground plane, which has no back, vanishes from the photo.');
 
-const s4 = sb.panel.section('04 · Softening the edge', 'Reading one cell gives a hard, blocky edge. Reading a few cells around the spot and averaging the yes-or-no answers blurs it. Pre-blurring the photo itself gives a wide soft edge but leaks light where casters overlap.');
+const s4 = sb.panel.section('05 · Softening the edge', 'Reading one cell gives a hard, blocky edge. Reading a few cells around the spot and averaging the yes-or-no answers blurs it. Pre-blurring the photo itself gives a wide soft edge but leaks light where casters overlap.');
 const typeSeg = s4.segment('Cells each pixel reads', [{ value: 'basic', label: '1, hard' }, { value: 'pcf', label: '5 in a disc (PCF)' }, { value: 'vsm', label: 'pre-blurred (VSM)' }], S.type, v => { S.type = v; applyStatic(); });
 s4.slider('Blur width (radius)', { min: 0, max: 8, step: 0.5, value: S.radius, unit: ' cells' }, v => { S.radius = v; applyStatic(); if (S.type === 'basic') typeToPcf(); });
 s4.slider('Pre-blur taps (VSM samples)', { min: 2, max: 16, step: 1, value: S.blurSamples, unit: '' }, v => { S.blurSamples = v; applyStatic(); if (S.type !== 'vsm') typeSeg.set('vsm'); });
 function typeToPcf() { typeSeg.set('pcf'); }
 
-const s5 = sb.panel.section('05 · Shadows from the sun', 'One photo over the whole view gives huge cells at your feet. Cut the view into slices by distance and give each slice its own photo: sharp near the knight, coarse far away, with a seam at each hand-off.');
+const s5 = sb.panel.section('06 · Shadows from the sun', 'One photo over the whole view gives huge cells at your feet. Cut the view into slices by distance and give each slice its own photo: sharp near the knight, coarse far away, with a seam at each hand-off.');
 const modeSeg = s5.segment('Photos', [{ value: 'fixed', label: 'one fixed box' }, { value: 'c2', label: '2 slices of the view' }, { value: 'c3', label: '3 slices of the view' }], 'fixed', v => { S.mode = v === 'fixed' ? 'fixed' : 'cascade'; if (v !== 'fixed') S.count = +v.slice(1); applyStatic(); });
 const cascadeOn = () => { if (S.mode === 'fixed') modeSeg.set('c3'); };
 s5.segment('How the view is cut', [{ value: 'even', label: 'even' }, { value: 'log', label: 'doubling' }, { value: 'blend', label: 'a blend' }], S.split, v => { S.split = v; lambdaS.set(v === 'even' ? 0 : v === 'log' ? 1 : 0.75, false); S.lambda = lambdaS.get(); cascadeOn(); });
@@ -297,10 +431,12 @@ sb.onFrame((dt) => {
   msAcc += dt * 1000; msN++; if (msN >= 20) { msShown = msAcc / msN; msAcc = 0; msN = 0; } msRead(msShown.toFixed(1) + ' ms');
   cellRead(S.mode === 'fixed' ? (info[0].texel * 100).toFixed(1) + ' cm' : `${(info[0].texel * 100).toFixed(1)} cm near, ${(info[N - 1].texel * 100).toFixed(1)} cm far`);
   memRead((N * S.mapSize * S.mapSize * 4 / 1048576).toFixed(0) + ' MB, ' + N + ' × ' + S.mapSize + '² × 4 bytes');
+  if (msN === 0) { accRead(compare === 'game' ? 'no traced side shown' : !accumulate ? 'off, one frame at a time' : accN + (accN === 1 ? ' frame' : ' frames')); shapeRead(nShapes + ' shapes, ' + nPlanes + ' flat sides'); }
   if (S.mode === 'fixed') { splitRead('no slices: one box'); cellsRead((info[0].texel * 100).toFixed(1) + ' cm'); }
   else { let s = ''; for (let k = 1; k <= N; k++) s += (k > 1 ? ' · ' : '') + splits[k].toFixed(0) + ' m'; splitRead(s); let c = ''; for (let k = 0; k < N; k++) c += (k ? ' · ' : '') + (info[k].texel * 100).toFixed(0) + ' cm'; cellsRead(c); }
 });
 applyStatic(); layoutLights();
+{ const pe = document.querySelector('.sb-panel'); pe.addEventListener('input', dirty); pe.addEventListener('change', dirty); pe.addEventListener('click', dirty); }
 sb.start();
 </script>
 </body>
