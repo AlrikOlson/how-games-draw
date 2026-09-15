@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Virtual Texturing · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'virtual-texturing', title: 'Virtual Texturing',
+  blurb: 'The knight\'s camp sits on a painted one kilometre world, and the graphics card never holds the whole painting. Fly about and watch which small squares of it get loaded, how the one real texture (the cache) fills up and throws pages out, and what goes wrong at the edge of a page.',
+  camera: { pos: [14, 7, 16], target: [0.5, 1, -1], near: 0.1, far: 2500 }
+});
+const scene = sb.scene, camera = sb.camera, R = sb.renderer;
+scene.background = null; R.setClearColor(PAL.sky, 1);
+R.shadowMap.autoUpdate = false;
+
+// ---- the numbers of this virtual texture
+const VT = 32768;        // the painting: texels per side (4 GiB if it were all loaded)
+const WORLD = 1024;      // metres per side of the map, so 32 texels per metre
+const CACHE = 2048;      // the one real texture in graphics memory: texels per side
+let P = 128, B = 4;      // page size and border, in texels
+let S = 16, NSLOT = 256, MAXMIP = 8, PPS0 = 256, usableSlots = 256;
+
+// ---- the world: the camp, with its 40 m lawn swapped for the 1 km painted map
+const camp = sb.world.camp();
+scene.remove(camp.ground); camp.ground.geometry.dispose(); camp.ground.material.dispose();
+for (const [x, z, h] of [[-48, -28, 5], [-54, -40, 4.2], [-62, -52, 5.5], [-70, -34, 4.6], [-84, -60, 5], [-96, -46, 4.4], [-24, -70, 4.8], [-36, -84, 5.2]]) sb.world.tree(x, z, h, (x + z) % 2 === 0);
+sb.world.rock(-34, -12, 0.8); sb.world.rock(-44, 8, 0.6);
+
+// colours of the painting, written as linear values for the shader
+const lin = h => { const c = new THREE.Color(h); return `vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)})`; };
+const C = {
+  GRASS_A: lin(0x2b5236), GRASS_B: lin(0x4f8244), FLOOR: lin(0x1f3a26), LEAF: lin(0x3f8f4a), LEAF_LITE: lin(0x6cc06e),
+  WATER: lin(0x24568f), WATER_LITE: lin(0x4a8fd0), SAND: lin(0xc2b083), DIRT: lin(0x5a4632), DIRT_LITE: lin(0x8a6c4a),
+  COBBLE: lin(0x8a90a0), COBBLE_D: lin(0x545b6a), MORTAR: lin(0x3a3f4a), CHALK: lin(0xf0eadc), STONE_RIM: lin(0x6b7585), FLOORBOARD: lin(0x8a5f36),
+  WHEAT: lin(0xd1a94b), PLOUGH: lin(0x5c4030), HEDGE: lin(0x244a2a), WOOD: lin(0x7a4f2a), WOOD_LITE: lin(0xa06a38), NOTHING: lin(0xff2ee6)
+};
+const CONSTS = Object.entries(C).map(([k, v]) => `const vec3 ${k} = ${v};`).join('\n') + '\nconst vec2 FIRE_P = vec2(513.2, 509.8);\n';
+
+// ---- the painter: draws any square of the painting at any level of detail, on demand
+const PAINT_FRAG = `
+precision highp float;
+varying vec2 vUv;
+uniform vec3 uRect;      // where this slot's square sits on the painting: u0, v0, size (0 to 1)
+uniform float uTexel;    // how many metres one texel of this page covers
+${CONSTS}
+float hash(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f); return mix(mix(hash(i), hash(i+vec2(1.0,0.0)), f.x), mix(hash(i+vec2(0.0,1.0)), hash(i+vec2(1.0,1.0)), f.x), f.y); }
+// detail smaller than a texel fades to its average, so a blurry page is a fair blurry copy and not a noisy one
+float fade(float L, float ts){ return 1.0 - smoothstep(0.2*L, 0.8*L, ts); }
+float oct(vec2 p, float L, float ts){ return (vnoise(p / L) - 0.5) * fade(L, ts); }
+float riverX(float y){ return 452.0 + 40.0*sin(y*0.0123 + 1.0) + 14.0*sin(y*0.031 + 2.0); }
+float riverSlope(float y){ return 40.0*0.0123*cos(y*0.0123 + 1.0) + 14.0*0.031*cos(y*0.031 + 2.0); }
+float roadY(float x){ return 512.0 + 6.0*sin(x*0.015); }
+float roadX(float y){ return 512.0 + 6.0*sin(y*0.017 + 1.0); }
+vec2 blobs(vec2 p, float spacing, float jitter, float rmin, float rmax) {
+  vec2 g = p / spacing, gi = floor(g); float best = 9.0, id = 0.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 cell = gi + vec2(float(i), float(j));
+    vec2 ctr = cell + 0.5 + (vec2(hash(cell), hash(cell + 7.1)) - 0.5) * jitter;
+    float rad = mix(rmin, rmax, hash(cell + 3.3)) / spacing;
+    float d = length(g - ctr) / rad;
+    if (d < best) { best = d; id = hash(cell + 9.7); }
+  }
+  return vec2(best, id);
+}
+vec3 paint(vec2 p, float ts) {
+  vec2 c = p - vec2(512.0);
+  float r = length(c);
+  float aa = max(ts, 0.05);
+  float g = 0.5 + 0.7*oct(p, 180.0, ts) + 0.5*oct(p, 45.0, ts) + 0.35*oct(p, 12.0, ts) + 0.25*oct(p, 3.0, ts) + 0.2*oct(p, 0.8, ts);
+  vec3 col = mix(GRASS_A, GRASS_B, clamp(g, 0.0, 1.0));
+  float big = vnoise(p / 300.0 + 3.7), mid = vnoise(p / 90.0 + 1.3);
+  float sl = riverSlope(p.y);
+  float dRiver = abs(p.x - riverX(p.y)) / sqrt(1.0 + sl*sl);
+  float dRoadEW = abs(p.y - roadY(p.x));
+  float dRoadN = c.y > 0.0 ? abs(p.x - roadX(p.y)) : 1e4;
+  float dRoad = min(dRoadEW, dRoadN);
+  float forest = smoothstep(0.42, 0.55, big + 0.3*(mid - 0.5) + 0.3*clamp((-c.x + c.y) / 350.0, -1.0, 1.0));
+  forest *= smoothstep(48.0, 75.0, r) * smoothstep(12.0, 24.0, dRiver) * smoothstep(3.0, 7.0, dRoad);
+  float fields = smoothstep(0.42, 0.55, vnoise(p / 160.0 + 8.1) + 0.35*clamp((c.x - c.y) / 350.0, -1.0, 1.0));
+  fields *= smoothstep(55.0, 90.0, r) * (1.0 - forest) * smoothstep(14.0, 26.0, dRiver) * smoothstep(3.0, 7.0, dRoad);
+  if (fields > 0.001) {
+    vec2 plot = floor(p / 48.0); vec2 pf = fract(p / 48.0) * 48.0;
+    float hedge = 1.0 - smoothstep(0.6, 0.6 + aa, min(min(pf.x, pf.y), min(48.0 - pf.x, 48.0 - pf.y)));
+    float kind = hash(plot + 2.2);
+    vec3 crop = kind < 0.35 ? WHEAT : kind < 0.65 ? PLOUGH : GRASS_B;
+    crop = mix(crop, crop * 0.7, (0.5 + 0.5*sin(p.x * 7.85)) * fade(0.8, ts) * 0.6);
+    crop *= 0.85 + 0.3*vnoise(p / 6.0) * fade(6.0, ts);
+    col = mix(col, mix(crop, HEDGE, hedge), fields);
+  }
+  if (forest > 0.001) {
+    vec2 b = blobs(p, 3.6, 0.9, 1.1, 1.9);
+    vec3 canopy = mix(LEAF_LITE, LEAF, clamp(b.x*b.x, 0.0, 1.0)) * (0.8 + 0.4*b.y);
+    float inside = 1.0 - smoothstep(1.0 - aa*0.6, 1.0 + aa*0.6, b.x);
+    vec3 treeCol = mix(FLOOR, canopy, inside);
+    vec3 flatCol = mix(FLOOR, LEAF, 0.55) * (0.9 + 0.2*vnoise(p / 9.0));
+    col = mix(col, mix(flatCol, treeCol, fade(3.6, ts)), forest);
+  }
+  {
+    float road = 1.0 - smoothstep(1.6, 1.6 + aa, dRoad);
+    float rut = (1.0 - smoothstep(0.25, 0.25 + aa, abs(dRoad - 0.9))) * fade(0.5, ts);
+    vec3 roadCol = mix(DIRT, DIRT_LITE, 0.3 + 0.4*oct(p, 2.0, ts) + rut*0.5);
+    col = mix(col, roadCol, road);
+  }
+  if (r < 60.0) {
+    vec2 cb = blobs(p, 0.42, 0.5, 0.17, 0.24);
+    vec3 stone = mix(COBBLE_D, COBBLE, 0.4 + 0.6*cb.y);
+    float mortar = smoothstep(0.8, 0.8 + aa*4.0, cb.x);
+    vec3 cobbles = mix(mix(stone, MORTAR, mortar), mix(COBBLE_D, COBBLE, 0.5), 1.0 - fade(0.42, ts));
+    float square = 1.0 - smoothstep(15.0, 15.0 + aa, r);
+    float path = 1e4;
+    for (int k = 0; k < 6; k++) { float a = float(k) * 1.0472 + 0.4; vec2 dir = vec2(cos(a), sin(a)); float along = dot(c, dir); float across = abs(dot(c, vec2(-dir.y, dir.x))); if (along > 0.0 && along < 30.0) path = min(path, across); }
+    float paths = 1.0 - smoothstep(1.2, 1.2 + aa, path);
+    float trodden = 1.0 - smoothstep(20.0, 50.0, r);
+    col = mix(col, mix(col, DIRT, 0.35), trodden * (0.6 + 0.4*vnoise(p / 3.0)));
+    col = mix(col, cobbles, max(square, paths));
+    for (int k = 0; k < 6; k++) { float a = float(k) * 1.0472 + 0.4; vec2 ctr = vec2(cos(a), sin(a)) * 27.0; vec2 q = abs(c - ctr); float inside = 1.0 - smoothstep(0.0, aa, max(q.x - 4.5, q.y - 3.5)); float rim = 1.0 - smoothstep(0.0, aa, max(q.x - 5.1, q.y - 4.1)); col = mix(col, STONE_RIM, rim); col = mix(col, FLOORBOARD, inside); }
+    float ring = 1.0 - smoothstep(0.12, 0.12 + aa, abs(length(p - FIRE_P) - 3.5));
+    col = mix(col, CHALK, ring * fade(0.3, ts));
+  }
+  {
+    float wobble = 1.5 * oct(p, 9.0, 0.0);
+    float water = 1.0 - smoothstep(6.5 + wobble, 6.5 + wobble + aa, dRiver);
+    float sand = 1.0 - smoothstep(9.5 + wobble, 9.5 + wobble + aa*2.0, dRiver);
+    vec3 waterCol = mix(WATER, WATER_LITE, 0.5 + 0.8*oct(p, 6.0, ts) + 0.6*oct(p, 1.5, ts));
+    col = mix(col, SAND, sand);
+    col = mix(col, waterCol, water);
+    float bridge = (1.0 - smoothstep(2.2, 2.2 + aa, dRoadEW)) * (1.0 - smoothstep(11.0, 11.0 + aa, dRiver));
+    float plank = (0.5 + 0.5*sin(p.x * 20.9)) * fade(0.3, ts);
+    vec3 bridgeCol = mix(WOOD, WOOD_LITE, 0.3 + 0.4*plank + 0.3*hash(vec2(floor(p.x / 0.3), 1.0)) * fade(0.3, ts));
+    col = mix(col, bridgeCol, bridge);
+  }
+  return col;
+}
+void main() {
+  vec2 uv0 = uRect.xy + vUv * uRect.z;
+  float tsUV = uTexel / ${WORLD}.0;
+  vec3 acc = vec3(0.0);
+  for (int j = 0; j < 2; j++) for (int i = 0; i < 2; i++) {
+    vec2 off = (vec2(float(i), float(j)) - 0.5) * 0.5 * tsUV;
+    acc += paint((uv0 + off) * ${WORLD}.0, uTexel);
+  }
+  gl_FragColor = vec4(acc * 0.25, 1.0);
+}`;
+const QUAD_VERT = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const painterMat = new THREE.ShaderMaterial({ uniforms: { uRect: { value: new THREE.Vector3() }, uTexel: { value: 1 } }, vertexShader: QUAD_VERT, fragmentShader: PAINT_FRAG, depthTest: false, depthWrite: false });
+const quadGeo = new THREE.PlaneGeometry(2, 2);
+const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const painterScene = new THREE.Scene(); painterScene.add(new THREE.Mesh(quadGeo, painterMat));
+
+// ---- the physical cache: one 2048² texture, no mip chain, filled one slot at a time
+const cacheRT = new THREE.WebGLRenderTarget(CACHE, CACHE, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, generateMipmaps: false, type: THREE.UnsignedByteType });
+cacheRT.texture.wrapS = cacheRT.texture.wrapT = THREE.ClampToEdgeWrapping;
+function clearCache() { cacheRT.scissorTest = false; cacheRT.viewport.set(0, 0, CACHE, CACHE); R.setRenderTarget(cacheRT); R.setClearColor(0x000000, 1); R.clear(); R.setRenderTarget(null); }
+function setCacheAniso(n) {
+  const gl = R.getContext(), ext = R.extensions.get('EXT_texture_filter_anisotropic');
+  const tex = R.properties.get(cacheRT.texture).__webglTexture; if (!ext || !tex) return;
+  R.state.bindTexture(gl.TEXTURE_2D, tex); gl.texParameterf(gl.TEXTURE_2D, ext.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(n, R.capabilities.getMaxAnisotropy() || 1));
+}
+
+// ---- the lookup every ground pixel does: page table read, then one cache read
+const U = {
+  uPageTable: { value: null }, uPageP: { value: P }, uBorder: { value: B }, uMaxMip: { value: MAXMIP }, uPagesAt0: { value: PPS0 },
+  uBias: { value: 0 }, uAniso: { value: 4 }, uCacheSize: { value: CACHE }, uVTSize: { value: VT },
+  uView: { value: 0 }, uLines: { value: 0 }, uSeamView: { value: 0 }
+};
+const VT_GLSL = `
+uniform sampler2D uPageTable;
+uniform float uPageP, uBorder, uMaxMip, uPagesAt0, uBias, uAniso, uCacheSize, uVTSize;
+// how many texels one screen pixel covers decides the mip; with anisotropy the thin axis of the footprint decides, capped
+float vtLod(vec2 dx, vec2 dy) {
+  dx *= uVTSize; dy *= uVTSize;
+  float lx = length(dx), ly = length(dy);
+  float rmax = max(lx, ly), rmin = max(min(lx, ly), 1e-6);
+  return log2(max(rmax / uAniso, rmin)) + uBias;
+}`;
+const SAMPLE_GLSL = `
+uniform float uView, uLines, uSeamView;
+const vec3 NOTHING_L = ${C.NOTHING};
+struct VTS { vec3 color; float mReq; float mRes; vec2 slot; float has; float seam; float edge; };
+VTS vtSample(vec2 uv, vec2 dx, vec2 dy) {
+  VTS s;
+  s.mReq = clamp(floor(vtLod(dx, dy)), 0.0, uMaxMip);
+  vec4 e = textureLod(uPageTable, uv, s.mReq);          // one table read at the mip the pixel wants
+  s.has = e.a > 0.5 ? 1.0 : 0.0;
+  s.mRes = floor(e.b * 255.0 + 0.5);                     // the mip that is really there
+  s.slot = floor(e.rg * 255.0 + 0.5);
+  float scale = uPagesAt0 / exp2(s.mRes);
+  float inner = uPageP - 2.0 * uBorder;
+  vec2 inPage = fract(uv * scale);
+  vec2 t = uBorder + inPage * inner;                     // texels from the slot's edge
+  vec2 uvPhys = (s.slot * uPageP + t) / uCacheSize;
+  float g = scale * inner / uCacheSize;                  // the derivatives must be scaled the same way
+  vec2 pdx = dx * g, pdy = dy * g;
+  s.color = s.has > 0.5 ? textureGrad(map, uvPhys, pdx, pdy).rgb : NOTHING_L;
+  float px = length(pdx) * uCacheSize, py = length(pdy) * uCacheSize;
+  float pmax = max(px, py), pmin = max(min(px, py), 1e-6);
+  float reach = 0.5 + 0.5 * min(pmax, uAniso * pmin);   // half a texel for bilinear, up to half the capped long axis for aniso taps
+  s.seam = (any(lessThan(t - vec2(reach), vec2(0.0))) || any(greaterThan(t + vec2(reach), vec2(uPageP)))) ? 1.0 : 0.0;
+  vec2 q = uv * (uPagesAt0 / exp2(s.mReq)); vec2 fq = fract(q); vec2 fw = fwidth(q);
+  vec2 dEdge = min(fq, 1.0 - fq);
+  s.edge = 1.0 - smoothstep(0.0, 1.0, min(dEdge.x / max(fw.x * 1.2, 1e-5), dEdge.y / max(fw.y * 1.2, 1e-5)));
+  return s;
+}
+vec3 hsv(float h, float s, float v) { vec3 p = abs(fract(vec3(h) + vec3(0.0, 2.0/3.0, 1.0/3.0)) * 6.0 - 3.0); return v * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), s); }
+vec3 mipColor(float m) { return hsv(0.68 - 0.68 * m / uMaxMip, 0.8, 0.95); }
+vec3 slotColor(vec2 sl) { return hsv(fract(dot(sl, vec2(0.618, 0.387)) * 3.1), 0.65, 0.9); }
+vec3 blurColor(VTS s) { if (s.has < 0.5) return vec3(1.0, 0.18, 0.9); float d = s.mRes - s.mReq; return d < 0.5 ? vec3(0.35, 0.83, 0.54) : d < 1.5 ? vec3(0.95, 0.83, 0.25) : d < 2.5 ? vec3(0.95, 0.64, 0.25) : vec3(0.94, 0.36, 0.36); }`;
+const MAP_INJECT = `
+vec2 vtdx = dFdx(vMapUv), vtdy = dFdy(vMapUv);
+VTS vs = vtSample(vMapUv, vtdx, vtdy);
+diffuseColor.rgb *= vs.color;`;
+const VIEW_INJECT = `
+#include <colorspace_fragment>
+if (uView > 0.5) {
+  vec3 vc = uView < 1.5 ? mipColor(vs.mReq) : uView < 2.5 ? slotColor(vs.slot) : blurColor(vs);
+  if (vs.has < 0.5 && uView < 2.5) vc = vec3(1.0, 0.18, 0.9);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, vc, 0.72);
+  if (uView < 2.5) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0), vs.edge * 0.6);
+}
+if (uLines > 0.5) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0), vs.edge * 0.85);
+if (uSeamView > 0.5 && vs.seam > 0.5) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0, 0.15, 0.15), 0.9);`;
+
+const groundMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: cacheRT.texture });
+groundMat.onBeforeCompile = shader => {
+  Object.assign(shader.uniforms, U);
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <clipping_planes_pars_fragment>', '#include <clipping_planes_pars_fragment>\n' + VT_GLSL + SAMPLE_GLSL)
+    .replace('#include <map_fragment>', MAP_INJECT)
+    .replace('#include <colorspace_fragment>', VIEW_INJECT);
+};
+groundMat.customProgramCacheKey = () => 'vt-ground';
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(WORLD, WORLD, 1, 1), groundMat);
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; ground.name = 'ground'; scene.add(ground);
+
+// ---- the feedback pass: the ground writes the page id it wants, everything else writes nothing
+const fbMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: VT_GLSL + `
+varying vec2 vUv;
+void main() {
+  float lod = vtLod(dFdx(vUv), dFdy(vUv)) - 3.0;       // this picture is 1/8 of the screen, so the derivatives are 8 times too big
+  float m = clamp(floor(lod), 0.0, uMaxMip);
+  float pa = uPagesAt0 / exp2(m);
+  vec2 pg = min(floor(vUv * pa), vec2(pa - 1.0));
+  gl_FragColor = vec4(pg / 255.0, m / 255.0, 1.0);      // page x, page y, mip; alpha 1 means a page was asked for
+}` });
+const blankMat = new THREE.ShaderMaterial({ vertexShader: 'void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }', fragmentShader: 'void main(){ gl_FragColor = vec4(0.0); }' });
+const matList = []; scene.traverse(o => { if (o.isMesh) matList.push([o, o.material, o === ground ? fbMat : blankMat]); });
+function swapMats(fb) { for (const [m, real, f] of matList) m.material = fb ? f : real; }
+let fbRT = null, fbW = 0, fbH = 0, fbBuf = null, fbInFlight = false, fbReady = false, fbStart = 0, fbAge = 0;
+function ensureFeedbackTarget() {
+  const gl = R.getContext(); const w = Math.max(1, gl.drawingBufferWidth >> 3), h = Math.max(1, gl.drawingBufferHeight >> 3);
+  if (fbRT && fbW === w && fbH === h) return;
+  if (fbRT) fbRT.dispose();
+  fbRT = new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true, generateMipmaps: false, type: THREE.UnsignedByteType });
+  fbW = w; fbH = h; fbBuf = new Uint8Array(w * h * 4); fbReady = false; fbInFlight = false;
+}
+function startReadback() {
+  if (fbInFlight) return; fbInFlight = true; fbStart = frame; const buf = fbBuf, w = fbW, h = fbH;
+  const done = () => { fbInFlight = false; if (buf === fbBuf) { fbReady = true; fbAge = frame - fbStart; } };
+  try {
+    if (R.readRenderTargetPixelsAsync) R.readRenderTargetPixelsAsync(fbRT, 0, 0, w, h, buf).then(done, () => { fbInFlight = false; });
+    else { R.readRenderTargetPixels(fbRT, 0, 0, w, h, buf); done(); }
+  } catch (e) { try { R.readRenderTargetPixels(fbRT, 0, 0, w, h, buf); done(); } catch (e2) { fbInFlight = false; } }
+}
+
+// ---- the page table and the loader, on the CPU
+let ptMips = [], ptTex = null, offsets = [], totalPages = 0, pageM, pageX, pageY, pageState, pageSlot, touch;
+let slotPage, slotUsed, slotPin, slotArrived, slotTex, slotData;
+let queue = [], pending = [], pendingPos = 0, ptDirty = false;
+let frame = 0, budget = 8, latency = 3, pinOn = true, lastFeedbackFrame = -1;
+let stat = { wanted: 0, hits: 0, blur: 0, groundTexels: 0, loads: 0, evictions: 0, thrash: 0, resident: 0 };
+const pidx = (m, x, y) => offsets[m] + y * (PPS0 >> m) + x;
+function buildVT(pageSize) {
+  P = pageSize; S = CACHE / P; NSLOT = S * S; PPS0 = VT / P; MAXMIP = Math.round(Math.log2(PPS0));
+  ptMips = []; offsets = []; totalPages = 0;
+  for (let m = 0; m <= MAXMIP; m++) { const n = PPS0 >> m; offsets.push(totalPages); totalPages += n * n; ptMips.push({ data: new Uint8Array(n * n * 4), width: n, height: n }); }
+  pageM = new Uint8Array(totalPages); pageX = new Uint8Array(totalPages); pageY = new Uint8Array(totalPages);
+  for (let m = 0; m <= MAXMIP; m++) { const n = PPS0 >> m; for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { const i = pidx(m, x, y); pageM[i] = m; pageX[i] = x; pageY[i] = y; } }
+  pageState = new Uint8Array(totalPages); pageSlot = new Int32Array(totalPages).fill(-1); touch = new Int32Array(totalPages).fill(-1);
+  slotPage = new Int32Array(NSLOT).fill(-1); slotUsed = new Int32Array(NSLOT); slotPin = new Uint8Array(NSLOT); slotArrived = new Int32Array(NSLOT).fill(-1000);
+  if (ptTex) ptTex.dispose();
+  ptTex = new THREE.DataTexture(ptMips[0].data, PPS0, PPS0, THREE.RGBAFormat, THREE.UnsignedByteType);
+  ptTex.mipmaps = ptMips; ptTex.minFilter = THREE.NearestMipmapNearestFilter; ptTex.magFilter = THREE.NearestFilter; ptTex.generateMipmaps = false;
+  ptTex.wrapS = ptTex.wrapT = THREE.ClampToEdgeWrapping; ptTex.needsUpdate = true;
+  if (slotTex) slotTex.dispose();
+  slotData = new Uint8Array(NSLOT * 4); slotTex = new THREE.DataTexture(slotData, S, S, THREE.RGBAFormat, THREE.UnsignedByteType); slotTex.minFilter = slotTex.magFilter = THREE.NearestFilter; slotTex.needsUpdate = true;
+  U.uPageTable.value = ptTex; U.uPageP.value = P; U.uMaxMip.value = MAXMIP; U.uPagesAt0.value = PPS0; U.uBorder.value = Math.min(B, P / 4);
+  cacheViewMat.uniforms.tSlots.value = slotTex; cacheViewMat.uniforms.uS.value = S; fbViewMat.uniforms.uMaxMip.value = MAXMIP;
+  usableSlots = Math.max(32, Math.round(slotFrac * NSLOT));
+  queue = []; pending = []; pendingPos = 0; clearCache(); requestPinned(); ptDirty = true;
+}
+function flush() {
+  for (let s = 0; s < NSLOT; s++) { slotPage[s] = -1; slotUsed[s] = 0; slotPin[s] = 0; slotArrived[s] = -1000; }
+  pageState.fill(0); pageSlot.fill(-1); for (const mp of ptMips) mp.data.fill(0);
+  queue = []; pending = []; pendingPos = 0; clearCache(); requestPinned(); ptDirty = true;
+}
+const isPinnedPage = i => pageM[i] >= MAXMIP - 2;
+function requestPinned() { if (!pinOn) return; for (let m = MAXMIP; m >= MAXMIP - 2; m--) { const n = PPS0 >> m; for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { const i = pidx(m, x, y); if (pageState[i] === 0) { pageState[i] = 1; queue.push({ idx: i, land: frame + latency }); } else if (pageState[i] === 2) slotPin[pageSlot[i]] = 1; } } }
+function setEntry(m, x, y, sx, sy, mres, any) { const n = PPS0 >> m, d = ptMips[m].data, o = (y * n + x) * 4; d[o] = sx; d[o + 1] = sy; d[o + 2] = mres; d[o + 3] = any ? 255 : 0; }
+function ancestor(m, x, y) { for (let k = m + 1; k <= MAXMIP; k++) { const i = pidx(k, x >> (k - m), y >> (k - m)); if (pageState[i] === 2) { const s = pageSlot[i]; return [s % S, Math.floor(s / S), k, 1]; } } return [0, 0, 0, 0]; }
+// a page landed: its own entry points at the slot, and so do the entries of every finer page below it that had nothing sharper
+function onArrive(i, s) {
+  const m = pageM[i], x = pageX[i], y = pageY[i], sx = s % S, sy = Math.floor(s / S);
+  setEntry(m, x, y, sx, sy, m, 1);
+  for (let k = m - 1; k >= 0; k--) { const sh = m - k, n = PPS0 >> k, d = ptMips[k].data; const x0 = x << sh, y0 = y << sh, w = 1 << sh;
+    for (let yy = y0; yy < y0 + w; yy++) for (let xx = x0; xx < x0 + w; xx++) { const o = (yy * n + xx) * 4; if (d[o + 3] === 0 || d[o + 2] > m) { d[o] = sx; d[o + 1] = sy; d[o + 2] = m; d[o + 3] = 255; } } }
+  ptDirty = true;
+}
+// a page was thrown out: everything that pointed at it falls back to the nearest loaded page up the chain
+function onEvict(i) {
+  const m = pageM[i], x = pageX[i], y = pageY[i], a = ancestor(m, x, y);
+  setEntry(m, x, y, a[0], a[1], a[2], a[3]);
+  for (let k = m - 1; k >= 0; k--) { const sh = m - k, n = PPS0 >> k, d = ptMips[k].data; const x0 = x << sh, y0 = y << sh, w = 1 << sh;
+    for (let yy = y0; yy < y0 + w; yy++) for (let xx = x0; xx < x0 + w; xx++) { const o = (yy * n + xx) * 4; if (d[o + 3] !== 0 && d[o + 2] === m) { d[o] = a[0]; d[o + 1] = a[1]; d[o + 2] = a[2]; d[o + 3] = a[3] ? 255 : 0; } } }
+  pageState[i] = 0; pageSlot[i] = -1; ptDirty = true;
+}
+function allocSlot() {
+  for (let s = 0; s < usableSlots; s++) if (slotPage[s] === -1) return s;
+  let best = -1, bestUsed = Infinity;
+  for (let s = 0; s < usableSlots; s++) if (!slotPin[s] && slotUsed[s] < bestUsed) { best = s; bestUsed = slotUsed[s]; }
+  if (best < 0) return -1;
+  if (bestUsed >= lastFeedbackFrame && lastFeedbackFrame >= 0) stat.thrash++;
+  onEvict(slotPage[best]); stat.evictions++; return best;
+}
+function paintPage(i, s) {
+  const m = pageM[i], pa = PPS0 >> m, inner = P - 2 * U.uBorder.value, size = 1 / pa;
+  const grow = size * P / inner, u0 = pageX[i] / pa - size * U.uBorder.value / inner, v0 = pageY[i] / pa - size * U.uBorder.value / inner;
+  painterMat.uniforms.uRect.value.set(u0, v0, grow); painterMat.uniforms.uTexel.value = WORLD * grow / P;
+  cacheRT.viewport.set((s % S) * P, Math.floor(s / S) * P, P, P); cacheRT.scissor.copy(cacheRT.viewport); cacheRT.scissorTest = true;
+  R.setRenderTarget(cacheRT); R.render(painterScene, quadCam);
+}
+function land(i) {
+  if (pageState[i] !== 1) return; const s = allocSlot(); if (s < 0) { pageState[i] = 0; return; }
+  slotPage[s] = i; pageSlot[i] = s; pageState[i] = 2; slotUsed[s] = frame; slotArrived[s] = frame; slotPin[s] = pinOn && isPinnedPage(i) ? 1 : 0;
+  paintPage(i, s); onArrive(i, s); stat.loads++;
+}
+function processFeedback() {
+  fbReady = false; const buf = fbBuf, n = fbW * fbH; let wanted = 0, hits = 0, blur = 0, gt = 0; const missing = [];
+  for (let t = 0; t < n; t++) { const o = t * 4; if (buf[o + 3] < 128) continue; gt++;
+    const m = buf[o + 2], x = buf[o], y = buf[o + 1]; if (m > MAXMIP) continue; const pp = PPS0 >> m; if (x >= pp || y >= pp) continue;
+    const e = ptMips[m].data, eo = (y * pp + x) * 4; if (e[eo + 3] === 0 || e[eo + 2] > m) blur++;
+    const i = offsets[m] + y * pp + x; if (touch[i] === frame) continue; touch[i] = frame; wanted++;
+    if (pageState[i] === 2) { hits++; slotUsed[pageSlot[i]] = frame; } else if (pageState[i] === 0) missing.push(i); }
+  missing.sort((a, b) => pageM[b] - pageM[a]);            // blurriest first: one coarse page covers a lot of ground
+  pending = missing; pendingPos = 0; lastFeedbackFrame = frame;
+  stat.wanted = wanted; stat.hits = hits; stat.blur = blur; stat.groundTexels = gt;
+}
+function issueLoads() { let issued = 0; while (issued < budget && pendingPos < pending.length) { const i = pending[pendingPos++]; if (pageState[i] !== 0) continue; pageState[i] = 1; queue.push({ idx: i, land: frame + latency }); issued++; } }
+function landPages() {
+  if (!queue.length) return; R.autoClear = false; let k = 0;
+  for (let j = 0; j < queue.length; j++) { const it = queue[j]; if (it.land <= frame) land(it.idx); else queue[k++] = it; }
+  queue.length = k; R.setRenderTarget(null); R.autoClear = true;
+}
+function updateSlotTex() {
+  let res = 0;
+  for (let s = 0; s < NSLOT; s++) { const o = s * 4, r = slotPage[s] !== -1; if (r) res++;
+    slotData[o] = r ? Math.min(255, frame - slotUsed[s]) : 255; slotData[o + 1] = slotPin[s] ? 255 : 0; slotData[o + 2] = frame - slotArrived[s] < 6 ? 255 : 0; slotData[o + 3] = s >= usableSlots ? 0 : r ? 255 : 96; }
+  slotTex.needsUpdate = true; stat.resident = res;
+}
+
+// ---- the two corner pictures: the cache itself, and the tiny feedback picture
+const cacheViewMat = new THREE.ShaderMaterial({ uniforms: { tCache: { value: cacheRT.texture }, tSlots: { value: null }, uS: { value: 16 }, uMode: { value: 0 } }, vertexShader: QUAD_VERT, depthTest: false, depthWrite: false, fragmentShader: `
+precision highp float; varying vec2 vUv; uniform sampler2D tCache, tSlots; uniform float uS, uMode;
+void main() {
+  vec2 sl = floor(vUv * uS); vec4 st = texture2D(tSlots, (sl + 0.5) / uS);
+  float age = st.r * 255.0, pinned = st.g, fresh = st.b;
+  vec2 px = vec2(1.0 / 2048.0);
+  vec3 page = (texture2D(tCache, vUv + px).rgb + texture2D(tCache, vUv - px).rgb + texture2D(tCache, vUv + vec2(px.x, -px.y)).rgb + texture2D(tCache, vUv - vec2(px.x, -px.y)).rgb) * 0.25;
+  page = pow(page, vec3(1.0 / 2.2));
+  vec3 col = st.a > 0.6 ? page : st.a > 0.2 ? vec3(0.10, 0.11, 0.14) : vec3(0.04, 0.045, 0.06);
+  if (uMode > 0.5 && st.a > 0.6) col = mix(vec3(0.95), vec3(0.16, 0.2, 0.3), clamp(age / 90.0, 0.0, 1.0));
+  vec2 f = fract(vUv * uS); float edgeD = min(min(f.x, f.y), min(1.0 - f.x, 1.0 - f.y));
+  float ring = 1.0 - smoothstep(0.05, 0.08, edgeD);
+  vec3 ringCol = pinned > 0.5 ? vec3(0.95, 0.64, 0.25) : mix(vec3(1.0), vec3(0.22, 0.27, 0.36), clamp(age / 90.0, 0.0, 1.0));
+  if (st.a > 0.6) col = mix(col, ringCol, ring * 0.9);
+  if (fresh > 0.5) col = mix(col, vec3(1.0), 0.45);
+  col = mix(col, vec3(0.0), 1.0 - smoothstep(0.0, 0.02, edgeD));
+  gl_FragColor = vec4(col, 1.0);
+}` });
+const fbViewMat = new THREE.ShaderMaterial({ uniforms: { tFb: { value: null }, uMaxMip: { value: 8 } }, vertexShader: QUAD_VERT, depthTest: false, depthWrite: false, fragmentShader: `
+precision highp float; varying vec2 vUv; uniform sampler2D tFb; uniform float uMaxMip;
+vec3 hsv(float h, float s, float v) { vec3 p = abs(fract(vec3(h) + vec3(0.0, 2.0/3.0, 1.0/3.0)) * 6.0 - 3.0); return v * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), s); }
+void main() { vec4 e = texture2D(tFb, vUv); float m = floor(e.b * 255.0 + 0.5); vec3 col = e.a < 0.5 ? vec3(0.06, 0.07, 0.09) : hsv(0.68 - 0.68 * m / uMaxMip, 0.8, 0.95);
+  if (e.a > 0.5) { float k = fract(dot(floor(e.rg * 255.0 + 0.5), vec2(0.37, 0.61))); col *= 0.8 + 0.3 * k; }
+  gl_FragColor = vec4(col, 1.0); }` });
+const cacheScene = new THREE.Scene(); cacheScene.add(new THREE.Mesh(quadGeo, cacheViewMat));
+const fbScene = new THREE.Scene(); fbScene.add(new THREE.Mesh(quadGeo, fbViewMat));
+const capStyle = 'position:absolute;right:14px;font-family:var(--font-mono);font-size:12px;color:#c7cdd8;background:rgba(11,14,19,0.82);padding:3px 8px;border-radius:4px;pointer-events:none;white-space:nowrap;';
+const capCache = document.createElement('div'); capCache.setAttribute('style', capStyle); sb.stage.appendChild(capCache);
+const capFb = document.createElement('div'); capFb.setAttribute('style', capStyle); sb.stage.appendChild(capFb);
+const VIEW_PX = 236;
+let showCache = true, showFb = true;
+function drawOverlays() {
+  const W = sb.stage.clientWidth, H = sb.stage.clientHeight; if (W < 700 || H < 500) { capCache.style.display = capFb.style.display = 'none'; return; }
+  R.autoClear = false; R.setScissorTest(true);
+  let y = 40;
+  if (showCache) { R.setViewport(W - VIEW_PX - 14, y, VIEW_PX, VIEW_PX); R.setScissor(W - VIEW_PX - 14, y, VIEW_PX, VIEW_PX); R.render(cacheScene, quadCam);
+    capCache.style.display = ''; capCache.style.bottom = (y + VIEW_PX + 4) + 'px'; capCache.textContent = 'the cache: ' + CACHE + '² texels, ' + NSLOT + ' slots of ' + P + '²'; y += VIEW_PX + 30; } else capCache.style.display = 'none';
+  if (showFb && fbRT) { const h = Math.round(VIEW_PX * fbH / fbW); fbViewMat.uniforms.tFb.value = fbRT.texture; R.setViewport(W - VIEW_PX - 14, y, VIEW_PX, h); R.setScissor(W - VIEW_PX - 14, y, VIEW_PX, h); R.render(fbScene, quadCam);
+    capFb.style.display = ''; capFb.style.bottom = (y + h + 4) + 'px'; capFb.textContent = 'the feedback picture: ' + fbW + '×' + fbH + ', one page id per pixel'; } else capFb.style.display = 'none';
+  R.setScissorTest(false); R.setViewport(0, 0, W, H); R.autoClear = true;
+}
+
+// ---- the frame: land pages, draw the world, draw the tiny feedback picture, read it back
+sb.onRender((scene, camera, R) => {
+  frame++; stat.loads = 0; stat.evictions = 0; stat.thrash = 0;
+  ensureFeedbackTarget();
+  if (fbReady) processFeedback();
+  issueLoads(); landPages();
+  if (ptDirty) { ptTex.needsUpdate = true; ptDirty = false; }
+  updateSlotTex();
+  if (anisoDirty) { setCacheAniso(U.uAniso.value); anisoDirty = false; }
+  R.setRenderTarget(null); R.setClearColor(PAL.sky, 1); R.autoClear = true; R.shadowMap.needsUpdate = true; R.render(scene, camera);
+  swapMats(true); R.setRenderTarget(fbRT); R.setClearColor(0x000000, 0); R.render(scene, camera); swapMats(false);
+  startReadback(); R.setRenderTarget(null); R.setClearColor(PAL.sky, 1);
+  drawOverlays();
+});
+
+// ---- panel
+let anisoDirty = true, slotFrac = 1, walk = true, viewName = 'painting';
+const s1 = sb.panel.section('01 · A huge painting, a small cache', 'The ground is a 32768² texel painting, 4 GiB if it were all in memory. The card keeps one 2048² texture, the cache, and fills it with 128² pages of the painting as the pixels ask for them.');
+s1.segment('Show', [{ value: 'painting', label: 'the painting' }, { value: 'page', label: 'which page each pixel asks for' }, { value: 'slot', label: 'which cache slot it reads' }, { value: 'blur', label: 'how blurry it got' }], 'painting', v => { viewName = v; U.uView.value = v === 'page' ? 1 : v === 'slot' ? 2 : v === 'blur' ? 3 : 0; hud(); });
+s1.button('Stand at the camp (2 m up)', () => setHeight(2));
+s1.button('Climb to 30 m', () => setHeight(30));
+s1.button('Fly to 300 m', () => setHeight(300));
+const rPaint = s1.readout('the painting, if it were all loaded', (VT * VT * 4 / 2 ** 30).toFixed(1) + ' GiB');
+const rCache = s1.readout('the cache, the one real texture', (CACHE * CACHE * 4 / 2 ** 20).toFixed(0) + ' MiB, fixed');
+const rWant = s1.readout('pages this view asks for');
+const rRes = s1.readout('pages loaded (resident)');
+const rMem = s1.readout('cache memory in use');
+s1.key([['#4a4aff', 'mip 0, the sharpest pages'], ['#5ad48a', 'mip 4, 16 times blurrier'], ['#ef5d5d', 'mip 8, one page for the whole map'], ['#ff2ee6', 'nothing loaded for this pixel']]);
+
+const s2 = sb.panel.section('02 · Finding a page in the cache', 'A page\'s slot has nothing to do with where it sits on the map. A small lookup list (the page table) says which slot each page went to, and points at a blurrier page up the chain when the sharp one is not there.');
+s2.toggle('draw the page edges on the ground', false, v => { U.uLines.value = v ? 1 : 0; });
+s2.toggle('show the cache in the corner', true, v => { showCache = v; });
+s2.segment('Cache view colours', [{ value: 0, label: 'the pages as stored' }, { value: 1, label: 'how long since each slot was used' }], 0, v => { cacheViewMat.uniforms.uMode.value = +v; });
+const rTable = s2.readout('the page table');
+s2.note('Neighbours on the map are strangers in the cache: the slot view on the ground shows it, and the corner picture shows the same pages sitting wherever a slot was free.');
+
+const s3 = sb.panel.section('03 · How the GPU asks for pages', 'A tiny second picture, one eighth the size of the screen, writes the page each pixel wants. It is read back a few frames later and the missing pages get loaded, a few per frame, blurriest first.');
+s3.toggle('show that tiny picture (the feedback pass)', true, v => { showFb = v; });
+s3.slider('Pages loaded per frame', { min: 1, max: 64, step: 1, value: 8, unit: ' pages' }, v => { budget = v; });
+s3.segment('Pages arrive', [{ value: 0, label: 'the same frame' }, { value: 3, label: '3 frames later (fast disk)' }, { value: 12, label: '12 frames later (slow disk)' }], 3, v => { latency = +v; });
+s3.toggle('the camera walks on its own', true, v => { walk = v; });
+s3.button('Jump somewhere new', jump);
+const rLoads = s3.readout('loads this frame');
+const rQueue = s3.readout('waiting in the queue');
+const rBlur = s3.readout('pixels on a blurry stand-in');
+const rFb = s3.readout('the feedback picture');
+const rAge = s3.readout('feedback age when it arrives');
+
+const s4 = sb.panel.section('04 · When the cache runs out of room', 'When every slot is full, the slot that went longest without being used is overwritten (LRU). That works until one view wants more pages than there are slots; then the cache throws out pages it needs again next frame.');
+s4.slider('Texture detail (mip bias, lower is sharper)', { min: -2, max: 2, step: 0.5, value: 0, fmt: v => (v > 0 ? '+' : '') + v.toFixed(1) }, v => { U.uBias.value = v; });
+s4.segment('Slots in use', [{ value: 0.25, label: 'a quarter' }, { value: 0.5, label: 'half' }, { value: 1, label: 'all of them' }], 1, v => { slotFrac = +v; usableSlots = Math.max(32, Math.round(slotFrac * NSLOT)); for (let s = usableSlots; s < NSLOT; s++) if (slotPage[s] !== -1) { onEvict(slotPage[s]); slotPage[s] = -1; slotPin[s] = 0; } requestPinned(); });
+s4.toggle('keep the 21 blurriest pages loaded, always', true, v => { pinOn = v; if (v) requestPinned(); else slotPin.fill(0); });
+s4.button('Throw every page out', flush);
+const rHit = s4.readout('wanted pages already loaded (hit rate)');
+const rEvict = s4.readout('pages thrown out this frame');
+const rFree = s4.readout('free slots');
+const rThrash = s4.readout('thrown out although still wanted');
+s4.key([['#ffffff', 'cache view: slot used this frame'], ['#38455c', 'cache view: slot idle for a while'], ['#f2a341', 'cache view: kept loaded, always (pinned)'], ['#1a1c24', 'cache view: empty slot']]);
+
+const s5 = sb.panel.section('05 · Why pages need a border', 'The card blends the 2×2 texels around every sample (bilinear). At a page\'s edge that reaches into the next slot, which holds a stranger. So each page is stored with a border copied from its map neighbours.');
+s5.slider('Border', { min: 0, max: 8, step: 1, value: 4, unit: ' texels' }, v => { B = v; U.uBorder.value = Math.min(B, P / 4); flush(); });
+s5.segment('How many texels get blended', [{ value: 1, label: '2×2 only (bilinear)' }, { value: 4, label: 'aniso 4×' }, { value: 8, label: 'aniso 8×' }, { value: 16, label: 'aniso 16×' }], 4, v => { U.uAniso.value = +v; anisoDirty = true; });
+s5.segment('Page size', [{ value: 128, label: '128²' }, { value: 256, label: '256²' }], 128, v => { if (+v !== P) buildVT(+v); });
+s5.toggle('highlight reads that reach into a stranger page', false, v => { U.uSeamView.value = v ? 1 : 0; });
+const rBorder = s5.readout('cache spent on borders');
+const rInner = s5.readout('texels that belong to the page alone');
+s5.note('Set the border to 0 and look at the ground near the camp: thin lines of the wrong colour every 4 m, where the blend reads the next slot. Put the border back and raise the blend to 16×: the seams return on the far ground, because the taps reach further than the border.');
+
+// ---- camera helpers: heights, the walk, the jump
+function setHeight(h) { const t = sb.controls.target, d = camera.position.clone().sub(t); d.y = 0; if (d.lengthSq() < 1e-4) d.set(1, 0, 1); d.normalize().multiplyScalar(Math.max(4, h * 0.9)); camera.position.copy(t).add(d); camera.position.y = t.y + h; }
+// a slow loop over the world: down the road to the bridge, along the river, back through the fields
+const loop = [[0, 0], [-30, -4], [-70, -6], [-110, -40], [-80, -110], [-20, -90], [40, -40], [60, 20], [20, 60]];
+let seg = 0, segT = 0, orig = [0, 0]; const walkPos = new THREE.Vector3(0, 0, 0), delta = new THREE.Vector3();
+const spots = [[-180, -170], [200, 160], [-70, 240], [10, -380], [0, 0]]; let spotI = 0;
+function jump() { const [x, z] = spots[spotI++ % spots.length]; const t = sb.controls.target; delta.set(x - t.x, 0, z - t.z); camera.position.add(delta); t.add(delta); walkPos.set(x, 0, z); orig = [x, z]; seg = 0; segT = 0; }
+sb.onFrame(dt => {
+  if (walk) {
+    const n = loop.length, a = loop[seg], b = loop[(seg + 1) % n]; const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; segT += dt * 3 / len;
+    if (segT >= 1) { segT = 0; seg = (seg + 1) % n; }
+    const a2 = loop[seg], b2 = loop[(seg + 1) % n]; const nx = orig[0] + a2[0] + (b2[0] - a2[0]) * segT, nz = orig[1] + a2[1] + (b2[1] - a2[1]) * segT;
+    delta.set(nx - walkPos.x, 0, nz - walkPos.z); walkPos.set(nx, 0, nz); camera.position.add(delta); sb.controls.target.add(delta);
+  }
+  if (frame % 4 === 0) readouts();
+});
+function readouts() {
+  const bytesPage = P * P * 4, inner = P - 2 * U.uBorder.value;
+  rWant(stat.wanted); rRes(stat.resident + ' of ' + NSLOT + ' slots'); rMem((stat.resident * bytesPage / 2 ** 20).toFixed(1) + ' MiB of ' + (NSLOT * bytesPage / 2 ** 20).toFixed(0));
+  rTable(totalPages.toLocaleString() + ' entries, ' + (totalPages * 4 / 1024).toFixed(0) + ' KB');
+  rLoads(stat.loads + ' of ' + budget); rQueue(Math.max(0, pending.length - pendingPos) + ' pages'); rBlur(stat.groundTexels ? (100 * stat.blur / stat.groundTexels).toFixed(0) + ' %' : 'no picture yet');
+  rFb(fbW + '×' + fbH + ' = ' + (fbW * fbH * 4 / 1024).toFixed(0) + ' KB read back'); rAge(fbAge + (fbAge === 1 ? ' frame' : ' frames') + ' old');
+  rHit(stat.wanted ? (100 * stat.hits / stat.wanted).toFixed(0) + ' %' : 'no picture yet'); rEvict(stat.evictions); rFree(Math.max(0, usableSlots - stat.resident) + ' of ' + usableSlots + ' in use'); rThrash(stat.thrash);
+  rBorder((100 * (1 - (inner / P) ** 2)).toFixed(1) + ' %'); rInner(inner + '² of ' + P + '²');
+}
+function hud() {
+  sb.hud('view', viewName === 'page' ? 'colour = the mip each pixel asks for, blue sharp to red blurry, lines = page edges' : viewName === 'slot' ? 'colour = the cache slot each pixel reads: map neighbours are cache strangers' : viewName === 'blur' ? 'green = got the page it asked for, yellow to red = a blurrier stand-in, pink = nothing loaded' : 'the painting, read through the page table and the cache');
+}
+
+// ---- labels and go
+sb.label('the village square', camp.fire).off.set(0, 1.6, 0);
+sb.label('the river', new THREE.Vector3(-37.6, 0, 6), 'blue').off.set(0, 1.5, 0);
+sb.label('the forest', new THREE.Vector3(-150, 0, -160), 'amber').off.set(0, 6, 0);
+sb.label('the fields', new THREE.Vector3(180, 0, 160), 'amber').off.set(0, 6, 0);
+buildVT(128); hud();
+sb.start();
+</script>
+</body>
+</html>
