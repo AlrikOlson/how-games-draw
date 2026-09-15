@@ -9,3 +9,5 @@ I'm a visual learner and I had a rough picture in my head of how some of these t
 Everything is plain HTML and canvas. No framework, nothing loads from anywhere except the two fonts. The lessons in `pages/` open straight from disk. `UNCERTAIN.md` lists every number or citation that was written from memory or estimated.
 
 To host it yourself, `node shared/build-site.js --base /some/path` writes static files to `dist/`.
+
+Public domain, CC0. Do whatever you want with it.
