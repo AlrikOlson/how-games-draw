@@ -179,7 +179,7 @@ function pack() {
 }
 
 // ---- state
-let view = 'split', splitF = 0.5, findBy = 'tree', opt = { split: 'sah', leafSize: 4 }, level = 2, showLevel = true, nearFirst = true, anyHit = false, stepWanted = -1;
+let view = 'split', splitF = 0.5, findBy = 'tree', opt = { split: 'sah', leafSize: 4 }, level = 2, showLevel = false, showWalk = false, nearFirst = true, anyHit = false, stepWanted = -1;
 let twoLevel = false, update = 'rebuild', wind = false, shadowN = 1, sunSize = 1.5, bounces = 1, rtScale = 0.5;
 let walkDirty = true, levelDirty = true, statsDirty = true, windMs = 0, frame = 0;
 
@@ -405,18 +405,19 @@ const startHS = s2.slider('Ray start height', { min: 0.2, max: 8, step: 0.1, val
 const aimHS = s2.slider('Aim height', { min: 0.2, max: 8, step: 0.1, value: 1.4, unit: ' m' }, x => { rayAim.y = x; aimH.position.y = x; walkDirty = true; });
 s2.button('Aim the ray from the camera', () => { rayStart.copy(camera.position).addScaledVector(v.copy(sb.controls.target).sub(camera.position).normalize(), 2); rayAim.copy(sb.controls.target); clampRay(); });
 const triTotal = s2.readout('triangles in the camp'), bruteRead = s2.readout('triangle checks, every triangle'), boxRead = s2.readout('boxes opened, with the tree'), treeTests = s2.readout('triangle checks, with the tree'), hitRead = s2.readout('first thing hit');
+const walkTog = s2.toggle('draw the boxes the ray opens and the triangles it checks', false, x => { showWalk = x; drawWalk(); });
 s2.key([['#f2a341', 'triangle checked'], ['#5ad48a', 'box check passed'], ['#ef5d5d', 'box check failed, or starts beyond the hit']]);
 s2.note('On the GPU side, checking every triangle applies to the camera rays only; the shadow rays keep the tree, or one frame would take seconds. Watch the milliseconds readout in 06 jump.');
 
 const s3 = sb.panel.section('03 · Building the tree', 'Every box holds two smaller boxes, down to finished boxes holding a few triangles. Step through the levels and compare cutting a box down the middle with cutting where the cost says.');
 const levelS = s3.slider('Level of the tree shown', { min: 0, max: 12, step: 1, value: 2 }, x => { level = x; levelDirty = true; });
-s3.toggle('show the boxes of that level', true, x => { showLevel = x; levelDirty = true; });
+s3.toggle('show the boxes of that level', false, x => { showLevel = x; levelDirty = true; });
 s3.segment('Where to cut each box', [{ value: 'median', label: 'down the middle' }, { value: 'sah', label: 'by cost (SAH)' }], 'sah', x => { opt.split = x; rebuildAll('rebuilt the tree, cut ' + (x === 'sah' ? 'by cost' : 'down the middle')); });
 s3.slider('Triangles per finished box', { min: 1, max: 8, step: 1, value: 4 }, x => { opt.leafSize = x; rebuildAll('rebuilt the tree with ' + x + ' triangles per finished box'); });
 const nodesRead = s3.readout('boxes in the tree'), depthRead = s3.readout('levels'), buildRead = s3.readout('build time'), avgBoxRead = s3.readout('boxes per ray, 100 random rays'), avgTestRead = s3.readout('triangle checks per ray');
 
 const s4 = sb.panel.section('04 · Walking the tree', 'The ray keeps a to-do list of boxes. Scrub through its walk: green boxes passed the test, red ones failed or start beyond the best hit so far, so they are never opened.');
-const stepS = s4.slider('Step of the walk shown', { min: 0, max: 60, step: 1, value: 60, fmt: x => x + ' of ' + (rec.n || 0) }, x => { stepWanted = x >= +stepS.el.querySelector('input').max ? -1 : x; drawWalk(); });
+const stepS = s4.slider('Step of the walk shown', { min: 0, max: 60, step: 1, value: 60, fmt: x => x + ' of ' + (rec.n || 0) }, x => { stepWanted = x >= +stepS.el.querySelector('input').max ? -1 : x; if (!showWalk) walkTog.set(true, false); showWalk = true; drawWalk(); });
 s4.toggle('open the nearer half first', true, x => { nearFirst = x; U.uNearFirst.value = x ? 1 : 0; walkDirty = statsDirty = true; });
 s4.segment('What the ray asks', [{ value: 'closest', label: 'the nearest thing' }, { value: 'any', label: 'anything at all (a shadow ray)' }], 'closest', x => { anyHit = x === 'any'; walkDirty = true; });
 const stepBoxRead = s4.readout('boxes checked so far'), stepTestRead = s4.readout('triangles checked so far'), stepHitRead = s4.readout('closest hit so far');
@@ -486,10 +487,10 @@ function drawWalk() {
   const S = stepWanted < 0 ? rec.n : Math.min(stepWanted, rec.n);
   walkLines.begin(); triLines.begin();
   let tBest = 1e9;
-  if (findBy === 'brute') { for (let i = 0; i < total; i++) triSegs(triLines, i, C.tri); bruteJS(rayStart, rayDir); tBest = res.t; stepBoxRead('no boxes, every triangle'); stepTestRead(res.tests.toLocaleString()); }
+  if (findBy === 'brute') { if (showWalk) for (let i = 0; i < total; i++) triSegs(triLines, i, C.tri); bruteJS(rayStart, rayDir); tBest = res.t; stepBoxRead('no boxes, every triangle'); stepTestRead(res.tests.toLocaleString()); }
   else {
-    let tests = 0; for (let i = 0; i < S; i++) { const m = rec.inst[i] < 0 ? null : inst[rec.inst[i]].m; boxSegs(walkLines, rec.node[i], m, i === S - 1 ? C.now : rec.pass[i] ? C.pass : C.fail); }
-    if (S > 0) { tests = rec.tEnd[S - 1]; tBest = rec.tBest[S - 1]; for (let i = 0; i < tests; i++) triSegs(triLines, rec.tris[i], C.tri); }
+    let tests = 0; for (let i = 0; i < S; i++) { if (!showWalk) break; const m = rec.inst[i] < 0 ? null : inst[rec.inst[i]].m; boxSegs(walkLines, rec.node[i], m, i === S - 1 ? C.now : rec.pass[i] ? C.pass : C.fail); }
+    if (S > 0) { tests = rec.tEnd[S - 1]; tBest = rec.tBest[S - 1]; if (showWalk) for (let i = 0; i < tests; i++) triSegs(triLines, rec.tris[i], C.tri); }
     stepBoxRead(S + ' of ' + rec.n); stepTestRead(tests + ' of ' + walkTests);
   }
   walkLines.end(); triLines.end();
