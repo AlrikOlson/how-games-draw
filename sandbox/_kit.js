@@ -191,7 +191,9 @@ export function boot(cfg) {
     renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); view.grid(view._grid, view._gridPx);
   }
   new ResizeObserver(resize).observe(stage); resize();
+  let customRender = null;
   function render() {
+    if (customRender) return customRender(scene, camera, renderer);
     if (pixelN) {
       const w = stage.clientWidth, h = stage.clientHeight; const ph = Math.max(1, Math.round(pixelN * h / w));
       if (!rt || rt.width !== pixelN || rt.height !== ph) { if (rt) rt.dispose(); rt = new THREE.WebGLRenderTarget(pixelN, ph, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true }); }
@@ -202,7 +204,7 @@ export function boot(cfg) {
   }
   let running = false;
   function tick(now) { if (!running) return; now = now || performance.now(); const dt = last ? Math.min(0.1, (now - last) / 1000) : 0; last = now; elapsed += dt; const t = elapsed; controls.update(); for (const f of frameFns) f(dt, t); render(); placeLabels(); requestAnimationFrame(tick); }
-  const sb = { THREE, scene, camera, renderer, controls, lights, world, panel: panelApi, view, label, hud: setHud, stage, onFrame: f => frameFns.push(f), start() { if (!running) { running = true; last = 0; requestAnimationFrame(tick); } }, mat, mesh,
+  const sb = { THREE, scene, camera, renderer, controls, lights, world, panel: panelApi, view, label, hud: setHud, stage, onFrame: f => frameFns.push(f), onRender: f => { customRender = f; }, start() { if (!running) { running = true; last = 0; requestAnimationFrame(tick); } }, mat, mesh,
     snapshot() { render(); const gl = renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let lit = 0; for (let i = 0; i < px.length; i += 16) if (px[i] + px[i + 1] + px[i + 2] > 60) lit++; return { w, h, litShare: lit / (px.length / 16) }; } };
   window.RLSandbox = sb;
   return sb;
