@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Distance Field Explorer · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'distance-fields', title: 'Distance Field Explorer',
+  blurb: 'A walled yard at the camp, stored as a grid of distances and drawn straight from that grid. Cut a slice through the numbers, drop the bricks you do not need, watch a bolt jump across the yard, drag the torch for soft shadows, and let the knight slide along the walls.',
+  camera: { pos: [14, 10, 15], target: [0, 0.8, 0], near: 0.1, far: 300 }
+});
+const { scene, camera, renderer } = sb;
+scene.background = null; renderer.setClearColor(PAL.sky, 1);
+sb.lights.sun.intensity = 1.6; sb.lights.hemi.intensity = 0.7;
+
+// ---- the yard: every prop exists twice, as a kit mesh (for the triangle view) and as a maths shape (for the field)
+const BOX = { min: new THREE.Vector3(-10, 0, -10), max: new THREE.Vector3(10, 5, 10) };
+const world = new THREE.Group(); scene.add(world);
+const prims = [];
+const rotBox = (cx, cy, cz, hx, hy, hz, a, id) => { const c = Math.cos(a), s = Math.sin(a); prims.push({ id, sdf(x, y, z) { x -= cx; y -= cy; z -= cz; const lx = x * c - z * s, lz = x * s + z * c; const qx = Math.abs(lx) - hx, qy = Math.abs(y) - hy, qz = Math.abs(lz) - hz; const mx = Math.max(qx, 0), my = Math.max(qy, 0), mz = Math.max(qz, 0); return Math.sqrt(mx * mx + my * my + mz * mz) + Math.min(Math.max(qx, Math.max(qy, qz)), 0); } }); };
+const cyl = (cx, cz, r, y0, y1, id) => { const cy = (y0 + y1) / 2, hh = (y1 - y0) / 2; prims.push({ id, sdf(x, y, z) { const dx = x - cx, dz = z - cz; const rr = Math.sqrt(dx * dx + dz * dz) - r, hy = Math.abs(y - cy) - hh; const ox = Math.max(rr, 0), oy = Math.max(hy, 0); return Math.min(Math.max(rr, hy), 0) + Math.sqrt(ox * ox + oy * oy); } }); };
+const sph = (cx, cy, cz, r, id) => prims.push({ id, sdf(x, y, z) { const dx = x - cx, dy = y - cy, dz = z - cz; return Math.sqrt(dx * dx + dy * dy + dz * dz) - r; } });
+// material ids: 0 grass, 1 stone, 2 wood, 3 leaf, 4 pale stone
+world.add(sb.world.ground(40));
+// the yard is paved: a thin slab in the triangle view, a colour rule in the marched view; it is not part of the field
+const paving = sb.mesh(new THREE.BoxGeometry(16, 0.04, 16), sb.mat(0x5a6371), 0, 0.02, 0); paving.castShadow = false; world.add(paving);
+function wall(x1, z1, x2, z2, h = 2.4, t = 0.5) { world.add(sb.world.wall(x1, z1, x2, z2, h, t)); rotBox((x1 + x2) / 2, h / 2, (z1 + z2) / 2, Math.hypot(x2 - x1, z2 - z1) / 2, h / 2, t / 2, -Math.atan2(z2 - z1, x2 - x1), 1); }
+wall(-8, -8, 8, -8); wall(-8, -8, -8, 8); wall(8, -8, 8, 1); wall(8, 4, 8, 8); wall(-8, 8, -2, 8); wall(2, 8, 8, 8);
+wall(-3, -2, 3, -2, 2.0); wall(3, -2, 3, 3, 2.0);
+function crate(x, z, s, a) { world.add(sb.world.crate(x, z, s, a)); rotBox(x, s / 2, z, s / 2, s / 2, s / 2, a, 2); }
+crate(-5.5, -5, 0.9, 0.3); crate(-6.3, -4.1, 0.7, -0.4); crate(5.5, 5.8, 0.8, 0.9);
+function rock(x, z, r) { world.add(sb.world.rock(x, z, r)); sph(x, r * 0.6, z, r * 0.9, 1); }
+rock(6.2, 6.6, 0.6); rock(-6.6, 6.8, 0.45);
+function tree(x, z, h) { world.add(sb.world.tree(x, z, h, true)); cyl(x, z, h * 0.07, 0, h * 0.45, 2); sph(x, h * 0.62, z, h * 0.32, 3); sph(x - h * 0.1, h * 0.8, z + h * 0.05, h * 0.2, 3); }
+tree(-6, -6, 4); tree(6.4, -6.2, 3.6);
+const pillar = new THREE.Group(); pillar.position.set(-4, 0, 3);
+pillar.add(sb.mesh(new THREE.CylinderGeometry(0.55, 0.55, 3.2, 14), sb.mat(PAL.stoneLite), 0, 1.6, 0), sb.mesh(new THREE.BoxGeometry(1.4, 0.25, 1.4), sb.mat(PAL.stoneLite), 0, 3.325, 0));
+world.add(pillar); cyl(-4, 3, 0.55, 0, 3.2, 4); rotBox(-4, 3.325, 3, 0.7, 0.125, 0.7, 0, 4);
+const table = sb.mesh(new THREE.BoxGeometry(1.8, 0.8, 0.9), sb.mat(PAL.woodLite), 4.5, 0.4, -5); table.rotation.y = 0.3; world.add(table); rotBox(4.5, 0.4, -5, 0.9, 0.4, 0.45, 0.3, 2);
+const knight = sb.world.knight(0, 5.5, 1.8, 0); world.add(knight);
+const KH = 1.8, KR = 0.4;
+
+// ---- the field on the CPU: one number per cell (distance to the nearest wall or prop; the flat floor is not stored, it is one line of maths), plus which prop was nearest
+let N = 64, Ny = 16, cs = 20 / 64, dense, ids, fine, kept = [], buildMs = 0, edgeMin = 2;
+const NC = 16, NCY = 4, CCS = 1.25; let coarse = new Float32Array(NC * NCY * NC);
+let storage = 'dense', brick = 4, band = 0.5;
+function buildDense(n) {
+  const t0 = performance.now(); N = n; Ny = n / 4; cs = 20 / n; const total = N * Ny * N;
+  dense = new Float32Array(total); ids = new Uint8Array(total); edgeMin = 1e9; let i = 0;
+  for (let z = 0; z < N; z++) for (let y = 0; y < Ny; y++) for (let x = 0; x < N; x++, i++) {
+    const px = -10 + (x + 0.5) * cs, py = (y + 0.5) * cs, pz = -10 + (z + 0.5) * cs; let best = 1e9, bid = 0;
+    for (let k = 0; k < prims.length; k++) { const v = prims[k].sdf(px, py, pz); if (v < best) { best = v; bid = prims[k].id; } }
+    dense[i] = best; ids[i] = bid;
+    if (x === 0 || z === 0 || x === N - 1 || z === N - 1 || y === Ny - 1) edgeMin = Math.min(edgeMin, best);
+  }
+  coarse.fill(1e9); i = 0;
+  for (let z = 0; z < N; z++) { const cz = Math.floor(z * NC / N); for (let y = 0; y < Ny; y++) { const cy = Math.floor(y * NCY / Ny); for (let x = 0; x < N; x++, i++) { const c = Math.floor(x * NC / N) + cy * NC + cz * NC * NCY; if (dense[i] < coarse[c]) coarse[c] = dense[i]; } } }
+  const slack = cs * 0.866; for (let c = 0; c < coarse.length; c++) coarse[c] -= slack;
+  buildMs = performance.now() - t0;
+}
+let texField = null, texCoarse = null, bricksMesh = null;
+function makeTex(data, w, h, d, format, filter) { const t = new THREE.Data3DTexture(data, w, h, d); t.format = format; t.type = THREE.HalfFloatType; t.minFilter = t.magFilter = filter; t.wrapS = t.wrapT = t.wrapR = THREE.ClampToEdgeWrapping; t.unpackAlignment = 1; t.needsUpdate = true; return t; }
+const half = THREE.DataUtils.toHalfFloat;
+const brickMat = new THREE.MeshBasicMaterial({ color: PAL.blue, transparent: true, opacity: 0.07, depthWrite: false, blending: THREE.AdditiveBlending });
+const brickGeo = new THREE.BoxGeometry(1, 1, 1);
+function buildStorage() {
+  const t0 = performance.now(); const total = N * Ny * N; fine = new Float32Array(dense); kept = [];
+  const B = brick, bxN = N / B, byN = Ny / B, bzN = N / B; const sparse = storage !== 'dense';
+  for (let bz = 0; bz < bzN; bz++) for (let by = 0; by < byN; by++) for (let bx = 0; bx < bxN; bx++) {
+    let m = 1e9;
+    for (let z = bz * B; z < bz * B + B; z++) for (let y = by * B; y < by * B + B; y++) for (let x = bx * B; x < bx * B + B; x++) { const a = Math.abs(dense[x + y * N + z * N * Ny]); if (a < m) m = a; }
+    if (m <= band) kept.push(bx, by, bz);
+    else if (sparse) for (let z = bz * B; z < bz * B + B; z++) for (let y = by * B; y < by * B + B; y++) for (let x = bx * B; x < bx * B + B; x++) fine[x + y * N + z * N * Ny] = band;
+  }
+  const data = new Uint16Array(total * 2); for (let i = 0; i < total; i++) { data[i * 2] = half(fine[i]); data[i * 2 + 1] = half(ids[i]); }
+  if (texField) texField.dispose(); texField = makeTex(data, N, Ny, N, THREE.RGFormat, THREE.LinearFilter);
+  const cdata = new Uint16Array(coarse.length); for (let i = 0; i < coarse.length; i++) cdata[i] = half(coarse[i]);
+  if (texCoarse) texCoarse.dispose(); texCoarse = makeTex(cdata, NC, NCY, NC, THREE.RedFormat, THREE.NearestFilter);
+  SH.tField.value = texField; SH.tCoarse.value = texCoarse; SH.uSize.value.set(N, Ny, N); SH.uCell.value = cs; SH.uCoarse.value = storage === 'coarse' ? 1 : 0; SH.uEdgeD.value = Math.max(0, edgeMin);
+  // the kept bricks as one instanced draw
+  if (bricksMesh) { scene.remove(bricksMesh); bricksMesh.dispose(); }
+  const nb = kept.length / 3; bricksMesh = new THREE.InstancedMesh(brickGeo, brickMat, Math.max(1, nb)); bricksMesh.count = nb; bricksMesh.frustumCulled = false;
+  const bs = B * cs; for (let k = 0; k < nb; k++) { tmpM.makeScale(bs * 0.94, bs * 0.94, bs * 0.94); tmpM.setPosition(-10 + (kept[k * 3] + 0.5) * bs, (kept[k * 3 + 1] + 0.5) * bs, -10 + (kept[k * 3 + 2] + 0.5) * bs); bricksMesh.setMatrixAt(k, tmpM); }
+  bricksMesh.instanceMatrix.needsUpdate = true; bricksMesh.visible = showBricks; scene.add(bricksMesh);
+  buildMs += performance.now() - t0;
+  cellRead(cs.toFixed(3) + ' m, ' + N + ' by ' + Ny + ' by ' + N); denseRead(total.toLocaleString() + ' cells, ' + kb(total * 2)); keptRead(nb + ' of ' + (bxN * byN * bzN)); sparseRead(kb(nb * B * B * B * 2)); coarseRead(coarse.length.toLocaleString() + ' cells, ' + kb(coarse.length * 2)); buildRead(buildMs.toFixed(0) + ' ms'); buildMs = 0;
+}
+const kb = b => b >= 1048576 ? (b / 1048576).toFixed(2) + ' MB' : (b / 1024).toFixed(0) + ' KB';
+// reading the field from the CPU copy: blended between the eight nearest cells, then the coarse grid if it is in use
+function fieldAt(x, y, z) {
+  let fx = Math.min(Math.max((x + 10) / cs - 0.5, 0), N - 1.0001), fy = Math.min(Math.max(y / cs - 0.5, 0), Ny - 1.0001), fz = Math.min(Math.max((z + 10) / cs - 0.5, 0), N - 1.0001);
+  const x0 = Math.floor(fx), y0 = Math.floor(fy), z0 = Math.floor(fz), tx = fx - x0, ty = fy - y0, tz = fz - z0; const x1 = Math.min(x0 + 1, N - 1), y1 = Math.min(y0 + 1, Ny - 1), z1 = Math.min(z0 + 1, N - 1);
+  const S = N, P = N * Ny; const f = fine;
+  const c00 = f[x0 + y0 * S + z0 * P] * (1 - tx) + f[x1 + y0 * S + z0 * P] * tx, c10 = f[x0 + y1 * S + z0 * P] * (1 - tx) + f[x1 + y1 * S + z0 * P] * tx;
+  const c01 = f[x0 + y0 * S + z1 * P] * (1 - tx) + f[x1 + y0 * S + z1 * P] * tx, c11 = f[x0 + y1 * S + z1 * P] * (1 - tx) + f[x1 + y1 * S + z1 * P] * tx;
+  let d = (c00 * (1 - ty) + c10 * ty) * (1 - tz) + (c01 * (1 - ty) + c11 * ty) * tz;
+  if (storage === 'coarse') { const cx = Math.min(Math.max(Math.floor((x + 10) / CCS), 0), NC - 1), cy = Math.min(Math.max(Math.floor(y / CCS), 0), NCY - 1), cz = Math.min(Math.max(Math.floor((z + 10) / CCS), 0), NC - 1); d = Math.max(d, coarse[cx + cy * NC + cz * NC * NCY]); }
+  return d;
+}
+const grad = new THREE.Vector3();
+function gradAt(x, y, z) { const h = cs * 0.5; grad.set(fieldAt(x + h, y, z) - fieldAt(x - h, y, z), fieldAt(x, y + h, z) - fieldAt(x, y - h, z), fieldAt(x, y, z + h) - fieldAt(x, y, z - h)); return grad; }
+
+// ---- shared shader uniforms (the slice and the marcher read the same textures)
+const SH = { tField: { value: null }, tCoarse: { value: null }, uBoxMin: { value: BOX.min }, uBoxMax: { value: BOX.max }, uSize: { value: new THREE.Vector3(64, 16, 64) }, uCoarse: { value: 0 }, uCell: { value: cs }, uEdgeD: { value: 2 } };
+const lin = hex => new THREE.Color(hex);
+const readGLSL = `
+  precision highp sampler3D;
+  uniform sampler3D tField; uniform sampler3D tCoarse; uniform vec3 uBoxMin; uniform vec3 uBoxMax; uniform vec3 uSize; uniform float uCoarse; uniform float uCell; uniform float uEdgeD;
+  float texField(vec3 p) { vec3 u = (p - uBoxMin) / (uBoxMax - uBoxMin); float d = texture(tField, u).r; if (uCoarse > 0.5) d = max(d, texture(tCoarse, u).r); return d; }
+  float texNearest(vec3 p) { vec3 u = clamp((p - uBoxMin) / (uBoxMax - uBoxMin), 0.0, 0.9999); float d = texelFetch(tField, ivec3(u * uSize), 0).r; if (uCoarse > 0.5) d = max(d, texture(tCoarse, u).r); return d; }
+  float texId(vec3 p) { vec3 u = clamp((p - uBoxMin) / (uBoxMax - uBoxMin), 0.0, 0.9999); return texelFetch(tField, ivec3(u * uSize), 0).g; }`;
+
+// ---- the slice: a plane that colours itself from the stored numbers
+const sliceU = Object.assign({ uNearest: { value: 0 }, uBands: { value: 1 }, uSpacing: { value: 0.5 } }, SH);
+const slice = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({ uniforms: sliceU, side: THREE.DoubleSide, transparent: true, depthWrite: false,
+  vertexShader: 'varying vec3 vW; void main(){ vW = (modelMatrix * vec4(position, 1.0)).xyz; gl_Position = projectionMatrix * viewMatrix * vec4(vW, 1.0); }',
+  fragmentShader: readGLSL + `
+  uniform float uNearest; uniform float uBands; uniform float uSpacing; varying vec3 vW;
+  void main(){
+    float d = uNearest > 0.5 ? texNearest(vW) : texField(vW);
+    float fw = max(fwidth(d), 0.003);
+    vec3 col = d >= 0.0 ? mix(vec3(0.004, 0.012, 0.05), vec3(0.07, 0.37, 1.0), exp(-d * 0.45)) : mix(vec3(0.06, 0.015, 0.003), vec3(0.88, 0.37, 0.05), exp(d * 0.9));
+    if (uBands > 0.5) { float m = abs(fract(d / uSpacing + 0.5) - 0.5) * uSpacing; float line = 1.0 - smoothstep(0.0, 1.8 * fw, m); col = mix(col, vec3(0.85), line * 0.6); }
+    if (uNearest > 0.5) { vec3 u = fract((vW - uBoxMin) / (uBoxMax - uBoxMin) * uSize); vec3 g = min(u, 1.0 - u); float gl = 1.0 - smoothstep(0.0, 0.08, min(g.x, min(g.y, g.z))); col *= 1.0 - 0.5 * gl; }
+    float zero = 1.0 - smoothstep(fw * 1.5, fw * 3.0, abs(d)); col = mix(col, vec3(1.0), zero);
+    gl_FragColor = vec4(col, 0.6);
+    #include <colorspace_fragment>
+  }` }));
+slice.renderOrder = 5; scene.add(slice);
+let sliceAxis = 'flat', slicePos = 0.03;
+function placeSlice() {
+  slice.rotation.set(0, 0, 0);
+  if (sliceAxis === 'flat') { slice.rotation.x = -Math.PI / 2; slice.scale.set(20, 20, 1); slice.position.set(0, 0.03 + slicePos * 4.9, 0); }
+  else if (sliceAxis === 'across') { slice.scale.set(20, 5, 1); slice.position.set(0, 2.5, -9.9 + slicePos * 19.8); }
+  else { slice.rotation.y = Math.PI / 2; slice.scale.set(20, 5, 1); slice.position.set(-9.9 + slicePos * 19.8, 2.5, 0); }
+}
+const boxLines = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(20, 5, 20)), new THREE.LineBasicMaterial({ color: PAL.blue, transparent: true, opacity: 0.3 })); boxLines.position.y = 2.5; scene.add(boxLines);
+
+// ---- safe ball and push arrow at the knight
+const safeBall = new THREE.Group(); safeBall.add(new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.08, depthWrite: false })), new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.3, depthWrite: false }))); scene.add(safeBall);
+const pushArrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1.2, PAL.green, 0.3, 0.18); scene.add(pushArrow);
+
+// ---- the bolt: one translucent ball per jump, radius = the number read there
+const JMAX = 48; const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpP = new THREE.Vector3(), tmpS = new THREE.Vector3();
+const jumpBalls = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.1, depthWrite: false }), JMAX); jumpBalls.frustumCulled = false; scene.add(jumpBalls);
+const jumpDots = new THREE.InstancedMesh(new THREE.SphereGeometry(0.06, 8, 6), new THREE.MeshBasicMaterial({ color: PAL.amber }), JMAX); jumpDots.frustumCulled = false; scene.add(jumpDots);
+const boltGeo = new THREE.BufferGeometry(); boltGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+const boltLine = new THREE.Line(boltGeo, new THREE.LineBasicMaterial({ color: PAL.amber, transparent: true, opacity: 0.8 })); boltLine.frustumCulled = false; scene.add(boltLine);
+const boltTip = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), new THREE.MeshBasicMaterial({ color: PAL.red })); scene.add(boltTip);
+
+// ---- the torch: a light you drag, drawn in both views
+const torch = new THREE.Group(); torch.position.set(-5.6, 0, 0.4); scene.add(torch);
+const torchPole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 1, 6), sb.mat(PAL.metal)); torch.add(torchPole);
+const torchFlame = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), new THREE.MeshBasicMaterial({ color: 0xffd27a })); torch.add(torchFlame);
+const torchPick = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 6), new THREE.MeshBasicMaterial({ visible: false })); torch.add(torchPick);
+const torchLight = new THREE.PointLight(0xffc070, 10, 30, 2); torch.add(torchLight);
+let torchH = 2.2, torchPow = 3;
+function placeTorch() { torchPole.scale.y = torchH; torchPole.position.y = torchH / 2; torchFlame.position.y = torchH; torchPick.position.y = torchH; torchLight.position.y = torchH; torchLight.intensity = torchPow * 4; }
+
+sb.label('the knight', knight).off.set(0, 2.1, 0);
+sb.label('torch, drag it', torchFlame, 'amber').off.set(0, 0.35, 0);
+const sliceLabel = sb.label('the slice', slice, 'blue'); sliceLabel.off.set(0, 0.3, 0);
+
+// ---- the marcher: a full-screen pass that draws the field with sphere tracing, then writes depth so the overlays sit in it
+const passVert = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const MU = Object.assign({
+  uEps: { value: 0.01 }, uIso: { value: 0 }, uFar: { value: 70 }, uMaxSteps: { value: 96 }, uOut: { value: 0 }, uShadow: { value: 2 },
+  uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uViewProj: { value: new THREE.Matrix4() }, uCamPos: { value: new THREE.Vector3() },
+  uLight: { value: new THREE.Vector3() }, uLightCol: { value: lin(0xffc070) }, uLightPow: { value: 3 }, uSoftK: { value: 8 }, uAO: { value: 0 }, uSun: { value: 1 },
+  uKnight: { value: new THREE.Vector3() }, uKnightH: { value: KH }, uKnightRot: { value: 0 },
+  uPal: { value: [lin(PAL.grass), lin(PAL.stone), lin(PAL.wood), lin(PAL.leaf), lin(PAL.stoneLite), lin(PAL.shirt), lin(PAL.skin), lin(PAL.pants)] }
+}, SH);
+const marchMat = new THREE.ShaderMaterial({ uniforms: MU, depthTest: false, depthWrite: true, vertexShader: passVert, fragmentShader: readGLSL + `
+  uniform float uEps; uniform float uIso; uniform float uFar; uniform int uMaxSteps; uniform int uOut; uniform int uShadow;
+  uniform mat4 uInvProj; uniform mat4 uCamWorld; uniform mat4 uViewProj; uniform vec3 uCamPos;
+  uniform vec3 uLight; uniform vec3 uLightCol; uniform float uLightPow; uniform float uSoftK; uniform float uAO; uniform float uSun;
+  uniform vec3 uKnight; uniform float uKnightH; uniform float uKnightRot; uniform vec3 uPal[8];
+  varying vec2 vUv;
+  vec3 toLin(vec3 c) { return pow(c, vec3(2.2)); }
+  float sdBox(vec3 p, vec3 b) { vec3 q = abs(p) - b; return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0); }
+  float sdKnight(vec3 p) {
+    vec3 q = p - uKnight; float c = cos(uKnightRot), s = sin(uKnightRot); q.xz = vec2(q.x * c - q.z * s, q.x * s + q.z * c); float h = uKnightH;
+    float legs = sdBox(q - vec3(0.0, h * 0.21, 0.0), vec3(h * 0.15, h * 0.21, h * 0.1));
+    float body = sdBox(q - vec3(0.0, h * 0.6, 0.0), vec3(h * 0.19, h * 0.19, h * 0.12));
+    float head = length(q - vec3(0.0, h * 0.9, 0.0)) - h * 0.14;
+    vec2 sq = vec2(length(q.yz - vec2(h * 0.58, 0.0)) - h * 0.2, abs(q.x + h * 0.28) - 0.025); float shield = min(max(sq.x, sq.y), 0.0) + length(max(sq, 0.0));
+    return min(min(legs, body), min(head, shield));
+  }
+  // the whole yard: the analytic floor, the stored field inside its box, and the knight as maths shapes (he moves, so he is not baked)
+  float mapW(vec3 p, out int which) {
+    float d = p.y; which = 0;
+    vec3 c = (uBoxMin + uBoxMax) * 0.5, hb = (uBoxMax - uBoxMin) * 0.5; float db = sdBox(p - c, hb);
+    float df = (db < 0.0 ? texField(p) : db + uEdgeD) - uIso;
+    if (df < d) { d = df; which = 1; }
+    float dk = sdKnight(p); if (dk < d) { d = dk; which = 2; }
+    return d;
+  }
+  float map(vec3 p) { int w; return mapW(p, w); }
+  vec3 calcN(vec3 p) { float e = max(0.015, uCell * 0.2); vec2 k = vec2(1.0, -1.0); return normalize(k.xyy * map(p + k.xyy * e) + k.yyx * map(p + k.yyx * e) + k.yxy * map(p + k.yxy * e) + k.xxx * map(p + k.xxx * e)); }
+  // the chapter's shadow rule: keep the smallest k * d / t seen on the way to the light
+  float shadow(vec3 ro, vec3 rd, float maxt) {
+    if (uShadow == 0) return 1.0;
+    float res = 1.0, t = 0.06;
+    for (int i = 0; i < 80; i++) { if (t >= maxt) break; float h = map(ro + rd * t); if (h < 0.002) return 0.0; if (uShadow == 2) res = min(res, uSoftK * h / t); t += clamp(h, 0.03, 0.6); }
+    return clamp(res, 0.0, 1.0);
+  }
+  float ao(vec3 p, vec3 n) { float occ = 0.0, sca = 1.0; for (int i = 1; i <= 5; i++) { float h = 0.04 + 0.11 * float(i); float d = map(p + n * h); occ += (h - d) * sca; sca *= 0.8; } return clamp(1.0 - 2.2 * occ, 0.0, 1.0); }
+  vec3 heat(float s) { vec3 a = vec3(0.03, 0.06, 0.2), b = vec3(0.29, 0.64, 1.0), c = vec3(0.95, 0.64, 0.25), w = vec3(1.0); return toLin(s < 0.35 ? mix(a, b, s / 0.35) : s < 0.7 ? mix(b, c, (s - 0.35) / 0.35) : mix(c, w, (s - 0.7) / 0.3)); }
+  vec3 sky(vec3 rd) { return mix(toLin(vec3(0.09, 0.115, 0.16)), toLin(vec3(0.043, 0.055, 0.075)), clamp(rd.y * 2.5, 0.0, 1.0)); }
+  void main() {
+    vec2 ndc = vUv * 2.0 - 1.0; vec4 v = uInvProj * vec4(ndc, 1.0, 1.0); vec3 rdV = normalize(v.xyz / v.w);
+    vec3 rd = normalize((uCamWorld * vec4(rdV, 0.0)).xyz); vec3 ro = uCamPos;
+    float t = 0.0, d = 0.0; int steps = 0, which = 0; bool hit = false;
+    for (int i = 0; i < 256; i++) { if (i >= uMaxSteps) break; d = mapW(ro + rd * t, which); steps++; if (d < uEps) { hit = true; break; } t += d; if (t > uFar) break; }
+    vec3 p = ro + rd * t; vec3 col; float depth = 1.0;
+    if (hit) {
+      vec3 n = which == 0 ? vec3(0.0, 1.0, 0.0) : calcN(p);
+      vec3 base = which == 0 ? (abs(p.x) < 8.0 && abs(p.z) < 8.0 ? uPal[4] * 0.8 : uPal[0]) : which == 2 ? (p.y > uKnight.y + uKnightH * 0.76 ? uPal[6] : p.y < uKnight.y + uKnightH * 0.42 ? uPal[7] : uPal[5]) : uPal[clamp(int(texId(p) + 0.5), 0, 4)];
+      vec3 amb = mix(vec3(0.09, 0.12, 0.09), vec3(0.36, 0.44, 0.58), 0.5 + 0.5 * n.y);
+      float occ = uAO > 0.5 ? ao(p, n) : 1.0;
+      vec3 L = uLight - p; float dl = length(L); L /= dl; float diff = max(dot(n, L), 0.0);
+      float sh = diff > 0.0 ? shadow(p + n * 0.03, L, dl - 0.12) : 0.0;
+      vec3 torch = uLightCol * uLightPow * diff * sh / (1.0 + 0.08 * dl * dl);
+      vec3 sun = vec3(0.0);
+      if (uSun > 0.5) { vec3 S = normalize(vec3(14.0, 18.0, 8.0)); float sd = max(dot(n, S), 0.0); float ss = sd > 0.0 ? shadow(p + n * 0.03, S, 40.0) : 0.0; sun = vec3(1.0, 0.86, 0.62) * 2.0 * sd * ss; }
+      col = base * (amb * occ + torch + sun);
+      vec4 clip = uViewProj * vec4(p, 1.0); depth = clip.z / clip.w * 0.5 + 0.5;
+    } else if (t > uFar && rd.y < 0.0) { col = mix(uPal[0] * 0.12, sky(rd), 0.7); }
+    else if (t > uFar) { col = sky(rd); }
+    else { col = vec3(0.004); }
+    if (uOut == 1) col = heat(float(steps) / float(uMaxSteps));
+    if (uOut == 2) col = vec3(float(steps) / 255.0);
+    gl_FragColor = vec4(col, 1.0); gl_FragDepth = depth;
+  }` });
+const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const marchScene = new THREE.Scene(); marchScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), marchMat));
+function makeTarget(w, h) { const dt = new THREE.DepthTexture(w, h, THREE.UnsignedIntType); dt.format = THREE.DepthFormat; dt.minFilter = dt.magFilter = THREE.NearestFilter; const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthTexture: dt, generateMipmaps: false }); return rt; }
+let rtM = makeTarget(4, 4);
+const PN = 32; const rtP = new THREE.WebGLRenderTarget(PN, PN, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true }); const probeBuf = new Uint8Array(PN * PN * 4);
+const compMat = new THREE.ShaderMaterial({ uniforms: { tCol: { value: null }, tDepth: { value: null } }, depthTest: false, depthWrite: true, vertexShader: passVert, fragmentShader: `
+  uniform sampler2D tCol; uniform sampler2D tDepth; varying vec2 vUv;
+  void main(){ vec3 c = max(texture2D(tCol, vUv).rgb, 0.0); c = mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0); gl_FragDepth = texture2D(tDepth, vUv).r; }` });
+const compScene = new THREE.Scene(); compScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), compMat));
+
+// ---- panel
+let view = 'march', scale = 0.5, showSlice = true, sliceNearest = false, showBall = true, showBricks = false, boltDeg = 200, kmode = 'circle', speed = 1.6, collide = true, showPush = true;
+const s1 = sb.panel.section('01 · The field', 'A grid over the yard. Every cell stores one number: how far to the nearest wall or prop, with a minus sign inside one. The slice paints those numbers wherever it cuts the grid.');
+s1.toggle('show the slice', true, v => { showSlice = v; sliceLabel.hide(!v); });
+s1.segment('Slice', [{ value: 'flat', label: 'flat' }, { value: 'across', label: 'upright, across' }, { value: 'along', label: 'upright, along' }], 'flat', v => { sliceAxis = v; placeSlice(); posS.set(posS.get(), false); });
+const posS = s1.slider('Where the slice cuts', { min: 0, max: 1, step: 0.01, value: 0.03, fmt: v => sliceAxis === 'flat' ? (0.03 + v * 4.9).toFixed(2) + ' m up' : (-9.9 + v * 19.8).toFixed(1) + ' m from the middle' }, v => { slicePos = v; placeSlice(); });
+s1.segment('Read the numbers', [{ value: 'blend', label: 'blended between cells (trilinear)' }, { value: 'cell', label: 'one cell at a time' }], 'blend', v => { sliceNearest = v === 'cell'; sliceU.uNearest.value = sliceNearest ? 1 : 0; });
+s1.toggle('draw a line at every step of distance (contours)', true, v => { sliceU.uBands.value = v ? 1 : 0; });
+s1.slider('Line spacing', { min: 0.25, max: 2, step: 0.25, value: 0.5, unit: ' m' }, v => { sliceU.uSpacing.value = v; });
+s1.toggle('safe ball at the knight: nothing solid inside it', true, v => { showBall = v; });
+const underRead = s1.readout('number stored under the knight');
+s1.key([['#4aa3ff', 'outside, brighter nearer a surface'], ['#f2a341', 'inside a wall or prop'], ['#ffffff', 'the surface, where the number is zero']]);
+
+const s2 = sb.panel.section('02 · Storage', 'The same yard kept three ways: every cell, only bricks that a surface runs through, or those bricks plus a coarse grid so open floor still gets a good answer.');
+s2.segment('Cells across the yard', [{ value: 32, label: '32' }, { value: 64, label: '64' }, { value: 96, label: '96' }], 64, v => { buildDense(+v); buildStorage(); });
+s2.segment('What is kept', [{ value: 'dense', label: 'every cell' }, { value: 'bricks', label: 'bricks near a surface' }, { value: 'coarse', label: 'bricks plus a coarse grid' }], 'dense', v => { storage = v; buildStorage(); });
+s2.segment('Cells per brick side', [{ value: 4, label: '4' }, { value: 8, label: '8' }], 4, v => { brick = +v; buildStorage(); });
+s2.slider('Keep bricks within this distance of a surface', { min: 0.25, max: 2, step: 0.25, value: 0.5, unit: ' m' }, v => { band = v; buildStorage(); });
+s2.toggle('show the kept bricks', false, v => { showBricks = v; if (bricksMesh) bricksMesh.visible = v; });
+const cellRead = s2.readout('cell size'), denseRead = s2.readout('every cell, 2 bytes each'), keptRead = s2.readout('bricks kept'), sparseRead = s2.readout('bricks only'), coarseRead = s2.readout('coarse grid, 16 across'), buildRead = s2.readout('built on the CPU in');
+s2.note('With bricks only, a dropped cell can only promise "at least the band away", so the bolt and the marcher crawl across open floor. The coarse grid gives them their big jumps back.');
+
+const s3 = sb.panel.section('03 · Ray marching', 'Read the number, jump exactly that far, repeat: a ray can never overshoot. The marched view draws the field this way for every pixel, with no triangles at all.');
+s3.segment('Draw the yard from', [{ value: 'tri', label: 'triangles' }, { value: 'march', label: 'the field, marched' }, { value: 'heat', label: 'steps as heat' }], 'march', v => { view = v; hud(); });
+s3.segment('March at', [{ value: 0.25, label: 'quarter size' }, { value: 0.5, label: 'half size' }, { value: 1, label: 'full size' }], 0.5, v => { scale = +v; });
+s3.slider('Counts as a hit under (epsilon)', { min: 0.002, max: 0.1, step: 0.002, value: 0.01, unit: ' m' }, v => { MU.uEps.value = v; });
+s3.slider('Give up after this many steps', { min: 8, max: 256, step: 8, value: 96 }, v => { MU.uMaxSteps.value = v; });
+s3.slider('Draw the surface this far from the walls (an isosurface)', { min: -0.3, max: 1.5, step: 0.05, value: 0, unit: ' m' }, v => { MU.uIso.value = v; });
+s3.slider('Bolt direction', { min: 0, max: 360, step: 1, value: 200, unit: ' deg' }, v => { boltDeg = v; });
+const jumpRead = s3.readout('bolt: jumps to the hit'), stepRead = s3.readout('steps per pixel, average / most'), callRead = s3.readout('draw calls'), msRead = s3.readout('frame time');
+s3.key([['#4aa3ff', 'a few steps'], ['#f2a341', 'many steps'], ['#ffffff', 'gave up, hit nothing']]);
+
+const s4 = sb.panel.section('04 · Soft shadows', 'Every marched pixel walks a second ray to the torch. The nearest miss on the way, and how far along the ray it happened, set how dark the pixel is. Drag the torch around the yard.');
+s4.segment('Shadow from the torch', [{ value: 0, label: 'none' }, { value: 1, label: 'hard' }, { value: 2, label: 'soft' }], 2, v => { MU.uShadow.value = +v; });
+s4.slider('Edge sharpness (k)', { min: 1, max: 32, step: 1, value: 8 }, v => { MU.uSoftK.value = v; });
+s4.slider('Torch height', { min: 0.5, max: 4.5, step: 0.1, value: 2.2, unit: ' m' }, v => { torchH = v; placeTorch(); });
+s4.slider('Torch brightness', { min: 0, max: 8, step: 0.25, value: 3 }, v => { torchPow = v; MU.uLightPow.value = v; placeTorch(); });
+s4.toggle('darken boxed-in corners (ambient occlusion)', false, v => { MU.uAO.value = v ? 1 : 0; });
+s4.toggle('add the sun, shadowed by the same numbers', true, v => { MU.uSun.value = v ? 1 : 0; });
+s4.note('Hard shadows stop at the first hit. Soft ones also remember the closest near miss, so the shadow edge widens the further it is from the thing that casts it, with no extra rays.');
+
+const s5 = sb.panel.section('05 · Sliding collision', 'The knight reads the number where he stands. If it drops below his radius, he is pushed out the way the number grows, and that is a slide along the wall for free.');
+s5.segment('The knight', [{ value: 'still', label: 'stands still' }, { value: 'circle', label: 'walks a loop' }, { value: 'keys', label: 'arrow keys' }], 'circle', v => { kmode = v; keys.clear(); });
+s5.slider('Walking speed', { min: 0.5, max: 4, step: 0.1, value: 1.6, unit: ' m/s' }, v => { speed = v; });
+s5.toggle('push out of walls (collision)', true, v => { collide = v; });
+s5.toggle('show the push direction (the gradient)', true, v => { showPush = v; });
+const nearRead = s5.readout('distance to the nearest wall'), pushRead = s5.readout('pushes in the last second');
+s5.note('Turn the push off and he walks straight through the pillar; the number under him goes negative.');
+
+function hud() { sb.hud('view', view === 'march' ? 'marched: every pixel walks the stored numbers with sphere tracing, no triangles' : view === 'heat' ? 'heat: how many jumps each pixel needed, brighter is more' : 'triangles: the same yard drawn from meshes, the way the other chapters draw it'); }
+hud();
+
+// ---- build
+buildDense(64); buildStorage(); placeSlice(); placeTorch();
+
+// ---- dragging the torch
+const el = renderer.domElement; const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitP = new THREE.Vector3(); let drag = false;
+const toNdc = e => { const r = el.getBoundingClientRect(); ndc.set((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height * 2 - 1)); ray.setFromCamera(ndc, camera); };
+el.addEventListener('pointerdown', e => { toNdc(e); if (ray.intersectObject(torchPick, false).length) { drag = true; sb.controls.enabled = false; el.setPointerCapture(e.pointerId); } });
+el.addEventListener('pointermove', e => { if (!drag) return; toNdc(e); plane.constant = -torchH; if (ray.ray.intersectPlane(plane, hitP)) torch.position.set(Math.max(-9.5, Math.min(9.5, hitP.x)), 0, Math.max(-9.5, Math.min(9.5, hitP.z))); });
+el.addEventListener('pointerup', () => { if (drag) { drag = false; sb.controls.enabled = true; } });
+const keys = new Set(); const KEYS = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd'];
+window.addEventListener('keydown', e => { if (kmode !== 'keys') return; const k = e.key.toLowerCase(); if (KEYS.includes(k)) { keys.add(k); e.preventDefault(); } });
+window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase())); window.addEventListener('blur', () => keys.clear());
+
+// ---- per frame: move the knight, march the bolt on the CPU, refresh readouts
+let kx = 0, kz = 5.5, krot = 0, pathT = 0, pushes = 0, pushWindow = 0, pushShown = 0, frameN = 0, lastCalls = 0, msAvg = 16, stepAvg = 0, stepMax = 0, boltJumps = 0, boltHit = false;
+const size = new THREE.Vector2(); renderer.info.autoReset = false;
+function stepKnight(dt, t) {
+  let vx = 0, vz = 0;
+  if (kmode === 'circle') { pathT += dt * speed / 4.5; const tx = 4.5 * Math.cos(pathT), tz = 2.5 + 4.5 * Math.sin(pathT); const dx = tx - kx, dz = tz - kz, len = Math.hypot(dx, dz); if (len > 0.05) { vx = dx / len * speed; vz = dz / len * speed; } }
+  else if (kmode === 'keys') { if (keys.has('arrowup') || keys.has('w')) vz -= 1; if (keys.has('arrowdown') || keys.has('s')) vz += 1; if (keys.has('arrowleft') || keys.has('a')) vx -= 1; if (keys.has('arrowright') || keys.has('d')) vx += 1; const l = Math.hypot(vx, vz); if (l > 0) { vx = vx / l * speed; vz = vz / l * speed; } }
+  kx += vx * dt; kz += vz * dt;
+  if (collide) for (let i = 0; i < 3; i++) { const d = fieldAt(kx, 0.9, kz); if (d >= KR) break; const g = gradAt(kx, 0.9, kz); let gl = Math.hypot(g.x, g.z); if (gl < 1e-4) { g.x = 1; gl = 1; } const push = KR - d; kx += g.x / gl * push; kz += g.z / gl * push; pushes++; }
+  kx = Math.max(-9.5, Math.min(9.5, kx)); kz = Math.max(-9.5, Math.min(9.5, kz));
+  knight.position.set(kx, 0, kz); if (vx || vz) { krot = Math.atan2(vx, vz); knight.rotation.y = krot; }
+  MU.uKnight.value.set(kx, 0, kz); MU.uKnightRot.value = krot;
+}
+function marchBolt() {
+  const a = boltDeg * Math.PI / 180, dx = Math.cos(a), dz = Math.sin(a); let px = kx + dx * 0.7, pz = kz + dz * 0.7; const py = 1.0; const x0 = px, z0 = pz; let n = 0; boltHit = false; tmpQ.identity();
+  for (n = 0; n < JMAX; n++) {
+    const d = fieldAt(px, py, pz); const r = Math.max(d, 0.02);
+    tmpP.set(px, py, pz); tmpS.set(r, r, r); tmpM.compose(tmpP, tmpQ, tmpS); jumpBalls.setMatrixAt(n, tmpM); tmpS.set(1, 1, 1); tmpM.compose(tmpP, tmpQ, tmpS); jumpDots.setMatrixAt(n, tmpM);
+    if (d < MU.uEps.value) { boltHit = true; n++; break; }
+    px += dx * d; pz += dz * d; if (Math.abs(px) > 10 || Math.abs(pz) > 10) { n++; break; }
+  }
+  boltJumps = n; jumpBalls.count = n; jumpDots.count = n; jumpBalls.instanceMatrix.needsUpdate = true; jumpDots.instanceMatrix.needsUpdate = true;
+  const pos = boltGeo.attributes.position; pos.setXYZ(0, x0, py, z0); pos.setXYZ(1, px, py, pz); pos.needsUpdate = true; boltTip.position.set(px, py, pz); boltTip.visible = boltHit;
+}
+sb.onFrame((dt, t) => {
+  lastCalls = renderer.info.render.calls; renderer.info.reset(); msAvg += (dt * 1000 - msAvg) * 0.08;
+  stepKnight(dt, t); marchBolt();
+  const dUnder = fieldAt(kx, 0.9, kz); safeBall.visible = showBall; safeBall.position.set(kx, 0.9, kz); const r = Math.max(Math.abs(dUnder), 0.02); safeBall.scale.set(r, r, r);
+  pushArrow.visible = showPush; if (showPush) { const g = gradAt(kx, 0.9, kz); g.y = 0; if (g.lengthSq() > 1e-8) { g.normalize(); pushArrow.setDirection(g); } pushArrow.position.set(kx, 1.0, kz); }
+  slice.visible = showSlice; boxLines.visible = showSlice || showBricks;
+  torchFlame.getWorldPosition(MU.uLight.value);
+  pushWindow += dt; if (pushWindow >= 1) { pushShown = pushes; pushes = 0; pushWindow = 0; }
+  if ((frameN++ % 6) === 0) {
+    underRead(dUnder.toFixed(2) + ' m' + (dUnder < 0 ? ', inside' : '')); nearRead(dUnder.toFixed(2) + ' m'); pushRead(pushShown);
+    jumpRead(boltHit ? boltJumps + ' jumps, hit' : boltJumps + ' jumps, left the yard'); callRead(lastCalls); msRead(msAvg.toFixed(1) + ' ms');
+    stepRead(view === 'tri' ? null : stepAvg.toFixed(1) + ' / ' + stepMax);
+  }
+});
+sb.onRender(() => {
+  if (view === 'tri') { world.visible = true; renderer.setRenderTarget(null); renderer.render(scene, camera); return; }
+  world.visible = false; camera.updateMatrixWorld();
+  renderer.getDrawingBufferSize(size); const w = Math.max(2, Math.round(size.x * scale)), h = Math.max(2, Math.round(size.y * scale));
+  if (rtM.width !== w || rtM.height !== h) { rtM.depthTexture.dispose(); rtM.dispose(); rtM = makeTarget(w, h); }
+  MU.uInvProj.value.copy(camera.projectionMatrixInverse); MU.uCamWorld.value.copy(camera.matrixWorld); MU.uViewProj.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); camera.getWorldPosition(MU.uCamPos.value);
+  MU.uOut.value = view === 'heat' ? 1 : 0;
+  renderer.setRenderTarget(rtM); renderer.render(marchScene, ortho);
+  if ((frameN % 4) === 0) {
+    MU.uOut.value = 2; renderer.setRenderTarget(rtP); renderer.render(marchScene, ortho); renderer.readRenderTargetPixels(rtP, 0, 0, PN, PN, probeBuf);
+    let s = 0, m = 0; for (let i = 0; i < PN * PN; i++) { const v = probeBuf[i * 4]; s += v; if (v > m) m = v; } stepAvg = s / (PN * PN); stepMax = m;
+  }
+  compMat.uniforms.tCol.value = rtM.texture; compMat.uniforms.tDepth.value = rtM.depthTexture;
+  renderer.setRenderTarget(null); renderer.render(compScene, ortho);
+  renderer.autoClear = false; renderer.render(scene, camera); renderer.autoClear = true;
+});
+sb.start();
+</script>
+</body>
+</html>
