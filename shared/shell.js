@@ -44,7 +44,7 @@
   // ---- chrome
   const app = el('div', 'dash-app');
   const top = el('div', 'dash-top');
-  const homeHref = pages ? (base || '') + '/' : (back ? back.getAttribute('href') : '../index.html');
+  const homeHref = pages ? (base || '/') : (back ? back.getAttribute('href') : '../index.html');
   let topics = '';
   if (pages) topics = '<select class="dash-topics" aria-label="Topic">' + pages.map(p => `<option value="${p.slug}"${p.slug === page ? ' selected' : ''}>${String(p.n).padStart(2, '0')} · ${esc(p.title)}</option>`).join('') + '</select>';
   top.innerHTML = `<a class="dash-home">How Games Draw</a><span class="dash-sep">/</span>${topics || '<span class="dash-title">' + esc(title) + '</span>'}` +
@@ -55,7 +55,7 @@
   const list = el('div', 'dash-list');
   panels.forEach(p => { const a = el('a', 'dash-item ' + p.kind, (p.n ? '<span class="n">' + String(p.n).padStart(2, '0') + '</span>' : '') + '<span class="t">' + esc(p.label) + '</span><span class="ok">✓</span>'); a.href = '#' + p.id; a.dataset.id = p.id; list.appendChild(a); });
   rail.appendChild(list);
-  if (pagenav) { const nx = pagenav.querySelector('a.next'), pv = pagenav.querySelector('a:not(.next)'); const f = el('div', 'dash-railfoot'); if (pv) f.appendChild(pv); if (nx) f.appendChild(nx); rail.appendChild(f); pagenav.remove(); }
+  { const f = el('div', 'dash-railfoot'); if (pagenav) { const nx = pagenav.querySelector('a.next'), pv = pagenav.querySelector('a:not(.next)'); if (pv) f.appendChild(pv); if (nx) f.appendChild(nx); pagenav.remove(); } f.appendChild(el('span', 'dash-by', 'built by Alrik Olson')); rail.appendChild(f); }
   const main = el('div', 'dash-main');
   panels.forEach(p => main.appendChild(p.node));
   app.append(top, rail, main); document.body.appendChild(app); wrap.remove();
