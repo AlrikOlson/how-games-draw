@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frustum &amp; Occlusion Culling · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+<style>
+  .sb-stage canvas.sb-hiz { position: absolute; left: auto; right: 14px; top: 12px; width: 256px; height: 128px; image-rendering: pixelated; border: 1px solid rgba(199,205,216,0.35); background: #000; pointer-events: none; display: none; }
+  .sb-stage canvas.sb-hiz.on { display: block; }
+  .sb-hiz-cap { position: absolute; right: 14px; top: 146px; font-family: var(--font-mono); font-size: 12px; color: #c7cdd8; background: rgba(11,14,19,0.82); padding: 3px 8px; border-radius: 4px; pointer-events: none; display: none; }
+</style>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'culling', title: 'Frustum & Occlusion Culling',
+  blurb: 'A village seen from above, and a player walking its road. The amber box is what the player can see. Every test from the chapter is a switch: anything the tests skip goes dark, and the counts of tests, objects and draw calls update every frame.',
+  camera: { pos: [30, 92, 92], target: [0, 0, 0], near: 0.5, far: 700 }, background: PAL.sky
+});
+const scene = sb.scene, renderer = sb.renderer;
+renderer.shadowMap.autoUpdate = false;
+{ const sc = sb.lights.sun.shadow.camera; sc.left = sc.bottom = -62; sc.right = sc.top = 62; sc.far = 160; sc.updateProjectionMatrix(); sb.lights.sun.position.set(-14, 60, -50); }
+
+// ---------------------------------------------------------------- helpers
+let seed = 20260914; const rnd = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const rr = (a, b) => a + rnd() * (b - a);
+const M4 = THREE.Matrix4, V3 = THREE.Vector3;
+
+// merge low-poly parts into one geometry with vertex colours, so one object is one draw call
+function merge(parts) {
+  const pos = [], nor = [], col = [], c = new THREE.Color();
+  for (const p of parts) {
+    const g = p.geo.toNonIndexed(); g.applyMatrix4(p.m || new M4()); c.set(p.color);
+    const a = g.attributes.position.array, n = g.attributes.normal.array;
+    for (let i = 0; i < a.length; i += 3) { pos.push(a[i], a[i + 1], a[i + 2]); nor.push(n[i], n[i + 1], n[i + 2]); col.push(c.r, c.g, c.b); }
+    g.dispose(); p.geo.dispose();
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.computeBoundingBox(); geo.computeBoundingSphere(); return geo;
+}
+const T = (x, y, z, ry, s) => { const m = new M4().makeTranslation(x, y, z); if (ry) m.multiply(new M4().makeRotationY(ry)); if (s && s !== 1) m.multiply(new M4().makeScale(s, s, s)); return m; };
+const RZ = (x, y, z, rz) => new M4().makeTranslation(x, y, z).multiply(new M4().makeRotationZ(rz));
+
+function houseGeo(w, d, h) {
+  return merge([
+    { geo: new THREE.BoxGeometry(w, h, d), color: PAL.wall, m: T(0, h / 2, 0) },
+    { geo: new THREE.CylinderGeometry(0, w * 0.75, h * 0.7, 4, 1), color: PAL.roof, m: new M4().makeTranslation(0, h + h * 0.35, 0).multiply(new M4().makeScale(1, 1, d / w)).multiply(new M4().makeRotationY(Math.PI / 4)) },
+    { geo: new THREE.BoxGeometry(w * 0.2, h * 0.6, 0.06), color: PAL.wood, m: T(w * 0.25, h * 0.3, d / 2 + 0.03) },
+    { geo: new THREE.BoxGeometry(w * 0.22, h * 0.28, 0.06), color: PAL.window, m: T(-w * 0.22, h * 0.6, d / 2 + 0.03) }
+  ]);
+}
+function treeGeo(h) {
+  return merge([
+    { geo: new THREE.CylinderGeometry(h * 0.06, h * 0.08, h * 0.45, 7), color: PAL.wood, m: T(0, h * 0.225, 0) },
+    { geo: new THREE.IcosahedronGeometry(h * 0.32, 1), color: PAL.leaf, m: T(0, h * 0.62, 0) },
+    { geo: new THREE.IcosahedronGeometry(h * 0.2, 1), color: PAL.leafLite, m: T(-h * 0.1, h * 0.8, h * 0.05) }
+  ]);
+}
+function pineGeo(h) {
+  const parts = [{ geo: new THREE.CylinderGeometry(h * 0.06, h * 0.08, h * 0.45, 7), color: PAL.wood, m: T(0, h * 0.225, 0) }];
+  for (let i = 0; i < 3; i++) parts.push({ geo: new THREE.ConeGeometry(h * (0.28 - i * 0.06), h * 0.32, 8), color: i % 2 ? PAL.leafLite : PAL.leaf, m: T(0, h * (0.42 + i * 0.2), 0) });
+  return merge(parts);
+}
+const crateGeo = s => merge([{ geo: new THREE.BoxGeometry(s, s, s), color: PAL.wood, m: T(0, s / 2, 0) }]);
+const rockGeo = r => merge([{ geo: new THREE.DodecahedronGeometry(r, 0), color: PAL.stone, m: T(0, r * 0.6, 0) }]);
+const wallGeo = (len, h, t) => merge([{ geo: new THREE.BoxGeometry(len, h, t), color: PAL.stone, m: T(0, h / 2, 0) }, { geo: new THREE.BoxGeometry(len + 0.1, 0.18, t + 0.1), color: PAL.stoneLite, m: T(0, h, 0) }]);
+
+// ---------------------------------------------------------------- materials: one per tint, shared by every object
+const mkMat = (color, emissive) => new THREE.MeshLambertMaterial({ vertexColors: true, color, emissive: emissive || 0x000000 });
+const matLit = mkMat(0xffffff), matDark = new THREE.MeshBasicMaterial({ color: 0x1a1e26 }), matBlue = mkMat(0x6f8fc0, 0x14305a), matRed = mkMat(0xc05050, 0x4a1010);
+const ST_DRAWN = 0, ST_SKIP = 1, ST_EXTRA = 2, ST_WRONG = 3, ST_SPECK = 4;
+const stMat = [matLit, matDark, matBlue, matRed, matRed];
+
+// ---------------------------------------------------------------- the village
+const objects = [];
+const _c = new V3();
+function addObject(kind, geo, x, z, ry, opts) {
+  const mesh = new THREE.Mesh(geo, matLit); mesh.position.set(x, 0, z); mesh.rotation.y = ry || 0; mesh.castShadow = mesh.receiveShadow = true; mesh.frustumCulled = false; mesh.updateMatrixWorld();
+  scene.add(mesh);
+  const bb = geo.boundingBox, bs = geo.boundingSphere;
+  const o = Object.assign({ mesh, kind, off: false, exempt: false, inYard: false, st: ST_DRAWN, inF: false, drawn: true, last: true, occ: false, tint: ST_DRAWN }, opts || {});
+  // the turned box: centre, half sizes and axes in the world
+  o.c = bb.getCenter(new V3()).applyMatrix4(mesh.matrixWorld);
+  o.h = bb.getSize(new V3()).multiplyScalar(0.5);
+  o.u = new V3(1, 0, 0).applyQuaternion(mesh.quaternion); o.v = new V3(0, 1, 0); o.w = new V3(0, 0, 1).applyQuaternion(mesh.quaternion);
+  o.r = bs.radius; o.sc = bs.center.clone().applyMatrix4(mesh.matrixWorld);
+  o.corners = []; o.aabb = new THREE.Box3();
+  for (let i = 0; i < 8; i++) { const p = new V3(i & 1 ? bb.max.x : bb.min.x, i & 2 ? bb.max.y : bb.min.y, i & 4 ? bb.max.z : bb.min.z).applyMatrix4(mesh.matrixWorld); o.corners.push(p); o.aabb.expandByPoint(p); }
+  o.aabbC = o.aabb.getCenter(new V3()); o.aabbH = o.aabb.getSize(new V3()).multiplyScalar(0.5);
+  o.footR = Math.hypot(o.aabbH.x, o.aabbH.z);
+  objects.push(o); return o;
+}
+
+// ground and the road: a loop through the village, and through a walled yard on its east side
+sb.world.ground(240);
+const roadPts = [[-32, -32], [0, -38], [32, -32], [34, -10], [34, 10], [32, 32], [0, 38], [-32, 32], [-38, 0]].map(p => new V3(p[0], 0, p[1]));
+const road = new THREE.CatmullRomCurve3(roadPts, true, 'centripetal', 0.6);
+const roadLen = road.getLength();
+{
+  const N = 260, pos = [], idx = [], p = new V3(), t = new V3(), n = new V3();
+  for (let i = 0; i <= N; i++) { const u = (i % N) / N; road.getPointAt(u, p); road.getTangentAt(u, t); n.set(-t.z, 0, t.x).normalize().multiplyScalar(1.15); pos.push(p.x - n.x, 0.03, p.z - n.z, p.x + n.x, 0.03, p.z + n.z); }
+  for (let i = 0; i < N; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: PAL.dirt })); m.receiveShadow = true; scene.add(m);
+}
+const roadSamples = []; for (let i = 0; i < 240; i++) roadSamples.push(road.getPointAt(i / 240));
+const distToRoad = (x, z) => { let d = 1e9; for (const p of roadSamples) { const dd = Math.hypot(p.x - x, p.z - z); if (dd < d) d = dd; } return d; };
+
+// the yard: four stone walls, a door on the north and south side where the road passes
+const YARD = { x0: 28, x1: 40, z0: -5, z1: 5, cx: 34, doorW: 3.2, doorH: 3.1, wallH: 4.2 };
+const inYardRect = (x, z, m = 0) => x > YARD.x0 + m && x < YARD.x1 - m && z > YARD.z0 + m && z < YARD.z1 - m;
+const bigWalls = [
+  addObject('wall', wallGeo(22, 5, 0.6), -10, -21, 0.3, { isWall: true, exempt: true }),
+  addObject('wall', wallGeo(14, 4.2, 0.6), 18, 24, -0.55, { isWall: true, exempt: true }),
+  addObject('wall', wallGeo(15, 4.2, 0.6), -26, 12, 1.25, { isWall: true, exempt: true })
+];
+const yardWalls = [];
+{
+  const { x0, x1, z0, z1, cx, doorW, doorH, wallH } = YARD, sideLen = (x1 - x0 - doorW) / 2;
+  for (const z of [z0, z1]) {
+    yardWalls.push(addObject('wall', wallGeo(sideLen, wallH, 0.5), x0 + sideLen / 2, z, 0, { isWall: true, exempt: true }));
+    yardWalls.push(addObject('wall', wallGeo(sideLen, wallH, 0.5), x1 - sideLen / 2, z, 0, { isWall: true, exempt: true }));
+    yardWalls.push(addObject('wall', wallGeo(doorW + 0.2, wallH - doorH, 0.5).translate(0, doorH, 0), cx, z, 0, { isWall: true, exempt: true }));
+  }
+  yardWalls.push(addObject('wall', wallGeo(z1 - z0 + 0.5, wallH, 0.5), x0, 0, Math.PI / 2, { isWall: true, exempt: true }));
+  yardWalls.push(addObject('wall', wallGeo(z1 - z0 + 0.5, wallH, 0.5), x1, 0, Math.PI / 2, { isWall: true, exempt: true }));
+}
+const doorGeo = merge([{ geo: new THREE.BoxGeometry(YARD.doorW, YARD.doorH, 0.3), color: PAL.woodLite, m: T(0, YARD.doorH / 2, 0) }, { geo: new THREE.BoxGeometry(0.2, YARD.doorH, 0.34), color: PAL.wood, m: T(0, YARD.doorH / 2, 0) }]);
+const doors = [
+  { z: YARD.z0, barred: false, obj: addObject('door', doorGeo, YARD.cx, YARD.z0, 0, { isWall: true, exempt: true, off: true }) },
+  { z: YARD.z1, barred: false, obj: addObject('door', doorGeo.clone(), YARD.cx, YARD.z1, 0, { isWall: true, exempt: true, off: true }) }
+];
+for (const d of doors) { d.outSide = d.z < 0 ? -1 : 1; d.obj.mesh.visible = false; const c = new V3(YARD.cx, YARD.doorH / 2, d.z); d.center = c; d.corners = [new V3(YARD.cx - YARD.doorW / 2, 0, d.z), new V3(YARD.cx + YARD.doorW / 2, 0, d.z), new V3(YARD.cx + YARD.doorW / 2, YARD.doorH, d.z), new V3(YARD.cx - YARD.doorW / 2, YARD.doorH, d.z)]; }
+// things inside the yard
+addObject('crate', crateGeo(1.0), 30.2, -2.2, 0.3, { inYard: true }); addObject('crate', crateGeo(0.8), 31.0, 2.6, -0.5, { inYard: true });
+addObject('crate', crateGeo(0.9), 38.2, -2.6, 0.9, { inYard: true }); addObject('rock', rockGeo(0.7), 37.6, 2.4, 0, { inYard: true });
+addObject('tree', treeGeo(3.2), 30.6, 0.2, 1.1, { inYard: true }); addObject('rock', rockGeo(0.5), 36.9, -0.2, 0, { inYard: true });
+
+// houses, trees, crates and rocks scattered over the village, kept off the road and out of the yard
+const houseGeos = [houseGeo(4, 3, 2.6), houseGeo(5, 3.6, 2.8), houseGeo(3.4, 2.8, 2.3)];
+const treeGeos = [treeGeo(4.2), treeGeo(5), treeGeo(3.6)], pineGeos = [pineGeo(5.5), pineGeo(4.4)];
+const crateG = crateGeo(0.9), rockGeos = [rockGeo(0.7), rockGeo(0.5)];
+const placed = [];
+function free(x, z, r) {
+  if (Math.hypot(x, z) > 46) return false;
+  if (distToRoad(x, z) < r + 1.6) return false;
+  if (inYardRect(x, z, -r - 1)) return false;
+  for (const p of placed) if (Math.hypot(p.x - x, p.z - z) < p.r + r) return false;
+  for (const w of bigWalls) if (Math.hypot(w.c.x - x, w.c.z - z) < w.footR + r + 0.6) return false;
+  return true;
+}
+function scatter(n, r, fn) { let tries = 0; while (n > 0 && tries++ < 4000) { const x = rr(-46, 46), z = rr(-46, 46); if (!free(x, z, r)) continue; placed.push({ x, z, r }); fn(x, z); n--; } }
+scatter(30, 4.2, (x, z) => addObject('house', houseGeos[Math.floor(rnd() * 3)], x, z, rr(-Math.PI, Math.PI)));
+scatter(34, 2.2, (x, z) => addObject('tree', treeGeos[Math.floor(rnd() * 3)], x, z, rr(0, 6)));
+scatter(18, 2.0, (x, z) => addObject('pine', pineGeos[Math.floor(rnd() * 2)], x, z, rr(0, 6)));
+scatter(16, 0.9, (x, z) => addObject('crate', crateG, x, z, rr(0, 1.5)));
+scatter(14, 0.8, (x, z) => addObject('rock', rockGeos[Math.floor(rnd() * 2)], x, z, 0));
+const active = objects.filter(o => !o.off);
+
+// the forest ring outside the village: many pines drawn as one batch (instancing)
+const FOREST_N = 1600;
+const forestGeo = pineGeo(5); const fSphere = forestGeo.boundingSphere;
+const forestMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+const forest = new THREE.InstancedMesh(forestGeo, forestMat, FOREST_N); forest.frustumCulled = false; forest.receiveShadow = true; forest.castShadow = false;
+const fPos = new Float32Array(FOREST_N * 3), fScale = new Float32Array(FOREST_N), fMat0 = new Float32Array(FOREST_N * 16);
+{
+  const m = new M4(), white = new THREE.Color(0xffffff);
+  for (let i = 0; i < FOREST_N; i++) {
+    const a = rr(0, Math.PI * 2), d = 52 + Math.pow(rnd(), 0.7) * 40, s = rr(0.7, 1.35);
+    const x = Math.cos(a) * d, z = Math.sin(a) * d; fPos[i * 3] = x; fPos[i * 3 + 2] = z; fScale[i] = s;
+    m.copy(T(x, 0, z, rr(0, 6), s)); forest.setMatrixAt(i, m); forest.setColorAt(i, white);
+  }
+  fMat0.set(forest.instanceMatrix.array);
+}
+scene.add(forest);
+let forestShader = null;
+forestMat.onBeforeCompile = shader => {
+  shader.uniforms.uPlanes = { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4(0, 1, 0, 1e6)) };
+  shader.uniforms.uGpu = { value: 0 }; shader.uniforms.uHide = { value: 0 }; shader.uniforms.uMinPx = { value: 8 }; shader.uniforms.uPxK = { value: 900 };
+  shader.uniforms.uEye = { value: new V3() }; shader.uniforms.uFwd = { value: new V3(0, 0, -1) };
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nuniform vec4 uPlanes[6]; uniform float uGpu; uniform float uHide; uniform float uMinPx; uniform float uPxK; uniform vec3 uEye; uniform vec3 uFwd; varying float vCull;')
+    .replace('#include <begin_vertex>', `#include <begin_vertex>
+      vCull = 0.0;
+      #ifdef USE_INSTANCING
+      if (uGpu > 0.5) {
+        // one worker per tree: the same ball test and speck test the CPU would run, done here for every tree at once
+        vec3 c = (instanceMatrix * vec4(0.0, ${fSphere.center.y.toFixed(3)}, 0.0, 1.0)).xyz;
+        float r = ${fSphere.radius.toFixed(3)} * length(instanceMatrix[0].xyz);
+        bool gone = false;
+        for (int i = 0; i < 6; i++) { if (dot(uPlanes[i].xyz, c) + uPlanes[i].w < -r) gone = true; }
+        float d = max(dot(c - uEye, uFwd), 0.01);
+        if (2.0 * r * uPxK / d < uMinPx) gone = true;
+        if (gone) { vCull = 1.0; if (uHide > 0.5) transformed = vec3(0.0, -1000.0, 0.0); }
+      }
+      #endif`);
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying float vCull;')
+    .replace('#include <color_fragment>', '#include <color_fragment>\n\tdiffuseColor.rgb *= mix(1.0, 0.12, vCull);');
+  forestShader = shader;
+};
+
+// ---------------------------------------------------------------- the player and their camera
+const player = sb.world.knight(0, 0, 1.8, 0);
+player.traverse(o => { o.frustumCulled = false; });
+const playerCam = new THREE.PerspectiveCamera(50, 16 / 9, 0.3, 70); scene.add(playerCam);
+const lastCam = new THREE.PerspectiveCamera(50, 16 / 9, 0.3, 70); scene.add(lastCam);
+const EYE_H = 1.65;
+const frustumLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: PAL.amber }));
+frustumLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(24 * 3), 3)); frustumLines.frustumCulled = false; scene.add(frustumLines);
+const portalLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: PAL.blue }));
+portalLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(16 * 3), 3)); portalLines.frustumCulled = false; scene.add(portalLines);
+const wedgeAnchor = new THREE.Object3D(); scene.add(wedgeAnchor);
+sb.label('the player', player).off.set(0, 2.2, 0);
+const wedgeLabel = sb.label('what the player can see (the frustum)', wedgeAnchor, 'amber');
+sb.label('a stone wall, an occluder', bigWalls[1].mesh).off.set(0, 4.8, 0);
+sb.label('the walled yard, two doorways', new V3(YARD.cx, 4.6, 0), 'blue');
+sb.label('the forest, one batch of 1,600 pines', new V3(0, 5, -68));
+
+// ---------------------------------------------------------------- state
+const S = {
+  view: 'above', skipMode: 'darken', shape: 'sphere', fovH: 60, far: 70, u: 0.06, turn: -55, walk: true, speed: 4,
+  hier: true, showGroups: false,
+  occl: true, hizSrc: 'walls', hizRead: 'full', showHiz: false, hizLevel: 0,
+  portal: true,
+  minPx: 8,
+  forestOn: true, who: 'cpu'
+};
+const R = {}; // readouts
+
+// ---------------------------------------------------------------- panel
+const s1 = sb.panel.section('01 · Skip what the player can\'t see', 'The player sees a wedge of the village (the frustum). Each object gets a simple wrap shape, and the shape is tested against the six sides of the wedge. Anything fully outside one side is skipped before it costs a draw.');
+s1.segment('Look', [{ value: 'above', label: 'from above' }, { value: 'eye', label: 'through the player\'s eyes' }], 'above', v => { setView(v); });
+s1.segment('Skipped objects are', [{ value: 'darken', label: 'darkened' }, { value: 'hide', label: 'hidden, as in a game' }], 'darken', v => { S.skipMode = v; });
+s1.segment('Wrap shape round each object', [{ value: 'sphere', label: 'a ball' }, { value: 'aabb', label: 'a box lined up with the map' }, { value: 'obb', label: 'a box turned with the object' }], 'sphere', v => { S.shape = v; });
+s1.slider('Field of view, how wide the wedge opens', { min: 30, max: 120, step: 1, value: 60, unit: '°' }, v => { S.fovH = v; });
+s1.slider('Far limit, past which nothing is drawn', { min: 20, max: 250, step: 5, value: 70, unit: ' m' }, v => { S.far = v; });
+s1.slider('Where on the road', { min: 0, max: 100, step: 0.5, value: 6, unit: ' %' }, v => { S.u = v / 100; });
+s1.slider('Turn the head', { min: -120, max: 120, step: 1, value: -55, fmt: v => v === 0 ? 'straight ahead' : Math.abs(v) + '° ' + (v < 0 ? 'right' : 'left') }, v => { S.turn = v; });
+s1.toggle('walk along the road', true, v => { S.walk = v; });
+s1.slider('Walking speed', { min: 1, max: 40, step: 1, value: 4, unit: ' m/s' }, v => { S.speed = v; });
+R.tests = s1.readout('tests run this frame'); R.drawn = s1.readout('objects drawn'); R.skipped = s1.readout('objects skipped'); R.extra = s1.readout('drawn for nothing (outside, but the wrap shape passed)'); R.calls = s1.readout('draw calls, with the sun\'s shadow pass');
+s1.key([['#c9c2b2', 'drawn'], ['#3a3f4a', 'skipped'], ['#4aa3ff', 'drawn but not needed'], ['#ef5d5d', 'wrongly skipped, or too small']]);
+
+const s2 = sb.panel.section('02 · Throw out a neighbourhood at once', 'The village is sorted into boxes inside boxes. A box fully outside the wedge throws out everything in it with one test; a box fully inside accepts everything in it; only boxes the edge cuts through get opened.');
+s2.toggle('test the groups first (bounding volume hierarchy)', true, v => { S.hier = v; });
+s2.toggle('show the group boxes', false, v => { S.showGroups = v; });
+s2.key([['#5ad48a', 'a whole group kept'], ['#f2a341', 'a group the edge cuts, opened'], ['#ef5d5d', 'a whole group thrown out']]);
+R.gTests = s2.readout('group tests'); R.oTests = s2.readout('single-object tests'); R.brute = s2.readout('tests it would take with no groups');
+
+const s3 = sb.panel.section('03 · Skip what\'s hidden behind a wall', 'Things already drawn hide what is behind them. The walls are drawn into a small depth picture from the player\'s eye, the picture is shrunk step by step keeping the farthest distance, and each object is checked against two or four cells of it.');
+s3.toggle('skip what is hidden (occlusion test)', true, v => { S.occl = v; });
+s3.segment('Where the distances come from', [{ value: 'walls', label: 'the walls, this frame' }, { value: 'last', label: 'everything drawn last frame' }, { value: 'two', label: 'two passes' }], 'walls', v => { S.hizSrc = v; });
+s3.segment('Cells of the picture to read', [{ value: 'full', label: 'every cell under the object' }, { value: 'four', label: 'four cells at a coarse level' }], 'full', v => { S.hizRead = v; });
+s3.note('Four cells at a coarse level is the chapter\'s trick: two reads per axis whatever the object\'s size, but the object must then sit well inside a wall\'s outline to be skipped. Reading every cell is exact for a picture this size.');
+s3.toggle('show the depth picture (Hi-Z)', false, v => { S.showHiz = v; hizCanvas.classList.toggle('on', v); hizCap.style.display = v ? 'block' : 'none'; });
+s3.slider('Depth picture level, 0 is full size', { min: 0, max: 7, step: 1, value: 0 }, v => { S.hizLevel = v; });
+s3.button('Step one frame', () => { stepOnce = true; });
+s3.note('Turn the walk off and step frame by frame with "everything drawn last frame": the depth comes from where the player stood a frame ago, so things that just came into view are wrongly skipped (red) until the next frame. "Two passes" draws last frame\'s objects first, then tests the rest against them with this frame\'s camera.');
+R.hidden = s3.readout('hidden behind something'); R.wrong = s3.readout('wrongly skipped'); R.notNeeded = s3.readout('drawn in pass one but hidden now');
+
+const s4 = sb.panel.section('04 · Rooms, doorways and a lookup table', 'The yard is a room with two doorways. From outside, the view into the yard is squeezed down to the doorway (blue lines); from inside, the view out is. Bar a door and nothing gets through it.');
+s4.toggle('squeeze the view through the doorways (portals)', true, v => { S.portal = v; });
+s4.toggle('bar the north door', false, v => { doors[0].barred = v; });
+s4.toggle('bar the south door', false, v => { doors[1].barred = v; });
+R.room = s4.readout('the player is'); R.portalSkip = s4.readout('skipped by the doorway test');
+
+const s5 = sb.panel.section('05 · Skip what would be a speck', 'A crate far away is a few pixels wide but costs a full draw. One divide per object gives its size on a 1080p screen; anything under the limit is skipped.');
+s5.slider('Smallest size worth drawing', { min: 0, max: 64, step: 1, value: 8, unit: ' px' }, v => { S.minPx = v; });
+R.specks = s5.readout('skipped as specks');
+
+const s6 = sb.panel.section('06 · Let the GPU write its own list', 'The forest ring is 1,600 pines sent as one batch. The CPU can test them one at a time and rewrite the batch, or the GPU can run the same test for every pine at once while the CPU never waits for an answer.');
+s6.toggle('show the forest', true, v => { S.forestOn = v; forest.visible = v; });
+s6.segment('Who tests the forest', [{ value: 'cpu', label: 'the CPU, one pine at a time' }, { value: 'gpu', label: 'the GPU, one worker per pine' }], 'cpu', v => { S.who = v; if (v === 'gpu') { forest.instanceMatrix.array.set(fMat0); forest.instanceMatrix.needsUpdate = true; for (let i = 0; i < FOREST_N; i++) forest.setColorAt(i, WHITE); forest.instanceColor.needsUpdate = true; } });
+R.cpuMs = s6.readout('CPU time spent on the forest'); R.pines = s6.readout('pines drawn');
+const WHITE = new THREE.Color(0xffffff), DARK = new THREE.Color(0x1a1d24);
+
+// ---------------------------------------------------------------- the Hi-Z depth picture (a real render from the player's eye, read back and shrunk)
+const HW = 256, HH = 128, HLEVELS = 8, HRANGE = 260;
+const hizRT = new THREE.WebGLRenderTarget(HW, HH, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
+const hizRT2 = new THREE.WebGLRenderTarget(HW, HH, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
+const depthMat = new THREE.ShaderMaterial({ uniforms: { uRange: { value: HRANGE } },
+  vertexShader: 'varying float vD; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vD = -mv.z; gl_Position = projectionMatrix * mv; }',
+  fragmentShader: 'uniform float uRange; varying float vD; void main(){ float x = clamp(vD / uRange, 0.0, 1.0); float hi = floor(x * 255.0) / 255.0; float lo = fract(x * 255.0); gl_FragColor = vec4(hi, lo, 0.0, 1.0); }' });
+function makePyramid() { const lv = []; for (let l = 0, w = HW, h = HH; l < HLEVELS; l++, w >>= 1, h >>= 1) lv.push({ w, h, a: new Float32Array(w * h) }); return lv; }
+const hizA = { px: new Uint8Array(HW * HH * 4), lv: makePyramid() }, hizB = { px: new Uint8Array(HW * HH * 4), lv: makePyramid() };
+const clearCol = new THREE.Color(0xffffff);
+// draw the objects flagged as occluders (layer 1) from cam into the target, read it back, build the pyramid
+function buildHiz(hiz, rt, cam) {
+  const bg = scene.background; scene.background = null; renderer.setClearColor(clearCol, 1);
+  cam.layers.set(1); scene.overrideMaterial = depthMat;
+  renderer.setRenderTarget(rt); renderer.clear(); renderer.render(scene, cam); renderer.setRenderTarget(null);
+  scene.overrideMaterial = null; cam.layers.set(0); scene.background = bg;
+  renderer.readRenderTargetPixels(rt, 0, 0, HW, HH, hiz.px);
+  const px = hiz.px, l0 = hiz.lv[0].a;
+  for (let i = 0, j = 0; i < l0.length; i++, j += 4) l0[i] = px[j] / 255 + px[j + 1] / 65025;
+  for (let l = 1; l < HLEVELS; l++) {
+    const src = hiz.lv[l - 1], dst = hiz.lv[l];
+    for (let y = 0; y < dst.h; y++) for (let x = 0; x < dst.w; x++) {
+      const i = y * 2 * src.w + x * 2, a = src.a[i], b = src.a[i + 1], c = src.a[i + src.w], d = src.a[i + src.w + 1];
+      dst.a[y * dst.w + x] = Math.max(Math.max(a, b), Math.max(c, d));
+    }
+  }
+}
+const _p = new V3();
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+// is this object's whole box behind what the depth picture already holds
+function occluded(o, hiz, cam) {
+  let xmin = 2, xmax = -2, ymin = 2, ymax = -2, near = 1e9;
+  for (let i = 0; i < 8; i++) {
+    _p.copy(o.corners[i]).applyMatrix4(cam.matrixWorldInverse); const z = -_p.z; if (z < cam.near) return false; if (z < near) near = z;
+    _p.applyMatrix4(cam.projectionMatrix);
+    if (_p.x < xmin) xmin = _p.x; if (_p.x > xmax) xmax = _p.x; if (_p.y < ymin) ymin = _p.y; if (_p.y > ymax) ymax = _p.y;
+  }
+  const tx0 = clamp(Math.floor((xmin + 1) / 2 * HW), 0, HW - 1), tx1 = clamp(Math.floor((xmax + 1) / 2 * HW), 0, HW - 1);
+  const ty0 = clamp(Math.floor((ymin + 1) / 2 * HH), 0, HH - 1), ty1 = clamp(Math.floor((ymax + 1) / 2 * HH), 0, HH - 1);
+  const nearD = near / HRANGE;
+  if (S.hizRead === 'full') {
+    const a0 = hiz.lv[0].a;
+    for (let y = ty0; y <= ty1; y++) for (let x = tx0; x <= tx1; x++) if (a0[y * HW + x] >= nearD) return false;
+    return true;
+  }
+  const span = Math.max(tx1 - tx0 + 1, ty1 - ty0 + 1);
+  const L = Math.min(HLEVELS - 1, Math.ceil(Math.log2(span)));
+  const lv = hiz.lv[L], a = lv.a, w = lv.w, i0 = tx0 >> L, i1 = tx1 >> L, j0 = ty0 >> L, j1 = ty1 >> L;
+  const farthest = Math.max(Math.max(a[j0 * w + i0], a[j0 * w + i1]), Math.max(a[j1 * w + i0], a[j1 * w + i1]));
+  return nearD > farthest;
+}
+const hizCanvas = document.createElement('canvas'); hizCanvas.className = 'sb-hiz'; hizCanvas.width = HW; hizCanvas.height = HH; sb.stage.appendChild(hizCanvas);
+const hizCap = document.createElement('div'); hizCap.className = 'sb-hiz-cap'; sb.stage.appendChild(hizCap);
+const hizCtx = hizCanvas.getContext('2d'); const hizImg = hizCtx.createImageData(HW, HH);
+function drawHiz(hiz) {
+  const L = S.hizLevel, lv = hiz.lv[L], d = hizImg.data;
+  for (let y = 0; y < HH; y++) for (let x = 0; x < HW; x++) {
+    const v = lv.a[(y >> L) * lv.w + (x >> L)]; const g = Math.max(0, 255 - v * 255 * 2.2) | 0; const i = ((HH - 1 - y) * HW + x) * 4; d[i] = g; d[i + 1] = g; d[i + 2] = g; d[i + 3] = 255;
+  }
+  hizCtx.putImageData(hizImg, 0, 0);
+  hizCap.textContent = 'depth picture, level ' + L + ': ' + lv.w + '×' + lv.h + ' cells, bright is near';
+}
+
+// ---------------------------------------------------------------- boxes inside boxes (a quadtree of tight boxes)
+const groupMats = { in: new THREE.LineBasicMaterial({ color: PAL.green }), part: new THREE.LineBasicMaterial({ color: PAL.amber }), out: new THREE.LineBasicMaterial({ color: PAL.red }) };
+let tree;
+{
+  const items = active.filter(o => !o.exempt || o.isWall);
+  const ext = new THREE.Box3(); for (const o of items) ext.union(o.aabb);
+  const cx = (ext.min.x + ext.max.x) / 2, cz = (ext.min.z + ext.max.z) / 2, half = Math.max(ext.max.x - ext.min.x, ext.max.z - ext.min.z) / 2 + 1;
+  function build(x, z, h, depth, list) {
+    if (!list.length) return null;
+    const node = { box: new THREE.Box3(), children: [], items: [], depth };
+    for (const o of list) node.box.union(o.aabb);
+    if (depth === 3 || list.length <= 2) node.items = list;
+    else for (let i = 0; i < 4; i++) {
+      const nx = x + (i & 1 ? h / 2 : -h / 2), nz = z + (i & 2 ? h / 2 : -h / 2);
+      const sub = list.filter(o => o.c.x >= nx - h / 2 && o.c.x < nx + h / 2 && o.c.z >= nz - h / 2 && o.c.z < nz + h / 2);
+      const ch = build(nx, nz, h / 2, depth + 1, sub); if (ch) node.children.push(ch);
+    }
+    node.helper = new THREE.Box3Helper(node.box, PAL.amber); node.helper.visible = false; node.helper.frustumCulled = false; scene.add(node.helper);
+    return node;
+  }
+  tree = build(cx, cz, half, 0, items);
+}
+const allNodes = []; (function walk(n) { allNodes.push(n); n.children.forEach(walk); })(tree);
+
+// ---------------------------------------------------------------- the tests
+const frustum = new THREE.Frustum(), projView = new M4();
+const fCorners = []; for (let i = 0; i < 8; i++) fCorners.push(new V3());
+const satAxes = []; for (let i = 0; i < 27; i++) satAxes.push(new V3());
+const _a = new V3(), _b = new V3();
+function planeDist(pl, p) { return pl.normal.dot(p) + pl.constant; }
+// the three wrap-shape tests from the chapter, against a list of planes (the wedge, or a doorway's wedge)
+function passSphere(o, planes) { for (const pl of planes) if (planeDist(pl, o.sc) < -o.r) return false; return true; }
+function passAabb(o, planes) { for (const pl of planes) { const n = pl.normal; const d = n.x * o.aabbC.x + n.y * o.aabbC.y + n.z * o.aabbC.z + pl.constant + Math.abs(n.x) * o.aabbH.x + Math.abs(n.y) * o.aabbH.y + Math.abs(n.z) * o.aabbH.z; if (d < 0) return false; } return true; }
+function passObb(o, planes) { for (const pl of planes) { const n = pl.normal; const re = o.h.x * Math.abs(n.dot(o.u)) + o.h.y * Math.abs(n.dot(o.v)) + o.h.z * Math.abs(n.dot(o.w)); if (planeDist(pl, o.c) < -re) return false; } return true; }
+const passShape = { sphere: passSphere, aabb: passAabb, obb: passObb };
+// the exact answer for the turned box (separating axes), used only to count what was drawn for nothing
+const satEdges = [[0, 1], [0, 3], [0, 4], [1, 5], [2, 6], [3, 7]];
+function exactInside(o) {
+  let n = 0; for (let i = 0; i < 6; i++) satAxes[n++].copy(frustum.planes[i].normal);
+  satAxes[n++].copy(o.u); satAxes[n++].copy(o.v); satAxes[n++].copy(o.w);
+  for (let j = 0; j < 3; j++) for (const e of satEdges) { const ax = j === 0 ? o.u : j === 1 ? o.v : o.w; _a.subVectors(fCorners[e[1]], fCorners[e[0]]); satAxes[n++].crossVectors(ax, _a); }
+  for (let i = 0; i < n; i++) {
+    const ax = satAxes[i]; if (ax.lengthSq() < 1e-8) continue;
+    let fmin = 1e9, fmax = -1e9; for (let k = 0; k < 8; k++) { const d = ax.dot(fCorners[k]); if (d < fmin) fmin = d; if (d > fmax) fmax = d; }
+    const cd = ax.dot(o.c), re = o.h.x * Math.abs(ax.dot(o.u)) + o.h.y * Math.abs(ax.dot(o.v)) + o.h.z * Math.abs(ax.dot(o.w));
+    if (cd + re < fmin || cd - re > fmax) return false;
+  }
+  return true;
+}
+// a node's box against the wedge: OUT, IN or PARTIAL from the two far corners along each plane's direction
+function classify(box) {
+  let partial = false;
+  for (const pl of frustum.planes) {
+    const n = pl.normal;
+    const px = n.x >= 0 ? box.max.x : box.min.x, py = n.y >= 0 ? box.max.y : box.min.y, pz = n.z >= 0 ? box.max.z : box.min.z;
+    if (n.x * px + n.y * py + n.z * pz + pl.constant < 0) return 0;
+    const nx = n.x >= 0 ? box.min.x : box.max.x, ny = n.y >= 0 ? box.min.y : box.max.y, nz = n.z >= 0 ? box.min.z : box.max.z;
+    if (n.x * nx + n.y * ny + n.z * nz + pl.constant < 0) partial = true;
+  }
+  return partial ? 2 : 1;
+}
+const C = { gTests: 0, oTests: 0 };
+function cullNode(node, test) {
+  const r = classify(node.box); C.gTests++;
+  if (S.showGroups) { node.helper.visible = true; node.helper.material = r === 0 ? groupMats.out : r === 1 ? groupMats.in : groupMats.part; }
+  if (r === 0) return;
+  if (r === 1) { acceptAll(node); return; }
+  if (node.items.length) for (const o of node.items) { C.oTests++; o.inF = test(o, frustum.planes); }
+  for (const ch of node.children) cullNode(ch, test);
+}
+function acceptAll(node) { for (const o of node.items) o.inF = true; for (const ch of node.children) acceptAll(ch); }
+
+// doorway wedges: planes from the eye through each edge of the door, plus the door's own plane
+const doorPlanes = [[], []]; for (const dp of doorPlanes) for (let i = 0; i < 5; i++) dp.push(new THREE.Plane());
+const eye = new V3(), fwd = new V3(), doorSphere = new THREE.Sphere(new V3(), YARD.doorW);
+function buildDoorPlanes(d, planes) {
+  for (let i = 0; i < 4; i++) {
+    const a = d.corners[i], b = d.corners[(i + 1) % 4]; _a.subVectors(a, eye); _b.subVectors(b, eye);
+    const pl = planes[i]; pl.normal.crossVectors(_a, _b).normalize(); pl.constant = -pl.normal.dot(eye);
+    if (planeDist(pl, d.center) < 0) { pl.normal.negate(); pl.constant = -pl.constant; }
+  }
+  const pl = planes[4]; pl.normal.set(0, 0, eye.z < d.z ? 1 : -1); pl.constant = -pl.normal.dot(d.center);
+}
+
+// ---------------------------------------------------------------- per frame
+let stepOnce = false, viewMode = 'above';
+function setView(v) {
+  if (v === viewMode) return; viewMode = v; S.view = v;
+  if (v === 'eye') { sb.controls.saveState(); sb.controls.enabled = false; }
+  else { sb.controls.enabled = true; sb.controls.reset(); sb.camera.fov = 55; sb.camera.near = 0.5; sb.camera.far = 700; sb.camera.updateProjectionMatrix(); }
+}
+const _t = new V3(), _q = new THREE.Quaternion(), _m = new M4(), _col = new THREE.Color();
+const ndc = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
+const boxEdges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+let lastMs = 0;
+sb.onFrame((dt) => {
+  // last frame's numbers, before anything else renders
+  const info = renderer.info.render;
+  R.calls(info.calls);
+
+  // ---- move the player
+  if (S.walk || stepOnce) { S.u = (S.u + Math.max(S.speed, S.walk ? 0 : 4) * (stepOnce && !S.walk ? 1 / 60 : dt) / roadLen) % 1; stepOnce = false; }
+  road.getPointAt(S.u, _t); road.getTangentAt(S.u, fwd);
+  const heading = Math.atan2(fwd.x, fwd.z) + S.turn * Math.PI / 180;
+  player.position.set(_t.x, 0, _t.z); player.rotation.y = heading;
+  fwd.set(Math.sin(heading), 0, Math.cos(heading));
+  eye.set(_t.x, EYE_H, _t.z);
+  lastCam.position.copy(playerCam.position); lastCam.quaternion.copy(playerCam.quaternion); lastCam.projectionMatrix.copy(playerCam.projectionMatrix); lastCam.updateMatrixWorld(); lastCam.matrixWorldInverse.copy(playerCam.matrixWorldInverse);
+  playerCam.position.copy(eye); playerCam.rotation.set(0, heading + Math.PI, 0);
+  const aspect = sb.stage.clientWidth / Math.max(1, sb.stage.clientHeight);
+  playerCam.aspect = aspect; playerCam.fov = 2 * Math.atan(Math.tan(S.fovH * Math.PI / 360) / aspect) * 180 / Math.PI; playerCam.far = S.far; playerCam.updateProjectionMatrix(); playerCam.updateMatrixWorld();
+  playerCam.matrixWorldInverse.copy(playerCam.matrixWorld).invert();
+  projView.multiplyMatrices(playerCam.projectionMatrix, playerCam.matrixWorldInverse); frustum.setFromProjectionMatrix(projView);
+  for (let i = 0; i < 8; i++) fCorners[i].set(ndc[i][0], ndc[i][1], ndc[i][2]).unproject(playerCam);
+  { const a = frustumLines.geometry.attributes.position; let k = 0; for (const e of boxEdges) { const p = fCorners[e[0]], q = fCorners[e[1]]; a.setXYZ(k++, p.x, p.y, p.z); a.setXYZ(k++, q.x, q.y, q.z); } a.needsUpdate = true; }
+  wedgeAnchor.position.copy(eye).addScaledVector(fwd, Math.min(24, S.far * 0.6)); wedgeAnchor.position.y = 1;
+  const eyeView = viewMode === 'eye';
+  frustumLines.visible = !eyeView; player.visible = !eyeView; wedgeLabel.hide(eyeView);
+
+  // ---- 01 + 02: the wedge test, with or without the groups
+  const test = passShape[S.shape];
+  C.gTests = 0; C.oTests = 0;
+  for (const n of allNodes) n.helper.visible = false;
+  for (const o of active) { o.inF = false; o.st = ST_SKIP; o.occ = false; }
+  for (const d of doors) { d.obj.off = !d.barred; d.obj.inF = false; d.obj.st = ST_SKIP; }
+  if (S.hier) cullNode(tree, test);
+  else for (const o of active) { C.oTests++; o.inF = test(o, frustum.planes); }
+  for (const d of doors) if (d.barred) { C.oTests++; d.obj.inF = test(d.obj, frustum.planes); }
+  R.gTests(C.gTests); R.oTests(C.oTests); R.brute(active.length);
+
+  // ---- 04: doorways
+  const inYard = inYardRect(eye.x, eye.z, 0.3), inDoorway = Math.abs(eye.x - YARD.cx) < 1.8 && (Math.abs(eye.z - YARD.z0) < 0.9 || Math.abs(eye.z - YARD.z1) < 0.9);
+  R.room(inDoorway ? 'in a doorway' : inYard ? 'inside the yard' : 'outside the yard');
+  let portalSkip = 0; const pa = portalLines.geometry.attributes.position; let pk = 0;
+  if (S.portal && !inDoorway) {
+    const open = [];
+    for (let i = 0; i < 2; i++) { const d = doors[i]; if (d.barred) continue; if (!inYard && Math.sign(eye.z - d.z) !== d.outSide) continue; buildDoorPlanes(d, doorPlanes[i]); if (planeDist(doorPlanes[i][4], eye) > -0.1) continue; open.push(doorPlanes[i]);
+      // the narrowed wedge, drawn when the door is in view: eye through the four door corners out to the far limit
+      doorSphere.center.copy(d.center); if (frustum.intersectsSphere(doorSphere)) for (const c of d.corners) { _a.subVectors(c, eye).normalize().multiplyScalar(S.far); pa.setXYZ(pk++, eye.x, eye.y, eye.z); pa.setXYZ(pk++, eye.x + _a.x, eye.y + _a.y, eye.z + _a.z); } }
+    for (const o of active) {
+      if (!o.inF || o.exempt || o.inYard === inYard) continue;
+      let ok = false; for (const pl of open) if (test(o, pl)) { ok = true; break; }
+      if (!ok) { o.inF = false; portalSkip++; }
+    }
+  }
+  for (; pk < 16; pk++) pa.setXYZ(pk, 0, -50, 0);
+  pa.needsUpdate = true; portalLines.visible = S.portal && !eyeView;
+  R.portalSkip(portalSkip);
+
+  // ---- 03: hidden behind something (a real depth picture from the player's eye)
+  let hidden = 0, wrong = 0, notNeeded = 0; let hizShown = null;
+  for (const o of objects) o.mesh.layers.set(0);
+  if (S.occl) {
+    if (S.hizSrc === 'walls') {
+      for (const o of objects) if (o.isWall && o.inF) o.mesh.layers.enable(1);
+      buildHiz(hizA, hizRT, playerCam); hizShown = hizA;
+      for (const o of active) if (o.inF && !o.isWall && occluded(o, hizA, playerCam)) { o.inF = false; o.occ = true; hidden++; }
+    } else if (S.hizSrc === 'last') {
+      for (const o of objects) if (o.last && !o.off) o.mesh.layers.enable(1);
+      buildHiz(hizA, hizRT, lastCam); buildHiz(hizB, hizRT2, playerCam); hizShown = hizA;
+      for (const o of active) if (o.inF && !o.isWall) {
+        const gone = occluded(o, hizA, lastCam), ref = occluded(o, hizB, playerCam);
+        if (gone) { o.inF = false; o.occ = true; hidden++; if (!ref) { o.st = ST_WRONG; wrong++; } }
+      }
+    } else {
+      // pass one: what was drawn last frame, drawn again without a test and used as the occluders
+      for (const o of objects) if (o.last && !o.off && o.inF) o.mesh.layers.enable(1);
+      buildHiz(hizA, hizRT, playerCam); hizShown = hizA;
+      for (const o of objects) { o.mesh.layers.set(0); if (o.isWall && o.inF) o.mesh.layers.enable(1); }
+      buildHiz(hizB, hizRT2, playerCam);
+      for (const o of active) if (o.inF && !o.isWall) {
+        if (o.last) { if (occluded(o, hizB, playerCam)) { o.st = ST_EXTRA; notNeeded++; } }
+        else if (occluded(o, hizA, playerCam)) { o.inF = false; o.occ = true; hidden++; }
+      }
+    }
+  }
+  if (S.showHiz) { if (hizShown) drawHiz(hizShown); else hizCap.textContent = 'depth picture: the occlusion test is off'; }
+  R.hidden(hidden); R.wrong(wrong); R.notNeeded(notNeeded);
+
+  // ---- 05: specks
+  const pxK = 540 / Math.tan(playerCam.fov * Math.PI / 360); let specks = 0;
+  for (const o of active) if (o.inF) { const d = Math.max(0.01, _a.subVectors(o.sc, eye).dot(fwd)); if (2 * o.r * pxK / d < S.minPx) { o.inF = false; o.st = ST_SPECK; specks++; } }
+  R.specks(specks);
+
+  // ---- settle every object: what is drawn, what it looks like, and the count of extras
+  let drawn = 0, extra = 0, counted = 0;
+  const settle = o => {
+    counted++; o.drawn = o.inF; o.last = o.inF;
+    if (o.inF) { drawn++; if (o.st !== ST_EXTRA) { if (exactInside(o)) o.st = ST_DRAWN; else { o.st = ST_EXTRA; extra++; } } }
+    const hide = S.skipMode === 'hide' && !o.inF;
+    o.mesh.visible = !hide; o.mesh.castShadow = o.inF; const m = stMat[o.st]; if (o.mesh.material !== m) o.mesh.material = m;
+  };
+  for (const o of active) settle(o);
+  for (const d of doors) { if (d.barred) settle(d.obj); else { d.obj.last = false; d.obj.mesh.visible = false; } }
+  R.tests(C.gTests + C.oTests + (S.forestOn && S.who === 'cpu' ? FOREST_N : 0)); R.drawn(drawn); R.skipped(counted - drawn); R.extra(extra);
+
+  // ---- 06: the forest, on the CPU or on the GPU
+  if (S.forestOn) {
+    const t0 = performance.now(); let pines = 0;
+    if (S.who === 'cpu') {
+      const hide = S.skipMode === 'hide', arr = forest.instanceMatrix.array, colArr = forest.instanceColor.array, pl = frustum.planes;
+      for (let i = 0; i < FOREST_N; i++) {
+        const s = fScale[i], cx = fPos[i * 3], cy = fSphere.center.y * s, cz = fPos[i * 3 + 2], r = fSphere.radius * s;
+        let gone = false;
+        for (let k = 0; k < 6; k++) { const n = pl[k].normal; if (n.x * cx + n.y * cy + n.z * cz + pl[k].constant < -r) { gone = true; break; } }
+        if (!gone) { const d = Math.max(0.01, (cx - eye.x) * fwd.x + (cz - eye.z) * fwd.z); if (2 * r * pxK / d < S.minPx) gone = true; }
+        if (!gone) pines++;
+        const b = i * 16;
+        if (hide && gone) { for (let k = 0; k < 16; k++) arr[b + k] = 0; } else for (let k = 0; k < 16; k++) arr[b + k] = fMat0[b + k];
+        const c = gone ? DARK : WHITE; colArr[i * 3] = c.r; colArr[i * 3 + 1] = c.g; colArr[i * 3 + 2] = c.b;
+      }
+      forest.instanceMatrix.needsUpdate = true; forest.instanceColor.needsUpdate = true;
+      if (forestShader) forestShader.uniforms.uGpu.value = 0;
+      lastMs = lastMs * 0.9 + (performance.now() - t0) * 0.1;
+      R.cpuMs(lastMs.toFixed(2) + ' ms'); R.pines(pines);
+    } else {
+      if (forestShader) {
+        const u = forestShader.uniforms; u.uGpu.value = 1; u.uHide.value = S.skipMode === 'hide' ? 1 : 0; u.uMinPx.value = S.minPx; u.uPxK.value = pxK; u.uEye.value.copy(eye); u.uFwd.value.copy(fwd);
+        for (let i = 0; i < 6; i++) { const pl = frustum.planes[i]; u.uPlanes.value[i].set(pl.normal.x, pl.normal.y, pl.normal.z, pl.constant); }
+      }
+      R.cpuMs('0.00 ms, nothing to wait for'); R.pines('not counted: the GPU kept its own list');
+    }
+  } else { R.cpuMs('0.00 ms'); R.pines('0, the forest is off'); }
+
+  // ---- the view
+  if (eyeView) { sb.camera.position.copy(eye); sb.camera.quaternion.copy(playerCam.quaternion); sb.camera.fov = playerCam.fov; sb.camera.near = playerCam.near; sb.camera.far = Math.max(playerCam.far, 20); sb.camera.updateProjectionMatrix(); }
+  sb.hud('view', eyeView ? (S.skipMode === 'hide' ? 'the player\'s eyes: skipped objects are gone, as a game draws it' : 'the player\'s eyes: a dark object is one the tests wrongly skipped') : 'from above: dark = skipped by the player\'s tests');
+  renderer.shadowMap.needsUpdate = true;
+});
+sb.culling = { objects, active, S, frustum, fCorners, exactInside, satAxes, playerCam, passObb, passSphere, road };
+sb.start();
+</script>
+</body>
+</html>
