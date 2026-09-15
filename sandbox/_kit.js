@@ -82,7 +82,7 @@ export function boot(cfg) {
   // ---- three.js
   const renderer = new THREE.WebGLRenderer(Object.assign({ antialias: true, powerPreference: 'high-performance', logarithmicDepthBuffer: !!cfg.logDepth }, cfg.renderer || {}));
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   stage.insertBefore(renderer.domElement, grid);
   const scene = new THREE.Scene(); scene.background = new THREE.Color(cfg.background ?? PAL.sky);
@@ -185,7 +185,7 @@ export function boot(cfg) {
   };
 
   // ---- loop
-  const frameFns = []; const clock = new THREE.Clock();
+  const frameFns = []; let last = 0, elapsed = 0;
   function resize() {
     const w = stage.clientWidth, h = stage.clientHeight; if (!w || !h) return;
     renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); view.grid(view._grid, view._gridPx);
@@ -201,8 +201,8 @@ export function boot(cfg) {
     } else renderer.render(scene, camera);
   }
   let running = false;
-  function tick() { if (!running) return; const dt = Math.min(0.1, clock.getDelta()), t = clock.elapsedTime; controls.update(); for (const f of frameFns) f(dt, t); render(); placeLabels(); requestAnimationFrame(tick); }
-  const sb = { THREE, scene, camera, renderer, controls, lights, world, panel: panelApi, view, label, hud: setHud, stage, onFrame: f => frameFns.push(f), start() { if (!running) { running = true; clock.start(); tick(); } }, mat, mesh,
+  function tick(now) { if (!running) return; now = now || performance.now(); const dt = last ? Math.min(0.1, (now - last) / 1000) : 0; last = now; elapsed += dt; const t = elapsed; controls.update(); for (const f of frameFns) f(dt, t); render(); placeLabels(); requestAnimationFrame(tick); }
+  const sb = { THREE, scene, camera, renderer, controls, lights, world, panel: panelApi, view, label, hud: setHud, stage, onFrame: f => frameFns.push(f), start() { if (!running) { running = true; last = 0; requestAnimationFrame(tick); } }, mat, mesh,
     snapshot() { render(); const gl = renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let lit = 0; for (let i = 0; i < px.length; i += 16) if (px[i] + px[i + 1] + px[i + 2] > 60) lit++; return { w, h, litShare: lit / (px.length / 16) }; } };
   window.RLSandbox = sb;
   return sb;
