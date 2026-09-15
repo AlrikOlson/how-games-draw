@@ -198,11 +198,11 @@ writeSpheres();
 
 // ---- the sky, on the CPU: the same numbers the shader uses, for the sun's colour and the haze
 const TR = [5.804542996261093e-6, 1.3562911419845635e-5, 3.0265902468824876e-5], MC = [1.8399918514433978e14, 2.7798023919660528e14, 4.0790479543861094e14];
-const atm = { rayleigh: 2.6, turbidity: 3, mie: 0.006, g: 0.8, sunDeg: 0.54 };
+const atm = { rayleigh: 3.2, turbidity: 2.2, mie: 0.005, g: 0.8, sunDeg: 0.54 };
 const sunDir = new THREE.Vector3(), moonDir = new THREE.Vector3(0.35, 0.7, -0.55).normalize();
 function skyConsts() { const s = sunDir; const sunE = 1000 * Math.max(0, 1 - Math.exp(-((1.6110731556870734 - Math.acos(Math.max(-1, Math.min(1, s.y)))) / 1.5))); const fade = 1 - Math.min(1, Math.max(0, 1 - Math.exp(s.y / 450000))); const rc = atm.rayleigh - (1 - fade), mie = 0.434 * (0.2 * atm.turbidity) * 10e-18 * atm.mie; return { sunE, fade, betaR: TR.map(v => v * rc), betaM: MC.map(v => v * mie) }; }
 function skyCPU(dx, dy, dz, K) { const zen = Math.acos(Math.max(0, dy)), inv = 1 / (Math.cos(zen) + 0.15 * Math.pow(93.885 - zen * 180 / Math.PI, -1.253)), sR = 8.4e3 * inv, sM = 1.25e3 * inv; const cosT = dx * sunDir.x + dy * sunDir.y + dz * sunDir.z, rp = 0.05968310365946075 * (1 + Math.pow(cosT * 0.5 + 0.5, 2)), g = atm.g, hg = 0.07957747154594767 * ((1 - g * g) / Math.pow(1 - 2 * g * cosT + g * g, 1.5)); const out = [0, 0, 0], fex = [0, 0, 0]; const hm = Math.min(1, Math.max(0, Math.pow(1 - sunDir.y, 5)));
-  for (let k = 0; k < 3; k++) { const bR = K.betaR[k], bM = K.betaM[k]; const F = Math.exp(-(bR * sR + bM * sM)); fex[k] = F; const ratio = (bR * rp + bM * hg) / (bR + bM); let Lin = Math.pow(K.sunE * ratio * (1 - F), 1.5); Lin *= 1 + (Math.pow(K.sunE * ratio * F, 0.5) - 1) * hm; const tex = (Lin + 0.1 * F) * 0.04 + [0, 0.0003, 0.00075][k]; out[k] = Math.pow(tex, 1 / (1.2 + 1.2 * K.fade)); } return { c: out, fex }; }
+  for (let k = 0; k < 3; k++) { const bR = K.betaR[k], bM = K.betaM[k]; const F = Math.exp(-(bR * sR + bM * sM)); fex[k] = F; const ratio = (bR * rp + bM * hg) / (bR + bM); let Lin = Math.pow(K.sunE * ratio * (1 - F), 1.5); Lin *= 1 + (Math.pow(K.sunE * ratio * F, 0.5) - 1) * hm; const tex = (Lin + 0.1 * F) * 0.04 + [0, 0.0003, 0.00075][k]; out[k] = Math.pow(tex, 1 / (1.2 + 1.2 * K.fade)) * 0.3; } return { c: out, fex }; }
 
 // ---- the ray tracer: a chain of passes, every one of them rays, none of them random
 const GL3 = THREE.GLSL3, QVS = 'out vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
@@ -210,7 +210,7 @@ const v3s = hex => { const c = lin(hex); return `vec3(${c.r.toFixed(4)}, ${c.g.t
 const U = {
   uNodes: { value: nodeTex }, uTris: { value: triTex }, uAttr: { value: attrTex }, uInst: { value: instTex },
   tBark: { value: barkTex }, tBirch: { value: birchTex }, tLeafO: { value: leafO }, tLeafP: { value: leafP }, tLeafB: { value: leafB }, tRock: { value: rockTex }, tWood: { value: woodTex }, tStone: { value: stoneTex }, tGround: { value: groundTex },
-  uTlasRoot: { value: tlasRoot }, uFrame: { value: 0 }, uNSph: { value: NSPH }, uFogD: { value: 0.0025 }, uSunSize: { value: 0.27 * Math.PI / 180 }, uMoonSize: { value: 0.3 * Math.PI / 180 }, uShadowK: { value: 2 }, uGiK: { value: 4 }, uNoiseShift: { value: 0 }, uJitter: { value: new THREE.Vector2() },
+  uTlasRoot: { value: tlasRoot }, uFrame: { value: 0 }, uNSph: { value: NSPH }, uFogD: { value: 0.0015 }, uSunSize: { value: 0.27 * Math.PI / 180 }, uMoonSize: { value: 0.3 * Math.PI / 180 }, uShadowK: { value: 1 }, uGiK: { value: 4 }, uNoiseShift: { value: 0 }, uJitter: { value: new THREE.Vector2() },
   uCamPos: { value: new THREE.Vector3() }, uInvPV: { value: new THREE.Matrix4() }, uSunDir: { value: sunDir }, uSunCol: { value: new THREE.Vector3() }, uMoonDir: { value: moonDir }, uMoonCol: { value: new THREE.Vector3() }, uFogCol: { value: new THREE.Vector3() }, uSkyZen: { value: new THREE.Vector3() }, uSkyHor: { value: new THREE.Vector3() },
   uBetaR: { value: new THREE.Vector3() }, uBetaM: { value: new THREE.Vector3() }, uSunE: { value: 0 }, uSunfade: { value: 1 }, uMieG: { value: 0.8 }, uSunCos: { value: 1 }, uNight: { value: 1 }, uSkyOn: { value: 1 }, uBounceOn: { value: 1 }, uRes: { value: new THREE.Vector2(1, 1) }, uLoRes: { value: new THREE.Vector2(1, 1) },
   uMatA: { value: matA }, uMatB: { value: matB }, uMatC: { value: matC }, uSphA: { value: sphA }, uSphB: { value: sphB }
@@ -244,7 +244,7 @@ vec3 skyRad(vec3 d, bool disk) {
   vec3 ratio = (uBetaR * rayleighPhase(cosT * 0.5 + 0.5) + uBetaM * hgPhase(cosT, uMieG)) / (uBetaR + uBetaM);
   vec3 Lin = pow(uSunE * ratio * (1.0 - Fex), vec3(1.5)); Lin *= mix(vec3(1.0), pow(uSunE * ratio * Fex, vec3(0.5)), clamp(pow(1.0 - uSunDir.y, 5.0), 0.0, 1.0));
   vec3 L0 = vec3(0.1) * Fex; if (disk) L0 += uSunE * 19000.0 * Fex * smoothstep(uSunCos, uSunCos + (1.0 - uSunCos) * 0.35, cosT);
-  vec3 tex = (Lin + L0) * 0.04 + vec3(0.0, 0.0003, 0.00075); return pow(tex, vec3(1.0 / (1.2 + 1.2 * uSunfade))) * uNight; }
+  vec3 tex = (Lin + L0) * 0.04 + vec3(0.0, 0.0003, 0.00075); return pow(tex, vec3(1.0 / (1.2 + 1.2 * uSunfade))) * uNight * 0.3; }
 // the sky as a soft light from above, without firing rays: for the ends of paths
 vec3 skyAmb(vec3 n) { return mix(uSkyHor, uSkyZen, n.y * 0.5 + 0.5) * PI * uSkyOn; }
 bool slab(vec3 bmin, vec3 bmax, vec3 o, vec3 invD, float tMax) { vec3 t0 = (bmin - o) * invD, t1 = (bmax - o) * invD; vec3 tmin = min(t0, t1), tmax = max(t0, t1); float tN = max(max(tmin.x, tmin.y), max(tmin.z, 0.0)), tF = min(min(tmax.x, tmax.y), min(tmax.z, tMax)); return tN <= tF; }
@@ -393,8 +393,9 @@ const WG_COMMON = `
 struct Params { invPV: mat4x4f, camPos: vec4f, sunDir: vec4f, sunCol: vec4f, moonDir: vec4f, moonCol: vec4f, fogCol: vec4f, skyZen: vec4f, skyHor: vec4f, betaR: vec4f, betaM: vec4f,
   res: vec2f, loRes: vec2f, giRes: vec2f, jitter: vec2f,
   sunE: f32, sunfade: f32, mieG: f32, sunCos: f32, night: f32, skyOn: f32, bounceOn: f32, fogD: f32, sunSize: f32, moonSize: f32, noiseShift: f32, blend: f32,
-  tlasRoot: i32, nsph: i32, shadowK: i32, giK: i32, view: i32, frame: i32, pad0: i32, pad1: i32,
-  matA: array<vec4f, ${MATN}>, matB: array<vec4f, ${MATN}>, matC: array<vec4f, ${MATN}>, sphA: array<vec4f, 24>, sphB: array<vec4f, 24> };
+  tlasRoot: i32, nsph: i32, shadowK: i32, giK: i32, view: i32, frame: i32, shadowStride: i32, giStride: i32,
+  matA: array<vec4f, ${MATN}>, matB: array<vec4f, ${MATN}>, matC: array<vec4f, ${MATN}>, sphA: array<vec4f, 24>, sphB: array<vec4f, 24>,
+  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32 };
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> nodes: array<vec4f>;
 @group(0) @binding(2) var<storage, read> tris: array<vec4f>;
@@ -415,14 +416,23 @@ fn sampleTex(id: i32, uv: vec2f, lod: f32) -> vec4f { var c = textureSampleLevel
 fn leafAlpha(id: i32, uv: vec2f) -> f32 { return textureSampleLevel(texArr, samp, uv, id - 1, 0.0).a; }
 fn rayleighPhase(c: f32) -> f32 { return 0.05968310365946075 * (1.0 + c * c); }
 fn hgPhase(c: f32, g: f32) -> f32 { let g2 = g * g; return 0.07957747154594767 * ((1.0 - g2) / pow(1.0 - 2.0 * g * c + g2, 1.5)); }
-fn skyRad(d: vec3f, disk: bool) -> vec3f {
+fn skyRad2(d: vec3f, disk: bool, jit: f32) -> vec3f {
   let zen = acos(max(0.0, d.y)); let inv = 1.0 / (cos(zen) + 0.15 * pow(93.885 - zen * 180.0 / PI, -1.253)); let sR = 8.4e3 * inv; let sM = 1.25e3 * inv;
   let Fex = exp(-(P.betaR.xyz * sR + P.betaM.xyz * sM)); let cosT = dot(d, P.sunDir.xyz);
   let ratio = (P.betaR.xyz * rayleighPhase(cosT * 0.5 + 0.5) + P.betaM.xyz * hgPhase(cosT, P.mieG)) / (P.betaR.xyz + P.betaM.xyz);
   var Lin = pow(P.sunE * ratio * (1.0 - Fex), vec3f(1.5)); Lin *= mix(vec3f(1.0), pow(P.sunE * ratio * Fex, vec3f(0.5)), clamp(pow(1.0 - P.sunDir.y, 5.0), 0.0, 1.0));
   var L0 = vec3f(0.1) * Fex; if (disk) { L0 += P.sunE * 19000.0 * Fex * smoothstep(P.sunCos, P.sunCos + (1.0 - P.sunCos) * 0.35, cosT); }
-  let tex = (Lin + L0) * 0.04 + vec3f(0.0, 0.0003, 0.00075); return pow(tex, vec3f(1.0 / (1.2 + 1.2 * P.sunfade))) * P.night; }
+  let tex = (Lin + L0) * 0.04 + vec3f(0.0, 0.0003, 0.00075); let base = pow(tex, vec3f(1.0 / (1.2 + 1.2 * P.sunfade))) * P.night * 0.3; if (disk) { return clouds(d, base, jit); } return base; }
+fn skyRad(d: vec3f, disk: bool) -> vec3f { return skyRad2(d, disk, 0.5); }
 fn skyAmb(n: vec3f) -> vec3f { return mix(P.skyHor.xyz, P.skyZen.xyz, n.y * 0.5 + 0.5) * PI * P.skyOn; }
+fn fb5(p: vec2f) -> f32 { return (0.5 * vn(p) + 0.25 * vn(p * 2.03 + 7.0) + 0.125 * vn(p * 4.1 + 3.0) + 0.0625 * vn(p * 8.3 + 1.0) + 0.03125 * vn(p * 16.9 + 5.0)) / 0.96875; }
+fn cloudDensity(q: vec3f, fine: bool) -> f32 { let h = (q.y - 520.0) / 420.0; if (h < 0.0 || h > 1.0) { return 0.0; } let prof = smoothstep(0.0, 0.2, h) * (1.0 - smoothstep(0.5, 1.0, h)); let uv = q.xz * 0.00065 + vec2f(P.time * 0.004 * P.wind, P.time * 0.0015 * P.wind); var n = select(fb3(uv), fb5(uv), fine); n = n * 0.85 + 0.15 * vn(q.xz * 0.004 + q.y * 0.01); let thr = 0.74 - P.cover * 0.45; return smoothstep(thr, thr + 0.1, n) * prof; }
+// a slab of clouds, marched with a handful of steps, lit from above by the sun and from below by the sky
+fn clouds(d: vec3f, base: vec3f, jit: f32) -> vec3f { if (d.y < 0.03 || P.cover <= 0.01) { return base; } let t0 = 520.0 / d.y; let t1 = 940.0 / d.y; let n = 6; let dt = (t1 - t0) / f32(n); var T = 1.0; var acc = vec3f(0.0);
+  let sunT = smoothstep(-0.05, 0.1, P.sunDir.y); let lit = P.sunCol.xyz * 0.07 * (0.3 + 0.7 * max(P.sunDir.y, 0.0)) + P.skyZen.xyz * 1.6 * sunT + P.moonCol.xyz * 0.5; let dark = P.skyHor.xyz * 0.45;
+  for (var i = 0; i < 6; i++) { let t = t0 + (f32(i) + jit) * dt; let q = P.camPos.xyz + d * t; let dens = cloudDensity(q, true); if (dens <= 0.0) { continue; }
+    let up = cloudDensity(q + P.sunDir.xyz * 110.0, false); let shade = exp(-up * 4.0); let col = mix(dark, lit, shade); let a = 1.0 - exp(-dens * dt * 0.03); acc += T * a * col; T *= 1.0 - a; if (T < 0.02) { break; } }
+  let far = 1.0 - smoothstep(0.03, 0.14, d.y); return base * T + acc * (1.0 - far * 0.75); }
 fn slab(bmin: vec3f, bmax: vec3f, o: vec3f, invD: vec3f, tMax: f32) -> bool { let t0 = (bmin - o) * invD; let t1 = (bmax - o) * invD; let tmin = min(t0, t1); let tmax = max(t0, t1); let tN = max(max(tmin.x, tmin.y), max(tmin.z, 0.0)); let tF = min(min(tmax.x, tmax.y), min(tmax.z, tMax)); return tN <= tF; }
 fn alphaOK(ti: i32, u: f32, w: f32) -> bool { let mid = i32(tris[ti * 3].w); let mb = P.matB[mid]; if (mb.w != 4.0) { return true; }
   let a0 = attrs[ti * 4]; let a1 = attrs[ti * 4 + 1]; let a2 = attrs[ti * 4 + 2]; let a3 = attrs[ti * 4 + 3]; let b0 = 1.0 - u - w; let uv = vec2f(a0.w * b0 + a1.w * u + a2.w * w, a3.x * b0 + a3.y * u + a3.z * w);
@@ -453,7 +463,7 @@ fn hitInfo(ro: vec3f, d: vec3f, H: Hit) -> Surf { var S: Surf; S.p = ro + d * H.
   else { let a0 = attrs[H.tri * 4]; let a1 = attrs[H.tri * 4 + 1]; let a2 = attrs[H.tri * 4 + 2]; let a3 = attrs[H.tri * 4 + 3]; let b0 = 1.0 - H.bary.x - H.bary.y; let nl = normalize(a0.xyz * b0 + a1.xyz * H.bary.x + a2.xyz * H.bary.y);
     let r0 = insts[H.inst * 4]; let r1 = insts[H.inst * 4 + 1]; let r2 = insts[H.inst * 4 + 2]; S.n = normalize(r0.xyz * nl.x + r1.xyz * nl.y + r2.xyz * nl.z); S.mid = i32(tris[H.tri * 3].w); S.uv = vec2f(a0.w * b0 + a1.w * H.bary.x + a2.w * H.bary.y, a3.x * b0 + a3.y * H.bary.x + a3.z * H.bary.y); }
   if (dot(S.n, d) > 0.0) { S.n = -S.n; }
-  if (P.matB[S.mid].w == 3.0) { let g = vec2f(vn(S.p.xz * 2.1 + 5.0) - vn(S.p.xz * 2.1 + 5.3), vn(S.p.zx * 2.3 + 1.0) - vn(S.p.zx * 2.3 + 1.3)); S.n = normalize(S.n + vec3f(g.x, 0.0, g.y) * 0.25); }
+  if (P.matB[S.mid].w == 3.0) { let t = P.time; let a = S.p.xz * 1.7 + vec2f(t * 0.18, t * 0.07); let b = S.p.xz * 3.9 + vec2f(-t * 0.11, t * 0.16); let g = vec2f(vn(a) - vn(a + 0.15), vn(a.yx) - vn(a.yx + 0.15)) * 0.22 + vec2f(vn(b) - vn(b + 0.12), vn(b.yx) - vn(b.yx + 0.12)) * 0.1; S.n = normalize(S.n + vec3f(g.x, 0.0, g.y)); }
   return S; }
 fn frameOf(w: vec3f) -> mat3x3f { let u = normalize(cross(select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(w.y) < 0.9), w)); let v = cross(w, u); return mat3x3f(u, v, w); }
 fn coneK(w: vec3f, ang: f32, k: i32, K: i32, rot: f32) -> vec3f { let F = frameOf(w); let r = sqrt((f32(k) + 0.5) / f32(K)) * tan(ang); let ph = 6.2831853 * (f32(k) * 0.618034 + rot); return normalize(w + F[0] * (r * cos(ph)) + F[1] * (r * sin(ph))); }
@@ -497,14 +507,14 @@ const WG_GBUF = WG_COMMON + `
   textureStore(oA, px, vec4f(S.p, H.t)); textureStore(oB, px, vec4f(S.n, M.rough)); textureStore(oC, px, vec4f(M.alb, M.metal)); textureStore(oD, px, vec4f(M.emis, f32(S.mid))); }`;
 const WG_SHADOW = WG_COMMON + `
 @group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var oV: texture_storage_2d<rgba16float, write>;
-@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.loRes.x || f32(px.y) >= P.loRes.y) { return; } let fp = min(px * 2, vec2i(P.res) - 1);
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.loRes.x || f32(px.y) >= P.loRes.y) { return; } let fp = min(px * P.shadowStride, vec2i(P.res) - 1);
   let A = textureLoad(gA, fp, 0); if (A.w < 0.0) { textureStore(oV, px, vec4f(1.0, 1.0, 0.0, 0.0)); return; } let p = A.xyz; let n = textureLoad(gB, fp, 0).xyz; let po = p + n * 3e-3; let rot = ign(vec2f(px));
   var sv = 1.0; if (dot(P.sunCol.xyz, P.sunCol.xyz) > 0.0) { sv = 0.0; if (dot(n, P.sunDir.xyz) > -0.1) { for (var k = 0; k < 8; k++) { if (k >= P.shadowK) { break; } let l = coneK(P.sunDir.xyz, P.sunSize, k, P.shadowK, rot); if (!occluded(po, l, 1e9)) { sv += 1.0; } } sv /= f32(P.shadowK); } }
   var mv = 1.0; if (dot(P.moonCol.xyz, P.moonCol.xyz) > 0.0) { mv = 0.0; let l = coneK(P.moonDir.xyz, P.moonSize, 0, 1, rot); if (dot(n, l) > 0.0 && !occluded(po, l, 1e9)) { mv = 1.0; } }
   textureStore(oV, px, vec4f(sv, mv, 0.0, 1.0)); }`;
 const WG_GI = WG_COMMON + `
 @group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var oG: texture_storage_2d<rgba16float, write>;
-@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.giRes.x || f32(px.y) >= P.giRes.y) { return; } let fp = min(px * 4, vec2i(P.res) - 1);
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.giRes.x || f32(px.y) >= P.giRes.y) { return; } let fp = min(px * P.giStride, vec2i(P.res) - 1);
   let A = textureLoad(gA, fp, 0); if (A.w < 0.0) { textureStore(oG, px, vec4f(0.0)); return; } let p = A.xyz; let n = textureLoad(gB, fp, 0).xyz; let po = p + n * 3e-3; let rot = ign(vec2f(px)) + 0.37;
   var E = vec3f(0.0); for (var k = 0; k < 8; k++) { if (k >= P.giK) { break; } let dd = cosK(n, k, P.giK, rot); let H = trace(po, dd, 1e9, false);
     if (!H.hit) { E += skyRad(dd, false) * P.skyOn; } else if (P.bounceOn > 0.5) { let S = hitInfo(po, dd, H); E += bounceShade(S, -dd, H.t + A.w, rot + f32(k) * 0.13); } }
@@ -525,16 +535,16 @@ const WG_REFL = WG_COMMON + `
   if (!H.hit) { col = skyRad(r, true); } else { let S = hitInfo(po, r, H); col = bounceShade(S, -r, H.t + A.w, ign(vec2f(px))); col = mix(P.fogCol.xyz, col, exp(-P.fogD * H.t)); }
   textureStore(oR, px, vec4f(col, 1.0)); }`;
 const WG_COMP = WG_COMMON + `
-@group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var gC: texture_2d<f32>; @group(1) @binding(3) var gD: texture_2d<f32>; @group(1) @binding(4) var tV: texture_2d<f32>; @group(1) @binding(5) var tG: texture_2d<f32>; @group(1) @binding(6) var tR: texture_2d<f32>; @group(1) @binding(7) var tPrev: texture_2d<f32>; @group(1) @binding(8) var oAcc: texture_storage_2d<rgba16float, write>;
-fn upsampleV(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let lc = (vec2f(px) + 0.5) / 2.0 - 0.5; let f = fract(lc); let base = vec2i(floor(lc)); var sum = vec4f(0.0); var ws = 0.0; let full = vec2i(P.res) - 1; let lo = vec2i(P.loRes) - 1;
-  for (var j = 0; j < 4; j++) { let q = clamp(base + vec2i(j & 1, j >> 1), vec2i(0), lo); let Al = textureLoad(gA, min(q * 2, full), 0); if (Al.w < 0.0) { continue; } let nl = textureLoad(gB, min(q * 2, full), 0).xyz; let bw = select(select(select(f.x * f.y, (1.0 - f.x) * f.y, j == 2), f.x * (1.0 - f.y), j == 1), (1.0 - f.x) * (1.0 - f.y), j == 0); let w = bw * exp(-abs(Al.w - A.w) / (0.03 * A.w + 0.05)) * pow(max(dot(nl, n), 0.0), 8.0) + 1e-4; sum += textureLoad(tV, q, 0) * w; ws += w; }
+@group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var gC: texture_2d<f32>; @group(1) @binding(3) var gD: texture_2d<f32>; @group(1) @binding(4) var tV: texture_2d<f32>; @group(1) @binding(5) var tG: texture_2d<f32>; @group(1) @binding(6) var tR: texture_2d<f32>; @group(1) @binding(7) var oCur: texture_storage_2d<rgba16float, write>;
+fn upsampleV(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let st = P.shadowStride; let lc = (vec2f(px) + 0.5) / f32(st) - 0.5; let f = fract(lc); let base = vec2i(floor(lc)); var sum = vec4f(0.0); var ws = 0.0; let full = vec2i(P.res) - 1; let lo = vec2i(P.loRes) - 1;
+  for (var j = 0; j < 4; j++) { let q = clamp(base + vec2i(j & 1, j >> 1), vec2i(0), lo); let Al = textureLoad(gA, min(q * st, full), 0); if (Al.w < 0.0) { continue; } let nl = textureLoad(gB, min(q * st, full), 0).xyz; let bw = select(select(select(f.x * f.y, (1.0 - f.x) * f.y, j == 2), f.x * (1.0 - f.y), j == 1), (1.0 - f.x) * (1.0 - f.y), j == 0); let w = bw * exp(-abs(Al.w - A.w) / (0.03 * A.w + 0.05)) * pow(max(dot(nl, n), 0.0), 8.0) + 1e-4; sum += textureLoad(tV, q, 0) * w; ws += w; }
   return select(vec4f(1.0, 1.0, 0.0, 0.0), sum / ws, ws > 0.0); }
-fn upsampleG(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let lc = (vec2f(px) + 0.5) / 4.0 - 0.5; let f = fract(lc); let base = vec2i(floor(lc)); var sum = vec4f(0.0); var ws = 0.0; let full = vec2i(P.res) - 1; let lo = vec2i(P.giRes) - 1;
-  for (var j = 0; j < 4; j++) { let q = clamp(base + vec2i(j & 1, j >> 1), vec2i(0), lo); let Al = textureLoad(gA, min(q * 4, full), 0); if (Al.w < 0.0) { continue; } let nl = textureLoad(gB, min(q * 4, full), 0).xyz; let bw = select(select(select(f.x * f.y, (1.0 - f.x) * f.y, j == 2), f.x * (1.0 - f.y), j == 1), (1.0 - f.x) * (1.0 - f.y), j == 0); let w = bw * exp(-abs(Al.w - A.w) / (0.03 * A.w + 0.05)) * pow(max(dot(nl, n), 0.0), 8.0) + 1e-4; sum += textureLoad(tG, q, 0) * w; ws += w; }
+fn upsampleG(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let st = P.giStride; let lc = (vec2f(px) + 0.5) / f32(st) - 0.5; let f = fract(lc); let base = vec2i(floor(lc)); var sum = vec4f(0.0); var ws = 0.0; let full = vec2i(P.res) - 1; let lo = vec2i(P.giRes) - 1;
+  for (var j = 0; j < 4; j++) { let q = clamp(base + vec2i(j & 1, j >> 1), vec2i(0), lo); let Al = textureLoad(gA, min(q * st, full), 0); if (Al.w < 0.0) { continue; } let nl = textureLoad(gB, min(q * st, full), 0).xyz; let bw = select(select(select(f.x * f.y, (1.0 - f.x) * f.y, j == 2), f.x * (1.0 - f.y), j == 1), (1.0 - f.x) * (1.0 - f.y), j == 0); let w = bw * exp(-abs(Al.w - A.w) / (0.03 * A.w + 0.05)) * pow(max(dot(nl, n), 0.0), 8.0) + 1e-4; sum += textureLoad(tG, q, 0) * w; ws += w; }
   return select(vec4f(0.0), sum / ws, ws > 0.0); }
 @compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.res.x || f32(px.y) >= P.res.y) { return; }
   let A = textureLoad(gA, px, 0); var col: vec3f;
-  if (A.w < 0.0) { col = skyRad(A.xyz, true); }
+  if (A.w < 0.0) { col = skyRad2(A.xyz, true, ign(vec2f(px))); }
   else { let Bv = textureLoad(gB, px, 0); let C = textureLoad(gC, px, 0); let D = textureLoad(gD, px, 0); let p = A.xyz; let n = Bv.xyz; let alb = C.rgb; let rough = Bv.w; let metal = C.w; let emis = D.rgb; let v = normalize(P.camPos.xyz - p);
     let vG = upsampleV(px, A, n); let E = upsampleG(px, A, n).rgb; let sunVis = vG.x; let moonVis = vG.y;
     let diffuse = alb * (1.0 - metal) / PI; let F0 = mix(vec3f(0.04), alb, metal); let ndv = max(dot(n, v), 0.0); let F = F0 + (1.0 - F0) * pow(1.0 - ndv, 5.0);
@@ -546,18 +556,47 @@ fn upsampleG(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let lc = (vec2f(px) + 0.5
     let R = textureLoad(tR, px, 0); let open = clamp(dot(E, vec3f(0.33)) / max(dot(skyAmb(n), vec3f(0.33)), 1e-3), 0.0, 1.0);
     let specAmb = F * mix(P.skyHor.xyz, P.skyZen.xyz, reflect(-v, n).y * 0.5 + 0.5) * P.skyOn * open;
     let sharp = select(0.0, 1.0 - smoothstep(0.12, 0.45, rough), R.a > 0.5); col += mix(specAmb, F * R.rgb, sharp) * select(vec3f(1.0), alb, metal > 0.5);
-    col = mix(P.fogCol.xyz, col, exp(-P.fogD * A.w));
+    if (P.matB[i32(D.w)].w == 3.0) { // water: what the mirror does not take goes down into it, and comes back tinted by how far it went
+      let Fw = 0.02 + 0.98 * pow(1.0 - ndv, 5.0); let rd = refract(-v, n, 1.0 / 1.33); var under = vec3f(0.01, 0.06, 0.08);
+      if (dot(rd, rd) > 0.0) { let H = trace(p - n * 3e-3, rd, 40.0, false); if (H.hit) { let S = hitInfo(p - n * 3e-3, rd, H); let bottom = bounceShade(S, -rd, H.t + A.w, ign(vec2f(px))); let ab = exp(-vec3f(0.55, 0.22, 0.14) * H.t * 1.6); under = bottom * ab + vec3f(0.02, 0.10, 0.12) * (1.0 - ab) * (P.skyZen.xyz * 3.0 + P.sunCol.xyz * 0.02); } }
+      col = emis + sunVis * ndl * P.sunCol.xyz * specBRDF(n, v, P.sunDir.xyz, rough, vec3f(0.02)) + sphereLights(p + n * 3e-3, n, v, vec3f(0.0), vec3f(0.02), rough, ign(vec2f(px)), 1, 24.0) + Fw * select(specAmb, R.rgb, R.a > 0.5) + (1.0 - Fw) * under; }
+    // haze, and a mist that pools low in the valley
+    let hc = max(P.camPos.y, 0.0); let hp = max(p.y, 0.0); let dh = hp - hc; let mistInt = select(exp(-hc / 6.0) * (1.0 - exp(-dh / 6.0)) / (dh / 6.0), exp(-hc / 6.0), abs(dh) < 0.01);
+    col = mix(P.fogCol.xyz, col, exp(-(P.fogD + P.mist * mistInt) * A.w));
     if (P.view == 1) { col = vec3f(sunVis); } else if (P.view == 2) { col = E * 0.5; } else if (P.view == 3) { col = select(vec3f(0.0), R.rgb, R.a > 0.5); } }
-  let prev = textureLoad(tPrev, px, 0).rgb; textureStore(oAcc, px, vec4f(mix(prev, col, P.blend), 1.0)); }`;
+  textureStore(oCur, px, vec4f(col, A.w)); }`;
+// temporal anti-aliasing: find where this pixel was last frame, and blend, unless the history clearly does not belong here
+const WG_TAA = WG_COMMON + `
+@group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var tCur: texture_2d<f32>; @group(1) @binding(2) var tHist: texture_2d<f32>; @group(1) @binding(3) var oAcc: texture_storage_2d<rgba16float, write>;
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.res.x || f32(px.y) >= P.res.y) { return; }
+  let cur = textureLoad(tCur, px, 0); let A = textureLoad(gA, px, 0); let full = vec2i(P.res) - 1;
+  var mn = cur.rgb; var mx = cur.rgb; for (var j = -1; j <= 1; j++) { for (var i = -1; i <= 1; i++) { let c = textureLoad(tCur, clamp(px + vec2i(i, j), vec2i(0), full), 0).rgb; mn = min(mn, c); mx = max(mx, c); } }
+  let wp = select(A.xyz, P.camPos.xyz + A.xyz * 20000.0, A.w < 0.0); let c4 = P.prevPV * vec4f(wp, 1.0); var hist = cur; var ok = false;
+  if (c4.w > 0.0) { let uv = vec2f(c4.x / c4.w * 0.5 + 0.5, 0.5 - c4.y / c4.w * 0.5); if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) { let hc = uv * P.res - 0.5; let h0 = vec2i(floor(hc)); let f = fract(hc); var sum = vec4f(0.0);
+      for (var j = 0; j < 4; j++) { let q = clamp(h0 + vec2i(j & 1, j >> 1), vec2i(0), full); let w = select(select(select(f.x * f.y, (1.0 - f.x) * f.y, j == 2), f.x * (1.0 - f.y), j == 1), (1.0 - f.x) * (1.0 - f.y), j == 0); sum += textureLoad(tHist, q, 0) * w; }
+      hist = sum; ok = (A.w < 0.0 && hist.a < 0.0) || (A.w > 0.0 && abs(hist.a - A.w) < 0.06 * A.w + 0.1); } }
+  var col = cur.rgb; if (ok) { let h = clamp(hist.rgb, mn - 0.02, mx + 0.02); col = mix(h, cur.rgb, P.blend); }
+  textureStore(oAcc, px, vec4f(col, cur.a)); }`;
+const WG_BRIGHT = WG_COMMON + `
+@group(1) @binding(0) var tIn: texture_2d<f32>; @group(1) @binding(1) var oOut: texture_storage_2d<rgba16float, write>;
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); let full = vec2i(P.res) - 1; if (px.x * 4 > full.x || px.y * 4 > full.y) { return; } var c = vec3f(0.0);
+  for (var j = 0; j < 4; j++) { for (var i = 0; i < 4; i++) { c += textureLoad(tIn, min(px * 4 + vec2i(i, j), full), 0).rgb; } } c = min(c * 0.0625, vec3f(12.0)); let l = dot(c, vec3f(0.3, 0.59, 0.11)); let k = max(l - 1.0, 0.0) / max(l, 1e-3); textureStore(oOut, px, vec4f(c * k, 1.0)); }`;
+const WG_GAUSS = WG_COMMON + `
+struct GP { dir: vec2f, res: vec2f };
+@group(1) @binding(0) var tIn: texture_2d<f32>; @group(1) @binding(1) var oOut: texture_storage_2d<rgba16float, write>; @group(1) @binding(2) var<uniform> G: GP;
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= G.res.x || f32(px.y) >= G.res.y) { return; } var sum = vec4f(0.0); var ws = 0.0; let lim = vec2i(G.res) - 1;
+  for (var i = -6; i <= 6; i++) { let w = exp(-f32(i * i) / 9.0); sum += textureLoad(tIn, clamp(px + vec2i(G.dir) * i, vec2i(0), lim), 0) * w; ws += w; } textureStore(oOut, px, sum / ws); }`;
 const WG_DISP = `
-struct DP { exposure: f32, curve: f32, pad0: f32, pad1: f32 };
-@group(0) @binding(0) var tSrc: texture_2d<f32>; @group(0) @binding(1) var samp: sampler; @group(0) @binding(2) var<uniform> D: DP;
+struct DP { exposure: f32, curve: f32, bloom: f32, shafts: f32, sunUv: vec2f, sunUp: f32, pad: f32 };
+@group(0) @binding(0) var tSrc: texture_2d<f32>; @group(0) @binding(1) var samp: sampler; @group(0) @binding(2) var<uniform> D: DP; @group(0) @binding(3) var tBloom: texture_2d<f32>;
 struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 @vertex fn vs(@builtin(vertex_index) i: u32) -> VO { var o: VO; let x = f32(i & 1u) * 4.0 - 1.0; let y = f32(i >> 1u) * 4.0 - 1.0; o.pos = vec4f(x, y, 0.0, 1.0); o.uv = vec2f(x * 0.5 + 0.5, 0.5 - y * 0.5); return o; }
 fn aces(x: vec3f) -> vec3f { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3f(0.0), vec3f(1.0)); }
 fn srgb(c0: vec3f) -> vec3f { let c = clamp(c0, vec3f(0.0), vec3f(1.0)); return select(1.055 * pow(c, vec3f(1.0 / 2.4)) - 0.055, c * 12.92, c < vec3f(0.0031308)); }
-@fragment fn fs(i: VO) -> @location(0) vec4f { var c = textureSampleLevel(tSrc, samp, i.uv, 0.0).rgb * D.exposure; if (D.curve == 1.0) { c = aces(c); } else if (D.curve == 2.0) { c = c / (1.0 + c); } return vec4f(srgb(c), 1.0); }`;
-let gpu = null;
+@fragment fn fs(i: VO) -> @location(0) vec4f { var c = textureSampleLevel(tSrc, samp, i.uv, 0.0).rgb; let bl = textureSampleLevel(tBloom, samp, i.uv, 0.0).rgb; c += bl * D.bloom;
+  if (D.shafts > 0.0 && D.sunUp > 0.0) { var sh = vec3f(0.0); let dv = (D.sunUv - i.uv) / 24.0; var uv = i.uv; var wsum = 0.0; for (var k = 0; k < 24; k++) { uv += dv; let w = 1.0 - f32(k) / 24.0; sh += textureSampleLevel(tBloom, samp, uv, 0.0).rgb * w; wsum += w; } let dist = length((D.sunUv - i.uv) * vec2f(1.0, 0.75)); c += sh / wsum * D.shafts * D.sunUp * (1.0 - smoothstep(0.35, 0.9, dist)); }
+  c *= D.exposure; if (D.curve == 1.0) { c = aces(c); } else if (D.curve == 2.0) { c = c / (1.0 + c); } return vec4f(srgb(c), 1.0); }`;
+let gpu = null; const prevPV = new THREE.Matrix4(); const fx = { time: 0, mist: 0, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0.35 };
 async function startWebGPU() {
   if (!navigator.gpu) return null; const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null); if (!adapter) return null;
   const need = Math.max(nodeData.byteLength, triData.byteLength, attrData.byteLength, instData.byteLength); if (adapter.limits.maxStorageBufferBindingSize < need) return null;
@@ -566,7 +605,7 @@ async function startWebGPU() {
   const ctx = canvas.getContext('webgpu'); const format = navigator.gpu.getPreferredCanvasFormat(); ctx.configure({ device, format, alphaMode: 'opaque' });
   const mkBuf = (arr, usage) => { const b = device.createBuffer({ size: Math.ceil(arr.byteLength / 16) * 16, usage, mappedAtCreation: true }); new Float32Array(b.getMappedRange()).set(arr); b.unmap(); return b; };
   const bNodes = mkBuf(nodeData, GPUBufferUsage.STORAGE), bTris = mkBuf(triData, GPUBufferUsage.STORAGE), bAttr = mkBuf(attrData, GPUBufferUsage.STORAGE), bInst = mkBuf(instData, GPUBufferUsage.STORAGE);
-  const PARAMS_F = 2640 / 4; const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: 2640, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const PARAMS_F = 2720 / 4; const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: 2720, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const layers = [barkTex, birchTex, leafO, leafP, leafB, rockTex, woodTex, stoneTex, groundTex]; const texArr = device.createTexture({ size: [256, 256, layers.length], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   layers.forEach((t, i) => device.queue.copyExternalImageToTexture({ source: t.image }, { texture: texArr, origin: [0, 0, i] }, [256, 256]));
   const samp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat' });
@@ -574,48 +613,51 @@ async function startWebGPU() {
   const g0 = device.createBindGroup({ layout: g0Layout, entries: [{ binding: 0, resource: { buffer: bParams } }, { binding: 1, resource: { buffer: bNodes } }, { binding: 2, resource: { buffer: bTris } }, { binding: 3, resource: { buffer: bAttr } }, { binding: 4, resource: { buffer: bInst } }, { binding: 5, resource: texArr.createView({ dimension: '2d-array' }) }, { binding: 6, resource: samp }] });
   const T = (b) => ({ binding: b, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'unfilterable-float' } }), W = (b, fmt) => ({ binding: b, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: fmt } });
   const layouts = { gbuf: device.createBindGroupLayout({ entries: [W(0, 'rgba32float'), W(1, 'rgba32float'), W(2, 'rgba32float'), W(3, 'rgba32float')] }), shadow: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }), gi: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }),
-    blur: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), W(3, 'rgba16float'), { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }), refl: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }), comp: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), T(3), T(4), T(5), T(6), T(7), W(8, 'rgba16float')] }) };
+    blur: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), W(3, 'rgba16float'), { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }), refl: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }), comp: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), T(3), T(4), T(5), T(6), W(7, 'rgba16float')] }),
+    taa: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), W(3, 'rgba16float')] }), bright: device.createBindGroupLayout({ entries: [T(0), W(1, 'rgba16float')] }), gauss: device.createBindGroupLayout({ entries: [T(0), W(1, 'rgba16float'), { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }) };
   const pipe = (code, l1) => device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [g0Layout, l1] }), compute: { module: device.createShaderModule({ code }), entryPoint: 'main' } });
-  const pipes = { gbuf: pipe(WG_GBUF, layouts.gbuf), shadow: pipe(WG_SHADOW, layouts.shadow), gi: pipe(WG_GI, layouts.gi), blur: pipe(WG_BLUR, layouts.blur), refl: pipe(WG_REFL, layouts.refl), comp: pipe(WG_COMP, layouts.comp) };
-  const dispLayout = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: {} }, { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: {} }, { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }] });
+  const pipes = { gbuf: pipe(WG_GBUF, layouts.gbuf), shadow: pipe(WG_SHADOW, layouts.shadow), gi: pipe(WG_GI, layouts.gi), blur: pipe(WG_BLUR, layouts.blur), refl: pipe(WG_REFL, layouts.refl), comp: pipe(WG_COMP, layouts.comp), taa: pipe(WG_TAA, layouts.taa), bright: pipe(WG_BRIGHT, layouts.bright), gauss: pipe(WG_GAUSS, layouts.gauss) };
+  const dispLayout = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: {} }, { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: {} }, { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }, { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: {} }] });
   const dispMod = device.createShaderModule({ code: WG_DISP }); const dispPipe = device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [dispLayout] }), vertex: { module: dispMod, entryPoint: 'vs' }, fragment: { module: dispMod, entryPoint: 'fs', targets: [{ format }] }, primitive: { topology: 'triangle-list' } });
-  const bDisp = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); const dispSamp = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
-  const blurBufs = [0, 1, 2, 3].map(() => device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
-  const st = { w: 0, h: 0, tex: null, groups: null };
+  const bDisp = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); const dispSamp = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+  const blurBufs = [0, 1, 2, 3].map(() => device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })); const gaussBufs = [0, 1].map(() => device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+  const st = { w: 0, h: 0, tex: null, groups: null, ss: 2, gs: 4 };
   const mkTex = (w, h, fmt) => device.createTexture({ size: [w, h], format: fmt, usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
-  function ensure(w, h) { if (st.w === w && st.h === h) return; if (st.tex) for (const k in st.tex) st.tex[k].destroy(); const lw = Math.max(2, w >> 1), lh = Math.max(2, h >> 1), qw = Math.max(2, w >> 2), qh = Math.max(2, h >> 2);
-    const t = st.tex = { gA: mkTex(w, h, 'rgba32float'), gB: mkTex(w, h, 'rgba32float'), gC: mkTex(w, h, 'rgba32float'), gD: mkTex(w, h, 'rgba32float'), sV: mkTex(lw, lh, 'rgba16float'), sV2: mkTex(lw, lh, 'rgba16float'), gi: mkTex(qw, qh, 'rgba16float'), gi2: mkTex(qw, qh, 'rgba16float'), refl: mkTex(w, h, 'rgba16float'), acc0: mkTex(w, h, 'rgba16float'), acc1: mkTex(w, h, 'rgba16float') };
+  function ensure(w, h, ss, gs) { if (st.w === w && st.h === h && st.ss === ss && st.gs === gs) return; if (st.tex) for (const k in st.tex) st.tex[k].destroy(); st.ss = ss; st.gs = gs; const lw = Math.max(2, Math.ceil(w / ss)), lh = Math.max(2, Math.ceil(h / ss)), qw = Math.max(2, Math.ceil(w / gs)), qh = Math.max(2, Math.ceil(h / gs)), bw = Math.max(2, Math.ceil(w / 4)), bh = Math.max(2, Math.ceil(h / 4));
+    const t = st.tex = { gA: mkTex(w, h, 'rgba32float'), gB: mkTex(w, h, 'rgba32float'), gC: mkTex(w, h, 'rgba32float'), gD: mkTex(w, h, 'rgba32float'), sV: mkTex(lw, lh, 'rgba16float'), sV2: mkTex(lw, lh, 'rgba16float'), gi: mkTex(qw, qh, 'rgba16float'), gi2: mkTex(qw, qh, 'rgba16float'), refl: mkTex(w, h, 'rgba16float'), cur: mkTex(w, h, 'rgba16float'), acc0: mkTex(w, h, 'rgba16float'), acc1: mkTex(w, h, 'rgba16float'), bl0: mkTex(bw, bh, 'rgba16float'), bl1: mkTex(bw, bh, 'rgba16float') };
     const v = {}; for (const k in t) v[k] = t[k].createView(); const E = (b, r) => ({ binding: b, resource: r });
     const bg = (layout, list) => device.createBindGroup({ layout, entries: list.map((r, i) => E(i, r)) });
     const blurP = (i, dir, stride, rw, rh) => { device.queue.writeBuffer(blurBufs[i], 0, new Float32Array([dir[0], dir[1], stride, 0, rw, rh, 0, 0])); return blurBufs[i]; };
     st.groups = { gbuf: bg(layouts.gbuf, [v.gA, v.gB, v.gC, v.gD]), shadow: bg(layouts.shadow, [v.gA, v.gB, v.sV]), gi: bg(layouts.gi, [v.gA, v.gB, v.gi]),
-      blurS1: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.sV), E(3, v.sV2), E(4, { buffer: blurP(0, [1, 0], 2, lw, lh) })] }), blurS2: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.sV2), E(3, v.sV), E(4, { buffer: blurP(1, [0, 1], 2, lw, lh) })] }),
-      blurG1: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.gi), E(3, v.gi2), E(4, { buffer: blurP(2, [1, 0], 4, qw, qh) })] }), blurG2: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.gi2), E(3, v.gi), E(4, { buffer: blurP(3, [0, 1], 4, qw, qh) })] }),
-      refl: bg(layouts.refl, [v.gA, v.gB, v.refl]), comp: [bg(layouts.comp, [v.gA, v.gB, v.gC, v.gD, v.sV, v.gi, v.refl, v.acc1, v.acc0]), bg(layouts.comp, [v.gA, v.gB, v.gC, v.gD, v.sV, v.gi, v.refl, v.acc0, v.acc1])],
-      disp: [device.createBindGroup({ layout: dispLayout, entries: [E(0, v.acc0), E(1, dispSamp), E(2, { buffer: bDisp })] }), device.createBindGroup({ layout: dispLayout, entries: [E(0, v.acc1), E(1, dispSamp), E(2, { buffer: bDisp })] })] };
-    st.w = w; st.h = h; st.lw = lw; st.lh = lh; st.qw = qw; st.qh = qh; }
+      blurS1: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.sV), E(3, v.sV2), E(4, { buffer: blurP(0, [1, 0], ss, lw, lh) })] }), blurS2: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.sV2), E(3, v.sV), E(4, { buffer: blurP(1, [0, 1], ss, lw, lh) })] }),
+      blurG1: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.gi), E(3, v.gi2), E(4, { buffer: blurP(2, [1, 0], gs, qw, qh) })] }), blurG2: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.gi2), E(3, v.gi), E(4, { buffer: blurP(3, [0, 1], gs, qw, qh) })] }),
+      refl: bg(layouts.refl, [v.gA, v.gB, v.refl]), comp: bg(layouts.comp, [v.gA, v.gB, v.gC, v.gD, v.sV, v.gi, v.refl, v.cur]),
+      taa: [bg(layouts.taa, [v.gA, v.cur, v.acc1, v.acc0]), bg(layouts.taa, [v.gA, v.cur, v.acc0, v.acc1])], bright: [bg(layouts.bright, [v.acc0, v.bl0]), bg(layouts.bright, [v.acc1, v.bl0])],
+      gauss1: device.createBindGroup({ layout: layouts.gauss, entries: [E(0, v.bl0), E(1, v.bl1), E(2, { buffer: (device.queue.writeBuffer(gaussBufs[0], 0, new Float32Array([1, 0, bw, bh])), gaussBufs[0]) })] }), gauss2: device.createBindGroup({ layout: layouts.gauss, entries: [E(0, v.bl1), E(1, v.bl0), E(2, { buffer: (device.queue.writeBuffer(gaussBufs[1], 0, new Float32Array([0, 1, bw, bh])), gaussBufs[1]) })] }),
+      disp: [device.createBindGroup({ layout: dispLayout, entries: [E(0, v.acc0), E(1, dispSamp), E(2, { buffer: bDisp }), E(3, v.bl0)] }), device.createBindGroup({ layout: dispLayout, entries: [E(0, v.acc1), E(1, dispSamp), E(2, { buffer: bDisp }), E(3, v.bl0)] })] };
+    st.w = w; st.h = h; st.lw = lw; st.lh = lh; st.qw = qw; st.qh = qh; st.bw = bw; st.bh = bh; }
   let cur = 0;
   function fillParams(w, h, blend, view, jitter) { const f = paramsArr; f.set(U.uInvPV.value.elements, 0); const v3 = (o, v) => { f[o] = v.x; f[o + 1] = v.y; f[o + 2] = v.z; f[o + 3] = 0; };
     v3(16, U.uCamPos.value); v3(20, sunDir); v3(24, U.uSunCol.value); v3(28, moonDir); v3(32, U.uMoonCol.value); v3(36, U.uFogCol.value); v3(40, U.uSkyZen.value); v3(44, U.uSkyHor.value); v3(48, U.uBetaR.value); v3(52, U.uBetaM.value);
     f[56] = w; f[57] = h; f[58] = st.lw; f[59] = st.lh; f[60] = st.qw; f[61] = st.qh; f[62] = jitter.x; f[63] = jitter.y;
     f[64] = U.uSunE.value; f[65] = U.uSunfade.value; f[66] = U.uMieG.value; f[67] = U.uSunCos.value; f[68] = U.uNight.value; f[69] = U.uSkyOn.value; f[70] = U.uBounceOn.value; f[71] = U.uFogD.value; f[72] = U.uSunSize.value; f[73] = U.uMoonSize.value; f[74] = U.uNoiseShift.value; f[75] = blend;
-    paramsI[76] = tlasRoot; paramsI[77] = NSPH; paramsI[78] = U.uShadowK.value; paramsI[79] = U.uGiK.value; paramsI[80] = view; paramsI[81] = U.uFrame.value; paramsI[82] = 0; paramsI[83] = 0;
-    f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 96); device.queue.writeBuffer(bParams, 0, paramsArr); }
-  function render(w, h, blend, view, jitter, doBlur) {
-    ensure(w, h); fillParams(w, h, blend, view, jitter); device.queue.writeBuffer(bDisp, 0, new Float32Array([dispU.uExposure.value, dispU.uCurve.value, 0, 0]));
+    paramsI[76] = tlasRoot; paramsI[77] = NSPH; paramsI[78] = U.uShadowK.value; paramsI[79] = U.uGiK.value; paramsI[80] = view; paramsI[81] = U.uFrame.value; paramsI[82] = st.ss; paramsI[83] = st.gs;
+    f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 96); const o2 = 84 + MATN * 12 + 192; f.set(prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; device.queue.writeBuffer(bParams, 0, paramsArr); }
+  function render(w, h, blend, view, jitter, doBlur, ss, gs) {
+    ensure(w, h, ss, gs); fillParams(w, h, blend, view, jitter); const sc = sunDir.clone().multiplyScalar(1000).add(camera.position).project(camera); device.queue.writeBuffer(bDisp, 0, new Float32Array([dispU.uExposure.value, dispU.uCurve.value, fx.bloom, fx.shafts, sc.x * 0.5 + 0.5, 0.5 - sc.y * 0.5, sc.z < 1 && sunDir.y > 0.02 ? 1 : 0, 0]));
     const cw = Math.max(1, Math.round(sb.stage.clientWidth * Math.min(devicePixelRatio || 1, 2))), ch = Math.max(1, Math.round(sb.stage.clientHeight * Math.min(devicePixelRatio || 1, 2))); if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
     const enc = device.createCommandEncoder(); const G = st.groups; const run = (p, g, x, y) => { const c = enc.beginComputePass(); c.setPipeline(p); c.setBindGroup(0, g0); c.setBindGroup(1, g); c.dispatchWorkgroups(Math.ceil(x / 8), Math.ceil(y / 8)); c.end(); };
     run(pipes.gbuf, G.gbuf, w, h); run(pipes.shadow, G.shadow, st.lw, st.lh); run(pipes.gi, G.gi, st.qw, st.qh);
     if (doBlur) { run(pipes.blur, G.blurS1, st.lw, st.lh); run(pipes.blur, G.blurS2, st.lw, st.lh); run(pipes.blur, G.blurG1, st.qw, st.qh); run(pipes.blur, G.blurG2, st.qw, st.qh); }
-    run(pipes.refl, G.refl, w, h); run(pipes.comp, G.comp[cur], w, h);
+    run(pipes.refl, G.refl, w, h); run(pipes.comp, G.comp, w, h); run(pipes.taa, G.taa[cur], w, h); run(pipes.bright, G.bright[cur], st.bw, st.bh); run(pipes.gauss, G.gauss1, st.bw, st.bh); run(pipes.gauss, G.gauss2, st.bw, st.bh);
     const rp = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] }); rp.setPipeline(dispPipe); rp.setBindGroup(0, G.disp[cur]); rp.draw(3); rp.end();
-    device.queue.submit([enc.finish()]); cur = 1 - cur; }
+    device.queue.submit([enc.finish()]); prevPV.copy(camera.projectionMatrix).multiply(camera.matrixWorldInverse); cur = 1 - cur; }
   return { device, render, adapter };
 }
 gpu = await startWebGPU();
 
 // ---- state
-let hour = 9.5, running = false, sunStrength = 1, moonOn = true, lightFrom = 'both', autoExp = true, exposure = 0.42, fogOn = true, fogDensity = 0.0025, stillScale = 1, moveScale = 0.35, accumulate = true, fireOn = true, lampsOn = true, rowsOn = true, denoise = true;
+let hour = 9.5, running = false, sunStrength = 1, moonOn = true, lightFrom = 'both', autoExp = true, exposure = 0.5, fogOn = true, fogDensity = 0.0015, stillScale = 1, moveScale = 1, accumulate = true, fireOn = true, lampsOn = true, rowsOn = true, denoise = true, quality = 'high';
 let lastMove = 0, runT = 0; const lastCam = new THREE.Matrix4(); let stateKey = '';
 function dirty() { accN = 0; }
 function placeSun() {
@@ -628,7 +670,7 @@ function placeSun() {
   U.uSkyOn.value = lightFrom === 'sun' ? 0 : 1; const zc = skyCPU(0, 1, 0, K).c; U.uSkyZen.value.set(zc[0] * nightScale, zc[1] * nightScale, zc[2] * nightScale);
   let r = 0, g = 0, b = 0; for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; const c = skyCPU(Math.cos(a) * 0.999, 0.035, Math.sin(a) * 0.999, K).c; r += c[0]; g += c[1]; b += c[2]; } U.uFogCol.value.set(r / 8 * nightScale, g / 8 * nightScale, b / 8 * nightScale); U.uSkyHor.value.copy(U.uFogCol.value);
   matB[M.GLASS * 4 + 1] = 4 * night; matB[M.LAMP * 4 + 1] = lampsOn ? 22 * night : 0; matB[M.FLAME * 4 + 1] = fireOn ? 45 : 0; matB[M.EMBER * 4 + 1] = fireOn ? 6 : 0;
-  if (autoExp) exposure = THREE.MathUtils.lerp(2.6, 0.42, THREE.MathUtils.smoothstep(sunDir.y, -0.12, 0.12)); dispU.uExposure.value = exposure;
+  if (autoExp) exposure = THREE.MathUtils.lerp(2.6, 0.5, THREE.MathUtils.smoothstep(sunDir.y, -0.12, 0.12)); dispU.uExposure.value = exposure;
   sunHRead((Math.asin(sunDir.y) * 180 / Math.PI).toFixed(0) + '° above the horizon'); const sc = new THREE.Color(fex[0], fex[1], fex[2]); sunCRead(sunI > 0.01 ? '#' + sc.getHexString() + ' × ' + sunI.toFixed(1) : 'below the horizon'); dirty();
 }
 
@@ -636,11 +678,13 @@ function placeSun() {
 const s1 = sb.panel.section('01 · The sky', 'Sunlight comes in white. Air scatters the blue end of it in every direction, which is why the sky is blue and a low sun, seen through far more air, is orange. Haze scatters every colour and puts the glow around the sun. Every ray that reaches the sky reads this.');
 const hourS = s1.slider('Time of day', { min: 4.5, max: 21, step: 0.05, value: hour, fmt: v => { const h = Math.floor(v), m = Math.round((v - h) * 60); return h + ':' + String(m).padStart(2, '0'); } }, v => { hour = v; placeSun(); });
 s1.toggle('let the day run (a step every two seconds)', false, v => { running = v; runT = 0; });
-s1.slider('Air (how much blue it scatters)', { min: 0.3, max: 4, step: 0.1, value: 2.6 }, v => { atm.rayleigh = v; placeSun(); });
-s1.slider('Haze (dust and water in the air)', { min: 1, max: 20, step: 0.5, value: 3 }, v => { atm.turbidity = v; placeSun(); });
-s1.slider('Haze strength', { min: 0.001, max: 0.03, step: 0.001, value: 0.006, fmt: v => (+v).toFixed(3) }, v => { atm.mie = v; placeSun(); });
+s1.slider('Air (how much blue it scatters)', { min: 0.3, max: 4, step: 0.1, value: 3.2 }, v => { atm.rayleigh = v; placeSun(); });
+s1.slider('Haze (dust and water in the air)', { min: 1, max: 20, step: 0.5, value: 2.2 }, v => { atm.turbidity = v; placeSun(); });
+s1.slider('Haze strength', { min: 0.001, max: 0.03, step: 0.001, value: 0.005, fmt: v => (+v).toFixed(3) }, v => { atm.mie = v; placeSun(); });
 s1.slider('Glow around the sun', { min: 0.5, max: 0.97, step: 0.01, value: 0.8, fmt: v => (+v).toFixed(2) }, v => { atm.g = v; placeSun(); });
 s1.slider('Sun size (a bigger sun makes softer shadows)', { min: 0.2, max: 6, step: 0.1, value: 0.54, unit: '°' }, v => { atm.sunDeg = v; placeSun(); });
+s1.slider('Cloud cover', { min: 0, max: 1, step: 0.02, value: 0.35, fmt: v => Math.round(v * 100) + ' %' }, v => { fx.cover = v; });
+s1.slider('Wind (clouds and water)', { min: 0, max: 3, step: 0.1, value: 1 }, v => { fx.wind = v; });
 s1.toggle('a moon at night', true, v => { moonOn = v; placeSun(); });
 const sunHRead = s1.readout('sun height'), sunCRead = s1.readout('sun colour and strength, from the sky');
 
@@ -661,20 +705,24 @@ s3.toggle('show the rows on the plinth', true, v => { rowsOn = v; ballSpots.forE
 const s4 = sb.panel.section('04 · Exposure and tone mapping', 'The sun disc is thousands of times brighter than the grass. No screen can show that, so the camera picks an exposure and a curve squashes the rest. The eye does the same at night, but only so far: a moonlit field is still dark.');
 s4.segment('Curve', [{ value: 1, label: 'ACES (film)' }, { value: 2, label: 'Reinhard' }, { value: 0, label: 'none, just clip' }], 1, v => { dispU.uCurve.value = +v; });
 const autoT = s4.toggle('auto exposure: adapt to the time of day', true, v => { autoExp = v; if (!v) expS.set(exposure, false); placeSun(); });
-const expS = s4.slider('Exposure', { min: 0.05, max: 8, step: 0.05, value: 0.42, fmt: v => (+v).toFixed(2) }, v => { exposure = v; autoExp = false; autoT.set(false, false); dispU.uExposure.value = v; });
+const expS = s4.slider('Exposure', { min: 0.05, max: 8, step: 0.05, value: 0.5, fmt: v => (+v).toFixed(2) }, v => { exposure = v; autoExp = false; autoT.set(false, false); dispU.uExposure.value = v; });
 const expRead = s4.readout('exposure in use');
 
 const s5 = sb.panel.section('05 · Air in the distance', 'Far things fade into the colour of the sky at the horizon, because there is a lot of lit air between you and them. That is aerial perspective, and it is the cheapest depth cue there is: a haze whose colour comes from the same sky.');
 s5.toggle('haze in the distance', true, v => { fogOn = v; U.uFogD.value = v ? fogDensity : 0; dirty(); });
-s5.slider('How thick', { min: 0, max: 0.02, step: 0.0005, value: 0.0025, fmt: v => (+v).toFixed(4) }, v => { fogDensity = v; if (fogOn) U.uFogD.value = v; dirty(); });
+s5.slider('How thick', { min: 0, max: 0.02, step: 0.0005, value: 0.0015, fmt: v => (+v).toFixed(4) }, v => { fogDensity = v; if (fogOn) U.uFogD.value = v; dirty(); });
+s5.slider('Morning mist, pooling low', { min: 0, max: 0.08, step: 0.002, value: 0, fmt: v => (+v).toFixed(3) }, v => { fx.mist = v; });
+s5.slider('Glow around bright things (bloom)', { min: 0, max: 0.5, step: 0.01, value: 0.12, fmt: v => (+v).toFixed(2) }, v => { fx.bloom = v; });
+s5.slider('Sun shafts', { min: 0, max: 1, step: 0.02, value: 0.35, fmt: v => (+v).toFixed(2) }, v => { fx.shafts = v; });
 
 const s6 = sb.panel.section('06 · The renderer', 'This is how a game ray traces: one ray per pixel finds the surface, a few rays per pixel ask the sun, the moon, the fire and the sky, one mirror ray serves anything smooth, and the soft light is worked out at half size and smoothed without crossing edges. Nothing is random, so every frame is complete. Holding still only adds anti-aliasing.');
 s6.segment('Show', [{ value: 0, label: 'the picture' }, { value: 1, label: 'the sun\'s shadow rays' }, { value: 2, label: 'sky and bounce light' }, { value: 3, label: 'the mirror rays' }], 0, v => { compMat.uniforms.uView.value = +v; dirty(); });
-s6.segment('Shadow rays per pixel, toward the sun', [{ value: 1, label: '1' }, { value: 2, label: '2' }, { value: 4, label: '4' }, { value: 8, label: '8' }], 2, v => { U.uShadowK.value = +v; dirty(); });
+s6.segment('Quality', [{ value: 'balanced', label: 'balanced' }, { value: 'high', label: 'high' }, { value: 'ultra', label: 'ultra' }], 'high', v => { quality = v; if (v === 'ultra') { U.uShadowK.value = 2; U.uGiK.value = 6; } dirty(); });
+s6.segment('Shadow rays per pixel, toward the sun', [{ value: 1, label: '1' }, { value: 2, label: '2' }, { value: 4, label: '4' }, { value: 8, label: '8' }], 1, v => { U.uShadowK.value = +v; dirty(); });
 s6.segment('Rays per pixel for sky and bounce light', [{ value: 2, label: '2' }, { value: 4, label: '4' }, { value: 6, label: '6' }, { value: 8, label: '8' }], 4, v => { U.uGiK.value = +v; dirty(); });
 s6.toggle('smooth the shadow and bounce answers (denoise)', true, v => { denoise = v; dirty(); });
 s6.segment('Picture size while still', [{ value: 1, label: 'full' }, { value: 0.75, label: 'three quarters' }, { value: 0.5, label: 'half' }], 1, v => { stillScale = +v; });
-s6.segment('Picture size while moving', [{ value: 0.5, label: 'half' }, { value: 0.35, label: 'a third' }, { value: 0.25, label: 'a quarter' }], 0.35, v => { moveScale = +v; });
+s6.segment('Picture size while moving', [{ value: 1, label: 'full' }, { value: 0.5, label: 'half' }, { value: 0.35, label: 'a third' }], 1, v => { moveScale = +v; });
 s6.toggle('anti-alias by blending frames while still', true, v => { accumulate = v; dirty(); });
 const triRead = s6.readout('triangles in the scene'), instRead = s6.readout('placed copies'), boxRead = s6.readout('boxes in the trees'), buildRead = s6.readout('building the trees took'), accRead = s6.readout('frames blended for anti-aliasing'), msRead = s6.readout('milliseconds per frame');
 triRead(totalTris.toLocaleString() + (gpu ? ' · WebGPU' : ' · WebGL')); instRead(NI.toLocaleString() + ' (' + treeCount + ' trees, 45,000 blades of grass)'); boxRead(nodeTotal.toLocaleString()); buildRead((genMs + buildMs).toFixed(0) + ' ms');
@@ -692,8 +740,9 @@ let msAvg = 0, lastNow = 0, frame = 0; const invPV = new THREE.Matrix4();
 placeSun();
 sb.onFrame((dt) => {
   if (running) { runT += dt; if (runT > 2) { runT = 0; hour += 0.35; if (hour > 21) hour = 4.5; hourS.set(hour, false); placeSun(); } }
+  fx.time += dt; if (fireOn) { const fl = 0.8 + 0.4 * vnoise(fx.time * 9, 3) + 0.15 * vnoise(fx.time * 23, 8); matB[M.FLAME * 4 + 1] = 45 * fl; matB[M.EMBER * 4 + 1] = 6 * (0.7 + 0.6 * vnoise(fx.time * 5, 1)); const fs = spheres[NSPH - 14]; fs.c.set(FIRE.x + (vnoise(fx.time * 6, 2) - 0.5) * 0.12, terrainH(FIRE.x, FIRE.z) + 0.55 + (vnoise(fx.time * 7, 4) - 0.5) * 0.14, FIRE.z + (vnoise(fx.time * 6, 9) - 0.5) * 0.12); fs.r = 0.26 + 0.08 * vnoise(fx.time * 11, 6); writeSpheres(); }
   const now = performance.now(); if (lastNow) msAvg += ((now - lastNow) - msAvg) * 0.08; lastNow = now; msRead(msAvg.toFixed(1) + ' ms');
-  expRead(exposure.toFixed(2) + (autoExp ? ', automatic' : ', by hand')); accRead(!accumulate ? 'off' : Math.min(accN, 32) + (accN === 1 ? ' frame' : ' frames') + (rtScale < 1 ? ', small picture' : ''));
+  expRead(exposure.toFixed(2) + (autoExp ? ', automatic' : ', by hand')); accRead(!accumulate ? 'off' : gpu ? 'temporal, reprojected' : Math.min(accN, 32) + (accN === 1 ? ' frame' : ' frames') + (rtScale < 1 ? ', small picture' : ''));
   sb.hud('mode', (hour < 5 || hour > 20 ? 'night: dark except where the fire and the lanterns reach, and a little moon' : hour < 8 || hour > 17.5 ? 'a low sun through a lot of air: orange light, long soft shadows' : 'high sun: white light, blue sky, hills fading into blue haze') + ' · one ray per pixel finds the surface, a few more light it');
 });
 sb.onRender((scene, camera, renderer) => {
@@ -702,10 +751,10 @@ sb.onRender((scene, camera, renderer) => {
     if (!lastCam.equals(camera.matrixWorld)) { lastCam.copy(camera.matrixWorld); lastMove = performance.now(); dirty(); }
     const moving = performance.now() - lastMove < 300; const scale = moving ? moveScale : stillScale; if (scale !== rtScale) { rtScale = scale; dirty(); }
     const w = Math.max(2, Math.round(sb.stage.clientWidth * scale)), h = Math.max(2, Math.round(sb.stage.clientHeight * scale));
-    const still = !moving && accumulate; const k = accN % 16; const jit = new THREE.Vector2(still ? (k % 4) / 4 - 0.375 : 0, still ? Math.floor(k / 4) / 4 - 0.375 : 0); U.uNoiseShift.value = still ? accN * 0.618034 : 0;
-    U.uInvPV.value.copy(invPV); U.uCamPos.value.copy(camera.position); U.uFrame.value = frame++;
-    if (!still) accN = 0; const blend = still ? 1 / (Math.min(accN, 31) + 1) : 1; if (still) accN++;
-    gpu.render(w, h, blend, compMat.uniforms.uView.value, jit, denoise); return;
+    const k = frame % 16; const jit = accumulate ? new THREE.Vector2((k % 4) / 4 - 0.375, Math.floor(k / 4) / 4 - 0.375) : new THREE.Vector2(); U.uNoiseShift.value = accumulate ? frame * 0.618034 : 0;
+    U.uInvPV.value.copy(invPV); U.uCamPos.value.copy(camera.position); U.uFrame.value = frame++; accN = accumulate ? Math.min(accN + 1, 32) : 0;
+    const ss = quality === 'balanced' ? 2 : 1, gs = quality === 'ultra' ? 2 : 4;
+    gpu.render(w, h, accumulate ? 0.1 : 1, compMat.uniforms.uView.value, jit, denoise, ss, gs); return;
   }
   if (!lastCam.equals(camera.matrixWorld)) { lastCam.copy(camera.matrixWorld); lastMove = performance.now(); dirty(); }
   const moving = performance.now() - lastMove < 300; const scale = moving ? moveScale : stillScale; if (scale !== rtScale) { rtScale = scale; ensureRT(scale); dirty(); } else ensureRT(scale);
