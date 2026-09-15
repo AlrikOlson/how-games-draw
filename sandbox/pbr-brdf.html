@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PBR &amp; the BRDF · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'pbr-brdf', title: 'PBR & the BRDF',
+  blurb: 'A wet road past the knight\'s camp at dusk, with a bronze shield, a wooden barrel and one lamp you can drag. Every slider here is a real material setting in the graphics card: roughness, metal or not, base colour, a clear wet layer, and a sky baked ahead of time. Switch the shading rule to the old one and see why a wet floor from 2008 looks like plastic.',
+  camera: { pos: [7.5, 3.4, 13.5], target: [-0.5, 0.9, 5.6], near: 0.1, far: 300 },
+  hint: 'drag to orbit · scroll to zoom · drag the lamp to move it'
+});
+const camp = sb.world.camp();
+const renderer = sb.renderer, scene = sb.scene, camera = sb.camera;
+renderer.shadowMap.autoUpdate = false;
+renderer.info.autoReset = false;
+
+// ---- the three things with real physically based materials: a bronze shield, a wooden barrel, a wet road
+const things = {};
+function thing(key, name, meshes, p) {
+  const std = new THREE.MeshPhysicalMaterial({ color: p.color, roughness: p.rough, metalness: p.metal, clearcoat: p.coat, clearcoatRoughness: p.coatRough });
+  const old = new THREE.MeshPhongMaterial({ color: p.color, shininess: 30 });
+  old.customProgramCacheKey = () => 'oldrule';
+  old.onBeforeCompile = sh => {
+    // the pre-2013 highlight: no Fresnel, and no rule that a wider highlight must be a dimmer one (a switch adds that rule back)
+    sh.uniforms.uNorm = normU;
+    const chunk = THREE.ShaderChunk.bsdfs
+      .replace('RECIPROCAL_PI * ( shininess * 0.5 + 1.0 ) * pow( dotNH, shininess )', '( uNorm > 0.5 ? RECIPROCAL_PI * ( shininess * 0.5 + 1.0 ) : 1.0 ) * pow( dotNH, shininess )')
+      .replace('vec3 F = F_Schlick( specularColor, 1.0, dotVH );', 'vec3 F = specularColor;');
+    sh.fragmentShader = 'uniform float uNorm;\n' + sh.fragmentShader.replace('#include <bsdfs>', chunk);
+  };
+  const view = new THREE.ShaderMaterial({ vertexShader: viewVert, fragmentShader: viewFrag, uniforms: { uColor: { value: std.color }, uRough: { value: p.rough }, uMetal: { value: p.metal }, uMode: modeU, uLampPos: lampPosU, uLampInt: lampIntU, uLampCol: lampColU } });
+  const t = { key, name, meshes, p, std, old, view };
+  for (const m of meshes) { m.material = std; m.castShadow = m.receiveShadow = true; m.userData.thing = key; }
+  things[key] = t; return t;
+}
+function syncThing(t) {
+  const p = t.p; t.std.color.set(p.color); t.std.roughness = p.rough; t.std.metalness = p.metal; t.std.clearcoat = p.coat; t.std.clearcoatRoughness = p.coatRough;
+  // the old rule: matte colour loses its share to metal, the highlight colour is F0, the exponent matches the GGX width (Karis 2013)
+  const a = Math.max(p.rough * p.rough, 0.045); const pexp = Math.max(0.05, 2 / (a * a) - 2);
+  t.old.color.set(p.color).multiplyScalar(1 - p.metal); t.old.specular.set(p.color).multiplyScalar(p.metal).addScalar(0.04 * (1 - p.metal)); t.old.shininess = pexp; t.pexp = pexp;
+  t.old.emissive.copy(t.old.specular).multiplyScalar(0.22); // the old flat sky guess: a constant times the highlight colour, no picture of the sky
+  t.view.uniforms.uRough.value = p.rough; t.view.uniforms.uMetal.value = p.metal;
+  scratch.set(p.color); t.lum = 0.2126 * scratch.r + 0.7152 * scratch.g + 0.0722 * scratch.b; t.f0 = 0.04 * (1 - p.metal) + t.lum * p.metal;
+}
+const scratch = new THREE.Color();
+
+// shared shader inputs for the false-colour views
+const modeU = { value: 0 }, lampPosU = { value: new THREE.Vector3() }, lampIntU = { value: 45 }, lampColU = { value: new THREE.Color(0xffd9a0) }, normU = { value: 0 };
+const viewVert = `varying vec3 vN, vP; void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vP = wp.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * wp; }`;
+const viewFrag = `precision highp float;
+uniform vec3 uColor; uniform float uRough, uMetal, uMode, uLampInt; uniform vec3 uLampPos, uLampCol; varying vec3 vN, vP;
+#define PI 3.14159265
+float dggx(float NoH, float a){ float a2 = a * a; float d = NoH * NoH * (a2 - 1.0) + 1.0; return a2 / (PI * d * d); }
+float g1(float x, float a){ float a2 = a * a; return 2.0 * x / (x + sqrt(a2 + (1.0 - a2) * x * x)); }
+float lum(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+vec3 ramp(float t){ t = clamp(t, 0.0, 1.0); vec3 a = vec3(0.02), b = vec3(0.29, 0.64, 1.0), c = vec3(0.95, 0.64, 0.25), d = vec3(1.0);
+  return t < 0.33 ? mix(a, b, t / 0.33) : t < 0.66 ? mix(b, c, (t - 0.33) / 0.33) : mix(c, d, (t - 0.66) / 0.34); }
+void main(){
+  vec3 n = normalize(vN); if (!gl_FrontFacing) n = -n;
+  vec3 v = normalize(cameraPosition - vP);
+  vec3 L = uLampPos - vP; float d2 = dot(L, L); vec3 l = L * inversesqrt(d2);
+  vec3 h = normalize(l + v);
+  float NoL = max(dot(n, l), 0.0), NoV = max(dot(n, v), 1e-4), NoH = max(dot(n, h), 0.0), VoH = max(dot(v, h), 0.0);
+  float a = max(uRough * uRough, 0.002);
+  vec3 F0 = mix(vec3(0.04), uColor, uMetal);
+  float D = dggx(NoH, a); float G = g1(NoL, a) * g1(NoV, a);
+  vec3 F = F0 + (1.0 - F0) * pow(1.0 - VoH, 5.0);
+  vec3 spec = D * G * F / (4.0 * NoL * NoV + 1e-4);
+  vec3 kd = (1.0 - F) * (1.0 - uMetal);
+  vec3 E = uLampCol * uLampInt / d2;
+  vec3 col;
+  if (uMode < 0.5) col = pow(kd * uColor / PI * E * NoL, vec3(1.0 / 2.2));
+  else if (uMode < 1.5) col = pow(spec * E * NoL, vec3(1.0 / 2.2));
+  else if (uMode < 2.5) col = ramp(NoL > 0.0 ? (log2(lum(spec) + 1e-6) / log2(10.0) + 2.5) / 4.5 : 0.0);
+  else if (uMode < 3.5) col = ramp(NoL > 0.0 ? (log2(D + 1e-6) / log2(10.0) + 2.5) / 5.0 : 0.0);
+  else if (uMode < 4.5) col = ramp(NoL > 0.0 ? G : 0.0);
+  else { vec3 Fv = F0 + (1.0 - F0) * pow(1.0 - NoV, 5.0); col = ramp(pow(lum(Fv), 0.45)); }
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+// ---- the road, the barrel, the shield, the lamp
+const road = sb.mesh(new THREE.PlaneGeometry(44, 5), null, 0, 0.02, 8.3); road.rotation.x = -Math.PI / 2; road.name = 'road'; scene.add(road);
+const barrel = new THREE.Group(); barrel.position.set(-3.1, 0, 4.9); scene.add(barrel);
+const barrelBody = sb.mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.3, 20), null, 0, 0.65, 0); barrel.add(barrelBody);
+const hoops = [0.22, 0.65, 1.08].map(y => { const m = sb.mesh(new THREE.TorusGeometry(0.565, 0.035, 8, 28), null, 0, y, 0); m.rotation.x = Math.PI / 2; barrel.add(m); return m; });
+const shield = new THREE.Group(); shield.position.set(-1.3, 0.9, 5.3); shield.rotation.set(0.14, 0.6, 0); scene.add(shield);
+const shieldDisc = sb.mesh(new THREE.CylinderGeometry(0.85, 0.85, 0.07, 48), null, 0, 0, 0); shieldDisc.rotation.x = Math.PI / 2; shield.add(shieldDisc);
+const shieldBoss = sb.mesh(new THREE.SphereGeometry(0.2, 20, 14), null, 0, 0, 0.05); shieldBoss.scale.z = 0.5; shield.add(shieldBoss);
+const shieldRim = sb.mesh(new THREE.TorusGeometry(0.85, 0.05, 10, 48), null, 0, 0, 0); shield.add(shieldRim);
+sb.world.crate(-1.7, 4.6, 0.8, 0.5);
+
+const SWATCH = { bronze: 0xc4823a, iron: 0x9a9a9a, silver: 0xf4f0e8, paint: 0xb8322a, oak: 0x8a5a2b, tar: 0x1e1e22, chalk: 0xe8e2d4 };
+thing('shield', 'the bronze shield', [shieldDisc, shieldBoss, shieldRim], { color: SWATCH.bronze, rough: 0.3, metal: 1, coat: 0, coatRough: 0.1 });
+thing('barrel', 'the wooden barrel', [barrelBody], { color: SWATCH.oak, rough: 0.75, metal: 0, coat: 0, coatRough: 0.1 });
+thing('road', 'the wet road', [road], { color: SWATCH.tar, rough: 0.55, metal: 0, coat: 1, coatRough: 0.08 });
+thing('hoops', 'the iron hoops', hoops, { color: SWATCH.iron, rough: 0.45, metal: 1, coat: 0, coatRough: 0.1 });
+for (const k in things) syncThing(things[k]);
+
+const lamp = new THREE.Group(); lamp.position.set(2.6, 0, 6.6); scene.add(lamp);
+const post = sb.mesh(new THREE.CylinderGeometry(0.05, 0.08, 1, 10), sb.mat(PAL.metal), 0, 0.5, 0); lamp.add(post);
+const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffe2a0 })); lamp.add(bulb);
+const lampLight = new THREE.PointLight(0xffd9a0, 45, 0, 2); lamp.add(lampLight);
+function setLampHeight(h) { post.scale.y = h; post.position.y = h / 2; bulb.position.y = h; lampLight.position.y = h; }
+setLampHeight(3);
+// a ring on the road where the lamp's mirror image lands, so the readouts have a place to point at
+const ring = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.02, 6, 32), new THREE.MeshBasicMaterial({ color: PAL.amber })); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035; scene.add(ring);
+
+const labels = { shield: sb.label('bronze shield', shield), barrel: sb.label('wooden barrel', barrel), road: sb.label('wet road', new THREE.Vector3(-5.5, 0.05, 8.6)) };
+labels.shield.off.set(0, 1.15, 0); labels.barrel.off.set(0, 0.35, 0); labels.road.off.set(0, 0.2, 0);
+sb.label('the lamp\'s mirror image on the road', ring).off.set(0, 0.25, 0);
+const lampLabel = sb.label('the lamp: drag me', bulb, 'amber'); lampLabel.off.set(0, 0.45, 0);
+
+// ---- the sky: a small picture of the whole surroundings, blurred ahead of time (PMREM), one blur per roughness
+const pmrem = new THREE.PMREMGenerator(renderer); pmrem.compileEquirectangularShader();
+const SKIES = {
+  dusk: { top: [0.012, 0.03, 0.1], hor: [0.5, 0.2, 0.06], gnd: [0.04, 0.05, 0.035], sun: { u: 0.049, el: 7, size: 1.1, glow: 7, col: [1, 0.72, 0.4], disc: 40, halo: 0.45 }, light: { dir: [-0.95, 0.3, -0.3], col: 0xffb070, i: 1.3, hemi: 0.35 } },
+  night: { top: [0.004, 0.006, 0.014], hor: [0.03, 0.04, 0.07], gnd: [0.01, 0.012, 0.01], sun: { u: 0.3, el: 40, size: 1.0, glow: 8, col: [0.75, 0.82, 1], disc: 8, halo: 0.06 }, light: { dir: [0.3, 0.7, -0.5], col: 0x9fb4ff, i: 0.3, hemi: 0.18 } },
+  overcast: { top: [0.22, 0.26, 0.32], hor: [0.5, 0.54, 0.6], gnd: [0.05, 0.06, 0.05], sun: { u: 0.2, el: 50, size: 8, glow: 30, col: [1, 1, 1], disc: 0.6, halo: 0.4 }, light: { dir: [0.2, 1, 0.1], col: 0xdde3ee, i: 0.6, hemi: 0.6 } },
+  none: { light: { dir: [0.4, 1, 0.3], col: 0xffffff, i: 0.4, hemi: 0.22 } }
+};
+const skyCache = {};
+function buildSky(kind) {
+  if (skyCache[kind]) return skyCache[kind];
+  const s = SKIES[kind], W = 1024, H = 512, data = new Uint16Array(W * H * 4), hf = THREE.DataUtils.toHalfFloat;
+  const mixv = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  for (let y = 0; y < H; y++) {
+    const el = ((y + 0.5) / H - 0.5) * 180; // the row's height above the horizon in degrees; row 0 is straight down
+    const base = el >= 0 ? mixv(s.hor, s.top, Math.pow(el / 90, 0.5)) : mixv(mixv(s.hor, s.gnd, 0.6), s.gnd, Math.pow(-el / 90, 0.35));
+    for (let x = 0; x < W; x++) {
+      const u = (x + 0.5) / W; let du = Math.abs(u - s.sun.u); if (du > 0.5) du = 1 - du;
+      const d = Math.hypot(du * 360 * Math.cos(el * Math.PI / 180), el - s.sun.el);
+      const halo = s.sun.halo * Math.exp(-(d * d) / (s.sun.glow * s.sun.glow)), disc = s.sun.disc * Math.exp(-(d * d) / (s.sun.size * s.sun.size));
+      const i = (y * W + x) * 4;
+      data[i] = hf(base[0] + s.sun.col[0] * (halo + disc)); data[i + 1] = hf(base[1] + s.sun.col[1] * (halo + disc)); data[i + 2] = hf(base[2] + s.sun.col[2] * (halo + disc)); data[i + 3] = hf(1);
+    }
+  }
+  const tex = new THREE.DataTexture(data, W, H, THREE.RGBAFormat, THREE.HalfFloatType); tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.magFilter = tex.minFilter = THREE.LinearFilter; tex.needsUpdate = true;
+  const env = pmrem.fromEquirectangular(tex).texture;
+  return (skyCache[kind] = { tex, env });
+}
+const flatSky = new THREE.Color(PAL.sky);
+function applySky() {
+  const s = SKIES[S.sky], L = s.light;
+  if (S.sky === 'none') { scene.environment = null; scene.background = flatSky; }
+  else { const b = buildSky(S.sky); scene.environment = b.env; scene.background = S.skyBehind ? b.tex : flatSky; }
+  scene.environmentIntensity = S.show === 'lamp' ? 0 : S.skyStrength;
+  sb.lights.sun.position.set(L.dir[0] * 40, L.dir[1] * 40, L.dir[2] * 40); sb.lights.sun.color.set(L.col); sb.lights.sun.intensity = L.i * (S.show === 'lamp' ? 0.35 : 1);
+  sb.lights.hemi.intensity = L.hemi * (S.show === 'lamp' ? 0.4 : 1);
+  lampLight.intensity = S.show === 'sky' ? 0 : S.lampInt; bulb.material.color.set(S.show === 'sky' ? 0x554a33 : 0xffe2a0);
+  lampIntU.value = S.show === 'sky' ? 0 : S.lampInt;
+}
+
+// ---- state
+const S = { sel: 'shield', view: 'picture', rule: 'new', norm: false, sky: 'dusk', skyStrength: 1, skyBehind: true, show: 'both', lampInt: 45, lampH: 3 };
+const VIEWS = { picture: -1, matte: 0, highlight: 1, lobe: 2, D: 3, G: 4, F: 5 };
+const sel = () => things[S.sel];
+
+// ---- 01 the lamp's light
+const s1 = sb.panel.section('01 · Where the lamp\'s light goes', 'The lamp lights a spot and some of that light bounces toward you: a soft matte part that goes everywhere, and a sharp highlight near the mirror direction. Drag the lamp in the scene and watch both move.');
+const pick = s1.segment('Which thing the sliders change', [{ value: 'shield', label: 'shield' }, { value: 'barrel', label: 'barrel' }, { value: 'road', label: 'road' }], 'shield', v => { S.sel = v; syncPanel(); });
+const lampIntS = s1.slider('Lamp brightness', { min: 0, max: 150, step: 1, value: 45, unit: ' cd' }, v => { S.lampInt = v; applySky(); });
+s1.slider('Lamp height', { min: 0.6, max: 5, step: 0.1, value: 3, unit: ' m' }, v => { S.lampH = v; setLampHeight(v); });
+const v1 = s1.segment('Light in the picture', [{ value: 'picture', label: 'everything' }, { value: 'matte', label: 'matte part only' }, { value: 'highlight', label: 'highlight only' }, { value: 'lobe', label: 'highlight strength as heat' }], 'picture', setView);
+s1.key([['#4aa3ff', 'heat: weak'], ['#f2a341', 'heat: strong'], ['#ffffff', 'heat: strongest']]);
+const distRead = s1.readout('lamp to that thing');
+const landRead = s1.readout('light landing there, next to 1 m away');
+
+// ---- 02 roughness
+const s2 = sb.panel.section('02 · The tiny bumps', 'Roughness is how bumpy a surface is at a scale too small to see. Zero is a mirror, one is chalk. A rougher surface spreads the highlight wider, and the wider it spreads, the dimmer it must get. A clear wet or varnish layer on top (clearcoat) adds a second, sharper highlight.');
+const roughS = s2.slider('Roughness, 0 mirror to 1 chalk', { min: 0, max: 1, step: 0.01, value: 0.3 }, v => { sel().p.rough = v; syncThing(sel()); });
+const coatS = s2.slider('Clear layer on top (clearcoat): wet or varnished', { min: 0, max: 1, step: 0.01, value: 0 }, v => { sel().p.coat = v; syncThing(sel()); });
+const coatRoughS = s2.slider('Roughness of that clear layer', { min: 0, max: 1, step: 0.01, value: 0.1 }, v => { sel().p.coatRough = v; syncThing(sel()); });
+const v2 = s2.segment('See the two counts', [{ value: 'picture', label: 'picture' }, { value: 'D', label: 'D: bumps facing the right way' }, { value: 'G', label: 'G: what lamp and eye both reach' }], 'picture', setView);
+s2.note('D counts how many of the tiny bumps face halfway between the lamp and your eye. G counts how many of those are neither in a neighbour\'s shade nor hidden from you. Both go dark where the lamp does not reach at all.');
+
+// ---- 03 fresnel
+const s3 = sb.panel.section('03 · Every surface mirrors at a slant', 'Head-on, plastic and wood reflect about 4% and a metal reflects most of the light. Looked at from a low angle, everything turns into a mirror. Walk low along the road and the road turns from a dark strip into a mirror of the sky and the lamp.');
+const metalS = s3.slider('Metal, 0 plastic or wood to 1 metal', { min: 0, max: 1, step: 0.01, value: 1 }, v => { sel().p.metal = v; syncThing(sel()); });
+const colourSeg = s3.segment('Base colour', [{ value: 'bronze', label: 'bronze' }, { value: 'iron', label: 'iron' }, { value: 'silver', label: 'silver' }, { value: 'paint', label: 'red paint' }, { value: 'oak', label: 'oak' }, { value: 'tar', label: 'tar' }, { value: 'chalk', label: 'chalk' }], 'bronze', v => { sel().p.color = SWATCH[v]; syncThing(sel()); });
+const v3 = s3.segment('See the mirror share', [{ value: 'picture', label: 'picture' }, { value: 'F', label: 'F: how mirror-like at this angle' }], 'picture', setView);
+s3.button('Look along the road, low and far', () => { camera.position.set(17, 0.75, 8.6); sb.controls.target.set(-6, 0.4, 8.2); });
+s3.button('Back to the camp', () => { camera.position.set(7.5, 3.4, 13.5); sb.controls.target.set(-0.5, 0.9, 5.6); });
+const f0Read = s3.readout('head-on mirror share (F0)');
+const angleRead = s3.readout('view angle at the ring on the road');
+const fRead = s3.readout('mirror share there (F)');
+
+// ---- 04 new rule next to old
+const s4 = sb.panel.section('04 · New rule next to old', 'The new rule (GGX) keeps a promise: no surface gives back more light than it gets. The old rule (Blinn-Phong) let artists type in any highlight brightness, ignored the mirror-at-a-slant effect, and got no sky reflection at all, only a flat guess.');
+const ruleSeg = s4.segment('Shading rule', [{ value: 'new', label: 'new rule (GGX)' }, { value: 'old', label: 'old rule (Blinn-Phong)' }, { value: 'split', label: 'split screen: old left, new right' }], 'new', v => { S.rule = v; applyRule(); });
+s4.toggle('scale the old rule down as it spreads (normalised)', false, v => { S.norm = v; normU.value = v ? 1 : 0; });
+s4.note('With the old rule, drag roughness up to 1: the whole shield glows, because a wide highlight is not made dimmer. Tick the switch and it behaves. Then look at the road: the old rule never turns it into a mirror at a slant.');
+const pRead = s4.readout('old rule exponent for the shield (p)');
+const callsRead = s4.readout('draw calls per frame');
+const msRead = s4.readout('milliseconds per frame');
+
+// ---- 05 sky light
+const s5 = sb.panel.section('05 · Sky light, baked ahead of time', 'A point lamp is one direction of light. The sky is every direction at once. The engine blurs a small picture of the sky once per roughness level ahead of time, so at draw time the shield needs two lookups per pixel, not thousands.');
+s5.segment('Sky', [{ value: 'dusk', label: 'dusk' }, { value: 'night', label: 'night' }, { value: 'overcast', label: 'overcast' }, { value: 'none', label: 'no sky at all' }], 'dusk', v => { S.sky = v; applySky(); });
+s5.slider('Sky strength', { min: 0, max: 3, step: 0.05, value: 1 }, v => { S.skyStrength = v; applySky(); });
+s5.toggle('draw the sky picture behind the camp', true, v => { S.skyBehind = v; applySky(); });
+s5.segment('Show', [{ value: 'both', label: 'lamp and sky' }, { value: 'lamp', label: 'lamp only' }, { value: 'sky', label: 'sky only' }], 'both', v => { S.show = v; applySky(); });
+const mipRead = s5.readout('sky blur level read for the shield');
+s5.note('Sky only, then drag roughness: a smooth shield shows a sharp sky, a rough one shows a blurred sky. That blur was baked before the first frame. The old rule in 04 cannot read it at all.');
+
+// ---- split screen overlay
+const splitUi = document.createElement('div'); splitUi.style.cssText = 'position:absolute;inset:0;pointer-events:none;display:none';
+splitUi.innerHTML = '<div style="position:absolute;left:50%;top:0;bottom:0;width:2px;background:#f2a341;transform:translateX(-1px)"></div>' +
+  '<span class="sb-label" style="left:25%;top:36px">old rule (Blinn-Phong)</span><span class="sb-label" style="left:75%;top:36px">new rule (GGX)</span>';
+sb.stage.appendChild(splitUi);
+
+// ---- apply state
+const campMeshes = []; scene.traverse(o => { if (o.isMesh && !o.userData.thing && o !== bulb && o !== ring) campMeshes.push(o); });
+const campView = new Map();
+function campViewMat(m) {
+  let v = campView.get(m); if (v) return v;
+  v = new THREE.ShaderMaterial({ vertexShader: viewVert, fragmentShader: viewFrag, uniforms: { uColor: { value: m.material.color || new THREE.Color(0x808080) }, uRough: { value: 1 }, uMetal: { value: 0 }, uMode: modeU, uLampPos: lampPosU, uLampInt: lampIntU, uLampCol: lampColU } });
+  campView.set(m, v); return v;
+}
+let current = '';
+function applyMats(kind) {
+  if (current === kind) return; current = kind;
+  for (const k in things) { const t = things[k]; const mat = kind === 'view' ? t.view : kind === 'old' ? t.old : t.std; for (const m of t.meshes) m.material = mat; }
+  for (const m of campMeshes) {
+    if (kind === 'view') { if (!m.userData.orig) m.userData.orig = m.material; m.material = campViewMat(m); } else if (m.userData.orig) m.material = m.userData.orig;
+  }
+}
+function setView(v) {
+  S.view = v; modeU.value = VIEWS[v]; v1.set(v, false); v2.set(v, false); v3.set(v, false);
+  ring.visible = v === 'picture'; splitUi.style.display = v === 'picture' && S.rule === 'split' ? 'block' : 'none';
+  sb.hud('view', { picture: null, matte: 'matte part only: the lamp\'s light spread evenly, no highlight, no sky', highlight: 'highlight only: the lamp\'s light near the mirror direction', lobe: 'heat: how strong the highlight rule is at each pixel, for the lamp', D: 'D as heat: how many tiny bumps face halfway between lamp and eye', G: 'G as heat: the share of bumps the lamp and your eye both reach', F: 'F as heat: how mirror-like each pixel is from where you stand, 4% plastic to 100% at the rim' }[v]);
+}
+function applyRule() {
+  splitUi.style.display = S.view === 'picture' && S.rule === 'split' ? 'block' : 'none';
+  sb.hud('rule', S.rule === 'old' ? 'old rule: Blinn-Phong highlight, no mirror-at-a-slant, flat sky guess' : S.rule === 'split' ? 'left half old rule, right half new rule, same lamp' : null);
+}
+function syncPanel() {
+  const p = sel().p; roughS.set(p.rough, false); coatS.set(p.coat, false); coatRoughS.set(p.coatRough, false); metalS.set(p.metal, false);
+  const sw = Object.keys(SWATCH).find(k => SWATCH[k] === p.color); colourSeg.set(sw || '', false);
+  for (const k in labels) labels[k].el.classList.toggle('amber', k === S.sel);
+}
+syncPanel(); applySky(); setView('picture'); applyRule();
+
+// ---- drag the lamp across the ground
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit = new THREE.Vector3(); let drag = false;
+const el = renderer.domElement;
+function toNdc(e) { const r = el.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, camera); }
+el.addEventListener('pointerdown', e => { toNdc(e); if (ray.intersectObject(bulb).length) { drag = true; sb.controls.enabled = false; el.setPointerCapture(e.pointerId); plane.constant = -S.lampH; } });
+el.addEventListener('pointermove', e => {
+  toNdc(e);
+  if (drag) { if (ray.ray.intersectPlane(plane, hit)) { lamp.position.x = Math.max(-14, Math.min(14, hit.x)); lamp.position.z = Math.max(-8, Math.min(14, hit.z)); } }
+  else el.style.cursor = ray.intersectObject(bulb).length ? 'grab' : '';
+});
+el.addEventListener('pointerup', () => { if (drag) { drag = false; sb.controls.enabled = true; } });
+
+// ---- render: one pass, or two halves with different rules
+sb.onRender((scene, camera, renderer) => {
+  renderer.shadowMap.needsUpdate = true;
+  if (S.view !== 'picture') { applyMats('view'); renderer.render(scene, camera); return; }
+  if (S.rule !== 'split') { applyMats(S.rule); renderer.render(scene, camera); return; }
+  const w = sb.stage.clientWidth, h = sb.stage.clientHeight;
+  renderer.setScissorTest(true);
+  applyMats('old'); renderer.setScissor(0, 0, w / 2, h); renderer.render(scene, camera);
+  applyMats('new'); renderer.setScissor(w / 2, 0, w / 2, h); renderer.render(scene, camera);
+  renderer.setScissorTest(false); renderer.setScissor(0, 0, w, h);
+});
+
+// ---- per frame readouts
+const bulbPos = new THREE.Vector3(), thingPos = new THREE.Vector3(), camPos = new THREE.Vector3(); let msAvg = 16;
+sb.onFrame(dt => {
+  bulb.getWorldPosition(bulbPos); lampPosU.value.copy(bulbPos); camera.getWorldPosition(camPos);
+  const t = sel(); (t.meshes[0].parent === scene ? t.meshes[0] : t.meshes[0].parent).getWorldPosition(thingPos);
+  const d = thingPos.distanceTo(bulbPos); distRead(d.toFixed(1) + ' m'); landRead((100 / Math.max(0.01, d * d)).toFixed(0) + '%');
+  // the lamp's mirror image on the road: between the lamp and you, split by their heights
+  const f = bulbPos.y / (bulbPos.y + Math.max(0.05, camPos.y - 0.02));
+  ring.position.x = bulbPos.x + (camPos.x - bulbPos.x) * f; ring.position.z = bulbPos.z + (camPos.z - bulbPos.z) * f;
+  const dx = camPos.x - ring.position.x, dz = camPos.z - ring.position.z, H = Math.max(0.05, camPos.y - 0.02); const NoV = H / Math.hypot(dx, dz, H);
+  const F0r = things.road.f0;
+  const F = F0r + (1 - F0r) * Math.pow(1 - NoV, 5);
+  angleRead((Math.acos(NoV) * 180 / Math.PI).toFixed(0) + '° from straight down');
+  fRead((F * 100).toFixed(0) + '%' + (F > 0.5 ? ', a mirror' : ''));
+  f0Read((t.f0 * 100).toFixed(0) + '% for ' + t.name.replace('the ', ''));
+  pRead(things.shield.pexp < 1 ? things.shield.pexp.toFixed(2) : things.shield.pexp.toFixed(0));
+  mipRead((things.shield.p.rough * 5).toFixed(1) + ' of 5 (0 sharp, 5 most blurred)');
+  callsRead(renderer.info.render.calls); renderer.info.reset();
+  msAvg += (dt * 1000 - msAvg) * 0.05; msRead(msAvg.toFixed(1) + ' ms');
+});
+sb.start();
+</script>
+</body>
+</html>
