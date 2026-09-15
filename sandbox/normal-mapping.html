@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Normal Mapping &amp; Parallax · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+<style>
+/* page-specific: the two map pictures pinned to the top right of the stage */
+.nm-pics { position: absolute; top: 12px; right: 14px; display: flex; gap: 8px; pointer-events: none; }
+.nm-pics figure { margin: 0; background: rgba(11,14,19,0.82); border-radius: 6px; padding: 6px 6px 4px; }
+.nm-pics canvas { display: block; width: 168px; height: 126px; border-radius: 3px; image-rendering: auto; }
+.nm-pics figcaption { font-family: var(--font-mono); font-size: 11px; color: #c7cdd8; margin-top: 4px; white-space: nowrap; }
+@media (max-width: 900px) { .nm-pics canvas { width: 112px; height: 84px; } }
+</style>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'normal-mapping', title: 'Normal Mapping & Parallax',
+  blurb: 'A brick wall at the camp at dusk, lit by a torch you can drag. The wall is a flat rectangle of two triangles; every bump you see comes from a height map drawn on a canvas and turned into directions. Switch how the wall fakes its depth, turn it, and see what storing the map small costs.',
+  camera: { pos: [-0.3, 2.1, 1.9], target: [-2.2, 0.95, -3.2], near: 0.05, far: 300 },
+  hint: 'drag the torch · drag elsewhere to orbit · scroll to zoom'
+});
+const camp = sb.world.camp();
+// dusk: the sun low so the torch is the light that matters
+sb.lights.sun.intensity = 0.55; sb.lights.hemi.intensity = 0.32;
+
+// ---- the wall: 2.4 m by 1.8 m, one texture across it, 512 by 384 texels of 4.7 mm each
+const WALL_W = 2.4, WALL_H = 1.8, TW = 512, TH = 384, TEXEL_MM = WALL_W * 1000 / TW;
+const state = { wear: 2, strength: 1.0, depthMm: 30, mapOn: true, view: 'shaded', shadow: false, twin: true, turn: 0, dirs: 'lit', bug: false, arrows: false, method: 'normal', layers: 16, store: 'rgb' };
+
+// height map, drawn on a canvas: rows of bricks, half a brick offset every other row
+const hCanvas = document.createElement('canvas'); hCanvas.width = TW; hCanvas.height = TH;
+const height = new Float32Array(TW * TH);
+const seeds = new Float32Array(TW * TH); { let s = 7; for (let i = 0; i < seeds.length; i++) { s = (s * 16807) % 2147483647; seeds[i] = s / 2147483647; } }
+function drawHeight() {
+  const ctx = hCanvas.getContext('2d'); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, TW, TH);
+  const bw = 48, bh = 16, m = 3; let k = 0;
+  for (let y = 0; y < TH; y += bh) { const row = y / bh; const off = row % 2 ? bw / 2 : 0;
+    for (let x = -bw; x < TW + bw; x += bw) { const v = 210 + Math.floor(seeds[(k++ * 31) % seeds.length] * 45); ctx.fillStyle = `rgb(${v},${v},${v})`; ctx.fillRect(x + off + m / 2, y + m / 2, bw - m, bh - m); } }
+  const d = ctx.getImageData(0, 0, TW, TH).data;
+  // canvas row 0 is the top; the texture's row 0 is the bottom of the wall, so flip while reading
+  for (let y = 0; y < TH; y++) for (let x = 0; x < TW; x++) height[y * TW + x] = d[((TH - 1 - y) * TW + x) * 4] / 255;
+  // worn edges: a small box blur, repeated, softens every brick edge over a few texels
+  const tmp = new Float32Array(TW * TH);
+  for (let pass = 0; pass < state.wear; pass++) {
+    for (let y = 0; y < TH; y++) for (let x = 0; x < TW; x++) { const l = Math.max(0, x - 1), r = Math.min(TW - 1, x + 1); tmp[y * TW + x] = (height[y * TW + l] + height[y * TW + x] + height[y * TW + r]) / 3; }
+    for (let y = 0; y < TH; y++) { const u = Math.max(0, y - 1), dn = Math.min(TH - 1, y + 1); for (let x = 0; x < TW; x++) height[y * TW + x] = (tmp[u * TW + x] + tmp[y * TW + x] + tmp[dn * TW + x]) / 3; }
+  }
+  // a little grain on the brick faces
+  for (let i = 0; i < height.length; i++) if (height[i] > 0.5) height[i] = Math.min(1, height[i] + (seeds[i] - 0.5) * 0.06);
+}
+
+// the normal map derived from the height map: central difference on each axis, tilted by the strength
+const normalRGBA = new Uint8Array(TW * TH * 4), normalRG = new Uint8Array(TW * TH * 2), errR = new Uint8Array(TW * TH);
+const nFloat = new Float32Array(TW * TH * 3);
+let errStats = { mean3: 0, max3: 0, mean2: 0, max2: 0 };
+function honestStrength() { return state.depthMm / TEXEL_MM; }
+function deriveNormals() {
+  const s = honestStrength() * state.strength;
+  for (let y = 0; y < TH; y++) for (let x = 0; x < TW; x++) {
+    const i = y * TW + x;
+    const hL = height[y * TW + Math.max(0, x - 1)], hR = height[y * TW + Math.min(TW - 1, x + 1)];
+    const hD = height[Math.max(0, y - 1) * TW + x], hU = height[Math.min(TH - 1, y + 1) * TW + x];
+    let nx = -(hR - hL) * 0.5 * s, ny = -(hU - hD) * 0.5 * s, nz = 1; const len = Math.hypot(nx, ny, nz); nx /= len; ny /= len; nz /= len;
+    nFloat[i * 3] = nx; nFloat[i * 3 + 1] = ny; nFloat[i * 3 + 2] = nz;
+    normalRGBA[i * 4] = Math.round((nx * 0.5 + 0.5) * 255); normalRGBA[i * 4 + 1] = Math.round((ny * 0.5 + 0.5) * 255); normalRGBA[i * 4 + 2] = Math.round((nz * 0.5 + 0.5) * 255); normalRGBA[i * 4 + 3] = 255;
+  }
+}
+// the two-channel version, block compressed the BC5 way: per 4 by 4 block and per channel, two 8-bit end points and a 3-bit index per texel
+function encodeBC5() {
+  const lv = new Float32Array(8);
+  for (let by = 0; by < TH; by += 4) for (let bx = 0; bx < TW; bx += 4) for (let ch = 0; ch < 2; ch++) {
+    let lo = 255, hi = 0;
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { const v = normalRGBA[((by + y) * TW + bx + x) * 4 + ch]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    for (let k = 0; k < 8; k++) lv[k] = Math.round(((7 - k) * hi + k * lo) / 7);
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+      const i = (by + y) * TW + bx + x, v = normalRGBA[i * 4 + ch]; let best = 0, bd = 1e9;
+      for (let k = 0; k < 8; k++) { const d = Math.abs(lv[k] - v); if (d < bd) { bd = d; best = k; } }
+      normalRG[i * 2 + ch] = lv[best];
+    }
+  }
+  // error picture: the angle between the float normal and each stored version
+  let sum3 = 0, max3 = 0, sum2 = 0, max2 = 0;
+  for (let i = 0; i < TW * TH; i++) {
+    const fx = nFloat[i * 3], fy = nFloat[i * 3 + 1], fz = nFloat[i * 3 + 2];
+    const ax = normalRGBA[i * 4] / 255 * 2 - 1, ay = normalRGBA[i * 4 + 1] / 255 * 2 - 1, az = normalRGBA[i * 4 + 2] / 255 * 2 - 1; const al = Math.hypot(ax, ay, az);
+    const bx = normalRG[i * 2] / 255 * 2 - 1, by = normalRG[i * 2 + 1] / 255 * 2 - 1, bz = Math.sqrt(Math.max(0, 1 - bx * bx - by * by));
+    const e3 = Math.acos(Math.min(1, (fx * ax + fy * ay + fz * az) / al)) * 180 / Math.PI;
+    const e2 = Math.acos(Math.min(1, fx * bx + fy * by + fz * bz)) * 180 / Math.PI;
+    sum3 += e3; sum2 += e2; if (e3 > max3) max3 = e3; if (e2 > max2) max2 = e2;
+    errR[i] = Math.min(255, Math.round(e2 * 40));
+  }
+  errStats = { mean3: sum3 / (TW * TH), max3, mean2: sum2 / (TW * TH), max2 };
+}
+
+// the albedo: brick colour with the mortar grey, flat colours only, so the twin wall without a map is truly flat
+const albedoCanvas = document.createElement('canvas'); albedoCanvas.width = TW; albedoCanvas.height = TH;
+{ const ctx = albedoCanvas.getContext('2d'); ctx.fillStyle = '#6e6a62'; ctx.fillRect(0, 0, TW, TH); const bw = 48, bh = 16, m = 3; let k = 0;
+  for (let y = 0; y < TH; y += bh) { const off = (y / bh) % 2 ? bw / 2 : 0; for (let x = -bw; x < TW + bw; x += bw) { const t = seeds[(k++ * 17) % seeds.length]; ctx.fillStyle = `hsl(${12 + t * 10}, ${42 + t * 12}%, ${34 + t * 10}%)`; ctx.fillRect(x + off + m / 2, y + m / 2, bw - m, bh - m); } } }
+
+// textures on the GPU
+const albedoTex = new THREE.CanvasTexture(albedoCanvas); albedoTex.colorSpace = THREE.SRGBColorSpace; albedoTex.flipY = true; albedoTex.anisotropy = 8;
+const normalTex = new THREE.DataTexture(normalRGBA, TW, TH, THREE.RGBAFormat); normalTex.minFilter = THREE.LinearMipmapLinearFilter; normalTex.magFilter = THREE.LinearFilter; normalTex.generateMipmaps = true; normalTex.anisotropy = 8;
+const normalTex2 = new THREE.DataTexture(normalRG, TW, TH, THREE.RGFormat); normalTex2.minFilter = THREE.LinearMipmapLinearFilter; normalTex2.magFilter = THREE.LinearFilter; normalTex2.generateMipmaps = true; normalTex2.anisotropy = 8;
+const heightTex = new THREE.DataTexture(height, TW, TH, THREE.RedFormat, THREE.FloatType); heightTex.minFilter = THREE.LinearFilter; heightTex.magFilter = THREE.LinearFilter;
+const errTex = new THREE.DataTexture(errR, TW, TH, THREE.RedFormat); errTex.minFilter = THREE.LinearFilter; errTex.magFilter = THREE.LinearFilter;
+
+// the pictures on the stage
+const pics = document.createElement('div'); pics.className = 'nm-pics'; sb.stage.appendChild(pics);
+function picture(caption) { const f = document.createElement('figure'); const c = document.createElement('canvas'); c.width = TW; c.height = TH; const cap = document.createElement('figcaption'); cap.textContent = caption; f.append(c, cap); pics.appendChild(f); return { c, cap }; }
+const picH = picture('height map: bright is high'), picN = picture('normal map: the slopes as directions');
+const picBuf = new Uint8ClampedArray(TW * TH * 4);
+function paint(canvas, fill) { for (let y = 0; y < TH; y++) for (let x = 0; x < TW; x++) fill(y * TW + x, ((TH - 1 - y) * TW + x) * 4); canvas.getContext('2d').putImageData(new ImageData(picBuf, TW, TH), 0, 0); }
+function paintPictures() {
+  paint(picH.c, (i, o) => { const v = Math.round(height[i] * 255); picBuf[o] = v; picBuf[o + 1] = v; picBuf[o + 2] = v; picBuf[o + 3] = 255; });
+  if (state.store === 'rgb') { picN.cap.textContent = 'normal map, 3 bytes per texel'; paint(picN.c, (i, o) => { picBuf[o] = normalRGBA[i * 4]; picBuf[o + 1] = normalRGBA[i * 4 + 1]; picBuf[o + 2] = normalRGBA[i * 4 + 2]; picBuf[o + 3] = 255; }); }
+  else if (state.store === 'bc5') { picN.cap.textContent = 'normal map, 1 byte per texel, no blue stored'; paint(picN.c, (i, o) => { picBuf[o] = normalRG[i * 2]; picBuf[o + 1] = normalRG[i * 2 + 1]; picBuf[o + 2] = 0; picBuf[o + 3] = 255; }); }
+  else { picN.cap.textContent = 'how far off the 1-byte version is'; paint(picN.c, (i, o) => { const c = errRamp(errR[i] / 40); picBuf[o] = c[0]; picBuf[o + 1] = c[1]; picBuf[o + 2] = c[2]; picBuf[o + 3] = 255; }); }
+}
+// the same ramp as the shader: dark blue at 0, blue at 1 degree, amber at 2, white at 4
+const rampStops = [[0, [13, 20, 64]], [0.25, [64, 96, 255]], [0.5, [242, 163, 65]], [1, [255, 255, 255]]];
+function errRamp(deg) { const t = Math.min(1, Math.max(0, deg / 4)); let k = 0; while (t > rampStops[k + 1][0]) k++; const [t0, a] = rampStops[k], [t1, b] = rampStops[k + 1], f = (t - t0) / (t1 - t0); return [0, 1, 2].map(j => Math.round(a[j] + (b[j] - a[j]) * f)); }
+
+// ---- the wall material: three.js's own standard material with its real normal mapping, plus a few lines injected
+// for parallax, the tangent-space views, the classic bug and the error picture
+const U = { uHeight: { value: heightTex }, uErr: { value: errTex }, uMode: { value: 0 }, uView: { value: 0 }, uBug: { value: 0 }, uPacked: { value: 0 }, uLayers: { value: 16 }, uHeightScale: { value: new THREE.Vector2(0.0125, 0.0167) } };
+const wallMat = new THREE.MeshStandardMaterial({ map: albedoTex, normalMap: normalTex, roughness: 0.9, metalness: 0 });
+wallMat.customProgramCacheKey = () => 'nm-wall';
+wallMat.onBeforeCompile = shader => {
+  Object.assign(shader.uniforms, U);
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <clipping_planes_pars_fragment>', `#include <clipping_planes_pars_fragment>
+uniform sampler2D uHeight; uniform sampler2D uErr; uniform float uMode, uView, uBug, uPacked, uLayers; uniform vec2 uHeightScale;
+// where the line of sight really lands: shift the lookup once (parallax) or march down through the height field (parallax occlusion)
+vec2 parallaxUv(vec2 uv0, vec3 v) {
+  vec2 dir = v.xy / max(v.z, 0.06) * uHeightScale;
+  if (uMode < 1.5) { float d0 = 1.0 - texture2D(uHeight, uv0).r; return uv0 - dir * d0; }
+  float dStep = 1.0 / uLayers; vec2 step = dir * dStep;
+  vec2 uvc = uv0; float d = 0.0; float depth = 1.0 - texture2D(uHeight, uvc).r;
+  for (int i = 0; i < 128; i++) { if (d >= depth || float(i) >= uLayers) break; uvc -= step; d += dStep; depth = 1.0 - texture2D(uHeight, uvc).r; }
+  vec2 uvPrev = uvc + step; float after = depth - d; float before = (1.0 - texture2D(uHeight, uvPrev).r) - (d - dStep);
+  float t = after / max(after - before, 1e-5); return mix(uvc, uvPrev, clamp(t, 0.0, 1.0));
+}
+// dark blue at 0, blue at 1 degree, amber at 2, white at 4
+vec3 errRamp(float e) { float t = clamp(e / 4.0, 0.0, 1.0);
+  if (t < 0.25) return mix(vec3(0.05, 0.08, 0.25), vec3(0.25, 0.38, 1.0), t / 0.25);
+  if (t < 0.5) return mix(vec3(0.25, 0.38, 1.0), vec3(0.95, 0.64, 0.25), (t - 0.25) / 0.25);
+  return mix(vec3(0.95, 0.64, 0.25), vec3(1.0), (t - 0.5) / 0.5); }`)
+    .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+vec3 tT = normalize(vTangent), tB = normalize(vBitangent), tN = normalize(vNormal);
+vec3 vv = normalize(vViewPosition);
+vec2 uvP = vMapUv;
+if (uMode > 0.5) { vec3 vTs = vec3(dot(vv, tT), dot(vv, tB), dot(vv, tN)); uvP = parallaxUv(vMapUv, vTs); if (uvP.x < 0.0 || uvP.x > 1.0 || uvP.y < 0.0 || uvP.y > 1.0) discard; }
+#define vMapUv uvP
+#define vNormalMapUv uvP`)
+    .replace('#include <normal_fragment_maps>', `vec3 mapN = texture2D(normalMap, vNormalMapUv).xyz * 2.0 - 1.0;
+if (uPacked > 0.5) mapN.z = sqrt(saturate(1.0 - dot(mapN.xy, mapN.xy)));   // two channels stored, blue rebuilt
+mapN.xy *= normalScale;
+normal = normalize(tbn * mapN);                                              // tangent space to view space, the turning step
+if (uBug > 0.5) normal = normalize((viewMatrix * vec4(mapN, 0.0)).xyz);     // the bug: the stored direction used as if it were already in the world`)
+    .replace('#include <dithering_fragment>', `#include <dithering_fragment>
+if (uView > 0.5) {
+  vec3 c = mapN * 0.5 + 0.5;
+  if (uView > 1.5) c = inverseTransformDirection(normal, viewMatrix) * 0.5 + 0.5;
+  if (uView > 2.5) c = errRamp(texture2D(uErr, uvP).r * 255.0 / 40.0);
+  gl_FragColor = vec4(c, 1.0);
+}`);
+};
+
+const wallGroup = new THREE.Group(); wallGroup.position.set(-2.6, 0, -3.2); sb.scene.add(wallGroup);
+const wallGeo = new THREE.PlaneGeometry(WALL_W, WALL_H);
+{ const n = wallGeo.attributes.position.count, t = new Float32Array(n * 4); for (let i = 0; i < n; i++) { t[i * 4] = 1; t[i * 4 + 3] = 1; } wallGeo.setAttribute('tangent', new THREE.BufferAttribute(t, 4)); }
+const wall = sb.mesh(wallGeo, wallMat, 0, WALL_H / 2, 0.076); wallGroup.add(wall);
+const slab = sb.mesh(new THREE.BoxGeometry(WALL_W, WALL_H, 0.15), sb.mat(PAL.stone), 0, WALL_H / 2, 0); wallGroup.add(slab);
+wallGroup.add(sb.mesh(new THREE.BoxGeometry(WALL_W + 0.2, 0.08, 0.3), sb.mat(PAL.stoneLite), 0, WALL_H + 0.04, 0));
+// the twin: same bricks, no map, so the difference is only the direction the lighting is given
+const twinGroup = new THREE.Group(); twinGroup.position.set(0.2, 0, -3.2); sb.scene.add(twinGroup);
+const twin = sb.mesh(new THREE.PlaneGeometry(1.2, WALL_H), new THREE.MeshStandardMaterial({ map: albedoTex, roughness: 0.9, metalness: 0 }), 0, WALL_H / 2, 0.076); twinGroup.add(twin);
+twinGroup.add(sb.mesh(new THREE.BoxGeometry(1.2, WALL_H, 0.15), sb.mat(PAL.stone), 0, WALL_H / 2, 0));
+twinGroup.add(sb.mesh(new THREE.BoxGeometry(1.4, 0.08, 0.3), sb.mat(PAL.stoneLite), 0, WALL_H + 0.04, 0));
+twin.material.map.repeat.set(0.5, 1);
+
+// the three arrows of tangent space, attached to the wall
+const arrows = new THREE.Group(); arrows.position.set(0, WALL_H / 2, 0.1); arrows.visible = false; wallGroup.add(arrows);
+arrows.add(new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 0.7, 0xef5d5d, 0.16, 0.08));
+arrows.add(new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 0.7, 0x5ad48a, 0.16, 0.08));
+arrows.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(), 0.7, 0x4aa3ff, 0.16, 0.08));
+const arrowLabels = [sb.label('T: the texture\'s right', arrows, 'amber'), sb.label('B: the texture\'s up', arrows, 'amber'), sb.label('N: straight out', arrows, 'blue')];
+arrowLabels[0].off.set(0.95, 0.12, 0); arrowLabels[1].off.set(0, 0.9, 0); arrowLabels[2].off.set(0, -0.3, 0.85);
+arrowLabels.forEach(l => l.hide(true));
+
+// the torch: a stick, a flame and a point light, dragged on a plane one metre in front of the wall
+const TORCH_Z = 1.0;
+const torch = new THREE.Group(); torch.position.set(0.8, 1.35, TORCH_Z); wallGroup.add(torch);
+const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.5, 7), sb.mat(PAL.wood)); stick.position.y = -0.3; torch.add(stick);
+const flame = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.26, 7), new THREE.MeshBasicMaterial({ color: PAL.flame })); flame.position.y = 0.08; torch.add(flame);
+const torchLight = new THREE.PointLight(0xffa040, 16, 10, 2); torchLight.position.y = 0.05; torchLight.shadow.mapSize.set(512, 512); torchLight.shadow.bias = -0.002; torch.add(torchLight);
+const handle = new THREE.Mesh(new THREE.SphereGeometry(0.38, 8, 6), new THREE.MeshBasicMaterial()); handle.visible = false; torch.add(handle);
+
+sb.label('brick wall: two flat triangles plus a normal map', wall, 'blue').off.set(0, 1.1, 0);
+const twinLabel = sb.label('same bricks, no map', twin); twinLabel.off.set(0, 1.1, 0);
+sb.label('torch: drag me', torch, 'amber').off.set(0, 0.35, 0);
+
+// ---- 1 height to directions
+const s1 = sb.panel.section('01 · From bumps to directions', 'The bricks start as a grey height picture drawn on a canvas. The GPU never sees the heights; it sees the slopes, stored as a direction per texel, and that is the blue picture.');
+s1.slider('Worn edges (blur the height map)', { min: 0, max: 8, step: 1, value: 2, unit: ' texels' }, v => { state.wear = v; rebuild(true); });
+s1.slider('Bump strength, times the honest value', { min: 0, max: 3, step: 0.05, value: 1, unit: 'x' }, v => { state.strength = v; rebuild(false); });
+const honestRead = s1.readout('honest strength (depth / texel size)');
+s1.toggle('show the two pictures', true, v => { pics.style.display = v ? '' : 'none'; });
+s1.note('Above 1x the lighting gets punchier and stops matching the parallax below, because the height and the directions then describe two different walls.');
+
+// ---- 2 lighting a flat wall
+const s2 = sb.panel.section('02 · Lighting a flat wall', 'Drag the torch across the wall. Every pixel is still on the flat rectangle; only the direction handed to the lighting comes from the map.');
+s2.toggle('directions from the normal map (untick: the flat wall)', true, v => { state.mapOn = v; apply(); });
+s2.segment('View', [{ value: 'shaded', label: 'coloured in' }, { value: 'wireframe', label: 'just the triangles' }], 'shaded', v => { state.view = v; apply(); });
+s2.toggle('show the flat twin beside it', true, v => { state.twin = v; apply(); });
+s2.toggle('torch casts shadows (the shadow map sees a flat wall)', false, v => { state.shadow = v; apply(); });
+s2.button('Put the torch back', () => { torch.position.set(0.8, 1.35, TORCH_Z); });
+const callRead = s2.readout('draw calls'), msRead = s2.readout('milliseconds per frame');
+
+// ---- 3 turning the map with the mesh
+const s3 = sb.panel.section('03 · Turning the map with the wall', 'The map says "tilt right" relative to the texture. Turn the wall and the three arrows of tangent space turn with it, so "right" still means the wall\'s right.');
+s3.slider('Turn the wall', { min: 0, max: 360, step: 1, value: 0, unit: '°' }, v => { state.turn = v; wallGroup.rotation.y = -v * Math.PI / 180; });
+s3.segment('Show the directions', [{ value: 'lit', label: 'lit' }, { value: 'stored', label: 'as stored (tangent space)' }, { value: 'world', label: 'turned into the world' }], 'lit', v => { state.dirs = v; apply(); });
+s3.toggle('show the three arrows (T, B, N)', false, v => { state.arrows = v; apply(); });
+s3.toggle('bug: skip the turning step', false, v => { state.bug = v; apply(); });
+s3.note('With the bug on, the wall looks right at 0° and wrong at every other angle: the bumps are lit as if the wall still faced the way the texture does.');
+
+// ---- 4 parallax
+const s4 = sb.panel.section('04 · Where the line of sight lands', 'Look along the wall at a slant. A normal map only changes the lighting, so near and far texels never slide past each other. Parallax moves where the texture is read; the marched version walks the line of sight until it is under the surface.');
+s4.segment('Method', [{ value: 'normal', label: 'normal map only' }, { value: 'parallax', label: 'one-step guess' }, { value: 'pom', label: 'marched (POM)' }], 'normal', v => { state.method = v; apply(); });
+s4.slider('Layers the march steps through', { min: 4, max: 64, step: 1, value: 16 }, v => { state.layers = v; apply(); });
+s4.slider('How deep the bricks pretend to be', { min: 5, max: 80, step: 1, value: 30, unit: ' mm' }, v => { state.depthMm = v; rebuild(false); });
+s4.button('Look along the wall at a slant', () => moveCamera(2.9, 1.1, 0.7, -0.6, 0.9, 0));
+s4.button('Look head on', () => moveCamera(0.3, 1.2, 3.4, 0, 0.9, 0));
+const readsRead = s4.readout('texture reads per pixel on the wall');
+s4.note('Whatever the method, the outline and the shadow on the ground stay a flat rectangle: switch to "just the triangles" to see why.');
+
+// ---- 5 storing the map small
+const s5 = sb.panel.section('05 · Storing the map small', 'Blue is never needed: the stored arrow has length one and always points out, so two numbers rebuild the third. The 1-byte version also rounds each 4 by 4 block of texels to eight levels, and the error picture shows what that costs.');
+s5.segment('Stored as', [{ value: 'rgb', label: '3 bytes per texel' }, { value: 'bc5', label: '1 byte (BC5), blue rebuilt' }, { value: 'err', label: 'error picture' }], 'rgb', v => { state.store = v; apply(); paintPictures(); });
+const err3Read = s5.readout('3-byte version off by (average, worst)'), err2Read = s5.readout('1-byte version off by (average, worst)'), bytesRead = s5.readout('map on the GPU, top level');
+s5.key([['#0d1440', 'no error'], ['#4060ff', '1° off'], ['#f2a341', '2° off'], ['#ffffff', '4° off and more']]);
+
+// ---- state to scene
+function rebuild(redraw) {
+  if (redraw) drawHeight();
+  deriveNormals(); encodeBC5();
+  normalTex.needsUpdate = true; normalTex2.needsUpdate = true; heightTex.needsUpdate = true; errTex.needsUpdate = true;
+  honestRead(honestStrength().toFixed(1) + ' (' + state.depthMm + ' mm / ' + TEXEL_MM.toFixed(1) + ' mm)');
+  err3Read(errStats.mean3.toFixed(2) + '°, ' + errStats.max3.toFixed(1) + '°'); err2Read(errStats.mean2.toFixed(2) + '°, ' + errStats.max2.toFixed(1) + '°');
+  U.uHeightScale.value.set(state.depthMm / (WALL_W * 1000), state.depthMm / (WALL_H * 1000));
+  paintPictures();
+}
+function apply() {
+  wallMat.normalScale.set(state.mapOn ? 1 : 0, state.mapOn ? 1 : 0);
+  const packed = state.store !== 'rgb'; wallMat.normalMap = packed ? normalTex2 : normalTex; U.uPacked.value = packed ? 1 : 0;
+  U.uMode.value = state.method === 'normal' ? 0 : state.method === 'parallax' ? 1 : 2; U.uLayers.value = state.layers;
+  U.uView.value = state.store === 'err' ? 3 : state.dirs === 'stored' ? 1 : state.dirs === 'world' ? 2 : 0; U.uBug.value = state.bug ? 1 : 0;
+  torchLight.castShadow = state.shadow; twinGroup.visible = state.twin; twinLabel.hide(!state.twin);
+  arrows.visible = state.arrows; arrowLabels.forEach(l => l.hide(!state.arrows));
+  sb.view.mode(state.view);
+  bytesRead(packed ? (TW * TH / 1024).toFixed(0) + ' KB (1 byte per texel)' : (TW * TH * 4 / 1024).toFixed(0) + ' KB (3 bytes padded to 4)');
+  readsRead(state.method === 'normal' ? '2 (colour, normal)' : state.method === 'parallax' ? '3 (colour, normal, one height)' : 'up to ' + (state.layers + 3) + ' (colour, normal, ' + state.layers + ' heights, one more to blend)');
+  sb.hud('mode', state.view === 'wireframe' ? 'every triangle: the wall is two of them, the bricks are not there' : state.store === 'err' ? 'error picture: how far the 1-byte direction is from the true one' : state.dirs === 'stored' ? 'the direction as stored in the map, blue means straight out of the texture' : state.dirs === 'world' ? 'the same direction turned into the world: it changes as the wall turns' : state.bug ? 'bug: stored directions used as if they were already in the world' : state.method === 'pom' ? 'parallax occlusion: the line of sight marched through ' + state.layers + ' layers' : state.method === 'parallax' ? 'parallax: one guess shifts where the texture is read' : state.mapOn ? 'normal map: flat rectangle, lighting told a different direction per pixel' : 'the flat wall: no map, the same direction everywhere');
+}
+rebuild(true); apply();
+
+// ---- camera moves relative to the wall
+const tmpV = new THREE.Vector3();
+function moveCamera(x, y, z, tx, ty, tz) { wallGroup.localToWorld(sb.camera.position.set(x, y, z)); wallGroup.localToWorld(sb.controls.target.set(tx, ty, tz)); }
+
+// ---- dragging the torch
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(), hit = new THREE.Vector3(), nrm = new THREE.Vector3();
+let dragging = false;
+function toNdc(e) { const r = sb.renderer.domElement.getBoundingClientRect(); ndc.set((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, sb.camera); }
+function overTorch(e) { toNdc(e); return ray.intersectObject(handle, false).length > 0; }
+function dragTo(e) {
+  toNdc(e); wallGroup.getWorldDirection(nrm); wallGroup.getWorldPosition(tmpV).addScaledVector(nrm, TORCH_Z); plane.setFromNormalAndCoplanarPoint(nrm, tmpV);
+  if (!ray.ray.intersectPlane(plane, hit)) return; wallGroup.worldToLocal(hit);
+  torch.position.set(THREE.MathUtils.clamp(hit.x, -2.4, 2.4), THREE.MathUtils.clamp(hit.y, 0.25, 2.7), TORCH_Z);
+}
+sb.stage.addEventListener('pointerdown', e => { if (e.button !== 0 || !overTorch(e)) return; dragging = true; sb.controls.enabled = false; sb.stage.style.cursor = 'grabbing'; e.stopPropagation(); e.preventDefault(); }, true);
+window.addEventListener('pointermove', e => { if (dragging) { dragTo(e); e.stopPropagation(); } else if (e.target === sb.renderer.domElement) sb.stage.style.cursor = overTorch(e) ? 'grab' : ''; }, true);
+window.addEventListener('pointerup', () => { if (!dragging) return; dragging = false; sb.controls.enabled = true; sb.stage.style.cursor = ''; }, true);
+
+// ---- per frame: flicker, readouts
+let msAvg = 16;
+sb.onFrame((dt, t) => {
+  torchLight.intensity = 16 + Math.sin(t * 23) * 1.2 + Math.sin(t * 7.3) * 0.8; flame.scale.y = 1 + Math.sin(t * 19) * 0.08;
+  msAvg += (dt * 1000 - msAvg) * 0.05; msRead(msAvg.toFixed(1) + ' ms'); callRead(sb.renderer.info.render.calls);
+});
+sb.start();
+</script>
+</body>
+</html>
