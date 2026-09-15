@@ -448,17 +448,32 @@ const MAXB = 96, boxData = new Float32Array(MAXB * 16);
 const boxTex = new THREE.DataTexture(boxData, MAXB * 4, 1, THREE.RGBAFormat, THREE.FloatType); boxTex.minFilter = boxTex.magFilter = THREE.NearestFilter; boxTex.needsUpdate = true;
 const knightMeshes = []; knight.traverse(m => { if (m.isMesh) knightMeshes.push(m); });
 let nBox = 0;
-function writeBox(i, mn, mx, alb, kind, face, paint) { const o = i * 16; boxData[o] = mn.x; boxData[o + 1] = mn.y; boxData[o + 2] = mn.z; boxData[o + 3] = face; boxData[o + 4] = mx.x; boxData[o + 5] = mx.y; boxData[o + 6] = mx.z; boxData[o + 7] = kind;
-  boxData[o + 8] = alb.r; boxData[o + 9] = alb.g; boxData[o + 10] = alb.b; boxData[o + 12] = paint ? paint.r : 0; boxData[o + 13] = paint ? paint.g : 0; boxData[o + 14] = paint ? paint.b : 0; }
+// four texels per shape: [min or centre, painted face] [max or radius and half height, kind] [albedo, shape] [paint or axis, turn about y]
+// kind 0 solid, 1 stand-in (camera rays pass through), 2 the ground; shape 0 box, 1 sphere, 2 disc (a short cylinder along an axis)
+function writeShape(i, sh) { const o = i * 16, a = sh.a, b = sh.b, alb = sh.alb, p = sh.paint, ax = sh.axis;
+  boxData[o] = a.x; boxData[o + 1] = a.y; boxData[o + 2] = a.z; boxData[o + 3] = sh.face === undefined ? -1 : sh.face; boxData[o + 4] = b.x; boxData[o + 5] = b.y; boxData[o + 6] = b.z; boxData[o + 7] = sh.kind || 0;
+  boxData[o + 8] = alb.r; boxData[o + 9] = alb.g; boxData[o + 10] = alb.b; boxData[o + 11] = sh.shape || 0;
+  boxData[o + 12] = p ? p.r : ax ? ax.x : 0; boxData[o + 13] = p ? p.g : ax ? ax.y : 0; boxData[o + 14] = p ? p.b : ax ? ax.z : 0; boxData[o + 15] = sh.rot || 0; }
+// a mesh as the shape the tracer can draw: a sphere for round things, a disc for the shield, a box (turned to match) for the rest
+const wq = new THREE.Quaternion(), wp = new THREE.Vector3(), we = new THREE.Euler();
+function shapeOf(m, kind) {
+  const g = m.geometry, prm = g.parameters, alb = m.material.color; m.getWorldPosition(wp); m.getWorldQuaternion(wq);
+  if (g.type === 'SphereGeometry' || g.type === 'IcosahedronGeometry' || g.type === 'DodecahedronGeometry') return { a: wp.clone(), b: new THREE.Vector3(prm.radius, 0, 0), alb, kind, shape: 1 };
+  if (g.type === 'CylinderGeometry' && prm.height < prm.radiusTop) return { a: wp.clone(), b: new THREE.Vector3(prm.radiusTop, prm.height / 2, 0), alb, kind, shape: 2, axis: new THREE.Vector3(0, 1, 0).applyQuaternion(wq) };
+  if (g.type === 'BoxGeometry') { const rot = we.setFromQuaternion(wq, 'YXZ').y; const h = new THREE.Vector3(prm.width / 2, prm.height / 2, prm.depth / 2); return { a: wp.clone().sub(h), b: wp.clone().add(h), alb, kind, shape: 0, rot }; }
+  bb3.setFromObject(m, true); return { a: bb3.min.clone(), b: bb3.max.clone(), alb, kind, shape: 0 };
+}
+const outdoorShapes = []; for (const g of outdoor) g.traverse(m => { if (m.isMesh && !m.material.isMeshBasicMaterial) outdoorShapes.push(shapeOf(m, 1)); });
 function writeBoxes() {
   let i = 0;
-  for (let b = 0; b < boxes.length && i < MAXB - 8; b++) { const bx = boxes[b]; let face = -1, paint = null; for (let f = 0; f < 6; f++) { const q = boxFace.get(b * 6 + f); if (q) { face = f; paint = q.albedo; } }
-    writeBox(i++, bx.min, bx.max, bx.albedo, bx.occluder ? 1 : bx.name === 'ground' ? 2 : 0, face, paint); }
-  knightBoxAt = i; for (const m of knightMeshes) { bb3.setFromObject(m, true); writeBox(i++, bb3.min, bb3.max, m.material.color, 0, -1, null); }
+  for (let b = 0; b < roomBoxCount && i < MAXB - 8; b++) { const bx = boxes[b]; let face = -1, paint = null; for (let f = 0; f < 6; f++) { const q = boxFace.get(b * 6 + f); if (q) { face = f; paint = q.albedo; } }
+    writeShape(i++, { a: bx.min, b: bx.max, alb: bx.albedo, kind: bx.name === 'ground' ? 2 : 0, face, paint }); }
+  for (const sh of outdoorShapes) if (i < MAXB - 8) writeShape(i++, sh);
+  knightBoxAt = i; for (const m of knightMeshes) writeShape(i++, shapeOf(m, 0));
   nBox = i; U.uNBox.value = nBox; boxTex.needsUpdate = true; dirty();
 }
 let knightBoxAt = 0, knightBoxesDirty = false;
-function updateKnightBoxes() { knight.updateMatrixWorld(true); let i = knightBoxAt; for (const m of knightMeshes) { bb3.setFromObject(m, true); writeBox(i++, bb3.min, bb3.max, m.material.color, 0, -1, null); } boxTex.needsUpdate = true; dirty(); }
+function updateKnightBoxes() { knight.updateMatrixWorld(true); let i = knightBoxAt; for (const m of knightMeshes) writeShape(i++, shapeOf(m, 0)); boxTex.needsUpdate = true; dirty(); }
 const U = {
   uBoxes: { value: boxTex }, tPrev: { value: null }, uNBox: { value: 0 }, uShadowN: { value: 1 }, uDiff: { value: 3 }, uSkyRays: { value: 1 }, uLayer: { value: 0 }, uFrame: { value: 0 },
   uSplit: { value: 0.5 }, uSunSize: { value: 2.5 * Math.PI / 180 }, uFireR: { value: 0.35 }, uBlend: { value: 1 }, uShowDirect: { value: 1 }, uShowIndirect: { value: 1 }, uRoom: { value: R },
@@ -475,22 +490,39 @@ ${SKYFN}
 vec4 fetchB(int i, int k) { return texelFetch(uBoxes, ivec2(i * 4 + k, 0), 0); }
 float hash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }
 vec3 safeDir(vec3 d) { return vec3(abs(d.x) < 1e-6 ? 1e-6 : d.x, abs(d.y) < 1e-6 ? 1e-6 : d.y, abs(d.z) < 1e-6 ? 1e-6 : d.z); }
-// the nearest box along a ray: the slab test on every box, and the face the ray came in through
-bool hitBoxes(vec3 o, vec3 d, bool camRay, bool anyHit, inout float tMax, out int hb, out int hf) {
-  hb = -1; hf = -1; vec3 invD = 1.0 / safeDir(d);
+vec3 faceN(int f) { return f == 0 ? vec3(-1.0, 0.0, 0.0) : f == 1 ? vec3(1.0, 0.0, 0.0) : f == 2 ? vec3(0.0, -1.0, 0.0) : f == 3 ? vec3(0.0, 1.0, 0.0) : f == 4 ? vec3(0.0, 0.0, -1.0) : vec3(0.0, 0.0, 1.0); }
+vec3 rotY(vec3 v, float a) { float c = cos(a), s = sin(a); return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z); }
+// the nearest thing along a ray: every shape is tested, and the winner's face (boxes) and normal come back
+bool hitBoxes(vec3 o, vec3 d, bool camRay, bool anyHit, inout float tMax, out int hb, out int hf, out vec3 n) {
+  hb = -1; hf = -1; n = vec3(0.0, 1.0, 0.0); vec3 invD = 1.0 / safeDir(d);
   for (int i = 0; i < 96; i++) { if (i >= uNBox) break;
     vec4 a = fetchB(i, 0), b = fetchB(i, 1); if (camRay && b.w == 1.0) continue;
-    vec3 t0 = (a.xyz - o) * invD, t1 = (b.xyz - o) * invD; vec3 tmin = min(t0, t1), tmax = max(t0, t1);
-    float tn = max(max(tmin.x, tmin.y), tmin.z), tf = min(min(tmax.x, tmax.y), tmax.z);
-    if (tn > tf || tn < 1e-4 || tn > tMax) continue;
-    hf = tmin.x >= tmin.y && tmin.x >= tmin.z ? (d.x > 0.0 ? 0 : 1) : tmin.y >= tmin.z ? (d.y > 0.0 ? 2 : 3) : (d.z > 0.0 ? 4 : 5);
-    tMax = tn; hb = i; if (anyHit) return true;
+    vec4 c2 = fetchB(i, 2), c3 = fetchB(i, 3); int shape = int(c2.w);
+    if (shape == 1) { // sphere: centre a, radius b.x
+      vec3 oc = o - a.xyz; float bq = dot(oc, d), cq = dot(oc, oc) - b.x * b.x, disc = bq * bq - cq; if (disc < 0.0) continue;
+      float t = -bq - sqrt(disc); if (t < 1e-4 || t > tMax) continue;
+      tMax = t; hb = i; hf = -1; n = normalize(oc + d * t); if (anyHit) return true;
+    } else if (shape == 2) { // disc: centre a, radius b.x, half height b.y, axis c3
+      vec3 ax = c3.xyz; vec3 oc = o - a.xyz; float od = dot(oc, ax), dd = dot(d, ax); vec3 op = oc - ax * od, dp = d - ax * dd;
+      float A = dot(dp, dp), B = dot(op, dp), C = dot(op, op) - b.x * b.x; float t = 1e9; vec3 nn = ax;
+      if (abs(dd) > 1e-6) { for (int sd = 0; sd < 2; sd++) { float hs = sd == 0 ? b.y : -b.y; float tc = (hs - od) / dd; if (tc > 1e-4 && tc < t) { vec3 q = op + dp * tc; if (dot(q, q) <= b.x * b.x) { t = tc; nn = ax * (hs > 0.0 ? 1.0 : -1.0); } } } }
+      if (A > 1e-9) { float disc = B * B - A * C; if (disc >= 0.0) { float ts = (-B - sqrt(disc)) / A; if (ts > 1e-4 && ts < t) { float hh = od + dd * ts; if (abs(hh) <= b.y) { t = ts; nn = normalize(op + dp * ts); } } } }
+      if (t >= 1e9 || t > tMax) continue;
+      tMax = t; hb = i; hf = -1; n = nn; if (anyHit) return true;
+    } else { // box, possibly turned about its centre
+      float rot = c3.w; vec3 oo = o, dr = d, inv = invD;
+      if (rot != 0.0) { vec3 cen = (a.xyz + b.xyz) * 0.5; oo = cen + rotY(o - cen, -rot); dr = rotY(d, -rot); inv = 1.0 / safeDir(dr); }
+      vec3 t0 = (a.xyz - oo) * inv, t1 = (b.xyz - oo) * inv; vec3 tmin = min(t0, t1), tmax = max(t0, t1);
+      float tn = max(max(tmin.x, tmin.y), tmin.z), tf = min(min(tmax.x, tmax.y), tmax.z);
+      if (tn > tf || tn < 1e-4 || tn > tMax) continue;
+      int f = tmin.x >= tmin.y && tmin.x >= tmin.z ? (dr.x > 0.0 ? 0 : 1) : tmin.y >= tmin.z ? (dr.y > 0.0 ? 2 : 3) : (dr.z > 0.0 ? 4 : 5);
+      tMax = tn; hb = i; hf = f; n = rot != 0.0 ? rotY(faceN(f), rot) : faceN(f); if (anyHit) return true;
+    }
   }
   return hb >= 0; }
-vec3 faceN(int f) { return f == 0 ? vec3(-1.0, 0.0, 0.0) : f == 1 ? vec3(1.0, 0.0, 0.0) : f == 2 ? vec3(0.0, -1.0, 0.0) : f == 3 ? vec3(0.0, 1.0, 0.0) : f == 4 ? vec3(0.0, 0.0, -1.0) : vec3(0.0, 0.0, 1.0); }
-// the colour of a box face: the room's paint on the face that carries it (the ground only inside the room), the box's own colour elsewhere
+// the colour where a ray landed: the room's paint on the face that carries it (the ground only inside the room), the shape's own colour elsewhere
 vec3 albedoOf(int b, int f, vec3 p) { vec4 a = fetchB(b, 0), k = fetchB(b, 1); bool inRoom = abs(p.x) < uRoom && abs(p.z) < uRoom;
-  return int(a.w) == f && (k.w != 2.0 || inRoom) ? fetchB(b, 3).rgb : fetchB(b, 2).rgb; }
+  return f >= 0 && int(a.w) == f && (k.w != 2.0 || inRoom) ? fetchB(b, 3).rgb : fetchB(b, 2).rgb; }
 vec3 sunSample(float seed) { vec3 w = uSunDir; vec3 u = normalize(cross(abs(w.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), w)); vec3 vv = cross(w, u);
   float r = sqrt(hash(vec3(gl_FragCoord.xy, seed))) * tan(uSunSize); float ph = 6.2831853 * hash(vec3(gl_FragCoord.yx, seed + 3.7)); return normalize(w + u * (r * cos(ph)) + vv * (r * sin(ph))); }
 vec3 fireSample(float seed) { float u1 = hash(vec3(gl_FragCoord.xy, seed + 2.2)), u2 = hash(vec3(gl_FragCoord.yx, seed + 5.9)); float z = 1.0 - 2.0 * u1, r = sqrt(max(0.0, 1.0 - z * z)), ph = 6.2831853 * u2; return uFirePos + uFireR * vec3(r * cos(ph), z, r * sin(ph)); }
@@ -499,13 +531,13 @@ vec3 cosDir(vec3 n, float seed) { float u1 = hash(vec3(gl_FragCoord.xy, seed + 8
 vec3 dome(vec3 d) { return mix(uHemiGnd, uHemiSky, d.y * 0.5 + 0.5); }
 // direct light: the sun through nSun shadow rays toward its disc, the campfire through one shadow ray toward a point on it
 void direct(vec3 p, vec3 n, float seed, int nSun, out vec3 sunC, out vec3 fireC, out float vis) {
-  sunC = vec3(0.0); fireC = vec3(0.0); vis = 0.0; float ndl = max(dot(n, uSunDir), 0.0); float tm; int hb, hf;
+  sunC = vec3(0.0); fireC = vec3(0.0); vis = 0.0; float ndl = max(dot(n, uSunDir), 0.0); float tm; int hb, hf; vec3 nn;
   if (ndl > 0.0) { vis = 1.0;
-    if (nSun > 0) { vis = 0.0; for (int k = 0; k < 8; k++) { if (k >= nSun) break; tm = 1e9; if (!hitBoxes(p, sunSample(seed + float(k) * 1.618), false, true, tm, hb, hf)) vis += 1.0; } vis /= float(nSun); }
+    if (nSun > 0) { vis = 0.0; for (int k = 0; k < 8; k++) { if (k >= nSun) break; tm = 1e9; if (!hitBoxes(p, sunSample(seed + float(k) * 1.618), false, true, tm, hb, hf, nn)) vis += 1.0; } vis /= float(nSun); }
     sunC = uSunCol * ndl * vis; }
   vec3 fs = fireSample(seed); vec3 fv = fs - p; float fd = length(fv); vec3 fl = fv / fd; float nfl = max(dot(n, fl), 0.0);
   if (nfl > 0.0 && fd < 14.0) { float att = 1.0 / max(fd * fd, 0.01); float c = 1.0 - pow(fd / 14.0, 4.0); att *= c * c; tm = fd - 2e-3;
-    if (!hitBoxes(p, fl, false, true, tm, hb, hf)) fireC = uFireCol * att * nfl; }
+    if (!hitBoxes(p, fl, false, true, tm, hb, hf, nn)) fireC = uFireCol * att * nfl; }
 }
 // sky light and bounced light: one ray up and away; a miss is the sky, a hit is another surface lit by the sun and the fire, and on it goes
 void indirect(vec3 p, vec3 n, vec3 alb, float seed, out vec3 skyC, out vec3 bounceC) {
@@ -515,10 +547,10 @@ void indirect(vec3 p, vec3 n, vec3 alb, float seed, out vec3 skyC, out vec3 boun
   vec3 thr = alb; vec3 pp = p, nn = n;
   for (int k = 0; k < 4; k++) {
     if (k > 0 && k >= uDiff) break;
-    vec3 dd = cosDir(nn, seed + 11.0 + float(k) * 5.1); float tm = 1e9; int hb, hf;
-    if (!hitBoxes(pp, dd, false, false, tm, hb, hf)) { if (uSkyRays == 1) { vec3 c = thr * dome(dd) / PI; if (k == 0) skyC += c; else bounceC += c; } break; }
+    vec3 dd = cosDir(nn, seed + 11.0 + float(k) * 5.1); float tm = 1e9; int hb, hf; vec3 nq;
+    if (!hitBoxes(pp, dd, false, false, tm, hb, hf, nq)) { if (uSkyRays == 1) { vec3 c = thr * dome(dd) / PI; if (k == 0) skyC += c; else bounceC += c; } break; }
     if (uDiff == 0) break;
-    vec3 q = pp + dd * tm; vec3 nq = faceN(hf); vec3 aq = albedoOf(hb, hf, q);
+    vec3 q = pp + dd * tm; if (dot(nq, dd) > 0.0) nq = -nq; vec3 aq = albedoOf(hb, hf, q);
     vec3 sC, fC; float vs; direct(q + nq * 1e-3, nq, seed + 23.0 + float(k) * 3.3, 1, sC, fC, vs);
     bounceC += thr * aq * (sC + fC) / PI;
     thr *= aq; pp = q + nq * 1e-3; nn = nq;
@@ -527,10 +559,10 @@ void indirect(vec3 p, vec3 n, vec3 alb, float seed, out vec3 skyC, out vec3 boun
 void main() {
   if (vUv.x < uSplit) discard;
   vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, 1.0, 1.0); vec3 d = normalize(w.xyz / w.w - uCamPos);
-  float seed = fract(float(uFrame) * 0.618034) * 97.0; float tMax = 1e9; int hb, hf; vec3 c; float tOut = -1.0;
-  if (!hitBoxes(uCamPos, d, true, false, tMax, hb, hf)) c = uLayer == 6 ? vec3(1.0) : uLayer == 0 ? sky(d) : vec3(0.0);
+  float seed = fract(float(uFrame) * 0.618034) * 97.0; float tMax = 1e9; int hb, hf; vec3 c, n; float tOut = -1.0;
+  if (!hitBoxes(uCamPos, d, true, false, tMax, hb, hf, n)) c = uLayer == 6 ? vec3(1.0) : uLayer == 0 ? sky(d) : vec3(0.0);
   else {
-    vec3 p = uCamPos + d * tMax; vec3 n = faceN(hf); vec3 alb = albedoOf(hb, hf, p); tOut = tMax; vec3 po = p + n * 1e-3;
+    vec3 p = uCamPos + d * tMax; if (dot(n, d) > 0.0) n = -n; vec3 alb = albedoOf(hb, hf, p); tOut = tMax; vec3 po = p + n * 1e-3;
     vec3 sC, fC, kC, bC; float vs; direct(po, n, seed, uShadowN, sC, fC, vs); indirect(po, n, alb, seed + 13.1, kC, bC);
     vec3 sunC = alb * sC / PI, fireC = alb * fC / PI;
     c = uLayer == 0 ? (sunC + fireC) * uShowDirect + (kC + bC) * uShowIndirect : uLayer == 1 ? sunC : uLayer == 2 ? kC : uLayer == 3 ? bC : uLayer == 4 ? fireC : vec3(vs);
