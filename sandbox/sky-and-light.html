@@ -226,7 +226,7 @@ writeSpheres();
 
 // ---- the sky, on the CPU: the same numbers the shader uses, for the sun's colour and the haze
 const TR = [5.804542996261093e-6, 1.3562911419845635e-5, 3.0265902468824876e-5], MC = [1.8399918514433978e14, 2.7798023919660528e14, 4.0790479543861094e14];
-const atm = { rayleigh: 3.2, turbidity: 2.2, mie: 0.005, g: 0.8, sunDeg: 0.54 };
+const atm = { rayleigh: 3.2, turbidity: 2.2, mie: 0.005, g: 0.8, sunDeg: 0.54, rayScale: 1, mieScale: 1 };
 const sunDir = new THREE.Vector3(), moonDir = new THREE.Vector3(0.35, 0.7, -0.55).normalize();
 function skyConsts() { const s = sunDir; const sunE = 1000 * Math.max(0, 1 - Math.exp(-((1.6110731556870734 - Math.acos(Math.max(-1, Math.min(1, s.y)))) / 1.5))); const fade = 1 - Math.min(1, Math.max(0, 1 - Math.exp(s.y / 450000))); const rc = atm.rayleigh - (1 - fade), mie = 0.434 * (0.2 * atm.turbidity) * 10e-18 * atm.mie; return { sunE, fade, betaR: TR.map(v => v * rc), betaM: MC.map(v => v * mie) }; }
 function skyCPU(dx, dy, dz, K) { const zen = Math.acos(Math.max(0, dy)), inv = 1 / (Math.cos(zen) + 0.15 * Math.pow(93.885 - zen * 180 / Math.PI, -1.253)), sR = 8.4e3 * inv, sM = 1.25e3 * inv; const cosT = dx * sunDir.x + dy * sunDir.y + dz * sunDir.z, rp = 0.05968310365946075 * (1 + Math.pow(cosT * 0.5 + 0.5, 2)), g = atm.g, hg = 0.07957747154594767 * ((1 - g * g) / Math.pow(1 - 2 * g * cosT + g * g, 1.5)); const out = [0, 0, 0], fex = [0, 0, 0]; const hm = Math.min(1, Math.max(0, Math.pow(1 - sunDir.y, 5)));
@@ -422,22 +422,25 @@ const WG_ATM = `
 const Rb: f32 = 6360.0; const Rt: f32 = 6460.0; const SUN_ILL: f32 = 20.0;
 const RAY_S: vec3f = vec3f(5.802e-3, 13.558e-3, 33.1e-3); const MIE_S: f32 = 3.996e-3; const MIE_A: f32 = 4.4e-3; const OZO_A: vec3f = vec3f(0.650e-3, 1.881e-3, 0.085e-3);
 struct Med { s_ray: vec3f, s_mie: vec3f, ext: vec3f };
-fn medium(p: vec3f) -> Med { let h = max(length(p) - Rb, 0.0); let dR = exp(-h / 8.0); let dM = exp(-h / 1.2); let dO = max(0.0, 1.0 - abs(h - 25.0) / 15.0); var m: Med; m.s_ray = RAY_S * dR; m.s_mie = vec3f(MIE_S * dM); m.ext = RAY_S * dR + vec3f((MIE_S + MIE_A) * dM) + OZO_A * dO; return m; }
+fn medium(p: vec3f) -> Med { let h = max(length(p) - Rb, 0.0); let dR = exp(-h / 8.0); let dM = exp(-h / 1.2); let dO = max(0.0, 1.0 - abs(h - 25.0) / 15.0); let sc = atmP(); var m: Med; m.s_ray = RAY_S * dR * sc.x; m.s_mie = vec3f(MIE_S * dM * sc.y); m.ext = RAY_S * dR * sc.x + vec3f((MIE_S + MIE_A) * dM * sc.y) + OZO_A * dO; return m; }
 fn raySphere(o: vec3f, d: vec3f, R: f32) -> f32 { let b = dot(o, d); let c = dot(o, o) - R * R; let disc = b * b - c; if (disc < 0.0) { return -1.0; } let s = sqrt(disc); let t0 = -b - s; let t1 = -b + s; if (t0 < 0.0 && t1 < 0.0) { return -1.0; } if (t0 < 0.0) { return t1; } return t0; }
 fn transUV(r: f32, mu: f32) -> vec2f { let H = sqrt(max(0.0, Rt * Rt - Rb * Rb)); let rho = sqrt(max(0.0, r * r - Rb * Rb)); let disc = r * r * (mu * mu - 1.0) + Rt * Rt; let d = max(0.0, -r * mu + sqrt(max(disc, 0.0))); let dmin = Rt - r; let dmax = rho + H; return vec2f((d - dmin) / max(dmax - dmin, 1e-6), rho / H); }
 fn uvToTrans(uv: vec2f) -> vec2f { let H = sqrt(Rt * Rt - Rb * Rb); let rho = H * uv.y; let r = sqrt(rho * rho + Rb * Rb); let dmin = Rt - r; let dmax = rho + H; let d = dmin + uv.x * (dmax - dmin); let mu = select((H * H - rho * rho - d * d) / (2.0 * r * d), 1.0, d == 0.0); return vec2f(r, clamp(mu, -1.0, 1.0)); }
 fn phaseR(c: f32) -> f32 { return 3.0 / (16.0 * 3.14159265) * (1.0 + c * c); }
-fn phaseM(c: f32) -> f32 { let g = 0.8; let g2 = g * g; let k = 3.0 * (1.0 - g2) / (8.0 * 3.14159265 * (2.0 + g2)); return k * (1.0 + c * c) / pow(1.0 + g2 - 2.0 * g * c, 1.5); }
+fn phaseM(c: f32) -> f32 { let g = atmP().z; let g2 = g * g; let k = 3.0 * (1.0 - g2) / (8.0 * 3.14159265 * (2.0 + g2)); return k * (1.0 + c * c) / pow(1.0 + g2 - 2.0 * g * c, 1.5); }
 fn skyViewUV(view: vec3f, sun: vec3f, r: f32) -> vec2f { let up = vec3f(0.0, 1.0, 0.0); let beta = acos(clamp(Rb / r, -1.0, 1.0)); let zh = 3.14159265 - beta; let z = acos(clamp(view.y, -1.0, 1.0)); var v: f32; if (z < zh) { v = 0.5 * (1.0 - sqrt(max(0.0, 1.0- z / zh))); } else { v = 0.5 + 0.5 * sqrt(max(0.0, (z - zh) / max(beta, 1e-4))); }
   let vh = normalize(vec3f(view.x, 0.0, view.z) + vec3f(1e-5, 0.0, 0.0)); let sh = normalize(vec3f(sun.x, 0.0, sun.z) + vec3f(1e-5, 0.0, 0.0)); let c = dot(vh, sh); let u = sqrt(clamp(-c * 0.5 + 0.5, 0.0, 1.0)); return vec2f(u, v); }
 `;
+const WG_ATM_LUT = WG_ATM + `
+struct AtmP { ray: f32, mie: f32, g: f32, pad: f32 }; @group(0) @binding(6) var<uniform> AT: AtmP; fn atmP() -> vec3f { return vec3f(AT.ray, AT.mie, AT.g); }`;
 const WG_COMMON = WG_ATM + `
+fn atmP() -> vec3f { return P.atm.xyz; }
 struct Params { invPV: mat4x4f, camPos: vec4f, sunDir: vec4f, sunCol: vec4f, moonDir: vec4f, moonCol: vec4f, fogCol: vec4f, skyZen: vec4f, skyHor: vec4f, betaR: vec4f, betaM: vec4f,
   res: vec2f, loRes: vec2f, giRes: vec2f, jitter: vec2f,
   sunE: f32, sunfade: f32, mieG: f32, sunCos: f32, night: f32, skyOn: f32, bounceOn: f32, fogD: f32, sunSize: f32, moonSize: f32, noiseShift: f32, blend: f32,
   tlasRoot: i32, nsph: i32, shadowK: i32, giK: i32, view: i32, frame: i32, shadowStride: i32, giStride: i32,
   matA: array<vec4f, ${MATN}>, matB: array<vec4f, ${MATN}>, matC: array<vec4f, ${MATN}>, sphA: array<vec4f, 40>, sphB: array<vec4f, 40>,
-  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f };
+  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f, atm: vec4f };
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> nodes: array<vec4f>;
 @group(0) @binding(2) var<storage, read> tris: array<vec4f>;
@@ -617,7 +620,7 @@ const WG_SHADOW = WG_COMMON + `
 @group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var oV: texture_storage_2d<rgba16float, write>; @group(1) @binding(3) var tAge: texture_2d<f32>;
 @compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.loRes.x || f32(px.y) >= P.loRes.y) { return; } let fp = min(px * P.shadowStride, vec2i(P.res) - 1);
   let A = textureLoad(gA, fp, 0); if (A.w < 0.0) { textureStore(oV, px, vec4f(1.0, 1.0, 0.0, 0.0)); return; } let p = A.xyz; let n = textureLoad(gB, fp, 0).xyz; let po = p + n * 3e-3; let rot = ign(vec2f(px));
-  let age = textureLoad(tAge, px, 0).z; let K = select(select(P.shadowK, max(P.shadowK * 2, 4), age < 12.0), max(P.shadowK, 1), age > 60.0);
+  let age = textureLoad(tAge, px, 0).z; let K = select(P.shadowK, select(select(P.shadowK, max(P.shadowK * 2, 4), age < 12.0), max(P.shadowK, 1), age > 60.0), P.nrc.w > 0.5);
   var sv = 1.0; if (dot(P.sunCol.xyz, P.sunCol.xyz) > 0.0) { sv = 0.0; if (dot(n, P.sunDir.xyz) > -0.1) { for (var k = 0; k < 8; k++) { if (k >= K) { break; } let l = coneK(P.sunDir.xyz, P.sunSize, k, K, rot); if (!occluded(po, l, 1e9)) { sv += 1.0; } } sv /= f32(K); } sv *= cloudShadow(p); }
   var mv = 1.0; if (dot(P.moonCol.xyz, P.moonCol.xyz) > 0.0) { mv = 0.0; let l = coneK(P.moonDir.xyz, P.moonSize, 0, 1, rot); if (dot(n, l) > 0.0 && !occluded(po, l, 1e9)) { mv = 1.0; } }
   textureStore(oV, px, vec4f(sv, mv, 0.0, A.w)); }`;
@@ -765,9 +768,8 @@ fn marchVol(ro: vec3f, rd: vec3f, tMax: f32, b0: vec3f, b1: vec3f, isFire: bool,
     // haze, and a mist that pools low in the valley
     let hc = max(P.camPos.y, 0.0); let hp = max(p.y, 0.0); let dh = hp - hc; let mistInt = select(exp(-hc / 6.0) * (1.0 - exp(-dh / 6.0)) / (dh / 6.0), exp(-hc / 6.0), abs(dh) < 0.01);
     let Tm = exp(-(P.mist * mistInt + 0.0004) * min(A.w, 140.0)); col = col * Tm + upsampleVol(px, A); col = aerial((vec2f(px) + 0.5) / P.res, A.w * (0.35 + 0.65 * clamp(P.fogD / 0.0015, 0.0, 3.0)), col);
-    if (P.view == 1) { col = vec3f(sunVis); } else if (P.view == 2) { col = E * 0.5; } else if (P.view == 3) { col = select(vec3f(0.0), R.rgb, R.a > 0.5); } else if (P.view == 9) { col = vec3f(n.x * 4.0 + 0.5, n.z * 4.0 + 0.5, 0.0); } else if (P.view == 11) { let cE = cacheLookup(p, n, false); col = select(vec3f(0.6, 0.0, 0.0), cE.rgb * 0.5, cE.w > 0.0); } else if (P.view == 12) { let nE = nrcQuery(p, n); col = select(vec3f(0.6, 0.0, 0.0), nE * 0.5, nE.x >= 0.0); } else if (P.view == 10) { let o = oceanAt(p.xz); col = vec3f(o.x * 2.0 + 0.5, o.y * 2.0 + 0.5, shoreFade(p.xz)); } }
+    if (P.view == 1) { col = vec3f(sunVis); } else if (P.view == 2) { col = E * 0.5; } else if (P.view == 3) { col = select(vec3f(0.0), R.rgb, R.a > 0.5); } else if (P.view == 11) { let cE = cacheLookup(p, n, false); col = select(vec3f(0.6, 0.0, 0.0), cE.rgb * 0.5, cE.w > 0.0); } else if (P.view == 12) { let nE = nrcQuery(p, n); col = select(vec3f(0.6, 0.0, 0.0), nE * 0.5, nE.x >= 0.0); } }
   { let uv = (vec2f(px) + 0.5) / P.res; let w = P.invPV * vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0); let d = normalize(w.xyz / w.w - P.camPos.xyz); let tm = select(A.w, 1e9, A.w < 0.0); let j = ign(vec2f(px));
-    if (P.view == 5) { col = textureSampleLevel(tNoise, samp, vec3f(uv * 2.0, 0.3), 0.0).rgb; } else if (P.view == 8) { let wx = P.waterOrg.xy + uv * P.waterOrg.z; col = vec3f(shoreFade(wx), textureSampleLevel(tShore, samp, uv, 0.0).r, 0.0); } else if (P.view == 7) { let o = select(textureSampleLevel(tOcean, samp, uv * vec2f(0.5, 0.25), 0.0), textureLoad(tOcean, vec2i(uv * vec2f(0.5, 0.25) * 128.0) % 128, 0), uv.x > 0.5); col = vec3f(o.x * 2.0 + 0.5, o.y * 2.0 + 0.5, 0.0); } else if (P.view == 6) { if (d.y > 0.02) { let q = P.camPos.xyz + d * ((1100.0 - P.camPos.y) / d.y); let wt = cloudWeather(q.xz); col = vec3f(cloudDensity(q, true) * 3.0, wt.x, 0.0); } }
     if (P.simOn.y > 0.5) { col = marchVol(P.camPos.xyz, d, tm, P.fireBox0.xyz, P.fireBox1.xyz, true, j, col); } if (P.simOn.z > 0.5) { col = marchVol(P.camPos.xyz, d, tm, P.chimBox0.xyz, P.chimBox1.xyz, false, j, col); } }
   textureStore(oCur, px, vec4f(col, A.w)); }`;
 // temporal anti-aliasing: find where this pixel was last frame, and blend, unless the history clearly does not belong here
@@ -801,12 +803,12 @@ fn perlin(p: vec3f, n: i32) -> f32 { let i = vec3i(floor(p)); let f = fract(p); 
 @compute @workgroup_size(4, 4, 4) fn main(@builtin(global_invocation_id) gid: vec3u) { let c = vec3i(gid); if (c.x >= 64 || c.y >= 64 || c.z >= 64) { return; } let p = (vec3f(c) + 0.5) / 64.0;
   let pn = perlin(p * 4.0, 4) * 0.5 + perlin(p * 8.0, 8) * 0.3 + perlin(p * 16.0, 16) * 0.2; let w1 = worley(p * 4.0, 4) * 0.625 + worley(p * 8.0, 8) * 0.25 + worley(p * 16.0, 16) * 0.125;
   let pw = w1 + pn * (1.0 - w1); textureStore(oN, c, vec4f(pw, worley(p * 4.0, 4), worley(p * 8.0, 8), worley(p * 16.0, 16))); }`;
-const WG_LUT_T = WG_ATM + `
+const WG_LUT_T = WG_ATM_LUT + `
 @group(0) @binding(0) var oT: texture_storage_2d<rgba16float, write>;
 @compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (px.x >= 256 || px.y >= 64) { return; } let uv = (vec2f(px) + 0.5) / vec2f(256.0, 64.0); let rm = uvToTrans(uv); let r = rm.x; let mu = rm.y;
   let o = vec3f(0.0, r, 0.0); let d = vec3f(sqrt(max(0.0, 1.0 - mu * mu)), mu, 0.0); var tMax = raySphere(o, d, Rt); let tg = raySphere(o, d, Rb); if (tg > 0.0) { tMax = tg; } if (tMax < 0.0) { textureStore(oT, px, vec4f(1.0)); return; }
   let n = 40; let dt = tMax / f32(n); var od = vec3f(0.0); for (var i = 0; i < n; i++) { let p = o + d * ((f32(i) + 0.5) * dt); od += medium(p).ext * dt; } textureStore(oT, px, vec4f(exp(-od), 1.0)); }`;
-const WG_LUT_MS = WG_ATM + `
+const WG_LUT_MS = WG_ATM_LUT + `
 @group(0) @binding(0) var tT: texture_2d<f32>; @group(0) @binding(1) var sampC: sampler; @group(0) @binding(2) var oMS: texture_storage_2d<rgba16float, write>;
 @compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (px.x >= 32 || px.y >= 32) { return; } let uv = (vec2f(px) + 0.5) / 32.0; let mus = uv.x * 2.0 - 1.0; let r = Rb + uv.y * (Rt - Rb) + 0.001; let o = vec3f(0.0, r, 0.0); let sun = vec3f(sqrt(max(0.0, 1.0 - mus * mus)), mus, 0.0);
   var L2 = vec3f(0.0); var fms = vec3f(0.0); let N = 64;
@@ -817,7 +819,7 @@ const WG_LUT_MS = WG_ATM + `
     if (hitG) { let pg = o + d * tMax; let pmu = dot(pg, sun) / length(pg); Ls += T * 0.3 / 3.14159265 * max(pmu, 0.0) * textureSampleLevel(tT, sampC, transUV(length(pg), pmu), 0.0).rgb; }
     L2 += Ls / f32(N); fms += Lf / f32(N); }
   textureStore(oMS, px, vec4f(L2 / max(vec3f(1.0) - fms, vec3f(1e-3)), 1.0)); }`;
-const WG_LUT_SKY = WG_ATM + `
+const WG_LUT_SKY = WG_ATM_LUT + `
 struct SP { sun: vec3f, camH: f32, invPV: mat4x4f, camPos: vec4f };
 @group(0) @binding(0) var tT: texture_2d<f32>; @group(0) @binding(1) var sampC: sampler; @group(0) @binding(2) var tMS: texture_2d<f32>; @group(0) @binding(3) var oSky: texture_storage_2d<rgba16float, write>; @group(0) @binding(4) var<uniform> S: SP; @group(0) @binding(5) var oAP: texture_storage_3d<rgba16float, write>;
 fn scatter(o: vec3f, d: vec3f, tMax: f32, n: i32, sun: vec3f) -> vec4f { let dt = tMax / f32(n); var T = vec3f(1.0); var L = vec3f(0.0); let ct = dot(d, sun); let pR = phaseR(ct); let pM = phaseM(ct);
@@ -830,7 +832,7 @@ fn scatter(o: vec3f, d: vec3f, tMax: f32, n: i32, sun: vec3f) -> vec4f { let dt 
     var tMax = raySphere(o, d, Rt); let tg = raySphere(o, d, Rb); if (tg > 0.0) { tMax = tg; } var L = vec3f(0.0); if (tMax > 0.0) { L = scatter(o, d, tMax, 32, sun).rgb; } textureStore(oSky, px, vec4f(L, 1.0)); }
   if (px.x < 32 && px.y < 32) { for (var k = 0; k < 32; k++) { let uv = (vec2f(px) + 0.5) / 32.0; let w = S.invPV * vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0); let d = normalize(w.xyz / w.w - S.camPos.xyz); let zf = (f32(k) + 0.5) / 32.0; let dist = zf * zf * 6.0; let o = vec3f(0.0, Rb + S.camH, 0.0);
     var tMax = dist; let tg = raySphere(o, d, Rb); if (tg > 0.0) { tMax = min(tMax, tg); } let r = scatter(o, d, max(tMax, 1e-4), 10, S.sun); textureStore(oAP, vec3i(px, k), vec4f(r.rgb, r.a)); } } }`;
-const WG_SKYSTATS = WG_ATM + `
+const WG_SKYSTATS = WG_ATM_LUT + `
 struct SP { sun: vec3f, camH: f32, invPV: mat4x4f, camPos: vec4f };
 @group(0) @binding(0) var tSky: texture_2d<f32>; @group(0) @binding(1) var sampC: sampler; @group(0) @binding(2) var tT: texture_2d<f32>; @group(0) @binding(3) var<uniform> S: SP; @group(0) @binding(4) var<storage, read_write> out: array<vec4f>;
 @compute @workgroup_size(1) fn main() { let r = Rb + S.camH; let zen = textureSampleLevel(tSky, sampC, skyViewUV(vec3f(0.0, 1.0, 0.0), S.sun, r), 0.0).rgb; var hor = vec3f(0.0); for (var i = 0; i < 8; i++) { let a = f32(i) / 8.0 * 6.2831853; hor += textureSampleLevel(tSky, sampC, skyViewUV(normalize(vec3f(cos(a), 0.035, sin(a))), S.sun, r), 0.0).rgb; } hor /= 8.0;
@@ -845,7 +847,7 @@ fn srgb(c0: vec3f) -> vec3f { let c = clamp(c0, vec3f(0.0), vec3f(1.0)); return 
 @fragment fn fs(i: VO) -> @location(0) vec4f { var c = textureSampleLevel(tSrc, samp, i.uv, 0.0).rgb; let bl = textureSampleLevel(tBloom, samp, i.uv, 0.0).rgb; c += bl * D.bloom;
   if (D.shafts > 0.0 && D.sunUp > 0.0) { var sh = vec3f(0.0); let dv = (D.sunUv - i.uv) / 24.0; var uv = i.uv; var wsum = 0.0; for (var k = 0; k < 24; k++) { uv += dv; let w = 1.0 - f32(k) / 24.0; sh += textureSampleLevel(tBloom, samp, uv, 0.0).rgb * w; wsum += w; } let dist = length((D.sunUv - i.uv) * vec2f(1.0, 0.75)); c += sh / wsum * D.shafts * D.sunUp * (1.0 - smoothstep(0.35, 0.9, dist)); }
   c *= D.exposure; if (D.curve == 1.0) { c = aces(c); } else if (D.curve == 2.0) { c = c / (1.0 + c); } let lum = dot(c, vec3f(0.3, 0.59, 0.11)); c = mix(vec3f(lum), c, 1.1); let vd = length((i.uv - 0.5) * vec2f(1.0, 0.85)); c *= 1.0 - 0.28 * smoothstep(0.35, 0.95, vd); return vec4f(srgb(c), 1.0); }`;
-let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { nrcOn: true, restirOn: true, cacheOn: true, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true };
+let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { vrr: true, nrcOn: true, restirOn: true, cacheOn: true, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true };
 // the simulation grids: a wave grid over the lake (with the shore as a wall), and two boxes of air over the fire and the chimney
 const SIM = (() => { const n = 256, size = 44, x0 = LAKE.x - size / 2, z0 = LAKE.z - size / 2; const land = new Uint8Array(n * n * 2); for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = x0 + (i + 0.5) / n * size, z = z0 + (j + 0.5) / n * size; const th = terrainH(x, z); land[(j * n + i) * 2] = th > -0.55 ? 255 : 0; const dp = Math.min(Math.max((-0.55 - th) / 0.9, 0), 1); land[(j * n + i) * 2 + 1] = Math.round(255 * dp * dp * (3 - 2 * dp)); }
   const fy = terrainH(FIRE.x, FIRE.z); const ca = Math.cos(-0.55), sa = Math.sin(-0.55); const cx = CABIN.x + (3.2 - 1.2) * ca + (-2.3 + 0.9) * sa, cz = CABIN.z - (3.2 - 1.2) * sa + (-2.3 + 0.9) * ca; const cy = terrainH(CABIN.x, CABIN.z) - 0.1 + 5.5;
@@ -959,7 +961,7 @@ async function startWebGPU() {
   const ctx = canvas.getContext('webgpu'); const format = navigator.gpu.getPreferredCanvasFormat(); ctx.configure({ device, format, alphaMode: 'opaque' });
   const mkBuf = (arr, usage) => { const b = device.createBuffer({ size: Math.ceil(arr.byteLength / 16) * 16, usage, mappedAtCreation: true }); new Float32Array(b.getMappedRange()).set(arr); b.unmap(); return b; };
   const bNodes = mkBuf(nodeData, GPUBufferUsage.STORAGE), bTris = mkBuf(triData, GPUBufferUsage.STORAGE), bTris0 = mkBuf(triData, GPUBufferUsage.STORAGE), bAttr = mkBuf(attrData, GPUBufferUsage.STORAGE), bInst = mkBuf(instData, GPUBufferUsage.STORAGE);
-  const PARAMS_F = 84 + MATN * 12 + 320 + 20 + 24 + 8; const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const PARAMS_F = 84 + MATN * 12 + 320 + 20 + 24 + 12; const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const layers = [barkTex, birchTex, leafO, leafP, leafB, rockTex, woodTex, stoneTex, groundTex, grassTex]; const texArr = device.createTexture({ size: [256, 256, layers.length], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   layers.forEach((t, i) => device.queue.copyExternalImageToTexture({ source: t.image }, { texture: texArr, origin: [0, 0, i] }, [256, 256]));
   const samp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat', addressModeW: 'repeat' });
@@ -971,16 +973,17 @@ async function startWebGPU() {
   const lutT = device.createTexture({ size: [256, 64], format: 'rgba16float', usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING }); const lutMS = device.createTexture({ size: [32, 32], format: 'rgba16float', usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
   const lutSky = device.createTexture({ size: [192, 108], format: 'rgba16float', usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING }); const lutAP = device.createTexture({ size: [32, 32, 32], format: 'rgba16float', dimension: '3d', usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
   const skyBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); const statsBuf = device.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST }); const statsRead = device.createBuffer({ size: 64, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-  const lutL = { t: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba16float' } }] }),
-    ms: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 1, visibility: GPUShaderStage.COMPUTE, sampler: {} }, { binding: 2, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba16float' } }] }),
-    sky: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 1, visibility: GPUShaderStage.COMPUTE, sampler: {} }, { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba16float' } }, { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, { binding: 5, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba16float', viewDimension: '3d' } }] }),
-    stats: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 1, visibility: GPUShaderStage.COMPUTE, sampler: {} }, { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }] }) };
+  const atmBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); const writeAtm = () => device.queue.writeBuffer(atmBuf, 0, new Float32Array([atm.rayScale, atm.mieScale, atm.g, 0])); writeAtm();
+  const lutL = { t: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba16float' } }, { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }),
+    ms: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 1, visibility: GPUShaderStage.COMPUTE, sampler: {} }, { binding: 2, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba16float' } }, { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }),
+    sky: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 1, visibility: GPUShaderStage.COMPUTE, sampler: {} }, { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba16float' } }, { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, { binding: 5, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba16float', viewDimension: '3d' } }, { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }),
+    stats: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 1, visibility: GPUShaderStage.COMPUTE, sampler: {} }, { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }) };
   const lp = (code, l) => device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [l] }), compute: { module: device.createShaderModule({ code }), entryPoint: 'main' } });
   const lutP = { t: lp(WG_LUT_T, lutL.t), ms: lp(WG_LUT_MS, lutL.ms), sky: lp(WG_LUT_SKY, lutL.sky), stats: lp(WG_SKYSTATS, lutL.stats) };
-  const lutG = { t: device.createBindGroup({ layout: lutL.t, entries: [{ binding: 0, resource: lutT.createView() }] }), ms: device.createBindGroup({ layout: lutL.ms, entries: [{ binding: 0, resource: lutT.createView() }, { binding: 1, resource: sampC }, { binding: 2, resource: lutMS.createView() }] }),
-    sky: device.createBindGroup({ layout: lutL.sky, entries: [{ binding: 0, resource: lutT.createView() }, { binding: 1, resource: sampC }, { binding: 2, resource: lutMS.createView() }, { binding: 3, resource: lutSky.createView() }, { binding: 4, resource: { buffer: skyBuf } }, { binding: 5, resource: lutAP.createView() }] }),
-    stats: device.createBindGroup({ layout: lutL.stats, entries: [{ binding: 0, resource: lutSky.createView() }, { binding: 1, resource: sampC }, { binding: 2, resource: lutT.createView() }, { binding: 3, resource: { buffer: skyBuf } }, { binding: 4, resource: { buffer: statsBuf } }] }) };
-  { const enc = device.createCommandEncoder(); let c = enc.beginComputePass(); c.setPipeline(lutP.t); c.setBindGroup(0, lutG.t); c.dispatchWorkgroups(32, 8); c.end(); c = enc.beginComputePass(); c.setPipeline(lutP.ms); c.setBindGroup(0, lutG.ms); c.dispatchWorkgroups(4, 4); c.end(); device.queue.submit([enc.finish()]); }
+  const lutG = { t: device.createBindGroup({ layout: lutL.t, entries: [{ binding: 0, resource: lutT.createView() }, { binding: 6, resource: { buffer: atmBuf } }] }), ms: device.createBindGroup({ layout: lutL.ms, entries: [{ binding: 0, resource: lutT.createView() }, { binding: 1, resource: sampC }, { binding: 2, resource: lutMS.createView() }, { binding: 6, resource: { buffer: atmBuf } }] }),
+    sky: device.createBindGroup({ layout: lutL.sky, entries: [{ binding: 0, resource: lutT.createView() }, { binding: 1, resource: sampC }, { binding: 2, resource: lutMS.createView() }, { binding: 3, resource: lutSky.createView() }, { binding: 4, resource: { buffer: skyBuf } }, { binding: 5, resource: lutAP.createView() }, { binding: 6, resource: { buffer: atmBuf } }] }),
+    stats: device.createBindGroup({ layout: lutL.stats, entries: [{ binding: 0, resource: lutSky.createView() }, { binding: 1, resource: sampC }, { binding: 2, resource: lutT.createView() }, { binding: 3, resource: { buffer: skyBuf } }, { binding: 4, resource: { buffer: statsBuf } }, { binding: 6, resource: { buffer: atmBuf } }] }) };
+  function buildLuts() { writeAtm(); const enc = device.createCommandEncoder(); let c = enc.beginComputePass(); c.setPipeline(lutP.t); c.setBindGroup(0, lutG.t); c.dispatchWorkgroups(32, 8); c.end(); c = enc.beginComputePass(); c.setPipeline(lutP.ms); c.setBindGroup(0, lutG.ms); c.dispatchWorkgroups(4, 4); c.end(); device.queue.submit([enc.finish()]); } buildLuts();
   let statsPending = false; const skyStats = { zen: [0.2, 0.3, 0.5], hor: [0.4, 0.5, 0.6], sun: [10, 9, 8], n: 0, err: '' }; window.__skyStats = skyStats;
   function skyPass(enc) { const a = new Float32Array(24); a.set([sunDir.x, sunDir.y, sunDir.z, Math.max(camera.position.y, 0) * 0.001 + 0.05]); a.set(U.uInvPV.value.elements, 4); a.set([camera.position.x, camera.position.y, camera.position.z, 0], 20); device.queue.writeBuffer(skyBuf, 0, a);
     let c = enc.beginComputePass(); c.setPipeline(lutP.sky); c.setBindGroup(0, lutG.sky); c.dispatchWorkgroups(24, 14); c.end(); c = enc.beginComputePass(); c.setPipeline(lutP.stats); c.setBindGroup(0, lutG.stats); c.dispatchWorkgroups(1); c.end(); if (!statsPending) { enc.copyBufferToBuffer(statsBuf, 0, statsRead, 0, 64); } enc.clearBuffer(statsBuf, 48, 16); }
@@ -1079,7 +1082,7 @@ async function startWebGPU() {
     f[56] = w; f[57] = h; f[58] = st.lw; f[59] = st.lh; f[60] = st.qw; f[61] = st.qh; f[62] = jitter.x; f[63] = jitter.y;
     f[64] = U.uSunE.value; f[65] = U.uSunfade.value; f[66] = U.uMieG.value; f[67] = U.uSunCos.value; f[68] = U.uNight.value; f[69] = U.uSkyOn.value; f[70] = U.uBounceOn.value; f[71] = U.uFogD.value; f[72] = U.uSunSize.value; f[73] = U.uMoonSize.value; f[74] = U.uNoiseShift.value; f[75] = blend;
     paramsI[76] = tlasRoot; paramsI[77] = spheres.length; paramsI[78] = U.uShadowK.value; paramsI[79] = U.uGiK.value; paramsI[80] = view; paramsI[81] = U.uFrame.value; paramsI[82] = st.ss; paramsI[83] = st.gs;
-    f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 160); const o2 = 84 + MATN * 12 + 320; f.set(prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; f.set([...SIM.fire.min, 0, ...SIM.fire.max, 0, ...SIM.chim.min, 0, ...SIM.chim.max, 0, SIM.water.x0, SIM.water.z0, SIM.water.size, SIM.water.n, fx.waterOn ? 1 : 0, fx.fireOn ? 1 : 0, fx.chimOn ? 1 : 0, fx.hideFlame ? 1 : 0], o2 + 20); f.set([fx.oceanOn ? 1 : 0, OCEAN_L, fx.cacheOn ? 1 : 0, fx.restirOn ? 1 : 0, fx.nrcOn && fx.cacheOn ? 1 : 0, 0, 0, 0], o2 + 44); device.queue.writeBuffer(bParams, 0, paramsArr); }
+    f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 160); const o2 = 84 + MATN * 12 + 320; f.set(prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; f.set([...SIM.fire.min, 0, ...SIM.fire.max, 0, ...SIM.chim.min, 0, ...SIM.chim.max, 0, SIM.water.x0, SIM.water.z0, SIM.water.size, SIM.water.n, fx.waterOn ? 1 : 0, fx.fireOn ? 1 : 0, fx.chimOn ? 1 : 0, fx.hideFlame ? 1 : 0], o2 + 20); f.set([fx.oceanOn ? 1 : 0, OCEAN_L, fx.cacheOn ? 1 : 0, fx.restirOn ? 1 : 0, fx.nrcOn && fx.cacheOn ? 1 : 0, 0, 0, fx.vrr ? 1 : 0, atm.rayScale, atm.mieScale, atm.g, 0], o2 + 44); device.queue.writeBuffer(bParams, 0, paramsArr); }
   function render(w, h, blend, view, jitter, doBlur, ss, gs) {
     ensure(w, h, ss, gs); fillParams(w, h, blend, view, jitter); const sc = sunDir.clone().multiplyScalar(1000).add(camera.position).project(camera); device.queue.writeBuffer(bDisp, 0, new Float32Array([dispU.uExposure.value, dispU.uCurve.value, fx.bloom, fx.shafts, sc.x * 0.5 + 0.5, 0.5 - sc.y * 0.5, sc.z < 1 && sunDir.y > 0.02 ? 1 : 0, 0]));
     const cw = Math.max(1, Math.round(sb.stage.clientWidth * Math.min(devicePixelRatio || 1, 2))), ch = Math.max(1, Math.round(sb.stage.clientHeight * Math.min(devicePixelRatio || 1, 2))); if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
@@ -1090,7 +1093,7 @@ async function startWebGPU() {
     run(pipes.refl, G.refl, w, h); run(pipes.comp, G.comp[cur], w, h); run(pipes.taa, G.taa[cur], w, h); run(pipes.bright, G.bright[cur], st.bw, st.bh); run(pipes.gauss, G.gauss1, st.bw, st.bh); run(pipes.gauss, G.gauss2, st.bw, st.bh);
     const rp = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] }); rp.setPipeline(dispPipe); rp.setBindGroup(0, G.disp[cur]); rp.draw(3); rp.end();
     device.queue.submit([enc.finish()]); readStats(); prevPV.copy(camera.projectionMatrix).multiply(camera.matrixWorldInverse); cur = 1 - cur; }
-  return { device, render, adapter };
+  return { device, render, adapter, buildLuts };
 }
 gpu = await startWebGPU();
 
@@ -1113,26 +1116,28 @@ function placeSun() {
 }
 
 // ---- panel
+const gpuOnly = (c) => { if (!gpu) { c.el.querySelectorAll('input, button').forEach(e => { e.disabled = true; }); c.el.style.opacity = '0.45'; c.el.title = 'needs WebGPU'; } return c; };
 const s1 = sb.panel.section('01 · The sky', 'Sunlight comes in white. Air scatters the blue end of it in every direction, which is why the sky is blue and a low sun, seen through far more air, is orange. Haze scatters every colour and puts the glow around the sun. Every ray that reaches the sky reads this.');
 const hourS = s1.slider('Time of day', { min: 4.5, max: 21, step: 0.05, value: hour, fmt: v => { const h = Math.floor(v), m = Math.round((v - h) * 60); return h + ':' + String(m).padStart(2, '0'); } }, v => { hour = v; placeSun(); });
 s1.toggle('let the day run (a step every two seconds)', false, v => { running = v; runT = 0; });
-s1.slider('Air (how much blue it scatters)', { min: 0.3, max: 4, step: 0.1, value: 3.2 }, v => { atm.rayleigh = v; placeSun(); });
-s1.slider('Haze (dust and water in the air)', { min: 1, max: 20, step: 0.5, value: 2.2 }, v => { atm.turbidity = v; placeSun(); });
-s1.slider('Haze strength', { min: 0.001, max: 0.03, step: 0.001, value: 0.005, fmt: v => (+v).toFixed(3) }, v => { atm.mie = v; placeSun(); });
-s1.slider('Glow around the sun', { min: 0.5, max: 0.97, step: 0.01, value: 0.8, fmt: v => (+v).toFixed(2) }, v => { atm.g = v; placeSun(); });
+const atmChanged = () => { atm.rayleigh = 3.2 * atm.rayScale; atm.turbidity = 2.2 * atm.mieScale; atm.mie = 0.005 * atm.mieScale; if (gpu) gpu.buildLuts(); placeSun(); };
+s1.slider('Air (how much blue it scatters)', { min: 0.2, max: 3, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { atm.rayScale = v; atmChanged(); });
+s1.slider('Haze (dust and water in the air)', { min: 0.1, max: 8, step: 0.1, value: 1, fmt: v => '× ' + (+v).toFixed(1) }, v => { atm.mieScale = v; atmChanged(); });
+s1.slider('Glow around the sun', { min: 0.5, max: 0.97, step: 0.01, value: 0.8, fmt: v => (+v).toFixed(2) }, v => { atm.g = v; atmChanged(); });
 s1.slider('Sun size (a bigger sun makes softer shadows)', { min: 0.2, max: 6, step: 0.1, value: 0.54, unit: '°' }, v => { atm.sunDeg = v; placeSun(); });
-s1.slider('Cloud cover', { min: 0, max: 1, step: 0.02, value: 0.35, fmt: v => Math.round(v * 100) + ' %' }, v => { fx.cover = v; });
-s1.slider('Wind (grass, trees, clouds and water)', { min: 0, max: 3, step: 0.1, value: 1 }, v => { fx.wind = v; });
+gpuOnly(s1.slider('Cloud cover', { min: 0, max: 1, step: 0.02, value: 0.35, fmt: v => Math.round(v * 100) + ' %' }, v => { fx.cover = v; }));
+gpuOnly(s1.slider('Wind (grass, trees, clouds and water)', { min: 0, max: 3, step: 0.1, value: 1 }, v => { fx.wind = v; }));
 s1.toggle('a moon at night', true, v => { moonOn = v; placeSun(); });
+if (!gpu) s1.note('This browser has no WebGPU, so the page runs the simpler WebGL tracer: the greyed-out controls need WebGPU.');
 const sunHRead = s1.readout('sun height'), sunCRead = s1.readout('sun colour and strength, from the sky');
 
 const s2 = sb.panel.section('02 · Light and bounces', 'The sun, the moon, the fire and the lanterns are the only things that make light. Everything else is light that bounced: off the sky, off the ground, off the walls. Turn the sky off and every shadow goes black; turn the bounces off and the underside of everything goes black.');
 s2.segment('Light from', [{ value: 'both', label: 'sun and sky' }, { value: 'sun', label: 'the sun only' }, { value: 'sky', label: 'the sky only' }], 'both', v => { lightFrom = v; placeSun(); });
 s2.slider('Sun strength', { min: 0, max: 3, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { sunStrength = v; placeSun(); });
 s2.toggle('bounced light (rays off the ground and the walls)', true, v => { U.uBounceOn.value = v ? 1 : 0; dirty(); });
-s2.toggle('remember bounced light in a world grid (radiance cache), so it can bounce again', true, v => { fx.cacheOn = v; dirty(); });
+gpuOnly(s2.toggle('remember bounced light in a world grid (radiance cache), so it can bounce again', true, v => { fx.cacheOn = v; dirty(); }));
 const cellsRead = s2.readout('grid cells holding bounced light');
-s2.toggle('a tiny neural network learns the grid and fills its gaps (experimental)', true, v => { fx.nrcOn = v; dirty(); });
+gpuOnly(s2.toggle('a tiny neural network learns the grid and fills its gaps (experimental)', true, v => { fx.nrcOn = v; dirty(); }));
 const nrcRead = s2.readout('neural cache: error against the grid');
 s2.toggle('the campfire', true, v => { fireOn = v; placeSun(); });
 s2.toggle('the lanterns', true, v => { lampsOn = v; placeSun(); });
@@ -1153,27 +1158,27 @@ const expRead = s4.readout('exposure in use');
 const s5 = sb.panel.section('05 · Air in the distance', 'Far things fade into the colour of the sky at the horizon, because there is a lot of lit air between you and them. That is aerial perspective, and it is the cheapest depth cue there is: a haze whose colour comes from the same sky.');
 s5.toggle('haze in the distance', true, v => { fogOn = v; U.uFogD.value = v ? fogDensity : 0; dirty(); });
 s5.slider('How thick', { min: 0, max: 0.02, step: 0.0005, value: 0.0015, fmt: v => (+v).toFixed(4) }, v => { fogDensity = v; if (fogOn) U.uFogD.value = v; dirty(); });
-s5.slider('Mist, pooling low (sun beams live in it)', { min: 0, max: 0.08, step: 0.002, value: 0.006, fmt: v => (+v).toFixed(3) }, v => { fx.mist = v; });
-s5.slider('Glow around bright things (bloom)', { min: 0, max: 0.5, step: 0.01, value: 0.12, fmt: v => (+v).toFixed(2) }, v => { fx.bloom = v; });
+gpuOnly(s5.slider('Mist, pooling low (sun beams live in it)', { min: 0, max: 0.08, step: 0.002, value: 0.006, fmt: v => (+v).toFixed(3) }, v => { fx.mist = v; }));
+gpuOnly(s5.slider('Glow around bright things (bloom)', { min: 0, max: 0.5, step: 0.01, value: 0.12, fmt: v => (+v).toFixed(2) }, v => { fx.bloom = v; }));
 
-const s7 = sb.panel.section('07 · Fluids', 'The lake is a grid of water heights that push on their neighbours, so waves travel, bounce off the shore and cross. On top of that ride the wind waves: a spectrum of how much energy a breeze puts into each wavelength, summed into a surface by a fast Fourier transform every frame, with foam where the waves fold and a caustic pattern on the bottom. The fire and the chimney are boxes of air: heat rises, the flow is kept from piling up, and smoke and heat ride along. What you see is a ray marched through those boxes.');
-s7.toggle('wind in the grass and the trees', true, v => { fx.windOn = v; });
-s7.toggle('simulate the water', true, v => { fx.waterOn = v; });
-s7.toggle('wind waves from a wave spectrum (FFT)', true, v => { fx.oceanOn = v; });
-s7.slider('Wave height', { min: 0, max: 3, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { fx.waveAmp = v; });
-s7.slider('Rain', { min: 0, max: 1, step: 0.05, value: 0, fmt: v => (+v).toFixed(2) }, v => { fx.rain = v; });
-s7.note('Click on the lake to drop a stone in.');
-s7.toggle('simulate the fire', true, v => { fx.fireOn = v; fx.hideFlame = v; });
-s7.slider('Fire strength', { min: 0.2, max: 2.5, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { fx.fireStrength = v; });
-s7.slider('Smoke', { min: 0, max: 3, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { fx.smokeAmt = v; });
-s7.toggle('smoke from the chimney', true, v => { fx.chimOn = v; });
+const s7 = sb.panel.section('06 · Fluids', 'The lake is a grid of water heights that push on their neighbours, so waves travel, bounce off the shore and cross. On top of that ride the wind waves: a spectrum of how much energy a breeze puts into each wavelength, summed into a surface by a fast Fourier transform every frame, with foam where the waves fold and a caustic pattern on the bottom. The fire and the chimney are boxes of air: heat rises, the flow is kept from piling up, and smoke and heat ride along. What you see is a ray marched through those boxes.');
+gpuOnly(s7.toggle('wind in the grass and the trees', true, v => { fx.windOn = v; }));
+gpuOnly(s7.toggle('simulate the water', true, v => { fx.waterOn = v; }));
+gpuOnly(s7.toggle('wind waves from a wave spectrum (FFT)', true, v => { fx.oceanOn = v; }));
+gpuOnly(s7.slider('Wave height', { min: 0, max: 3, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { fx.waveAmp = v; }));
+gpuOnly(s7.slider('Rain', { min: 0, max: 1, step: 0.05, value: 0, fmt: v => (+v).toFixed(2) }, v => { fx.rain = v; }));
+s7.note(gpu ? 'Click on the lake to drop a stone in.' : 'The fluids need WebGPU; here the lake, the fire and the smoke are drawn the simple way.');
+gpuOnly(s7.toggle('simulate the flames as moving air (off: a glowing ball)', true, v => { fx.fireOn = v; fx.hideFlame = v; }));
+gpuOnly(s7.slider('Fire strength', { min: 0.2, max: 2.5, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { fx.fireStrength = v; }));
+gpuOnly(s7.slider('Smoke', { min: 0, max: 3, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { fx.smokeAmt = v; }));
+gpuOnly(s7.toggle('smoke from the chimney', true, v => { fx.chimOn = v; }));
 s7.readout('water cells')('256 × 256'); s7.readout('air cells, fire and chimney')((44 * 60 * 44).toLocaleString() + ' + ' + (34 * 60 * 34).toLocaleString());
 
-const s6 = sb.panel.section('06 · The renderer', 'This is how a game ray traces: one ray per pixel finds the surface, a few rays per pixel ask the sun, the moon, the fire and the sky, one mirror ray serves anything smooth, and the soft light is worked out at half size and smoothed without crossing edges. Nothing is random, so every frame is complete. Holding still only adds anti-aliasing.');
-s6.segment('Show', [{ value: 0, label: 'the picture' }, { value: 1, label: 'the sun\'s shadow rays' }, { value: 2, label: 'sky and bounce light' }, { value: 3, label: 'the mirror rays' }], 0, v => { compMat.uniforms.uView.value = +v; dirty(); });
+const s6 = sb.panel.section('07 · The renderer', 'This is how a game ray traces: one ray per pixel finds the surface, a few rays per pixel ask the sun, the moon, the fire and the sky, one mirror ray serves anything smooth, and the soft light is worked out at half size and smoothed without crossing edges. Nothing is random, so every frame is complete. Holding still only adds anti-aliasing.');
+s6.segment('Show', [{ value: 0, label: 'the picture' }, { value: 1, label: 'the sun\'s shadow rays' }, { value: 2, label: 'sky and bounce light' }, { value: 3, label: 'the mirror rays' }, { value: 11, label: 'the light grid' }, { value: 12, label: 'the neural cache' }], 0, v => { compMat.uniforms.uView.value = +v; dirty(); });
 s6.segment('Quality', [{ value: 'balanced', label: 'balanced' }, { value: 'high', label: 'high' }, { value: 'ultra', label: 'ultra' }], 'balanced', v => { quality = v; if (v === 'ultra') { U.uShadowK.value = 4; U.uGiK.value = 6; } dirty(); });
-s6.toggle('variable rate: extra shadow rays where the history is young', true, v => { U.uShadowK.value = v ? 2 : 2; fx.vrr = v; });
-s6.toggle('reuse light picks from last frame and the neighbours (ReSTIR), one shadow ray per pixel for the lamps, fire and fireflies', true, v => { fx.restirOn = v; });
+gpuOnly(s6.toggle('variable rate: extra shadow rays where the history is young, fewer once it has settled', true, v => { fx.vrr = v; dirty(); }));
+gpuOnly(s6.toggle('reuse light picks from last frame and the neighbours (ReSTIR), one shadow ray per pixel for the lamps, fire and fireflies', true, v => { fx.restirOn = v; }));
 s6.segment('Shadow rays per pixel, toward the sun', [{ value: 1, label: '1' }, { value: 2, label: '2' }, { value: 4, label: '4' }, { value: 8, label: '8' }], 2, v => { U.uShadowK.value = +v; dirty(); });
 s6.segment('Rays per pixel for sky and bounce light', [{ value: 2, label: '2' }, { value: 4, label: '4' }, { value: 6, label: '6' }, { value: 8, label: '8' }], 4, v => { U.uGiK.value = +v; dirty(); });
 s6.toggle('smooth the shadow and bounce answers (denoise)', true, v => { denoise = v; dirty(); });
