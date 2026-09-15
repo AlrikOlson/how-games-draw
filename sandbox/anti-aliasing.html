@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anti-Aliasing · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'anti-aliasing', title: 'Anti-Aliasing',
+  blurb: 'The knight\'s camp drawn with few pixels, so every jaggy shows. Add test points per pixel (MSAA), run the shader at every point (SSAA), clean the finished picture up (FXAA) or spread the points over time (TAA), and watch the roof edge, the rope and the far fence in the zoom box.',
+  camera: { pos: [11, 6, 13], target: [0.5, 1.2, -1], near: 0.1, far: 300 },
+  renderer: { antialias: false }
+});
+const R = sb.renderer, scene = sb.scene, cam = sb.camera;
+const camp = sb.world.camp();
+camp.ground.scale.set(2.5, 2.5, 1);
+
+// ---- extra props: a picket fence running to the horizon (a pattern inside a surface) and a thin rope (a thin edge)
+const fenceX = -9.2, fenceZ0 = 9, fenceZ1 = -42, MAXP = 800;
+const pickets = new THREE.InstancedMesh(new THREE.BoxGeometry(0.09, 1.2, 0.03), sb.mat(PAL.woodLite), MAXP);
+pickets.castShadow = pickets.receiveShadow = true; pickets.frustumCulled = false; pickets.instanceMatrix.setUsage(THREE.DynamicDrawUsage); pickets.name = 'fence';
+scene.add(pickets);
+const layM = new THREE.Matrix4();
+function layFence(spacing) {
+  const n = Math.min(MAXP, Math.floor((fenceZ0 - fenceZ1) / spacing));
+  for (let i = 0; i < n; i++) { layM.makeTranslation(fenceX, 0.6, fenceZ0 - i * spacing); pickets.setMatrixAt(i, layM); }
+  pickets.count = n; pickets.instanceMatrix.needsUpdate = true;
+}
+layFence(0.28);
+for (const y of [0.42, 0.95]) sb.scene.add(sb.mesh(new THREE.BoxGeometry(0.05, 0.05, fenceZ0 - fenceZ1), sb.mat(PAL.wood), fenceX, y, (fenceZ0 + fenceZ1) / 2));
+const postA = new THREE.Vector3(-3.2, 2.2, 4.8), postB = new THREE.Vector3(3.4, 1.75, 6.2);
+scene.add(sb.mesh(new THREE.CylinderGeometry(0.06, 0.07, postA.y, 7), sb.mat(PAL.wood), postA.x, postA.y / 2, postA.z));
+scene.add(sb.mesh(new THREE.CylinderGeometry(0.06, 0.07, postB.y, 7), sb.mat(PAL.wood), postB.x, postB.y / 2, postB.z));
+const rope = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 8), sb.mat(0xd8c9a0)); rope.castShadow = true; rope.name = 'rope';
+{ const dir = postB.clone().sub(postA); rope.position.copy(postA).addScaledVector(dir, 0.5); rope.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize()); rope.userData.len = dir.length(); }
+function ropeWidth(cm) { const r = cm / 200; rope.scale.set(r, rope.userData.len, r); }
+ropeWidth(2);
+scene.add(rope);
+
+// the point the zoom box follows
+const roof = camp.house.children[1]; // wall box, roof, door, window
+
+const fencePt = new THREE.Vector3(fenceX, 0.9, -12);
+sb.label('roof edge', roof, 'amber').off.set(0, 1.2, 0);
+sb.label('rope', rope, 'blue').off.set(0, 0.35, 0);
+sb.label('far fence', fencePt, 'blue').off.set(0, 0.6, 0);
+const knightLabel = sb.label('the knight', camp.knight); knightLabel.off.set(0, 2.0, 0);
+
+// ---- state
+const state = { div: 4, msaa: 1, ss: 1, inset: 'roof', fxaa: false, thr: 0.166, sub: 0.75, edges: false,
+  taa: false, alpha: 0.1, walk: false, reproject: true, clampMode: 1, tint: false, thumbs: false };
+
+// ---- panel
+const s1 = sb.panel.section('01 · One pixel, many test points', 'The GPU checks one point per pixel, so a slanted edge turns into stairs. More test points per pixel, averaged, smooth the stairs. This is your graphics card\'s own multisampling (MSAA), on a real low-pixel picture.');
+s1.segment('Screen size', [{ value: 1, label: 'full' }, { value: 2, label: '1/2' }, { value: 3, label: '1/3' }, { value: 4, label: '1/4' }, { value: 6, label: '1/6' }], 4, v => { state.div = +v; apply(); });
+s1.segment('Test points per pixel', [{ value: 1, label: '1' }, { value: 2, label: '2 (MSAA 2×)' }, { value: 4, label: '4 (MSAA 4×)' }, { value: 8, label: '8 (MSAA 8×)' }], 1, v => { state.msaa = +v; apply(); });
+s1.segment('Zoom box on', [{ value: 'roof', label: 'roof edge' }, { value: 'rope', label: 'rope' }, { value: 'fence', label: 'fence' }, { value: 'knight', label: 'knight' }, { value: 'off', label: 'off' }], 'roof', v => { state.inset = v; apply(); });
+const pxRead = s1.readout('pixels drawn'), ptsRead = s1.readout('test points stored');
+s1.note('Drag the camera slowly and watch the stairs crawl along the roof edge in the zoom box.');
+
+const s2 = sb.panel.section('02 · Two kinds of jaggies', 'Triangle edges are one kind of jaggy. A pattern inside a surface, like the far fence, is the other. MSAA only fixes the first, because the shader still runs once per pixel. Running it at every test point (SSAA) fixes both, at four times the cost.');
+s2.segment('Shader runs per pixel', [{ value: 1, label: 'once (MSAA)' }, { value: 2, label: 'four times (SSAA 2×2)' }], 1, v => { state.ss = +v; apply(); });
+s2.slider('How close the pickets sit', { min: 0.12, max: 0.6, step: 0.02, value: 0.28, unit: ' m' }, v => layFence(v));
+s2.slider('Rope thickness', { min: 0.5, max: 6, step: 0.5, value: 2, unit: ' cm' }, v => ropeWidth(v));
+
+const s3 = sb.panel.section('03 · FXAA, clean up the finished picture', 'No extra test points. FXAA reads the finished picture, finds pixels that differ sharply from their neighbours, and blurs across the edge. It cannot bring back a rope pixel that was never drawn.');
+const fxaaT = s3.toggle('clean up the finished picture (FXAA)', false, v => { state.fxaa = v; apply(); });
+const needFxaa = () => { if (!state.fxaa) fxaaT.set(true); };
+s3.slider('Brightness jump that counts as an edge', { min: 0.03, max: 0.5, step: 0.01, value: 0.166 }, v => { state.thr = v; needFxaa(); apply(); });
+s3.slider('Soften lone bright pixels', { min: 0, max: 1, step: 0.05, value: 0.75 }, v => { state.sub = v; needFxaa(); apply(); });
+s3.toggle('show the pixels it calls an edge', false, v => { state.edges = v; if (v) needFxaa(); apply(); });
+
+const s4 = sb.panel.section('04 · TAA, spread the test points over time', 'One test point per pixel per frame, moved to a new spot each frame and blended with the frames before. Moving things leave ghost trails unless the old picture is read where they were, and stale colours get pulled toward the neighbours.');
+const taaT = s4.toggle('blend frames over time (TAA)', false, v => { state.taa = v; histValid = false; apply(); });
+const needTaa = () => { if (!state.taa) taaT.set(true); };
+s4.slider('New frame\'s share of the blend', { min: 0.02, max: 0.5, step: 0.01, value: 0.1 }, v => { state.alpha = v; needTaa(); apply(); });
+s4.toggle('the knight walks', false, v => { state.walk = v; });
+s4.toggle('look up the old picture where things were (reprojection)', true, v => { state.reproject = v; needTaa(); apply(); });
+s4.segment('Fix for stale colours', [{ value: 0, label: 'none' }, { value: 1, label: 'pull to neighbours (RGB)' }, { value: 2, label: 'brightness first (YCoCg)' }], 1, v => { state.clampMode = +v; needTaa(); apply(); });
+s4.toggle('tint the corrected pixels', false, v => { state.tint = v; if (v) needTaa(); apply(); });
+const effRead = s4.readout('test points per pixel, in effect'), settleRead = s4.readout('frames until 90 % settled');
+s4.note('Turn TAA on, then turn reprojection off and drag the camera: the whole picture smears. Turn it back on, let the knight walk and set the fix to none: a ghost trail follows him.');
+
+const s5 = sb.panel.section('05 · What each method costs', 'Every method pays somewhere: MSAA in memory, SSAA in shader runs, FXAA in a small blur, TAA in kept frames. These numbers are for the pixel count chosen above, on this page.');
+s5.toggle('show the pictures the GPU keeps', false, v => { state.thumbs = v; apply(); });
+const memRead = s5.readout('memory for the method'), tpRead = s5.readout('test points this frame'), shRead = s5.readout('shader runs this frame'), callRead = s5.readout('draw calls this frame'), msRead = s5.readout('one frame, this browser (CPU side)');
+
+// ---- overlay captions (the zoom box and the thumbnail strip are drawn by the GPU; these are their labels)
+const style = document.createElement('style');
+style.textContent = '.aa-cap{position:absolute;font-family:var(--font-mono);font-size:12px;color:#c7cdd8;background:rgba(11,14,19,.82);padding:3px 8px;border-radius:4px;pointer-events:none;white-space:nowrap;display:none}';
+document.head.appendChild(style);
+const cap = (t) => { const e = document.createElement('div'); e.className = 'aa-cap'; e.textContent = t; sb.stage.appendChild(e); return e; };
+const insetCap = cap('zoom box'); const thumbCaps = [cap(''), cap(''), cap(''), cap('')];
+
+// ---- render targets and passes
+R.shadowMap.autoUpdate = false; R.info.autoReset = false;
+const hasFloat = R.extensions.has('EXT_color_buffer_float') || R.extensions.has('EXT_color_buffer_half_float');
+const HF = hasFloat ? THREE.HalfFloatType : THREE.UnsignedByteType;
+const bufSize = new THREE.Vector2(); const sky = new THREE.Color(PAL.sky);
+let rtScene = null, rtDown = null, rtMotion = null, hist = [null, null], histIdx = 0, histValid = false, rtFx = null;
+let rw = 0, rh = 0, cfgKey = '', frame = 0, effMsaa = 1;
+const mkRT = (w, h, o) => new THREE.WebGLRenderTarget(w, h, Object.assign({ minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, generateMipmaps: false }, o || {}));
+function ensureTargets() {
+  R.getDrawingBufferSize(bufSize);
+  const w = Math.max(8, Math.floor(bufSize.x / state.div)), h = Math.max(8, Math.floor(bufSize.y / state.div));
+  const key = w + 'x' + h + '/' + state.msaa + '/' + state.ss; if (key === cfgKey) return;
+  cfgKey = key; rw = w; rh = h; histValid = false;
+  // keep the multisampled target under about 320 MB on big screens: drop the sample count if it would go over
+  effMsaa = state.msaa; while (effMsaa > 1 && w * state.ss * h * state.ss * effMsaa * 8 > 320e6) effMsaa /= 2;
+  for (const t of [rtScene, rtDown, rtMotion, hist[0], hist[1], rtFx]) if (t) t.dispose();
+  rtScene = mkRT(w * state.ss, h * state.ss, { samples: effMsaa > 1 ? effMsaa : 0, depthBuffer: true });
+  rtScene.texture.colorSpace = THREE.SRGBColorSpace;
+  rtDown = mkRT(w, h); rtDown.texture.colorSpace = THREE.SRGBColorSpace;
+  rtMotion = mkRT(w, h, { type: HF, depthBuffer: true, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+  hist = [mkRT(w, h, { type: HF }), mkRT(w, h, { type: HF })];
+  if (!hasFloat) { hist[0].texture.colorSpace = hist[1].texture.colorSpace = THREE.SRGBColorSpace; }
+  rtFx = mkRT(w, h); rtFx.texture.colorSpace = THREE.SRGBColorSpace;
+  texel.set(1 / w, 1 / h);
+  updateReadouts();
+}
+const texel = new THREE.Vector2();
+const quadScene = new THREE.Scene(), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2)); quad.frustumCulled = false; quadScene.add(quad);
+const VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const ENC = hasFloat ? 'vec4 encM(vec2 m){ return vec4(m, 0.0, 1.0); } vec2 decM(vec4 c){ return c.xy; }'
+                     : 'vec4 encM(vec2 m){ return vec4(clamp(m * 4.0 + 0.5, 0.0, 1.0), 0.0, 1.0); } vec2 decM(vec4 c){ return (c.xy - 0.5) / 4.0; }';
+const SRGB = 'vec3 toSRGB(vec3 c){ return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }';
+
+// motion vectors: how far each pixel moved since last frame, in picture units. Rendered with an override material,
+// each object supplying where it was last frame through onBeforeRender.
+const motionMat = new THREE.ShaderMaterial({
+  uniforms: { uPrevVP: { value: new THREE.Matrix4() }, uPrevModel: { value: new THREE.Matrix4() } },
+  vertexShader: `uniform mat4 uPrevVP; uniform mat4 uPrevModel; varying vec4 vCur; varying vec4 vPrev;
+    void main(){ vec4 lp = vec4(position, 1.0);
+      #ifdef USE_INSTANCING
+      lp = instanceMatrix * lp;
+      #endif
+      vCur = projectionMatrix * viewMatrix * modelMatrix * lp; vPrev = uPrevVP * uPrevModel * lp; gl_Position = vCur; }`,
+  fragmentShader: ENC + ' varying vec4 vCur; varying vec4 vPrev; void main(){ vec2 m = (vCur.xy / vCur.w - vPrev.xy / vPrev.w) * 0.5; gl_FragColor = encM(m); }'
+});
+const meshes = []; scene.traverse(o => { if (o.isMesh) meshes.push(o); });
+for (const m of meshes) {
+  m.updateWorldMatrix(true, false); m.userData.prev = m.matrixWorld.clone();
+  m.onBeforeRender = (r, s, c, g, material) => { if (material === motionMat) { motionMat.uniforms.uPrevModel.value.copy(m.userData.prev); motionMat.uniformsNeedUpdate = true; } };
+}
+
+// SSAA resolve: average the four shader results that landed inside each output pixel
+const downMat = new THREE.ShaderMaterial({ uniforms: { tex: { value: null }, uTexel: { value: texel } }, vertexShader: VS,
+  fragmentShader: `uniform sampler2D tex; uniform vec2 uTexel; varying vec2 vUv;
+    void main(){ vec2 q = uTexel * 0.25; vec4 c = texture2D(tex, vUv + vec2(-q.x, -q.y)) + texture2D(tex, vUv + vec2(q.x, -q.y)) + texture2D(tex, vUv + vec2(-q.x, q.y)) + texture2D(tex, vUv + vec2(q.x, q.y)); gl_FragColor = c * 0.25; }` });
+
+// TAA resolve: read the old picture where this pixel came from, pull it toward the current neighbours, blend a little of the new frame in.
+// The alpha channel carries a flag (0 = the fix changed this pixel's history) so the display pass can tint it without the tint feeding back.
+const taaMat = new THREE.ShaderMaterial({
+  uniforms: { tCur: { value: null }, tHist: { value: null }, tMotion: { value: null }, uTexel: { value: texel }, uAlpha: { value: 0.1 }, uClamp: { value: 1 }, uReproject: { value: true }, uFirst: { value: true } },
+  vertexShader: VS,
+  fragmentShader: ENC + `uniform sampler2D tCur; uniform sampler2D tHist; uniform sampler2D tMotion; uniform vec2 uTexel; uniform float uAlpha; uniform int uClamp; uniform bool uReproject; uniform bool uFirst; varying vec2 vUv;
+    vec3 toY(vec3 c){ return vec3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b); }
+    vec3 fromY(vec3 y){ return vec3(y.x + y.y - y.z, y.x + y.z, y.x - y.y - y.z); }
+    void main(){
+      vec3 cur = texture2D(tCur, vUv).rgb;
+      if (uFirst) { gl_FragColor = vec4(cur, 1.0); return; }
+      vec2 mv = uReproject ? decM(texture2D(tMotion, vUv)) : vec2(0.0);
+      vec2 puv = vUv - mv; float a = uAlpha;
+      if (any(lessThan(puv, vec2(0.0))) || any(greaterThan(puv, vec2(1.0)))) a = 1.0;
+      vec3 hist = texture2D(tHist, puv).rgb; vec3 h0 = hist;
+      if (uClamp > 0) {
+        vec3 mn = vec3(1e9), mx = vec3(-1e9);
+        for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) { vec3 c = texture2D(tCur, vUv + vec2(float(i), float(j)) * uTexel).rgb; if (uClamp == 2) c = toY(c); mn = min(mn, c); mx = max(mx, c); }
+        if (uClamp == 2) hist = fromY(clamp(toY(hist), mn, mx)); else hist = clamp(hist, mn, mx);
+      }
+      float changed = length(hist - h0) > 0.02 ? 0.0 : 1.0;
+      gl_FragColor = vec4(mix(hist, cur, a), changed);
+    }` });
+
+// FXAA: five brightness reads, early out on flat pixels, edge direction from second differences, walk to the edge's ends,
+// then read the picture slightly across the edge so the GPU's built-in blend does the smoothing.
+const fxaaMat = new THREE.ShaderMaterial({
+  uniforms: { tex: { value: null }, uTexel: { value: texel }, uThr: { value: 0.166 }, uSub: { value: 0.75 }, uShow: { value: false } },
+  vertexShader: VS,
+  fragmentShader: `uniform sampler2D tex; uniform vec2 uTexel; uniform float uThr; uniform float uSub; uniform bool uShow; varying vec2 vUv;
+    float luma(vec3 c){ return dot(c, vec3(0.299, 0.587, 0.114)); }
+    float L(vec2 uv){ return luma(texture2D(tex, uv).rgb); }
+    void main(){
+      vec4 M4 = texture2D(tex, vUv); float lM = luma(M4.rgb);
+      float lN = L(vUv + vec2(0.0, -uTexel.y)), lS = L(vUv + vec2(0.0, uTexel.y)), lE = L(vUv + vec2(uTexel.x, 0.0)), lW = L(vUv + vec2(-uTexel.x, 0.0));
+      float lMax = max(lM, max(max(lN, lS), max(lE, lW))), lMin = min(lM, min(min(lN, lS), min(lE, lW)));
+      float range = lMax - lMin;
+      if (range < max(0.0312, lMax * uThr)) { gl_FragColor = uShow ? vec4(M4.rgb * 0.3, M4.a) : M4; return; }
+      if (uShow) { gl_FragColor = vec4(0.95, 0.64, 0.25, M4.a); return; }
+      float lNW = L(vUv + vec2(-uTexel.x, -uTexel.y)), lNE = L(vUv + vec2(uTexel.x, -uTexel.y)), lSW = L(vUv + vec2(-uTexel.x, uTexel.y)), lSE = L(vUv + vec2(uTexel.x, uTexel.y));
+      float edgeH = abs(lNW - 2.0 * lW + lSW) + 2.0 * abs(lN - 2.0 * lM + lS) + abs(lNE - 2.0 * lE + lSE);
+      float edgeV = abs(lNW - 2.0 * lN + lNE) + 2.0 * abs(lW - 2.0 * lM + lE) + abs(lSW - 2.0 * lS + lSE);
+      bool horizontal = edgeH >= edgeV;
+      float l1 = horizontal ? lN : lW, l2 = horizontal ? lS : lE;
+      float g1 = l1 - lM, g2 = l2 - lM; bool is1 = abs(g1) >= abs(g2);
+      float gScaled = 0.25 * max(abs(g1), abs(g2));
+      float stepLen = horizontal ? uTexel.y : uTexel.x; if (is1) stepLen = -stepLen;
+      float lLocal = 0.5 * ((is1 ? l1 : l2) + lM);
+      vec2 curUv = vUv; if (horizontal) curUv.y += stepLen * 0.5; else curUv.x += stepLen * 0.5;
+      vec2 off = horizontal ? vec2(uTexel.x, 0.0) : vec2(0.0, uTexel.y);
+      vec2 uv1 = curUv - off, uv2 = curUv + off;
+      float end1 = L(uv1) - lLocal, end2 = L(uv2) - lLocal;
+      bool r1 = abs(end1) >= gScaled, r2 = abs(end2) >= gScaled;
+      for (int i = 1; i < 10; i++) {
+        if (!r1) { uv1 -= off; end1 = L(uv1) - lLocal; r1 = abs(end1) >= gScaled; }
+        if (!r2) { uv2 += off; end2 = L(uv2) - lLocal; r2 = abs(end2) >= gScaled; }
+        if (r1 && r2) break;
+      }
+      float d1 = horizontal ? vUv.x - uv1.x : vUv.y - uv1.y, d2 = horizontal ? uv2.x - vUv.x : uv2.y - vUv.y;
+      float dNear = min(d1, d2), dTotal = d1 + d2;
+      bool dir1 = d1 < d2; bool centerSmaller = lM < lLocal;
+      bool ok = ((dir1 ? end1 : end2) < 0.0) != centerSmaller;
+      float pixelOffset = ok ? (-dNear / dTotal + 0.5) : 0.0;
+      float lAvg9 = (2.0 * (lN + lS + lE + lW) + lNW + lNE + lSW + lSE) / 12.0;
+      float sub = clamp(abs(lAvg9 - lM) / range, 0.0, 1.0); sub = (-2.0 * sub + 3.0) * sub * sub; sub = sub * sub * uSub;
+      pixelOffset = max(pixelOffset, sub);
+      vec2 fuv = vUv; if (horizontal) fuv.y += pixelOffset * stepLen; else fuv.x += pixelOffset * stepLen;
+      gl_FragColor = vec4(texture2D(tex, fuv).rgb, M4.a);
+    }` });
+
+// display: put the small picture on the screen one texel per block (no smoothing), or a window of it for the zoom box
+const dispMat = new THREE.ShaderMaterial({
+  uniforms: { tex: { value: null }, uSize: { value: new THREE.Vector2(1, 1) }, uWin0: { value: new THREE.Vector2(0, 0) }, uWin1: { value: new THREE.Vector2(1, 1) }, uTint: { value: false }, uKind: { value: 0 }, uMScale: { value: 1 } },
+  vertexShader: VS,
+  fragmentShader: ENC + SRGB + `uniform sampler2D tex; uniform vec2 uSize; uniform vec2 uWin0; uniform vec2 uWin1; uniform bool uTint; uniform int uKind; uniform float uMScale; varying vec2 vUv;
+    void main(){
+      vec2 uv = mix(uWin0, uWin1, vUv); uv = (floor(uv * uSize) + 0.5) / uSize;
+      vec4 c = texture2D(tex, uv); vec3 rgb = c.rgb;
+      if (uKind == 1) { vec2 m = decM(c) * uSize * uMScale; rgb = vec3(0.5 + m.x, 0.5 + m.y, 0.5); gl_FragColor = vec4(rgb, 1.0); return; }
+      if (uTint && c.a < 0.5) rgb = mix(rgb, vec3(1.0, 0.25, 0.85), 0.65);
+      gl_FragColor = vec4(toSRGB(rgb), 1.0);
+    }` });
+const frameMat = new THREE.MeshBasicMaterial({ color: PAL.amber, depthTest: false, depthWrite: false });
+const thumbFrameMat = new THREE.MeshBasicMaterial({ color: 0x2a3140, depthTest: false, depthWrite: false });
+for (const m of [downMat, taaMat, fxaaMat, dispMat]) { m.depthTest = false; m.depthWrite = false; }
+
+function pass(mat, target) { quad.material = mat; R.setRenderTarget(target); R.render(quadScene, quadCam); }
+
+// Halton (2,3) jitter: eight spots inside the pixel that fill it evenly
+function halton(i, b) { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; }
+const JIT = []; for (let i = 1; i <= 8; i++) JIT.push(new THREE.Vector2(halton(i, 2) - 0.5, halton(i, 3) - 0.5));
+const vpNow = new THREE.Matrix4(), prevVP = new THREE.Matrix4(); const clearCol = new THREE.Color();
+const proj = new THREE.Vector3(); let cssW = 0, cssH = 0, lastLayout = '';
+let cpuMs = 0;
+
+// ---- the frame: the kit calls renderer.render(scene, camera) once per tick; this page routes that call through its own passes
+const origRender = R.render.bind(R); let inPipe = false;
+R.render = function (s, c) { if (s === scene && c === cam && !inPipe) { inPipe = true; try { pipeline(); } finally { inPipe = false; } } else origRender(s, c); };
+
+function pipeline() {
+  const t0 = performance.now(); R.info.reset();
+  ensureTargets(); const ss = state.ss;
+  cssW = sb.stage.clientWidth; cssH = sb.stage.clientHeight;
+  cam.updateMatrixWorld();
+  R.shadowMap.needsUpdate = true;
+  if (state.taa) {
+    if (cam.view && cam.view.enabled) cam.clearViewOffset();
+    vpNow.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    const j = JIT[frame % 8]; cam.setViewOffset(rw * ss, rh * ss, j.x * ss, j.y * ss, rw * ss, rh * ss);
+  } else if (cam.view && cam.view.enabled) cam.clearViewOffset();
+  // 1. the scene, at the chosen pixel count, with N test points per pixel and the shader at every point if SSAA is on
+  scene.background = sky; R.setRenderTarget(rtScene); origRender(scene, cam);
+  let src = rtScene.texture;
+  if (ss > 1) { downMat.uniforms.tex.value = src; pass(downMat, rtDown); src = rtDown.texture; }
+  // 2. TAA: motion vectors, then the blend with the kept frame
+  if (state.taa) {
+    cam.clearViewOffset();
+    scene.background = null; scene.overrideMaterial = motionMat; motionMat.uniforms.uPrevVP.value.copy(prevVP);
+    R.getClearColor(clearCol); const ca = R.getClearAlpha(); R.setClearColor(hasFloat ? 0x000000 : 0x808080, 1);
+    R.setRenderTarget(rtMotion); R.clear(); origRender(scene, cam);
+    R.setClearColor(clearCol, ca); scene.overrideMaterial = null; scene.background = sky;
+    const hIn = hist[histIdx], hOut = hist[histIdx ^ 1];
+    const u = taaMat.uniforms; u.tCur.value = src; u.tHist.value = hIn.texture; u.tMotion.value = rtMotion.texture; u.uFirst.value = !histValid;
+    pass(taaMat, hOut); histValid = true; histIdx ^= 1; src = hOut.texture;
+    prevVP.copy(vpNow);
+  } else histValid = false;
+  for (const m of meshes) m.userData.prev.copy(m.matrixWorld);
+  // 3. FXAA on whatever came out
+  if (state.fxaa) { fxaaMat.uniforms.tex.value = src; pass(fxaaMat, rtFx); src = rtFx.texture; }
+  // 4. to the screen: the whole picture, then the zoom box, then the thumbnails
+  R.setRenderTarget(null); R.autoClear = true;
+  const du = dispMat.uniforms; du.tex.value = src; du.uSize.value.set(rw, rh); du.uWin0.value.set(0, 0); du.uWin1.value.set(1, 1); du.uTint.value = state.tint && state.taa; du.uKind.value = 0;
+  R.setViewport(0, 0, cssW, cssH); pass(dispMat, null);
+  R.autoClear = false;
+  const S = Math.round(Math.min(280, cssW * 0.32, cssH * 0.45)), TEXELS = 28;
+  if (state.inset !== 'off') {
+    const target = state.inset === 'roof' ? roof : state.inset === 'rope' ? rope : state.inset === 'knight' ? camp.knight : null;
+    if (target) { target.getWorldPosition(proj); if (state.inset === 'roof') proj.y += 0.55; else if (state.inset === 'knight') proj.y += 1.2; else proj.y += 0.02; } else proj.copy(fencePt).setY(0.7);
+    proj.project(cam);
+    const cx = (proj.x + 1) / 2, cy = (proj.y + 1) / 2, hw = TEXELS / 2 / rw, hh = TEXELS / 2 / rh;
+    quad.material = frameMat; R.setViewport(cssW - 16 - S - 3, cssH - 16 - S - 3, S + 6, S + 6); R.render(quadScene, quadCam);
+    du.uWin0.value.set(cx - hw, cy - hh); du.uWin1.value.set(cx + hw, cy + hh);
+    R.setViewport(cssW - 16 - S, cssH - 16 - S, S, S); pass(dispMat, null);
+  }
+  if (state.thumbs) {
+    const TW = Math.round(Math.min(180, cssW * 0.2)), TH = Math.round(TW * rh / rw); let x = 16;
+    const draw = (tex, kind) => {
+      quad.material = thumbFrameMat; R.setViewport(x - 2, cssH - 16 - TH - 2, TW + 4, TH + 4); R.render(quadScene, quadCam);
+      du.tex.value = tex; du.uWin0.value.set(0, 0); du.uWin1.value.set(1, 1); du.uKind.value = kind; du.uTint.value = false; du.uMScale.value = 0.4;
+      R.setViewport(x, cssH - 16 - TH, TW, TH); pass(dispMat, null); x += TW + 12;
+    };
+    draw(rtScene.texture, 0);
+    if (state.taa) { draw(rtMotion.texture, 1); draw(hist[histIdx].texture, 0); }
+    if (state.fxaa) draw(rtFx.texture, 0);
+  }
+  R.setViewport(0, 0, cssW, cssH); R.autoClear = true;
+  frame++;
+  cpuMs = cpuMs * 0.9 + (performance.now() - t0) * 0.1;
+  layoutCaptions(S);
+}
+
+function layoutCaptions(S) {
+  const key = cssW + '/' + cssH + '/' + state.inset + '/' + state.thumbs + '/' + state.taa + '/' + state.fxaa + '/' + rw;
+  if (key === lastLayout) return; lastLayout = key;
+  const on = state.inset !== 'off';
+  insetCap.style.display = on ? 'block' : 'none';
+  if (on) { insetCap.style.right = '16px'; insetCap.style.top = (16 + S + 8) + 'px'; insetCap.textContent = 'zoom box, 28 pixels across: ' + ({ roof: 'the roof edge', rope: 'the rope', fence: 'the far fence', knight: 'the knight' })[state.inset]; }
+  const TW = Math.round(Math.min(180, cssW * 0.2)), TH = Math.round(TW * rh / rw);
+  const names = [];
+  if (state.thumbs) { names.push('drawn frame, ' + rw + ' × ' + rh); if (state.taa) names.push('how far each pixel moved', 'the kept frame (history)'); if (state.fxaa) names.push('after FXAA'); }
+  thumbCaps.forEach((c, i) => { if (i < names.length) { c.style.display = 'block'; c.style.left = (16 + i * (TW + 12)) + 'px'; c.style.top = (16 + TH + 8) + 'px'; c.textContent = names[i]; } else c.style.display = 'none'; });
+}
+
+// ---- readouts and hud
+function fmtMB(bytes) { return bytes >= 1e6 ? (bytes / 1e6).toFixed(1) + ' MB' : (bytes / 1e3).toFixed(0) + ' kB'; }
+function updateReadouts() {
+  const px = rw * rh, ss2 = state.ss * state.ss, N = effMsaa, pts = px * ss2 * N;
+  pxRead(rw + ' × ' + rh + ' = ' + px.toLocaleString()); ptsRead(pts.toLocaleString() + ' (' + (ss2 * N) + ' per pixel)');
+  tpRead(pts.toLocaleString()); shRead((px * ss2).toLocaleString() + (state.taa || state.fxaa ? ' + ' + (state.taa ? 'TAA' : '') + (state.taa && state.fxaa ? ' and ' : '') + (state.fxaa ? 'FXAA' : '') + ' at ' + px.toLocaleString() : ''));
+  let mem = px * ss2 * N * 8 + (N > 1 || ss2 > 1 ? px * 4 : 0); const parts = [];
+  parts.push((N > 1 ? 'MSAA ' + N + '×' : state.ss > 1 ? 'SSAA' : 'colour + depth') + ' ' + fmtMB(mem));
+  if (state.taa) { const t = px * (hasFloat ? 8 : 4) * 2 + px * (hasFloat ? 8 : 4); mem += t; parts.push('TAA ' + fmtMB(t)); }
+  if (state.fxaa) { mem += px * 4; parts.push('FXAA ' + fmtMB(px * 4)); }
+  memRead(fmtMB(mem) + (parts.length > 1 ? ' (' + parts.join(', ') + ')' : ''));
+  const a = state.alpha; effRead(state.taa ? ((2 - a) / a).toFixed(1) : '1'); settleRead(state.taa ? String(Math.ceil(Math.log(0.1) / Math.log(1 - a))) : '1');
+  const bits = [rw + ' × ' + rh + ' px'];
+  if (state.ss > 1) bits.push((ss2 * N) + ' test points per pixel, shader at 4 of them (SSAA 2×2' + (N > 1 ? ' + MSAA ' + N + '×' : '') + ')');
+  else bits.push(N > 1 ? N + ' test points per pixel (MSAA ' + N + '×)' : '1 test point per pixel');
+  if (N !== state.msaa) bits.push('MSAA held at ' + N + '× at this size to stay under 320 MB');
+  if (state.taa) bits.push('TAA ' + (state.reproject ? 'with' : 'without') + ' reprojection'); if (state.fxaa) bits.push(state.edges ? 'FXAA edge pixels' : 'FXAA');
+  sb.hud('mode', bits.join(' · '));
+}
+function apply() {
+  fxaaMat.uniforms.uThr.value = state.thr; fxaaMat.uniforms.uSub.value = state.sub; fxaaMat.uniforms.uShow.value = state.edges;
+  taaMat.uniforms.uAlpha.value = state.alpha; taaMat.uniforms.uClamp.value = state.clampMode; taaMat.uniforms.uReproject.value = state.reproject;
+  updateReadouts();
+}
+apply();
+
+// ---- the knight's walk, and live numbers
+let walkT = 0, tick = 0;
+sb.onFrame((dt) => {
+  if (state.walk) { walkT += dt; const p = (walkT * 0.35) % 2; const x = p < 1 ? -5 + 11 * p : 6 - 11 * (p - 1); camp.knight.position.set(x, Math.abs(Math.sin(walkT * 6)) * 0.06, 0.4); camp.knight.rotation.y = p < 1 ? Math.PI / 2 : -Math.PI / 2; }
+  if (++tick % 15 === 0) { callRead(R.info.render.calls); msRead(cpuMs.toFixed(1) + ' ms'); }
+});
+sb.start();
+</script>
+</body>
+</html>
