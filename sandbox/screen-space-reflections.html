@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screen-Space Reflections · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+<style>
+  .ssr-walk { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+</style>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'screen-space-reflections', title: 'Screen-Space Reflections',
+  blurb: 'A still lake beside the camp, reflecting the house and the knight with a real screen-space reflection pass: the picture, its depth, and a walk along the bounced line for every lake pixel. Watch the walk for one pixel, change how it steps, lift the house out of the picture to make it fail, ripple the water, then compare with a true mirror and a snapshot probe.',
+  camera: { pos: [1.5, 5.6, 19], target: [0.4, 1.4, 0], near: 0.1, far: 300 }
+});
+const scene = sb.scene, camera = sb.camera, renderer = sb.renderer, world = sb.world;
+scene.background = null; renderer.info.autoReset = false;
+sb.lights.hemi.intensity = 0.7;
+
+// ---- the camp on the far shore of a lake. Same props as every other sandbox, moved so the water sits between the camera and the camp.
+world.ground(70);
+const LAKE_Y = 0.03;
+const lake = new THREE.Mesh(new THREE.PlaneGeometry(28, 13.5), new THREE.MeshLambertMaterial({ color: 0x0c1826 }));
+lake.rotation.x = -Math.PI / 2; lake.position.set(0, LAKE_Y, 8.6); lake.receiveShadow = true; lake.name = 'lake'; scene.add(lake);
+const house = world.house(2.8, -3.3, 4, 3, 2.6, -0.25); const HOUSE_X = 2.8;
+const knight = world.knight(-2.6, 0.9, 1.8, 0.3);
+world.fire(0.6, 1.1);
+world.lamp(6.2, 0.4, 3, 20);
+world.crate(-5.3, 1.2, 0.9, 0.3); world.crate(-6.0, 2.0, 0.7, -0.4);
+world.tree(-7.5, -4, 4.5); world.tree(6.5, -7.5, 5); world.tree(-3.5, -9.5, 4, false); world.tree(9, -1.5, 3.8, false); world.tree(-10, 0.5, 4.2);
+world.rock(7.5, 1.3, 0.6); world.rock(-9, 1.0, 0.5);
+// a crate hanging from a rope over the water: something in front of the house that hides part of what the lake should reflect
+const hang = new THREE.Group(); hang.position.set(1.1, 0, 6.6); hang.visible = false; scene.add(hang);
+const hangCrate = sb.mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), sb.mat(PAL.wood), 0, 3.4, 0); hangCrate.rotation.y = 0.5; hang.add(hangCrate);
+hang.add(sb.mesh(new THREE.CylinderGeometry(0.03, 0.03, 12, 6), sb.mat(PAL.stone), 0, 3.85 + 6, 0));
+// the night sky: a dome with a gentle gradient so the water has a sky to reflect and the probe has one to store
+const skyMat = new THREE.ShaderMaterial({ side: THREE.BackSide, uniforms: {},
+  vertexShader: 'varying vec3 vW; void main(){ vW = (modelMatrix * vec4(position, 1.0)).xyz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: 'varying vec3 vW; void main(){ float u = clamp(normalize(vW).y, 0.0, 1.0); gl_FragColor = vec4(mix(vec3(0.014, 0.020, 0.034), vec3(0.002, 0.003, 0.006), sqrt(u)), 1.0); }' });
+const sky = new THREE.Mesh(new THREE.SphereGeometry(140, 24, 12), skyMat); sky.name = 'sky'; scene.add(sky);
+
+sb.label('the lake', new THREE.Vector3(-4.5, LAKE_Y, 9.5));
+sb.label('the house', house, 'amber').off.set(0, 4.4, 0);
+sb.label('the knight', knight).off.set(0, 2.2, 0);
+const hangLabel = sb.label('a crate in the way', hangCrate, 'blue'); hangLabel.off.set(0, 0.7, 0); hangLabel.hide(true);
+
+// ---- render targets: the colour picture, the depth and normal picture (alpha is minus depth on the lake), a depth pyramid, the reflection result and its history
+const GL3 = THREE.GLSL3;
+const quadScene = new THREE.Scene(), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2)); quadScene.add(quad);
+const VS = 'out vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const gMat = new THREE.ShaderMaterial({ glslVersion: GL3, side: THREE.FrontSide,
+  vertexShader: 'out vec3 vN; out float vD; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalMatrix * normal; vD = -mv.z; gl_Position = projectionMatrix * mv; }',
+  fragmentShader: 'precision highp float; in vec3 vN; in float vD; out vec4 o; void main(){ o = vec4(normalize(vN), vD); }' });
+const gLakeMat = new THREE.ShaderMaterial({ glslVersion: GL3, side: THREE.FrontSide,
+  vertexShader: 'out vec3 vN; out float vD; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalMatrix * normal; vD = -mv.z; gl_Position = projectionMatrix * mv; }',
+  fragmentShader: 'precision highp float; in vec3 vN; in float vD; out vec4 o; void main(){ o = vec4(normalize(vN), -vD); }' });
+const gBack = new THREE.ShaderMaterial({ glslVersion: GL3, side: THREE.BackSide, vertexShader: gMat.vertexShader, fragmentShader: gMat.fragmentShader });
+
+// everything the walk needs: where a pixel is in space, what depth the picture stored there, the depth pyramid, and the walk itself
+const COMMON = `precision highp float; precision highp int; in vec2 vUv; out vec4 o;
+uniform sampler2D tG; uniform sampler2D tH1; uniform sampler2D tH2; uniform sampler2D tH3; uniform sampler2D tH4; uniform sampler2D tH5; uniform sampler2D tH6; uniform sampler2D tH7;
+uniform vec2 uLvl[8]; uniform int uTop; uniform mat4 uProj, uInvProj; uniform vec2 uRes; uniform float uNear;
+uniform float uStepPx, uThick, uThickMin, uMaxDist, uFade, uRough, uSeed; uniform int uMaxSteps, uRefine, uMethod, uThickRule, uRays;
+vec3 viewPos(vec2 uv, float d) { vec4 c = uInvProj * vec4(uv * 2.0 - 1.0, 1.0, 1.0); vec3 ray = c.xyz / c.w; return ray * (d / -ray.z); }
+float fixZ(float a) { a = abs(a); return a <= 0.0 ? 1e9 : a; }
+float zAt(vec2 uv) { return fixZ(texture(tG, uv).a); }
+float zCellAt(int L, vec2 cell) { ivec2 c = ivec2(cell);
+  if (L == 0) return fixZ(texelFetch(tG, c, 0).a); if (L == 1) return texelFetch(tH1, c, 0).r; if (L == 2) return texelFetch(tH2, c, 0).r; if (L == 3) return texelFetch(tH3, c, 0).r;
+  if (L == 4) return texelFetch(tH4, c, 0).r; if (L == 5) return texelFetch(tH5, c, 0).r; if (L == 6) return texelFetch(tH6, c, 0).r; return texelFetch(tH7, c, 0).r; }
+bool inside(vec2 uv) { return uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0; }
+float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+vec3 jitterDir(vec3 d, vec3 n, float rough, vec2 xi) {
+  float a = max(rough * rough, 1e-4); float cosT = sqrt((1.0 - xi.x) / (1.0 + (a * a - 1.0) * xi.x)); float sinT = sqrt(max(0.0, 1.0 - cosT * cosT)); float phi = 6.2831853 * xi.y;
+  vec3 t = normalize(abs(n.y) < 0.99 ? cross(n, vec3(0.0, 1.0, 0.0)) : cross(n, vec3(1.0, 0.0, 0.0))); vec3 b = cross(n, t);
+  vec3 h = normalize(t * (sinT * cos(phi)) + b * (sinT * sin(phi)) + n * cosT); vec3 r = reflect(d, h); if (dot(r, n) < 0.0) r = r - 2.0 * dot(r, n) * n; return normalize(r); }
+struct Samp { vec2 uv; float zRay; float zBuf; float thick; int level; int state; };
+struct Res { vec2 uv; float hit; int reads; int cls; float dist; vec2 uv0; vec2 uv1; };
+float thickAt(vec2 uv, float zBuf, float zRay, float zPrev, vec2 dirTx, float stepPx) {
+  if (uThickRule == 0) return uThick;
+  if (uThickRule == 1) return uThickMin + abs(zRay - zPrev);
+  float zp = zAt(uv + dirTx), zm = zAt(uv - dirTx); float sl = min(abs(zp - zBuf), abs(zBuf - zm)); return min(uThickMin + sl * stepPx, 6.0); }
+#define RAYZ(s) (1.0 / mix(iz0, iz1, (s)))
+#define EMIT(UV, ZR, ZB, TH, LV, ST) { n++; if (n == record) { rec.uv = UV; rec.zRay = ZR; rec.zBuf = ZB; rec.thick = TH; rec.level = LV; rec.state = ST; R.cls = -1; return R; } }
+// the walk. cls: 1 hit, 2 ran off the screen, 3 ran out of reads, 4 reached the end of the line, 5 no line to walk. record > 0 stops at that read and reports it.
+Res march(vec3 p0, vec3 r, int record, out Samp rec) {
+  Res R; R.uv = vec2(0.0); R.hit = 0.0; R.reads = 0; R.cls = 5; R.dist = 0.0; R.uv0 = vec2(0.0); R.uv1 = vec2(0.0);
+  rec.state = -1; rec.level = 0; rec.uv = vec2(0.0); rec.zRay = 0.0; rec.zBuf = 0.0; rec.thick = 0.0;
+  float tMax = uMaxDist; if (r.z > 0.0) tMax = min(tMax, (-uNear * 1.5 - p0.z) / r.z); if (tMax <= 0.01) return R;
+  vec3 p1 = p0 + r * tMax;
+  vec4 c0 = uProj * vec4(p0, 1.0), c1 = uProj * vec4(p1, 1.0);
+  vec2 uv0 = c0.xy / c0.w * 0.5 + 0.5, uv1 = c1.xy / c1.w * 0.5 + 0.5; R.uv0 = uv0; R.uv1 = uv1;
+  float iz0 = 1.0 / -p0.z, iz1 = 1.0 / -p1.z;
+  vec2 dUv = uv1 - uv0; vec2 dPx = dUv * uRes; float D = length(dPx); if (D < 0.5) return R;
+  vec2 dirTx = dPx / D / uRes; int n = 0;
+  if (uMethod < 2) {
+    float ds = uStepPx / D; float sPrev = 0.0, zPrev = -p0.z;
+    for (int i = 1; i <= 512; i++) { if (i > uMaxSteps) { R.cls = 3; break; }
+      float s = float(i) * ds; if (s > 1.0) { R.cls = 4; break; }
+      vec2 uv = uv0 + dUv * s; if (!inside(uv)) { R.reads++; EMIT(uv, RAYZ(s), 0.0, 0.0, 0, 3); R.cls = 2; break; }
+      float zRay = RAYZ(s), zBuf = zAt(uv); R.reads++;
+      float th = thickAt(uv, zBuf, zRay, zPrev, dirTx, uStepPx);
+      if (zRay > zBuf) {
+        if (zRay - zBuf < th) {
+          EMIT(uv, zRay, zBuf, th, 0, 2);
+          float lo = sPrev, hi = s;
+          if (uMethod == 1) for (int k = 0; k < 8; k++) { if (k >= uRefine) break; float m = 0.5 * (lo + hi); vec2 muv = uv0 + dUv * m; float mz = RAYZ(m), mb = zAt(muv); R.reads++; EMIT(muv, mz, mb, th, 0, 4); if (mz > mb) hi = m; else lo = m; }
+          vec2 huv = uv0 + dUv * hi; float hz = RAYZ(hi); R.uv = huv; R.hit = 1.0; R.cls = 1; R.dist = abs(r.z) > 1e-4 ? (-hz - p0.z) / r.z : hi * tMax;
+          EMIT(huv, hz, zBuf, th, 0, 6); break;
+        } else EMIT(uv, zRay, zBuf, th, 0, 1);
+      } else EMIT(uv, zRay, zBuf, th, 0, 0);
+      sPrev = s; zPrev = zRay;
+    }
+  } else {
+    int L = min(1, uTop); float s = 0.25 / D;
+    for (int i = 0; i < 512; i++) { if (i >= uMaxSteps) { R.cls = 3; break; }
+      vec2 uv = uv0 + dUv * s; if (!inside(uv)) { EMIT(uv, RAYZ(s), 0.0, 0.0, L, 3); R.cls = 2; break; }
+      vec2 lvl = uLvl[L]; vec2 cell = floor(uv * lvl);
+      vec2 edge = (cell + step(vec2(0.0), dUv)) / lvl;
+      vec2 tE = vec2(abs(dUv.x) > 1e-7 ? (edge.x - uv0.x) / dUv.x : 1e9, abs(dUv.y) > 1e-7 ? (edge.y - uv0.y) / dUv.y : 1e9);
+      float sExit = min(min(tE.x, tE.y), 1.0);
+      float zCell = zCellAt(L, cell); R.reads++;
+      float zA = RAYZ(s), zB = RAYZ(sExit);
+      if (max(zA, zB) < zCell) { EMIT(uv, zA, zCell, 0.0, L, 0); if (sExit >= 1.0) { R.cls = 4; break; } s = sExit + 0.25 / D; L = min(L + 1, uTop); }
+      else if (L > 0) { EMIT(uv, zA, zCell, 0.0, L, 5); L--; }
+      else {
+        float th = thickAt(uv, zCell, zB, zA, dirTx, 1.0);
+        if (zB - zCell < th) {
+          float sh = abs(iz1 - iz0) > 1e-9 ? clamp((1.0 / zCell - iz0) / (iz1 - iz0), s, sExit) : s; vec2 huv = uv0 + dUv * sh; float hz = RAYZ(sh);
+          R.uv = huv; R.hit = 1.0; R.cls = 1; R.dist = abs(r.z) > 1e-4 ? (-hz - p0.z) / r.z : sh * tMax; EMIT(huv, hz, zCell, th, 0, 6); break; }
+        else { EMIT(uv, zB, zCell, th, 0, 1); if (sExit >= 1.0) { R.cls = 4; break; } s = sExit + 0.25 / D; L = min(L + 1, uTop); }
+      }
+    }
+  }
+  return R; }
+vec2 xiFor(vec2 px, int k) { return vec2(hash(px + uSeed + float(k) * 17.0), hash(px.yx * 1.3 + uSeed * 0.7 + float(k) * 31.0)); }
+`;
+
+// the depth pyramid: each level keeps the nearer of the cells below it, so a whole cell can be skipped if the line stays in front of its nearest depth
+const reduceMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, uniforms: { tSrc: { value: null }, uSrcRes: { value: new THREE.Vector2() }, uSrcG: { value: 0 } }, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D tSrc; uniform vec2 uSrcRes; uniform int uSrcG;
+float rd(ivec2 c) { c = clamp(c, ivec2(0), ivec2(uSrcRes) - 1); vec4 t = texelFetch(tSrc, c, 0); if (uSrcG == 1) { float a = abs(t.a); return a <= 0.0 ? 1e9 : a; } return t.r; }
+void main() { ivec2 c = ivec2(gl_FragCoord.xy) * 2; float m = min(min(rd(c), rd(c + ivec2(1, 0))), min(rd(c + ivec2(0, 1)), rd(c + ivec2(1, 1))));
+  if ((int(uSrcRes.x) & 1) == 1) m = min(m, min(rd(c + ivec2(2, 0)), rd(c + ivec2(2, 1)))); if ((int(uSrcRes.y) & 1) == 1) m = min(m, min(rd(c + ivec2(0, 2)), rd(c + ivec2(1, 2)))); o = vec4(m, 0.0, 0.0, 1.0); }` });
+
+const marchUniforms = () => ({ tG: { value: null }, tH1: { value: null }, tH2: { value: null }, tH3: { value: null }, tH4: { value: null }, tH5: { value: null }, tH6: { value: null }, tH7: { value: null },
+  uLvl: { value: Array.from({ length: 8 }, () => new THREE.Vector2(1, 1)) }, uTop: { value: 0 }, uProj: { value: new THREE.Matrix4() }, uInvProj: { value: new THREE.Matrix4() }, uRes: { value: new THREE.Vector2(1, 1) }, uNear: { value: 0.1 },
+  uStepPx: { value: 8 }, uThick: { value: 0.4 }, uThickMin: { value: 0.05 }, uMaxDist: { value: 40 }, uFade: { value: 0.1 }, uRough: { value: 0 }, uSeed: { value: 0 }, uMaxSteps: { value: 128 }, uRefine: { value: 4 }, uMethod: { value: 1 }, uThickRule: { value: 0 }, uRays: { value: 1 } });
+
+// the reflection pass: one lake pixel in, the colour found along its bounced line out (rgb weighted by confidence, a = confidence)
+const ssrMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, uniforms: Object.assign(marchUniforms(), { tScene: { value: null } }), fragmentShader: COMMON + `uniform sampler2D tScene;
+void main() { vec4 g = texture(tG, vUv); if (g.a >= 0.0) { o = vec4(0.0); return; }
+  float d = -g.a; vec3 n = normalize(g.rgb); vec3 p = viewPos(vUv, d); vec3 v = normalize(p); vec3 r0 = reflect(v, n); vec3 p0 = p + n * 0.02;
+  vec3 col = vec3(0.0); float w = 0.0; Samp rec;
+  for (int k = 0; k < 4; k++) { if (k >= uRays) break;
+    vec3 r = uRough > 0.001 ? jitterDir(v, n, uRough, xiFor(gl_FragCoord.xy, k)) : r0;
+    Res R = march(p0, r, -1, rec);
+    if (R.hit > 0.5) { float e = min(min(R.uv.x, 1.0 - R.uv.x), min(R.uv.y, 1.0 - R.uv.y)); float f = smoothstep(0.0, max(uFade, 1e-4), e); col += texture(tScene, R.uv).rgb * f; w += f; } }
+  float K = float(uRays); o = vec4(col / K, w / K); }` });
+// last frames averaged in: each new frame is blended into the running picture by 1 / frames, up to 48
+const histMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, uniforms: { tCur: { value: null }, tHist: { value: null }, uBlend: { value: 1 } }, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D tCur, tHist; uniform float uBlend;
+void main() { o = mix(texture(tHist, vUv), texture(tCur, vUv), uBlend); }` });
+// per-pixel bookkeeping at a low size, read back to the panel: how each lake pixel's walk ended and how many depth reads it took
+const statsMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, uniforms: marchUniforms(), fragmentShader: COMMON + `
+void main() { vec4 g = texture(tG, vUv); if (g.a >= 0.0) { o = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  float d = -g.a; vec3 n = normalize(g.rgb); vec3 p = viewPos(vUv, d); vec3 v = normalize(p); vec3 r = reflect(v, n); Samp rec; Res R = march(p + n * 0.02, r, -1, rec);
+  float e = min(min(R.uv.x, 1.0 - R.uv.x), min(R.uv.y, 1.0 - R.uv.y)); float f = R.hit * smoothstep(0.0, max(uFade, 1e-4), e);
+  o = vec4(float(R.cls) / 5.0, min(float(R.reads) / 255.0, 1.0), f, 1.0); }` });
+// the walk for one picked pixel: column i reports depth read number i, row 2 the result, row 3 the two ends of the line
+const traceMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, uniforms: Object.assign(marchUniforms(), { uPick: { value: new THREE.Vector2(0.5, 0.3) } }), fragmentShader: COMMON + `uniform vec2 uPick;
+void main() { int i = int(gl_FragCoord.x), row = int(gl_FragCoord.y); vec4 g = texture(tG, uPick); if (g.a >= 0.0) { o = vec4(-2.0); return; }
+  float d = -g.a; vec3 n = normalize(g.rgb); vec3 p = viewPos(uPick, d); vec3 v = normalize(p); vec3 p0 = p + n * 0.02;
+  vec3 r = uRough > 0.001 ? jitterDir(v, n, uRough, xiFor(uPick * uRes, 0)) : reflect(v, n); Samp rec;
+  if (row >= 2) { Res R = march(p0, r, -1, rec); o = row == 2 ? vec4(float(R.cls), float(R.reads), R.uv) : vec4(R.uv0, R.uv1); return; }
+  Res R = march(p0, r, i + 1, rec);
+  o = row == 0 ? vec4(rec.uv, rec.zRay, rec.zBuf) : vec4(rec.thick, float(rec.state), float(rec.level), R.cls == -1 ? 1.0 : 0.0); }` });
+// the final picture: the colour picture everywhere, and on the lake a mix of water and reflection, from the walk, a true mirror render or the probe
+const compMat = new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, uniforms: Object.assign(marchUniforms(), { tScene: { value: null }, tSSR: { value: null }, tMirror: { value: null }, tProbe: { value: null }, uInvView: { value: new THREE.Matrix4() }, uMirrorMat: { value: new THREE.Matrix4() },
+  uProbePos: { value: new THREE.Vector3() }, uBoxMin: { value: new THREE.Vector3(-14, 0, -12) }, uBoxMax: { value: new THREE.Vector3(14, 12, 16) }, uView: { value: 0 }, uReflMode: { value: 0 }, uFill: { value: 1 }, uF0: { value: 0.5 }, uDepthFar: { value: 40 } }), fragmentShader: COMMON + `
+uniform sampler2D tScene, tSSR, tMirror; uniform samplerCube tProbe; uniform mat4 uInvView, uMirrorMat; uniform vec3 uProbePos, uBoxMin, uBoxMax; uniform int uView, uReflMode, uFill; uniform float uF0, uDepthFar;
+vec3 skyCol(vec3 d) { float u = clamp(d.y, 0.0, 1.0); return mix(vec3(0.014, 0.020, 0.034), vec3(0.002, 0.003, 0.006), sqrt(u)); }
+vec3 probe(vec3 pW, vec3 rW, float lod) { vec3 f = (uBoxMax - pW) / rW, s = (uBoxMin - pW) / rW; vec3 fa = max(f, s); float dist = min(min(fa.x, fa.y), fa.z); vec3 hit = pW + rW * dist; return textureLod(tProbe, hit - uProbePos, lod).rgb; }
+vec3 heat(float h) { return h < 0.5 ? mix(vec3(0.03, 0.08, 0.30), vec3(0.95, 0.64, 0.25), h * 2.0) : mix(vec3(0.95, 0.64, 0.25), vec3(1.0), (h - 0.5) * 2.0); }
+vec3 toSRGB(vec3 c) { c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+void main() { vec4 g = texture(tG, vUv); vec3 sc = texture(tScene, vUv).rgb; bool lake = g.a < 0.0; float d = abs(g.a);
+  if (uView == 1) { float k = 1.0 - clamp((d - uNear) / (uDepthFar - uNear), 0.0, 1.0); if (g.a == 0.0) k = 0.0; o = vec4(vec3(k), 1.0); return; }
+  if (!lake) { o = vec4(uView == 0 ? toSRGB(sc) : uView == 2 ? toSRGB(sc * 0.3) : vec3(0.09), 1.0); return; }
+  vec3 n = normalize(g.rgb); vec3 p = viewPos(vUv, d); vec3 v = normalize(p); vec3 r = reflect(v, n);
+  vec3 pW = (uInvView * vec4(p, 1.0)).xyz; vec3 rW = normalize((uInvView * vec4(r, 0.0)).xyz);
+  if (uView == 3 || uView == 4) { Samp rec; Res R = march(p + n * 0.02, r, -1, rec);
+    if (uView == 3) { vec3 c = R.cls == 1 ? vec3(0.35, 0.83, 0.54) : R.cls == 2 ? vec3(0.94, 0.36, 0.36) : R.cls == 3 ? vec3(0.95, 0.64, 0.25) : vec3(0.55, 0.58, 0.64); o = vec4(c, 1.0); return; }
+    o = vec4(heat(float(R.reads) / float(uMaxSteps)), 1.0); return; }
+  vec3 fall = uFill == 1 ? skyCol(rW) : uFill == 2 ? probe(pW, rW, uRough * 6.0) : sc;
+  vec3 refl;
+  if (uReflMode == 1) { vec4 m = uMirrorMat * vec4(pW, 1.0); vec2 muv = m.xy / m.w; refl = inside(muv) ? texture(tMirror, muv).rgb : fall; }
+  else if (uReflMode == 2) refl = probe(pW, rW, uRough * 6.0);
+  else { vec4 s = texture(tSSR, vUv); float a = clamp(s.a, 0.0, 1.0); refl = mix(fall, s.rgb / max(s.a, 1e-4), a); }
+  float c = clamp(dot(-v, n), 0.0, 1.0); float F = uF0 + (1.0 - uF0) * pow(1.0 - c, 5.0);
+  o = vec4(toSRGB(uView == 2 ? refl : mix(sc, refl, F)), 1.0); }` });
+const marchMats = [ssrMat, statsMat, traceMat, compMat];
+const setU = (k, v) => { for (const m of marchMats) m.uniforms[k].value = v; };
+
+const mkRT = (w, h, o) => new THREE.WebGLRenderTarget(w, h, Object.assign({ type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false }, o || {}));
+let gbuf = null, rtScene = null, rtMirror = null, rtSSR = null, hist = [null, null], curH = 0, levels = [], top = 0;
+const rtStats = new THREE.WebGLRenderTarget(64, 64, { depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter }); const statsPx = new Uint8Array(64 * 64 * 4);
+const TRACE_N = 256; const rtTrace = new THREE.WebGLRenderTarget(TRACE_N, 4, { type: THREE.FloatType, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter }); const tracePx = new Float32Array(TRACE_N * 4 * 4);
+const size = new THREE.Vector2();
+function ensureTargets() {
+  renderer.getDrawingBufferSize(size); const w = Math.max(2, size.x | 0), h = Math.max(2, size.y | 0); const sw = Math.max(2, Math.round(w * ssrScale)), sh = Math.max(2, Math.round(h * ssrScale));
+  if (!gbuf || gbuf.width !== w || gbuf.height !== h) {
+    if (gbuf) { gbuf.dispose(); rtScene.dispose(); rtMirror.dispose(); for (const l of levels) l.dispose(); }
+    gbuf = new THREE.WebGLRenderTarget(w, h, { type: THREE.FloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
+    rtScene = mkRT(w, h, { depthBuffer: true }); rtMirror = mkRT(Math.round(w / 2), Math.round(h / 2), { depthBuffer: true });
+    levels = []; let lw = w, lh = h; top = 0; const lvl = compMat.uniforms.uLvl.value; lvl[0].set(w, h);
+    for (let k = 1; k < 8; k++) { lw = Math.ceil(lw / 2); lh = Math.ceil(lh / 2); if (Math.min(lw, lh) < 4) break; levels.push(new THREE.WebGLRenderTarget(lw, lh, { type: THREE.FloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false })); lvl[k].set(lw, lh); top = k; }
+    for (const m of marchMats) { for (let k = 0; k < 8; k++) m.uniforms.uLvl.value[k].copy(lvl[k]); m.uniforms.uTop.value = top; m.uniforms.uRes.value.set(w, h); for (let k = 1; k < 8; k++) m.uniforms['tH' + k].value = levels[Math.min(k, levels.length) - 1] ? levels[Math.min(k, levels.length) - 1].texture : gbuf.texture; }
+    histN = 0;
+  }
+  if (!rtSSR || rtSSR.width !== sw || rtSSR.height !== sh) { for (const r of [rtSSR, ...hist]) if (r) r.dispose(); rtSSR = mkRT(sw, sh); hist = [mkRT(sw, sh), mkRT(sw, sh)]; histN = 0; }
+}
+
+// the two other ways: a mirror camera under the water, and a six-sided snapshot taken from over the lake
+const vCam = new THREE.PerspectiveCamera(); const mirrorBias = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
+const cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
+const cube = new THREE.CubeCamera(0.1, 200, cubeRT); cube.position.set(0, 2.2, 6); scene.add(cube);
+compMat.uniforms.tProbe.value = cubeRT.texture; compMat.uniforms.uProbePos.value.copy(cube.position);
+const probeMark = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), new THREE.MeshBasicMaterial({ color: PAL.blue, wireframe: true })); probeMark.position.copy(cube.position); probeMark.visible = false; scene.add(probeMark);
+const probeLabel = sb.label('the probe: six pictures taken from here', probeMark, 'blue'); probeLabel.off.set(0, 0.45, 0); probeLabel.hide(true);
+
+// ---- the overlay that draws one pixel's walk
+const ov = document.createElement('canvas'); ov.className = 'ssr-walk'; sb.stage.insertBefore(ov, sb.stage.querySelector('.sb-hud')); const ctx = ov.getContext('2d');
+const pick = new THREE.Vector2(0.58, 0.37); let hovering = false;
+sb.stage.addEventListener('pointermove', e => { const r = sb.stage.getBoundingClientRect(); if (!r.width || !r.height) return; pick.set((e.clientX - r.left) / r.width, 1 - (e.clientY - r.top) / r.height); hovering = true; });
+
+// ---- state
+let view = 0, reflMode = 0, ssrScale = 0.5, temporal = true, histN = 0, showWalk = true, frame = 0, probeDirty = true, msAvg = 0, lastNow = 0, renders = 0;
+const lastView = new THREE.Matrix4(), lastProj = new THREE.Matrix4();
+const flame = scene.getObjectByName('flame');
+const reset = () => { histN = 0; };
+const sceneChanged = () => { histN = 0; probeDirty = true; };
+
+// ---- 1 one pixel, one walk
+const s1 = sb.panel.section('01 · One lake pixel, one walk', 'The lake never looks at the 3D scene. For each of its pixels the bounced line is walked across the picture the game already drew, and the colour at the first stop that dips behind something is the reflection. Hover the lake to watch one pixel\'s walk.');
+s1.segment('Show', [{ value: 0, label: 'the picture' }, { value: 1, label: 'the depth picture' }, { value: 2, label: 'reflection only' }, { value: 3, label: 'how each walk ended' }, { value: 4, label: 'depth reads (heat)' }], 0, v => { view = +v; apply(); });
+s1.toggle('draw the walk for the pixel under the mouse', true, v => { showWalk = v; apply(); });
+s1.slider('Water shine (how mirror-like)', { min: 0.1, max: 1, step: 0.05, value: 0.5 }, v => { compMat.uniforms.uF0.value = v; });
+s1.key([['#4aa3ff', 'stop: line still in front'], ['#f2a341', 'stop: behind, but by too much, walk on'], ['#5ad48a', 'stop: behind by a little, hit'], ['#ef5d5d', 'stop: off the screen, nothing to find']]);
+const hitRead = s1.readout('lake pixels with a reflection found');
+const msRead = s1.readout('frame time');
+
+// ---- 2 the march
+const s2 = sb.panel.section('02 · Fixed steps or big jumps', 'Stepping a few pixels at a time is simple but slow, and a big step walks straight over thin things. Looking back with halvings after the first stop behind recovers the exact spot. Hi-Z jumps skip whole blocks of screen that the line stays in front of.');
+s2.segment('How the line is walked', [{ value: 0, label: 'fixed steps' }, { value: 1, label: 'fixed steps, then look back' }, { value: 2, label: 'Hi-Z jumps' }], 1, v => { setU('uMethod', +v); reset(); apply(); });
+s2.slider('Step size', { min: 1, max: 32, step: 1, value: 8, unit: ' px' }, v => { setU('uStepPx', v); reset(); });
+s2.slider('Most depth reads per pixel', { min: 8, max: 256, step: 8, value: 128 }, v => { setU('uMaxSteps', v); reset(); });
+s2.slider('Look-back halvings after the first stop behind', { min: 0, max: 8, step: 1, value: 4 }, v => { setU('uRefine', v); reset(); });
+s2.segment('Reflection pass size', [{ value: 1, label: 'full' }, { value: 0.5, label: 'half' }, { value: 0.25, label: 'quarter' }], 0.5, v => { ssrScale = +v; reset(); });
+const readsRead = s2.readout('depth reads per lake pixel, average');
+const endRead = s2.readout('walks that ended: hit · off screen · out of reads');
+
+// ---- 3 failures
+const s3 = sb.panel.section('03 · When the reflection is not in the picture', 'Every miss is the same miss: the thing the lake should show was never drawn. Lift the house and its top leaves the screen; its underside, which the lake should show, was never on screen at all. Hang a crate in the way and it hides part of the house from the walk.');
+s3.slider('Lift the house until its top leaves the screen', { min: 0, max: 11, step: 0.1, value: 0, unit: ' m' }, v => { house.position.y = v; sceneChanged(); });
+s3.slider('Slide the house sideways', { min: -9, max: 9, step: 0.1, value: 0, unit: ' m' }, v => { house.position.x = HOUSE_X + v; sceneChanged(); });
+s3.toggle('hang a crate in the way', false, v => { hang.visible = v; hangLabel.hide(!v); sceneChanged(); });
+s3.segment('Fill the holes with', [{ value: 0, label: 'the water colour' }, { value: 1, label: 'the sky' }, { value: 2, label: 'a probe (cube map)' }], 1, v => { compMat.uniforms.uFill.value = +v; apply(); });
+s3.slider('Fade near the screen edge', { min: 0, max: 0.4, step: 0.01, value: 0.1, fmt: v => (v * 100).toFixed(0) + ' % of the screen' }, v => { setU('uFade', v); reset(); });
+const fillRead = s3.readout('lake pixels using the walk · using the fill');
+
+// ---- 4 rough
+const s4 = sb.panel.section('04 · Rippled water: scatter the rays', 'Wind ripples the lake, so its reflection is blurry. Each pixel bounces its line in a random direction inside a cone, which is right on average but speckled. Averaging over frames hides the speckle while the camera holds still.');
+s4.slider('Roughness', { min: 0, max: 1, step: 0.01, value: 0 }, v => { setU('uRough', v); reset(); });
+s4.segment('Rays per pixel', ['1', '2', '4'], '1', v => { setU('uRays', +v); reset(); });
+s4.toggle('average over frames (temporal)', true, v => { temporal = v; reset(); });
+const histRead = s4.readout('frames in the average');
+
+// ---- 5 thickness
+const s5 = sb.panel.section('05 · How far behind still counts', 'The allowance (thickness) says how far behind a stored surface the line may go and still count as a hit. Too small and the walk steps past real surfaces, leaving holes. Too big and the hanging crate stops lines that really passed under it.');
+s5.slider('Allowance, one fixed number', { min: 0.02, max: 3, step: 0.02, value: 0.4, unit: ' m' }, v => { setU('uThick', v); reset(); });
+s5.segment('Allowance rule', [{ value: 0, label: 'one fixed number' }, { value: 1, label: 'the line\'s depth change per step' }, { value: 2, label: 'the depth picture\'s slope' }], 0, v => { setU('uThickRule', +v); reset(); });
+s5.slider('Smallest allowance for the two per-pixel rules', { min: 0.01, max: 0.5, step: 0.01, value: 0.05, unit: ' m' }, v => { setU('uThickMin', v); reset(); });
+
+// ---- 6 compare
+const s6 = sb.panel.section('06 · The other ways', 'A planar mirror draws the whole scene a second time from under the water: exact, and it costs a second render per mirror. A probe is six small pictures taken once from one spot over the lake: nearly free, and everything sits in the wrong place because the snapshot was not taken from where each lake pixel is.');
+s6.segment('Reflections from', [{ value: 0, label: 'the walk (SSR)' }, { value: 1, label: 'a planar mirror' }, { value: 2, label: 'a probe (cube map)' }], 0, v => { reflMode = +v; probeMark.visible = reflMode === 2; probeLabel.hide(reflMode !== 2); apply(); });
+s6.button('Take the probe\'s six pictures again', () => { probeDirty = true; });
+const callRead = s6.readout('draw calls this frame');
+const passRead = s6.readout('scene renders this frame');
+
+function apply() {
+  compMat.uniforms.uView.value = view; compMat.uniforms.uReflMode.value = reflMode;
+  ov.style.display = showWalk && view !== 1 ? '' : 'none';
+  sb.hud('mode', view === 1 ? 'depth picture: bright = near, dark = far. The walk compares the line against this' : view === 2 ? 'reflection only: what the lake would show if it were a perfect mirror' : view === 3 ? 'how each lake pixel\'s walk ended: green hit, red off screen, amber out of reads, grey reached the end of its line' : view === 4 ? 'depth reads per lake pixel: blue few, amber many, white the most allowed' : reflMode === 1 ? 'a planar mirror: the scene drawn again from under the water' : reflMode === 2 ? 'a probe: six pictures from one point over the lake, looked up by direction' : 'screen-space reflections: every lake pixel walks its bounced line across this picture');
+}
+apply();
+
+// ---- the walk overlay
+const meshes = []; scene.traverse(o => { if (o.isMesh) meshes.push(o); }); const savedMat = new Map();
+function drawWalk() {
+  const W = sb.stage.clientWidth, H = sb.stage.clientHeight, dpr = Math.min(devicePixelRatio || 1, 2); if (ov.width !== Math.round(W * dpr) || ov.height !== Math.round(H * dpr)) { ov.width = Math.round(W * dpr); ov.height = Math.round(H * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const X = u => u * W, Y = v => (1 - v) * H; const res = tracePx.subarray(2 * TRACE_N * 4, 2 * TRACE_N * 4 + 4), ends = tracePx.subarray(3 * TRACE_N * 4, 3 * TRACE_N * 4 + 4);
+  const px = X(pick.x), py = Y(pick.y);
+  ctx.lineWidth = 1.5; ctx.strokeStyle = '#ffffff'; ctx.strokeRect(px - 4, py - 4, 8, 8);
+  if (res[0] === -2) { sb.hud('walk', hovering ? 'this pixel is not water: move over the lake to see a walk' : 'move the mouse over the lake to pick a pixel'); return; }
+  const cls = res[0], reads = res[1];
+  if (cls === 5) { sb.hud('walk', 'the bounced line has no length on screen here'); return; }
+  ctx.setLineDash([3, 5]); ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.moveTo(X(ends[0]), Y(ends[1])); ctx.lineTo(X(ends[2]), Y(ends[3])); ctx.stroke(); ctx.setLineDash([]);
+  const cellCss = W / gbuf.width; let hit = null, last = null;
+  for (let i = 0; i < TRACE_N; i++) { const a = i * 4, b = (TRACE_N + i) * 4; if (tracePx[b + 3] < 0.5) break; const st = tracePx[b + 1], L = tracePx[b + 2], x = X(tracePx[a]), y = Y(tracePx[a + 1]); last = i;
+    if (L > 0) { const c = 2 ** L * cellCss; ctx.strokeStyle = st === 5 ? 'rgba(242,163,65,0.55)' : 'rgba(74,163,255,0.45)'; ctx.lineWidth = 1; const cx = Math.floor(tracePx[a] * gbuf.width / 2 ** L) * c, cy = H - (Math.floor(tracePx[a + 1] * gbuf.height / 2 ** L) + 1) * c; ctx.strokeRect(cx, cy, c, c); }
+    ctx.fillStyle = st === 0 ? '#4aa3ff' : st === 1 ? '#f2a341' : st === 2 ? '#5ad48a' : st === 3 ? '#ef5d5d' : st === 4 ? '#ffffff' : st === 5 ? 'rgba(242,163,65,0.8)' : '#5ad48a';
+    ctx.beginPath(); ctx.arc(x, y, st === 4 ? 2 : 3, 0, 6.283); ctx.fill();
+    if (st === 6) { hit = i; ctx.strokeStyle = '#5ad48a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 7, 0, 6.283); ctx.stroke(); } }
+  let text;
+  if (cls === 1 && hit != null) { const a = hit * 4, b = (TRACE_N + hit) * 4; text = 'hit after ' + reads + ' depth reads: line ' + tracePx[a + 2].toFixed(2) + ' m, picture ' + tracePx[a + 3].toFixed(2) + ' m, behind by ' + Math.max(0, tracePx[a + 2] - tracePx[a + 3]).toFixed(2) + ' m, allowed ' + tracePx[b].toFixed(2) + ' m'; }
+  else if (cls === 2) text = 'ran off the screen after ' + reads + ' depth reads: what this pixel should reflect was never drawn';
+  else if (cls === 3) text = 'ran out of reads after ' + reads + ': stopped short of anything';
+  else text = 'walked its whole line (' + reads + ' depth reads) and never dipped behind anything';
+  if (last != null && last >= TRACE_N - 1) text += ' (only the first ' + TRACE_N + ' stops are drawn)';
+  sb.hud('walk', text);
+}
+
+const drift = (a, b) => { let s = 0; for (let i = 0; i < 16; i++) s += Math.abs(a.elements[i] - b.elements[i]); return s; };
+const tmpV = new THREE.Vector3(), tmpT = new THREE.Vector3();
+sb.onFrame(() => {
+  const info = renderer.info.render; callRead(info.calls); passRead(renders);
+  flame.visible = view === 0;
+});
+sb.onRender((scene, camera, renderer) => {
+  ensureTargets(); frame++; renderer.info.reset(); renders = 0;
+  const now = performance.now(); if (lastNow) msAvg += ((now - lastNow) - msAvg) * 0.08; lastNow = now; msRead(msAvg.toFixed(1) + ' ms');
+  camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+  if (drift(lastView, camera.matrixWorldInverse) > 1e-5 || drift(lastProj, camera.projectionMatrix) > 1e-7) histN = 0;
+  lastView.copy(camera.matrixWorldInverse); lastProj.copy(camera.projectionMatrix);
+  for (const m of marchMats) { m.uniforms.tG.value = gbuf.texture; m.uniforms.uProj.value.copy(camera.projectionMatrix); m.uniforms.uInvProj.value.copy(camera.projectionMatrixInverse); m.uniforms.uNear.value = camera.near; }
+  renderer.shadowMap.autoUpdate = false;
+  // 1 the depth and direction picture. The lake writes its depth negative so later passes know which pixels are water
+  for (const m of meshes) { savedMat.set(m, m.material); m.material = m === lake ? gLakeMat : m === sky ? gBack : gMat; }
+  renderer.setRenderTarget(gbuf); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, camera); renders++;
+  for (const m of meshes) m.material = savedMat.get(m);
+  // 2 the depth pyramid, only when the walk jumps
+  if (ssrMat.uniforms.uMethod.value === 2) { let src = gbuf; for (let k = 0; k < levels.length; k++) { reduceMat.uniforms.tSrc.value = src.texture; reduceMat.uniforms.uSrcRes.value.set(src.width, src.height); reduceMat.uniforms.uSrcG.value = k === 0 ? 1 : 0; quad.material = reduceMat; renderer.setRenderTarget(levels[k]); renderer.render(quadScene, quadCam); src = levels[k]; } }
+  // 3 the colour picture
+  renderer.shadowMap.needsUpdate = true; renderer.setRenderTarget(rtScene); renderer.setClearColor(PAL.sky, 1); renderer.clear(); renderer.render(scene, camera); renders++;
+  // 4 the mirror: the scene again, from a camera reflected under the water
+  if (reflMode === 1) {
+    vCam.fov = camera.fov; vCam.aspect = camera.aspect; vCam.near = camera.near; vCam.far = camera.far; vCam.updateProjectionMatrix();
+    vCam.position.copy(camera.position); vCam.position.y = 2 * LAKE_Y - vCam.position.y;
+    camera.getWorldDirection(tmpV); tmpT.copy(camera.position).add(tmpV); tmpT.y = 2 * LAKE_Y - tmpT.y; vCam.up.set(0, -1, 0); vCam.lookAt(tmpT); vCam.updateMatrixWorld();
+    compMat.uniforms.uMirrorMat.value.copy(mirrorBias).multiply(vCam.projectionMatrix).multiply(vCam.matrixWorldInverse);
+    lake.visible = false; renderer.setRenderTarget(rtMirror); renderer.clear(); renderer.render(scene, vCam); lake.visible = true; renders++; compMat.uniforms.tMirror.value = rtMirror.texture;
+  }
+  // 5 the probe: six pictures, retaken only when the scene changed
+  if (probeDirty) { probeMark.visible = false; cube.update(renderer, scene); probeMark.visible = reflMode === 2; probeDirty = false; renders += 6; }
+  // 6 the walk for every lake pixel, then the running average
+  let ssrTex = null;
+  if (reflMode === 0 && (view === 0 || view === 2)) {
+    setU('uSeed', temporal ? (frame % 64) * 0.618 : 0);
+    ssrMat.uniforms.tScene.value = rtScene.texture; quad.material = ssrMat; renderer.setRenderTarget(rtSSR); renderer.render(quadScene, quadCam);
+    if (temporal) { histN++; const prev = hist[curH], next = hist[1 - curH]; histMat.uniforms.tCur.value = rtSSR.texture; histMat.uniforms.tHist.value = prev.texture; histMat.uniforms.uBlend.value = 1 / Math.min(histN, 48); quad.material = histMat; renderer.setRenderTarget(next); renderer.render(quadScene, quadCam); curH = 1 - curH; ssrTex = next.texture; }
+    else { histN = 0; ssrTex = rtSSR.texture; }
+  }
+  histRead(temporal ? Math.min(histN, 48) + (histN >= 48 ? ' (the most kept)' : '') : 'off: every frame stands alone');
+  // 7 the numbers for the panel, from a small copy of the walk
+  if (frame % 8 === 1) {
+    quad.material = statsMat; renderer.setRenderTarget(rtStats); renderer.render(quadScene, quadCam); renderer.readRenderTargetPixels(rtStats, 0, 0, 64, 64, statsPx);
+    let n = 0, hitN = 0, offN = 0, outN = 0, reads = 0, fillW = 0; for (let i = 0; i < statsPx.length; i += 4) { const c = Math.round(statsPx[i] / 51); if (!c) continue; n++; reads += statsPx[i + 1]; fillW += statsPx[i + 2] / 255; if (c === 1) hitN++; else if (c === 2) offN++; else if (c === 3) outN++; }
+    const pc = x => n ? (100 * x / n).toFixed(0) + ' %' : '0 %';
+    hitRead(n ? pc(hitN) : 'no lake on screen'); readsRead(n ? (reads / n).toFixed(1) + (ssrMat.uniforms.uRays.value > 1 ? ' × ' + ssrMat.uniforms.uRays.value + ' rays' : '') : 'none'); endRead(pc(hitN) + ' · ' + pc(offN) + ' · ' + pc(outN)); fillRead(n ? pc(fillW) + ' · ' + pc(n - fillW) : 'none');
+  }
+  // 8 the picked pixel's walk, read back and drawn on top
+  if (showWalk && view !== 1) { traceMat.uniforms.uPick.value.copy(pick); quad.material = traceMat; renderer.setRenderTarget(rtTrace); renderer.render(quadScene, quadCam); renderer.readRenderTargetPixels(rtTrace, 0, 0, TRACE_N, 4, tracePx); drawWalk(); }
+  else sb.hud('walk', null);
+  // 9 the picture
+  compMat.uniforms.tScene.value = rtScene.texture; compMat.uniforms.tSSR.value = ssrTex || rtSSR.texture; compMat.uniforms.uInvView.value.copy(camera.matrixWorld);
+  renderer.setRenderTarget(null); renderer.setClearColor(PAL.sky, 1); renderer.clear(); quad.material = compMat; renderer.render(quadScene, quadCam);
+});
+sb.start();
+</script>
+</body>
+</html>
