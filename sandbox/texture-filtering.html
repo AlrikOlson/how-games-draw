@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Texture Filtering &amp; Mipmaps · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'texture-filtering', title: 'Texture Filtering & Mipmaps',
+  blurb: 'A cobbled road out of the knight\'s camp, a brick wall and a picket fence, each wrapped in a picture drawn on the fly. Switch how the graphics card reads those pictures, watch the far road shimmer and settle, see which shrunk copy every pixel reads, and count what the pictures cost.',
+  camera: { pos: [0.9, 1.7, 11], target: [0, 0.8, -14], near: 0.1, far: 400 }, depthFar: 80
+});
+const W = sb.world, V3 = THREE.Vector3;
+sb.scene.fog = new THREE.Fog(PAL.sky, 70, 240);
+sb.lights.sun.position.set(-9, 16, 12); // sun from the left, so the brick wall facing the road is lit
+
+// ---- the camp, rearranged around a long road
+W.ground(400);
+[[-7, -6, 4.5, true], [6, -30, 5, true], [-6, -22, 4, false], [9, 2, 3.6, false], [-6, -50, 5, true], [7, -70, 4.5, false], [-7, -95, 5, true], [8, -120, 4.5, true], [-8, -150, 5, false]].forEach(a => W.tree(...a));
+W.house(8, -14, 4, 3, 2.6, -0.5); const knight = W.knight(-4.4, 2.2, 1.8, 0.9); W.fire(4.8, 6.2);
+W.crate(4.6, 9, 0.9, 0.3); W.crate(5.4, 9.9, 0.7, -0.4); W.rock(-5.2, -3, 0.6); W.rock(6.2, -1, 0.5);
+const wallBox = W.wall(3.25, 4, 3.25, -8, 2.4, 0.4);
+
+// ---- pictures drawn on a canvas: cobbles (one road tile), bricks (one metre of wall), pickets (one metre of fence)
+const TEX = { size: 256, tile: 4, bc1: false, mips: true };
+function canvasOf(n) { const c = document.createElement('canvas'); c.width = c.height = n; return c; }
+function drawCobbles(ctx, n) {
+  ctx.fillStyle = '#231f1b'; ctx.fillRect(0, 0, n, n);
+  let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const rows = 12, cols = 12, cw = n / cols, ch = n / rows;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const cx = c * cw + (r % 2) * cw / 2 + cw / 2 + (rnd() - 0.5) * cw * 0.12, cy = r * ch + ch / 2 + (rnd() - 0.5) * ch * 0.12;
+    const rx = cw * 0.44 * (0.88 + rnd() * 0.2), ry = ch * 0.42 * (0.88 + rnd() * 0.2), rot = (rnd() - 0.5) * 0.5;
+    const l = 104 + rnd() * 76, tint = rnd(); const col = `rgb(${l + tint * 24 | 0},${l + 10 | 0},${l + (1 - tint) * 26 | 0})`;
+    for (const dx of [-n, 0, n]) for (const dy of [-n, 0, n]) {
+      ctx.beginPath(); ctx.ellipse(cx + dx, cy + dy, rx, ry, rot, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx + dx - rx * 0.22, cy + dy - ry * 0.28, rx * 0.5, ry * 0.42, rot, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,255,255,0.13)'; ctx.fill();
+    }
+  }
+}
+function drawBricks(ctx, n) {
+  ctx.fillStyle = '#a89f92'; ctx.fillRect(0, 0, n, n);
+  let seed = 5; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const rows = 8, cols = 4, bw = n / cols, bh = n / rows, m = Math.max(1, n / 48);
+  for (let r = 0; r < rows; r++) for (let c = -1; c <= cols; c++) {
+    const x = c * bw + (r % 2) * bw / 2, y = r * bh; const L = 36 + rnd() * 16, H = 8 + rnd() * 10;
+    ctx.fillStyle = `hsl(${H}, 46%, ${L}%)`; ctx.fillRect(x + m / 2, y + m / 2, bw - m, bh - m);
+    ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fillRect(x + m / 2, y + m / 2, bw - m, bh * 0.18);
+  }
+}
+function drawPickets(ctx, n) {
+  ctx.clearRect(0, 0, n, n);
+  const s = n; ctx.fillStyle = '#6b4a2c';
+  ctx.fillRect(0, s * 0.30, s, s * 0.07); ctx.fillRect(0, s * 0.68, s, s * 0.07);
+  for (let i = 0; i < 4; i++) {
+    const x0 = i * s / 4 + s * 0.055, w = s * 0.14, top = s * 0.06;
+    ctx.fillStyle = i % 2 ? '#e2dccb' : '#d5cfbe';
+    ctx.beginPath(); ctx.moveTo(x0, s); ctx.lineTo(x0, top + w * 0.6); ctx.lineTo(x0 + w / 2, top); ctx.lineTo(x0 + w, top + w * 0.6); ctx.lineTo(x0 + w, s); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(x0 + w - Math.max(1, s / 128), top + w * 0.6, Math.max(1, s / 128), s);
+  }
+}
+// the stack of shrunk copies: each level averages 2 by 2 texels of the level above, in linear light, alpha-weighted
+const toLin = new Float32Array(256), toSrgb = new Uint8Array(4096);
+for (let i = 0; i < 256; i++) { const c = i / 255; toLin[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+for (let i = 0; i < 4096; i++) { const c = i / 4095; toSrgb[i] = Math.round(255 * (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055)); }
+function halve(src) {
+  const n = src.width, h = n >> 1, a = src.getContext('2d').getImageData(0, 0, n, n).data, dst = canvasOf(h), ctx = dst.getContext('2d'), img = ctx.createImageData(h, h), d = img.data;
+  for (let y = 0; y < h; y++) for (let x = 0; x < h; x++) {
+    let r = 0, g = 0, b = 0, al = 0;
+    for (let k = 0; k < 4; k++) { const i = (((2 * y + (k >> 1)) * n) + 2 * x + (k & 1)) * 4, w = a[i + 3] / 255; r += toLin[a[i]] * w; g += toLin[a[i + 1]] * w; b += toLin[a[i + 2]] * w; al += w; }
+    const o = (y * h + x) * 4, inv = al > 0 ? 1 / al : 0;
+    d[o] = toSrgb[Math.min(4095, r * inv * 4095) | 0]; d[o + 1] = toSrgb[Math.min(4095, g * inv * 4095) | 0]; d[o + 2] = toSrgb[Math.min(4095, b * inv * 4095) | 0]; d[o + 3] = Math.round(al * 63.75);
+  }
+  ctx.putImageData(img, 0, 0); return dst;
+}
+// block compression (BC1): every 4 by 4 block becomes two colours and a 2-bit pick per texel. Encoded and decoded here in JavaScript, so the artifacts are the real ones; the card still stores the decoded bytes.
+function bc1RoundTrip(c) {
+  const n = c.width; if (n < 4) return; const ctx = c.getContext('2d'), img = ctx.getImageData(0, 0, n, n), d = img.data;
+  const q5 = v => { const q = v >> 3; return (q << 3) | (q >> 2); }, q6 = v => { const q = v >> 2; return (q << 2) | (q >> 4); };
+  const idx = new Int32Array(16), pal = new Float32Array(12);
+  for (let by = 0; by < n; by += 4) for (let bx = 0; bx < n; bx += 4) {
+    let lo = 1e9, hi = -1, ilo = 0, ihi = 0;
+    for (let k = 0; k < 16; k++) { const i = ((by + (k >> 2)) * n + bx + (k & 3)) * 4; idx[k] = i; const lum = d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11; if (lum < lo) { lo = lum; ilo = i; } if (lum > hi) { hi = lum; ihi = i; } }
+    const c0 = [q5(d[ihi]), q6(d[ihi + 1]), q5(d[ihi + 2])], c1 = [q5(d[ilo]), q6(d[ilo + 1]), q5(d[ilo + 2])];
+    for (let j = 0; j < 3; j++) { pal[j] = c0[j]; pal[3 + j] = c1[j]; pal[6 + j] = (2 * c0[j] + c1[j]) / 3; pal[9 + j] = (c0[j] + 2 * c1[j]) / 3; }
+    for (let k = 0; k < 16; k++) {
+      const i = idx[k]; let best = 0, bd = 1e9;
+      for (let p = 0; p < 4; p++) { const dr = d[i] - pal[p * 3], dg = d[i + 1] - pal[p * 3 + 1], db = d[i + 2] - pal[p * 3 + 2]; const dist = dr * dr + dg * dg + db * db; if (dist < bd) { bd = dist; best = p; } }
+      d[i] = pal[best * 3]; d[i + 1] = pal[best * 3 + 1]; d[i + 2] = pal[best * 3 + 2]; d[i + 3] = d[i + 3] < 128 ? 0 : 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+function buildLevels(draw) {
+  const base = canvasOf(TEX.size); draw(base.getContext('2d'), TEX.size);
+  const levels = [base]; while (levels[levels.length - 1].width > 1) levels.push(halve(levels[levels.length - 1]));
+  if (TEX.bc1) levels.forEach(bc1RoundTrip);
+  return levels;
+}
+const LEVEL_COLS = ['#ffffff', '#4aa3ff', '#5ad48a', '#f2a341', '#ef5d5d', '#b46cff', '#3ad6d6', '#8d95a3', '#f0e08a', '#c96a3a', '#5a5a5a'];
+function buildColourLevels() { const out = []; for (let n = TEX.size, k = 0; n >= 1; n >>= 1, k++) { const c = canvasOf(n), ctx = c.getContext('2d'); ctx.fillStyle = LEVEL_COLS[Math.min(k, 10)]; ctx.fillRect(0, 0, n, n); out.push(c); } return out; }
+function makeTex(levels, repeat, offset) {
+  const t = new THREE.CanvasTexture(levels[0]); t.colorSpace = THREE.SRGBColorSpace; t.mipmaps = TEX.mips ? levels : []; t.generateMipmaps = false;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(...repeat); if (offset) t.offset.set(...offset); t.userData.levels = levels; return t;
+}
+
+// ---- the three textured surfaces
+const ROAD_LEN = 200, FENCE_LEN = 192;
+const road = new THREE.Mesh(new THREE.PlaneGeometry(5, ROAD_LEN), null); road.rotation.x = -Math.PI / 2; road.position.set(0, 0.01, 14 - ROAD_LEN / 2); road.receiveShadow = true; road.name = 'road'; sb.scene.add(road);
+const wall = new THREE.Mesh(new THREE.PlaneGeometry(12, 2.4), null); wall.rotation.y = -Math.PI / 2; wall.position.set(3.03, 1.2, -2); wall.receiveShadow = true; wall.name = 'wall'; sb.scene.add(wall);
+const fence = new THREE.Mesh(new THREE.PlaneGeometry(FENCE_LEN, 1), null); fence.rotation.y = Math.PI / 2; fence.position.set(-3.0, 0.5, 6 - FENCE_LEN / 2); fence.castShadow = true; fence.name = 'fence'; sb.scene.add(fence);
+const surfaces = [
+  { mesh: road, draw: drawCobbles, repeat: () => [5 / TEX.tile, ROAD_LEN / TEX.tile], offset: () => [0, -6 / TEX.tile], lambert: new THREE.MeshLambertMaterial(), tex: null, ctex: null },
+  { mesh: wall, draw: drawBricks, repeat: () => [12, 2.4], offset: () => [0, 0], lambert: new THREE.MeshLambertMaterial(), tex: null, ctex: null },
+  { mesh: fence, draw: drawPickets, repeat: () => [FENCE_LEN, 1], offset: () => [0, 0], lambert: new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 }), tex: null, ctex: null }
+];
+// the bias nudge is added to the ordinary material by rewriting one line of its shader: texture2D(map, uv, bias)
+const biasU = { value: 0 };
+for (const s of surfaces) {
+  s.lambert.onBeforeCompile = sh => { sh.uniforms.uBias = biasU; sh.fragmentShader = 'uniform float uBias;\n' + sh.fragmentShader.replace('texture2D( map, vMapUv )', 'texture2D( map, vMapUv, uBias )'); };
+  s.lambert.customProgramCacheKey = () => 'bias';
+}
+// the view shader: one copy only (textureLod), which copy the hardware really picks (a texture whose every copy is a flat colour), the copy by the formula, or the stretch of the pixel's patch
+const bandCols = LEVEL_COLS.map(c => new THREE.Color(c));
+const viewVert = `varying vec2 vUv; varying vec3 vN;
+#include <fog_pars_vertex>
+void main(){ vUv = uv; vN = normalize(mat3(modelMatrix) * normal); vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mvPosition;
+#include <fog_vertex>
+}`;
+const viewFrag = `uniform sampler2D map; uniform sampler2D mipcol; uniform vec2 uRepeat; uniform vec2 uOffset; uniform float uTexSize; uniform float uLevels; uniform int uMode; uniform float uLevel; uniform float uBias; uniform float uAniso; uniform float uAlphaTest; uniform vec3 uSun; uniform vec3 uBands[11];
+varying vec2 vUv; varying vec3 vN;
+#include <fog_pars_fragment>
+vec3 heat(float r) { float t = clamp(log2(r) / 4.0, 0.0, 1.0); return t < 0.5 ? mix(vec3(0.02, 0.12, 0.45), vec3(0.85, 0.45, 0.05), t * 2.0) : mix(vec3(0.85, 0.45, 0.05), vec3(1.0), (t - 0.5) * 2.0); }
+void main(){
+  vec2 st = vUv * uRepeat + uOffset;
+  vec2 dx = dFdx(st) * uTexSize, dy = dFdy(st) * uTexSize;
+  float px = length(dx), py = length(dy); float rho = max(px, py), rmin = max(min(px, py), 1e-5);
+  vec3 col; float a = texture(map, st).a;
+  if (uMode == 0) { vec4 c = textureLod(map, st, uLevel); col = c.rgb * (0.38 + 0.62 * max(dot(normalize(vN), uSun), 0.0)); a = c.a; }
+  else if (uMode == 1) { col = texture(mipcol, st).rgb; }
+  else if (uMode == 2) { float n = uAniso > 1.0 ? min(ceil(rho / rmin), uAniso) : 1.0; float lam = clamp(log2(max(rho / n, 1e-5)) + uBias, 0.0, uLevels - 1.0); col = uBands[int(floor(lam))]; }
+  else { col = heat(rho / rmin); }
+  if (a < uAlphaTest) discard;
+  gl_FragColor = vec4(col, 1.0);
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`;
+for (const s of surfaces) {
+  s.shader = new THREE.ShaderMaterial({ vertexShader: viewVert, fragmentShader: viewFrag, fog: true, side: s.mesh === fence ? THREE.DoubleSide : THREE.FrontSide,
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { map: { value: null }, mipcol: { value: null }, uRepeat: { value: new THREE.Vector2() }, uOffset: { value: new THREE.Vector2() }, uTexSize: { value: 256 }, uLevels: { value: 9 }, uMode: { value: 0 }, uLevel: { value: 0 }, uAniso: { value: 1 }, uAlphaTest: { value: s.mesh === fence ? 0.5 : -1 }, uSun: { value: sb.lights.sun.position.clone().normalize() }, uBands: { value: bandCols } }]) });
+  s.shader.uniforms.uBias = biasU;
+  s.mesh.material = s.lambert;
+}
+const stack = new THREE.Group(); stack.visible = false; sb.scene.add(stack);
+function rebuildTextures() {
+  const clevels = buildColourLevels();
+  for (const s of surfaces) {
+    if (s.tex) { s.tex.dispose(); s.ctex.dispose(); }
+    s.tex = makeTex(buildLevels(s.draw), s.repeat(), s.offset()); s.ctex = makeTex(clevels, s.repeat(), s.offset());
+    s.lambert.map = s.tex; s.lambert.needsUpdate = true;
+    const u = s.shader.uniforms; u.map.value = s.tex; u.mipcol.value = s.ctex; u.uRepeat.value.set(...s.repeat()); u.uOffset.value.set(...s.offset()); u.uTexSize.value = TEX.size; u.uLevels.value = Math.log2(TEX.size) + 1;
+  }
+  // the stack beside the road: the road picture and every half-size copy, drawn at their true relative sizes, texels shown as squares
+  while (stack.children.length) { const m = stack.children.pop(); m.material.map.dispose(); m.geometry.dispose(); }
+  let z = 4; const levels = surfaces[0].tex.userData.levels;
+  levels.forEach((c, k) => { const s = 2 / Math.pow(2, k); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.NearestFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(s, s), new THREE.MeshBasicMaterial({ map: t })); m.rotation.y = Math.PI / 2; m.position.set(-3.6, 1.2 + s / 2, z - s / 2); stack.add(m); z -= s + 0.12; });
+  applyFilter(); refreshNumbers();
+}
+function setRepeat() { for (const s of surfaces) { s.tex.repeat.set(...s.repeat()); s.tex.offset.set(...s.offset()); s.ctex.repeat.copy(s.tex.repeat); s.ctex.offset.copy(s.tex.offset); s.shader.uniforms.uRepeat.value.copy(s.tex.repeat); s.shader.uniforms.uOffset.value.copy(s.tex.offset); } }
+
+// ---- filter state, applied to the real sampler settings of every texture
+const F = THREE;
+const FILTERS = {
+  nearest: { min: F.NearestFilter, mag: F.NearestFilter, aniso: 1, texels: 1, lines: 1, hud: 'nearest texel, no copies' },
+  bilinear: { min: F.LinearFilter, mag: F.LinearFilter, aniso: 1, texels: 4, lines: 1, hud: 'bilinear, full size only' },
+  bimips: { min: F.LinearMipmapNearestFilter, mag: F.LinearFilter, aniso: 1, texels: 4, lines: 1, hud: 'bilinear on the nearest copy' },
+  trilinear: { min: F.LinearMipmapLinearFilter, mag: F.LinearFilter, aniso: 1, texels: 8, lines: 2, hud: 'trilinear, two copies blended' },
+  aniso4: { min: F.LinearMipmapLinearFilter, mag: F.LinearFilter, aniso: 4, texels: 32, lines: 8, hud: 'anisotropic 4x' },
+  aniso16: { min: F.LinearMipmapLinearFilter, mag: F.LinearFilter, aniso: 16, texels: 128, lines: 32, hud: 'anisotropic 16x' }
+};
+const S = { filter: 'bilinear', mag: 'bilinear', wrap: 'repeat', view: 'picture', level: 0, drift: false, patch: true, pix: 0 };
+const maxAniso = sb.renderer.capabilities.getMaxAnisotropy();
+function effectiveFilter() { let f = S.filter; if (!TEX.mips && f !== 'nearest') f = 'bilinear'; if (S.view === 'onecopy' && TEX.mips) f = 'trilinear'; return f; }
+function applyFilter() {
+  const f = FILTERS[effectiveFilter()], wrap = S.wrap === 'clamp' ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
+  for (const s of surfaces) for (const t of [s.tex, s.ctex]) {
+    t.minFilter = f.min; t.magFilter = (S.mag === 'nearest' || f.mag === THREE.NearestFilter) ? THREE.NearestFilter : THREE.LinearFilter;
+    t.anisotropy = Math.min(f.aniso, Math.max(1, maxAniso)); t.wrapS = t.wrapT = wrap; t.mipmaps = TEX.mips ? t.userData.levels : []; t.generateMipmaps = false; t.needsUpdate = true;
+    s.shader.uniforms.uAniso.value = t.anisotropy;
+  }
+  sb.hud('filter', 'filter: ' + f.hud + (TEX.mips ? '' : ' (no copies kept, so full size only)'));
+}
+function setView(v) {
+  S.view = v; viewSeg3.set(['picture', 'real', 'onecopy'].includes(v) ? v : 'picture', false); viewSeg4.set(['formula', 'stretch'].includes(v) ? v : 'picture', false);
+  const mode = { onecopy: 0, real: 1, formula: 2, stretch: 3 }[v];
+  for (const s of surfaces) { s.mesh.material = v === 'picture' ? s.lambert : s.shader; s.shader.uniforms.uMode.value = mode ?? 0; s.shader.uniforms.uLevel.value = S.level; }
+  applyFilter();
+  sb.hud('view', { picture: null, real: 'colour = the copy the card really read (key in section 03)', onecopy: 'every pixel reads copy ' + S.level.toFixed(2) + ' only, no matter its distance', formula: 'colour = the copy the formula picks from the pixel steps', stretch: 'patch stretch: blue square, amber long, white very long' }[v]);
+}
+
+// ---- panel
+const s1 = sb.panel.section('01 · Up close', 'Stand nose to the wall. Every screen pixel lands between texels, and the card either grabs the nearest one (blocky) or blends the four around it (soft).');
+const magSeg = s1.segment('Between texels, up close', [{ value: 'nearest', label: 'nearest texel' }, { value: 'bilinear', label: 'blend the four (bilinear)' }], 'bilinear', v => { S.mag = v; applyFilter(); });
+s1.segment('Past the edge of the tile', [{ value: 'repeat', label: 'continue from the other side (repeat)' }, { value: 'clamp', label: 'repeat the edge texel (clamp)' }], 'repeat', v => { S.wrap = v; applyFilter(); });
+s1.button('Stand nose to the brick wall', () => { sb.camera.position.set(2.6, 1.5, -1.6); sb.controls.target.set(3.03, 1.45, -1.8); });
+s1.button('Back onto the road', () => { sb.camera.position.set(0.9, 1.7, 11); sb.controls.target.set(0, 0.8, -14); });
+s1.note('With clamp, only the first road tile in front of you keeps its picture. Past its edge the last row of texels is stretched into streaks.');
+
+const s2 = sb.panel.section('02 · Far away, textures shimmer', 'Down the road one pixel covers dozens of texels. Blending four of them and ignoring the rest makes bands that crawl when the camera moves. The shrunk copies fix it, and anisotropic reads sharpen the blur that is left.');
+const filterSeg = s2.segment('Filter', [{ value: 'nearest', label: 'nearest texel' }, { value: 'bilinear', label: 'bilinear, full size only' }, { value: 'bimips', label: 'bilinear with copies' }, { value: 'trilinear', label: 'trilinear' }, { value: 'aniso4', label: 'anisotropic 4x' }, { value: 'aniso16', label: 'anisotropic 16x' }], 'bilinear', v => { S.filter = v; if (v === 'nearest') { S.mag = 'nearest'; magSeg.set('nearest', false); } applyFilter(); refreshNumbers(); });
+s2.slider('Size of one road tile', { min: 1, max: 8, step: 0.5, value: 4, unit: ' m' }, v => { TEX.tile = v; setRepeat(); });
+s2.slider('Nudge the copy: sharper (minus) or blurrier (plus)', { min: -2, max: 2, step: 0.25, value: 0 }, v => { biasU.value = v; });
+s2.toggle('drift the camera slowly (shows the crawl)', false, v => { S.drift = v; });
+s2.segment('Screen width in pixels', [{ value: 0, label: 'full' }, { value: 640, label: '640' }, { value: 320, label: '320' }], 0, v => { S.pix = +v; sb.view.pixelate(S.pix); refreshNumbers(); });
+const texRead = s2.readout('texels read per pixel, worst case');
+const msRead = s2.readout('ms per frame in this browser');
+s2.readout('anisotropic reads your card offers', maxAniso ? 'up to ' + maxAniso + 'x' : 'none');
+
+const s3 = sb.panel.section('03 · The stack of shrunk copies', 'The road picture and its half-size copies, down to one texel. The card reads the copy where one texel is about one pixel wide, so its four texels already hold the average of everything the pixel covers.');
+s3.toggle('show the stack beside the road', false, v => { stack.visible = v; stackLabel.hide(!v); });
+const viewSeg3 = s3.segment('View', [{ value: 'picture', label: 'the picture' }, { value: 'real', label: 'which copy is read' }, { value: 'onecopy', label: 'one copy only' }], 'picture', v => setView(v));
+const levelSlider = s3.slider('Which copy to read (0 = full size)', { min: 0, max: 8, step: 0.25, value: 0 }, v => { S.level = v; setView('onecopy'); });
+s3.key(LEVEL_COLS.slice(0, 6).map((c, k) => [c, k === 0 ? 'copy 0, full size' : k === 1 ? 'copy 1, half size' : 'copy ' + k + ', 1/' + Math.pow(2, k) + ' size']));
+const baseRead = s3.readout('the road picture, full size');
+const chainRead = s3.readout('with all its copies');
+
+const s4 = sb.panel.section('04 · How the GPU picks the copy', 'Hover the road, wall or fence. The card measures how far the picture moves for one pixel step across and one down, takes the longer step in texels, and halves until it is about one texel: that many halvings is the copy.');
+const viewSeg4 = s4.segment('View', [{ value: 'picture', label: 'the picture' }, { value: 'formula', label: 'copy by the formula' }, { value: 'stretch', label: 'stretch of the patch' }], 'picture', v => setView(v));
+s4.toggle('show the hovered pixel\'s patch, drawn 32 times bigger', true, v => { S.patch = v; patch.visible = false; });
+const stepXRead = s4.readout('pixel step across, in texels');
+const stepYRead = s4.readout('pixel step down, in texels');
+const ratioRead = s4.readout('patch long : short');
+const lodRead = s4.readout('copy level (lambda)');
+const tapsRead = s4.readout('anisotropic reads (N) and their level');
+const readsRead = s4.readout('texels read for this pixel');
+
+const s5 = sb.panel.section('05 · What textures cost in memory', 'Bigger pictures look sharper up close and cost four times the bytes per doubling. The copies add a third. Block compression cuts the bytes eight times and the card decodes on the way in.');
+s5.segment('Texels per tile', [{ value: 64, label: '64 x 64' }, { value: 256, label: '256 x 256' }, { value: 1024, label: '1024 x 1024' }], 256, v => { TEX.size = +v; levelSlider.set(Math.min(S.level, Math.log2(TEX.size)), false); S.level = levelSlider.get(); rebuildTextures(); setView(S.view); });
+s5.segment('Stored as', [{ value: 'rgba', label: 'full colour (RGBA8)' }, { value: 'bc1', label: 'block compressed (BC1)' }], 'rgba', v => { TEX.bc1 = v === 'bc1'; rebuildTextures(); });
+s5.toggle('keep the shrunk copies (mipmaps)', true, v => { TEX.mips = v; applyFilter(); refreshNumbers(); });
+const roadBytes = s5.readout('road picture on the card');
+const allBytes = s5.readout('all three pictures with copies');
+const linesRead = s5.readout('cache lines per pixel, worst case');
+const bwRead = s5.readout('memory traffic, rough (9 in 10 reads hit the cache)');
+
+// ---- readouts
+const fmtB = b => b >= 1048576 ? (b / 1048576).toFixed(2) + ' MB' : b >= 1024 ? (b / 1024).toFixed(1) + ' KB' : b + ' B';
+function bytesOf(n, chain) { const per = TEX.bc1 ? 0.5 : 4; let sum = 0; for (let s = n; s >= 1; s >>= 1) { sum += Math.ceil(s / (TEX.bc1 ? 4 : 1)) * Math.ceil(s / (TEX.bc1 ? 4 : 1)) * (TEX.bc1 ? 8 : 4); if (!chain) break; } return sum; }
+function refreshNumbers() {
+  const f = FILTERS[effectiveFilter()], n = TEX.size;
+  texRead(f.texels); baseRead(fmtB(bytesOf(n, false))); chainRead(fmtB(bytesOf(n, true)) + ' (x' + (bytesOf(n, true) / bytesOf(n, false)).toFixed(3) + ')');
+  roadBytes(fmtB(bytesOf(n, TEX.mips))); allBytes(fmtB(3 * bytesOf(n, TEX.mips))); linesRead(f.lines);
+  const w = sb.stage.clientWidth, h = sb.stage.clientHeight, pr = sb.renderer.getPixelRatio(); const pixels = S.pix ? S.pix * Math.round(S.pix * h / w) : w * h * pr * pr;
+  bwRead((pixels * f.lines * 64 * 0.1 * 60 / 1e9).toFixed(2) + ' GB/s at 60 frames');
+}
+
+// ---- the hovered pixel: three rays (this pixel, one step right, one step down) hit the same surface, and the picture coordinates they land on give the pixel steps in texels
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), pointer = { x: -1, y: -1, moved: false };
+sb.stage.addEventListener('pointermove', e => { const r = sb.stage.getBoundingClientRect(); pointer.x = e.clientX - r.left; pointer.y = e.clientY - r.top; pointer.moved = true; });
+sb.stage.addEventListener('pointerleave', () => { pointer.moved = true; pointer.x = -1; });
+const patch = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: PAL.amber, transparent: true, opacity: 0.75, depthTest: false, side: THREE.DoubleSide }));
+patch.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3)); patch.geometry.setIndex([0, 1, 2, 0, 2, 3]); patch.renderOrder = 20; patch.visible = false; patch.frustumCulled = false; sb.scene.add(patch);
+const hitP = [new V3(), new V3(), new V3()], hitUV = [new THREE.Vector2(), new THREE.Vector2(), new THREE.Vector2()], ea = new V3(), eb = new V3(), nrm = new V3();
+const patchLabel = sb.label('the pixel\'s patch, 32 times bigger', patch, 'amber'); patchLabel.hide(true);
+function probe() {
+  pointer.moved = false; let ok = false;
+  if (pointer.x >= 0) {
+    const w = sb.stage.clientWidth, h = sb.stage.clientHeight, pr = sb.renderer.getPixelRatio();
+    const stepX = S.pix ? 2 / S.pix : 2 / (w * pr), stepY = S.pix ? 2 / Math.round(S.pix * h / w) : 2 / (h * pr);
+    const meshes = surfaces.map(s => s.mesh); let surf = null;
+    for (let k = 0; k < 3 && (k === 0 || surf); k++) {
+      ndc.set((pointer.x / w) * 2 - 1 + (k === 1 ? stepX : 0), -(pointer.y / h) * 2 + 1 - (k === 2 ? stepY : 0)); ray.setFromCamera(ndc, sb.camera);
+      const hits = k === 0 ? ray.intersectObjects(meshes, false) : ray.intersectObject(surf.mesh, false);
+      if (!hits.length || !hits[0].uv) { surf = null; break; }
+      if (k === 0) surf = surfaces.find(s => s.mesh === hits[0].object);
+      hitP[k].copy(hits[0].point); hitUV[k].copy(hits[0].uv);
+    }
+    if (surf) {
+      ok = true; const rep = surf.repeat(), n = TEX.size;
+      const dx = Math.hypot((hitUV[1].x - hitUV[0].x) * rep[0], (hitUV[1].y - hitUV[0].y) * rep[1]) * n, dy = Math.hypot((hitUV[2].x - hitUV[0].x) * rep[0], (hitUV[2].y - hitUV[0].y) * rep[1]) * n;
+      const rho = Math.max(dx, dy), rmin = Math.max(Math.min(dx, dy), 1e-6), levels = Math.log2(n) + 1, f = FILTERS[effectiveFilter()];
+      const lam = Math.min(levels - 1, Math.max(0, Math.log2(rho) + biasU.value));
+      const N = f.aniso > 1 ? Math.min(Math.ceil(rho / rmin), Math.min(f.aniso, Math.max(1, maxAniso))) : 1, lamA = Math.min(levels - 1, Math.max(0, Math.log2(rho / N) + biasU.value));
+      stepXRead(dx.toFixed(2)); stepYRead(dy.toFixed(2)); ratioRead((rho / rmin).toFixed(1) + ' : 1');
+      lodRead(lam.toFixed(2) + (lam <= 0 ? ' (full size, up close)' : ''));
+      tapsRead(f.aniso > 1 ? N + ' reads at level ' + lamA.toFixed(2) : 'none, one read');
+      readsRead(f.min === THREE.NearestFilter ? 1 : f.min === THREE.LinearMipmapLinearFilter ? 8 * N : 4);
+      // the patch: the parallelogram the pixel covers on the surface, scaled up so it can be seen
+      ea.subVectors(hitP[1], hitP[0]).multiplyScalar(16); eb.subVectors(hitP[2], hitP[0]).multiplyScalar(16);
+      nrm.set(0, 0, 1).applyQuaternion(surf.mesh.quaternion).multiplyScalar(0.02); if (surf.mesh === fence) nrm.multiplyScalar(0);
+      const p = patch.geometry.attributes.position.array;
+      const put = (i, sx, sy) => { p[i * 3] = hitP[0].x + ea.x * sx + eb.x * sy + nrm.x; p[i * 3 + 1] = hitP[0].y + ea.y * sx + eb.y * sy + nrm.y; p[i * 3 + 2] = hitP[0].z + ea.z * sx + eb.z * sy + nrm.z; };
+      put(0, -1, -1); put(1, 1, -1); put(2, 1, 1); put(3, -1, 1); patch.geometry.attributes.position.needsUpdate = true;
+      patchLabel.off.copy(hitP[0]).add(nrm); patchLabel.off.y += 0.12;
+    }
+  }
+  patch.visible = ok && S.patch; patchLabel.hide(!(ok && S.patch));
+  if (!ok) { stepXRead(null); stepYRead(null); ratioRead(null); lodRead(null); tapsRead(null); readsRead(null); }
+}
+
+// ---- labels, loop
+sb.label('the road, cobbles', new V3(0, 0.05, -5)).off.set(0, 0.3, 0);
+sb.label('brick wall', new V3(3.0, 2.4, -2), 'blue');
+sb.label('picket fence', new V3(-3.0, 1.0, -8), 'blue');
+const stackLabel = sb.label('the stack: each copy half the size, down to one texel', new V3(-3.6, 3.35, 0.6), 'amber'); stackLabel.hide(true);
+sb.label('the knight', knight).off.set(0, 2.0, 0);
+rebuildTextures(); setView('picture');
+let prevOff = 0, msAvg = 16, lastT = performance.now(), frames = 0;
+sb.onFrame((dt, t) => {
+  const now = performance.now(); msAvg += (now - lastT - msAvg) * 0.08; lastT = now; if ((frames++ & 15) === 0) msRead(msAvg.toFixed(1));
+  const off = S.drift ? Math.sin(t * 0.8) * 0.45 : 0; const d = off - prevOff; if (d) { sb.camera.position.z += d; sb.controls.target.z += d; } prevOff = off;
+  if (pointer.moved || S.drift) probe();
+});
+sb.start();
+</script>
+</body>
+</html>
