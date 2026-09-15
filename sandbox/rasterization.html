@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rasterization &amp; Depth · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'rasterization', title: 'Rasterization & Depth',
+  blurb: 'The knight\'s camp, drawn by a real GPU. Every idea from the chapter is a switch here: see the triangles, watch them land on a coarse pixel grid, look at the depth picture, make a banner fight with a wall, and count how many times each pixel gets coloured.',
+  camera: { pos: [11, 6, 13], target: [0.5, 1.2, -1], near: 0.1, far: 300 }
+});
+const camp = sb.world.camp();
+
+// a banner hung a few millimetres in front of the farmhouse wall: the chapter's z-fighting demo, on real hardware
+const banner = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.3), new THREE.MeshLambertMaterial({ color: 0xa5433a, side: THREE.DoubleSide }));
+banner.position.set(0.15, 1.55, 1.5 + 0.005); camp.house.add(banner);
+sb.label('banner, a few mm in front of the wall', banner, 'blue').off.set(0, 0.8, 0);
+sb.label('the knight', camp.knight).off.set(0, 2.0, 0);
+
+// ---- 1 triangles
+const s1 = sb.panel.section('01 · Triangles', 'Everything here is triangles. Flat colour hides them; the wire view shows every one.');
+s1.segment('View', [{ value: 'shaded', label: 'coloured in' }, { value: 'wireframe', label: 'just the triangles' }], 'shaded', v => { mode = v; apply(); });
+const triRead = s1.readout('triangles drawn this frame');
+const callRead = s1.readout('draw calls');
+
+// ---- 2 pixels
+const s2 = sb.panel.section('02 · Pixels', 'The GPU only ever asks one question per pixel: is the centre of this pixel inside the triangle? Shrink the screen and watch the edges go jagged.');
+const widths = [{ value: 0, label: 'full' }, { value: 320, label: '320' }, { value: 160, label: '160' }, { value: 96, label: '96' }, { value: 48, label: '48' }];
+s2.segment('Screen width in pixels', widths, 0, v => { pix = +v; apply(); });
+s2.toggle('draw the pixel grid', false, v => { gridOn = v; apply(); });
+
+// ---- 3 depth
+const s3 = sb.panel.section('03 · Depth', 'A second picture stores how far away every pixel is, so nearer things win. It is stored squashed and rounded, and the near plane sets how coarse the rounding gets far away.');
+s3.segment('Show', [{ value: 'picture', label: 'the picture' }, { value: 'depth', label: 'the depth picture' }], 'picture', v => { depthView = v === 'depth'; apply(); });
+const nearS = s3.slider('Near plane, the closest distance drawn', { min: 0.01, max: 2, step: 0.01, value: 0.1, unit: ' m' }, v => { sb.camera.near = v; sb.camera.updateProjectionMatrix(); });
+s3.slider('Far plane', { min: 50, max: 2000, step: 10, value: 300, unit: ' m' }, v => { sb.camera.far = v; sb.camera.updateProjectionMatrix(); });
+const gapS = s3.slider('Banner in front of the wall by', { min: 0.2, max: 40, step: 0.2, value: 5, unit: ' mm' }, v => { banner.position.z = 1.5 + v / 1000; });
+s3.button('Walk 60 m back from the camp', () => { const d = sb.camera.position.clone().sub(sb.controls.target).normalize(); sb.camera.position.copy(sb.controls.target).addScaledVector(d, 60); });
+s3.button('Walk back to the camp', () => { sb.camera.position.set(11, 6, 13); });
+s3.note('Walk back, then drag the near plane down to 0.01 m. The banner starts to flicker against the wall: at that distance the depth buffer can no longer tell 5 mm apart. Push the near plane back up and it settles. This is the real depth buffer in your graphics card, not a simulation.');
+const distRead = s3.readout('camera to banner');
+
+// ---- 4 overdraw
+const s4 = sb.panel.section('04 · Overdraw and early-Z', 'Colouring a pixel is the expensive part. The heat view adds a little brightness every time a pixel gets coloured, so overlaps glow.');
+s4.toggle('heat view: how often each pixel is coloured', false, v => { heat = v; apply(); });
+s4.segment('Draw order', [{ value: 'btf', label: 'back to front' }, { value: 'ftb', label: 'front to back' }], 'btf', v => { order = v; });
+s4.toggle('early depth test (skip pixels already hidden)', true, v => { earlyZ = v; apply(); });
+s4.note('Front to back with the early test on, the hidden parts never get coloured and the heat view goes flat. Back to front, or with the test off, every layer is coloured and the overlaps glow.');
+s4.key([['#4aa3ff', 'coloured once'], ['#f2a341', 'coloured a few times'], ['#ffffff', 'coloured many times']]);
+
+// ---- 5 tiles
+const s5 = sb.panel.section('05 · Tiles', 'Before testing pixels one by one, the GPU tests blocks of them. A block entirely inside a big triangle is accepted whole; only blocks an edge crosses get the per-pixel test.');
+s5.toggle('show 8×8 pixel blocks', false, v => { tiles = v; apply(); });
+
+// ---- state
+let mode = 'shaded', pix = 0, gridOn = false, depthView = false, heat = false, order = 'btf', earlyZ = true, tiles = false;
+const meshes = []; sb.scene.traverse(o => { if (o.isMesh) meshes.push(o); });
+const heatMat = new THREE.MeshBasicMaterial({ color: 0x3a6fd8, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false });
+function apply() {
+  sb.view.pixelate(pix); sb.view.grid(gridOn || tiles, tiles && !pix ? 8 : 0);
+  if (heat) { sb.scene.overrideMaterial = heatMat; heatMat.depthTest = earlyZ; heatMat.depthWrite = earlyZ; sb.scene.background = new THREE.Color(0x0b0e13); }
+  else if (depthView) sb.view.mode('depth');
+  else sb.view.mode(mode);
+  sb.hud('mode', heat ? 'heat: each colouring adds a little light' : depthView ? 'depth picture: bright = near, dark = far' : mode === 'wireframe' ? 'every triangle in the scene' : pix ? pix + ' pixels across, the rest is scaling' : null);
+}
+apply();
+const camPos = new THREE.Vector3(), bPos = new THREE.Vector3();
+sb.onFrame(() => {
+  // the draw order: three.js sorts front to back for opaque things by default; back to front is forced with renderOrder
+  sb.camera.getWorldPosition(camPos);
+  for (const m of meshes) { m.getWorldPosition(bPos); const d = bPos.distanceTo(camPos); m.renderOrder = order === 'btf' ? -d : d; }
+  sb.renderer.sortObjects = true;
+  const info = sb.renderer.info.render; triRead(info.triangles.toLocaleString()); callRead(info.calls);
+  banner.getWorldPosition(bPos); distRead(bPos.distanceTo(camPos).toFixed(1) + ' m');
+  if (heat) { camp.fire.getObjectByName('flame').visible = false; } else camp.fire.getObjectByName('flame').visible = true;
+});
+sb.start();
+</script>
+</body>
+</html>

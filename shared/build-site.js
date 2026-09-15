@@ -22,9 +22,14 @@ fs.mkdirSync('dist/pages', { recursive: true });
 
 const stagesOf = slug => [...fs.readFileSync('pages/' + slug + '.html', 'utf8').matchAll(/<section id="([^"]+)" class="stage">/g)].map(m => m[1]);
 const pagesTag = '<script>window.RL_PAGES=' + JSON.stringify(order.map((p, i) => ({ n: i + 1, slug: p.slug, title: p.title.replace(/&amp;/g, '&'), stages: stagesOf(p.slug) }))) + ';window.RL_BASE=' + JSON.stringify(base) + ';</script>';
+// the 3D sandboxes and the vendored three.js
+const sandboxes = fs.existsSync('sandbox') ? fs.readdirSync('sandbox').filter(f => f.endsWith('.html') && !f.startsWith('_')).map(f => f.replace(/\.html$/, '')) : [];
+const sandboxTag = '<script>window.RL_SANDBOX=' + JSON.stringify(sandboxes) + ';</script>';
+if (fs.existsSync('vendor')) { fs.mkdirSync('dist/vendor/addons', { recursive: true }); for (const f of fs.readdirSync('vendor')) { const p = 'vendor/' + f; if (fs.statSync(p).isFile()) fs.copyFileSync(p, 'dist/' + p); } for (const f of fs.readdirSync('vendor/addons')) fs.copyFileSync('vendor/addons/' + f, 'dist/vendor/addons/' + f); }
+if (sandboxes.length) { fs.mkdirSync('dist/sandbox', { recursive: true }); for (const f of fs.readdirSync('sandbox')) { let s = fs.readFileSync('sandbox/' + f, 'utf8'); if (f.endsWith('.html')) s = s.replace('</head>', pagesTag + '\n' + sandboxTag + '\n</head>'); fs.writeFileSync('dist/sandbox/' + f, s); } }
 // card art for the hub, made by shared/build-art.cjs
 if (fs.existsSync('art')) { fs.mkdirSync('dist/art', { recursive: true }); for (const f of fs.readdirSync('art')) fs.copyFileSync('art/' + f, 'dist/art/' + f); }
-fs.writeFileSync('dist/index.html', hub.replace(/href="pages\//g, 'href="' + base + '/pages/').replace(/src="art\//g, 'src="' + base + '/art/').replace('</head>', pagesTag + '\n</head>'));
+fs.writeFileSync('dist/index.html', hub.replace(/href="pages\//g, 'href="' + base + '/pages/').replace(/src="art\//g, 'src="' + base + '/art/').replace(/href="sandbox\//g, 'href="' + base + '/sandbox/').replace('</head>', pagesTag + '\n' + sandboxTag + '\n</head>'));
 
 const esc = s => s.replace(/&(?!amp;|lt;|gt;|quot;|#)/g, '&amp;');
 order.forEach((page, i) => {
@@ -33,7 +38,7 @@ order.forEach((page, i) => {
   if (cut < 0) throw new Error(page.slug + ': no </style>');
   let head = src.slice(0, cut + '</style>'.length).replace(/<title>(.*?)<\/title>/, (m, t) => '<title>' + esc(t) + ' · How Games Draw</title>');
   head += '\n<meta name="description" content="' + page.blurb.replace(/"/g, '&quot;') + '">';
-  head += '\n' + pagesTag;
+  head += '\n' + pagesTag + '\n' + sandboxTag;
   let body = src.slice(cut + '</style>'.length).replace(/href="\.\.\/index\.html"/g, 'href="' + base + '"');
 
   const prev = order[i - 1], next = order[i + 1];
@@ -53,6 +58,6 @@ order.forEach((page, i) => {
   fs.writeFileSync('dist/pages/' + page.slug + '.html', doc);
 });
 
-const files = fs.readdirSync('dist/pages').length + 1;
+const files = fs.readdirSync('dist/pages').length + 1 + sandboxes.length;
 const bytes = fs.readdirSync('dist/pages').reduce((n, f) => n + fs.statSync('dist/pages/' + f).size, fs.statSync('dist/index.html').size);
 console.log('dist/ written: ' + files + ' files, ' + (bytes / 1e6).toFixed(2) + ' MB, base ' + base);

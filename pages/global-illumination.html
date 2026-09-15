@@ -222,12 +222,9 @@ html.dash body { padding: 0; margin: 0; }
 .dash-stagesel { display: none; }
 .dash-grow { flex: 1; }
 .dash-mode { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; font-family: var(--font-mono); font-size: 12px; margin-right: 6px; }
-.dash-mode button { font: inherit; padding: 6px 12px; border: 0; background: var(--bg); color: var(--muted); cursor: pointer; }
-.dash-mode button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); }
-html.sandbox .dash-side .steps, html.sandbox .dash-side .step { display: none; }
-html.sandbox .lesson [data-step-min][hidden] { display: block !important; }
-html.sandbox .dash-side .lesson::before { content: "Sandbox · every control on, no steps"; display: block; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }
-html.sandbox .lesson .controls { margin-top: 0; }
+.dash-mode a { font: inherit; padding: 6px 12px; background: var(--bg); color: var(--muted); text-decoration: none; }
+.dash-mode a.on { background: var(--chip-on); color: var(--chip-on-ink); }
+.dash-mode a:not(.on):hover { color: var(--accent); }
 .dash-pos { color: var(--muted); min-width: 56px; text-align: center; }
 .dash-prev, .dash-next { font: inherit; font-size: 18px; line-height: 1; width: 32px; height: 32px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
 .dash-prev:hover:not(:disabled), .dash-next:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
@@ -294,7 +291,7 @@ html.dash .dash-side .foot { margin-top: 18px; display: grid; grid-template-colu
   .dash-top .dash-topics { display: none; }
   .dash-top .dash-pos, .dash-top .dash-prev, .dash-top .dash-next { display: none; }
   .dash-mode { margin-right: 0; }
-  .dash-mode button { padding: 5px 8px; font-size: 11px; }
+  .dash-mode a { padding: 5px 8px; font-size: 11px; }
   .dash-top { gap: 6px; padding: 0 8px; }
   .dash-top .dash-topics { max-width: 38vw; }
   .dash-main > section.stage, .dash-main > section.stage.cur { display: block; overflow-y: auto; }
@@ -1826,7 +1823,7 @@ function lesson(id, spec) {
   if (pages) topics = '<select class="dash-topics" aria-label="Topic">' + pages.map(p => `<option value="${p.slug}"${p.slug === page ? ' selected' : ''}>${String(p.n).padStart(2, '0')} · ${esc(p.title)}</option>`).join('') + '</select>';
   top.innerHTML = `<a class="dash-home">How Games Draw</a><span class="dash-sep">/</span>${topics || '<span class="dash-title">' + esc(title) + '</span>'}` +
     `<select class="dash-stagesel" aria-label="Stage"></select><span class="dash-grow"></span>` +
-    `<div class="dash-mode" role="group" aria-label="Mode"><button type="button" data-m="guided">Guided</button><button type="button" data-m="sandbox">Sandbox</button></div>` +
+    `<div class="dash-mode" role="group" aria-label="Mode"><a class="on">Guided</a><a class="dash-sbx">Sandbox</a></div>` +
     `<button type="button" class="dash-prev" aria-label="Previous stage">‹</button><span class="dash-pos"></span><button type="button" class="dash-next" aria-label="Next stage">›</button>`;
   top.querySelector('.dash-home').href = homeHref;
   const rail = el('nav', 'dash-rail');
@@ -1865,17 +1862,8 @@ function lesson(id, spec) {
   window.addEventListener('hashchange', () => show(location.hash.slice(1), false));
   document.addEventListener('keydown', e => { if (e.target.matches('input, select, textarea, button')) return; if (e.key === 'ArrowRight' || e.key === 'PageDown') { step(1); e.preventDefault(); } if (e.key === 'ArrowLeft' || e.key === 'PageUp') { step(-1); e.preventDefault(); } });
 
-  // ---- guided (the steps) or sandbox (every control, no steps); remembered, and ?sandbox in the address turns it on
-  const modeKey = 'rl:mode';
-  function setMode(m, remember) {
-    const sandbox = m === 'sandbox';
-    document.documentElement.classList.toggle('sandbox', sandbox);
-    $$('.dash-mode button', top).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.m === m)));
-    if (remember !== false) { try { localStorage.setItem(modeKey, m); } catch (e) {} }
-    if (cur >= 0) fit();
-  }
-  $$('.dash-mode button', top).forEach(b => b.addEventListener('click', () => setMode(b.dataset.m)));
-  { let m = 'guided'; try { m = localStorage.getItem(modeKey) || 'guided'; } catch (e) {} if (/[?&]sandbox\b/.test(location.search)) m = 'sandbox'; setMode(m); }
+  // ---- the Sandbox link goes to this chapter's 3D playground, when the build has one
+  { const sbx = top.querySelector('.dash-sbx'); const list = window.RL_SANDBOX || []; if (list.includes(page)) sbx.href = (pages ? base + '/sandbox/' : '../sandbox/') + page + '.html'; else top.querySelector('.dash-mode').remove(); }
 
   // ---- the picture block is sized so that its own layout (one canvas, or a page's row or grid of them) fits the middle
   function fit() {
