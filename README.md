@@ -55,4 +55,6 @@ I run the first two on every page before publishing. They've caught a lot.
 
 ## Publishing
 
-`node shared/build-site.js` writes `dist/`. It wraps each page in a full HTML document, rewrites links to absolute paths under `/how-games-draw` (the host serves folders without a trailing slash, so relative links break), adds prev/next navigation and copies the art in. Then it's `fridge dist --slug how-games-draw`, which is my own little publishing tool. If you're hosting it somewhere else, pass `--base /whatever` to build-site and put `dist/` wherever you like.
+`node shared/build-site.js --base /how-games-draw` writes `dist/`, which is just static files. It wraps each page in a full HTML document, rewrites links to absolute paths under whatever base you give it, adds prev/next navigation and copies the art in. Put `dist/` on any static host (GitHub Pages, Netlify, an S3 bucket, whatever) and pass the matching `--base`. If it's going at the root of a domain, use `--base ""`.
+
+The links are absolute on purpose. The host I use serves folders without a trailing slash, which makes relative links resolve against the site root and break. Absolute paths sidestep that everywhere.
