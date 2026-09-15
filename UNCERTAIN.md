@@ -1,6 +1,6 @@
 # Claims to check before publishing
 
-Each page was built by a separate agent that reported what it was unsure of. Collected
+Every place where a citation, date or number was written from memory or estimated, collected
 here so a fact-check pass has one list. Nothing below is known to be wrong; these are the
 places where a citation, date or number was written from memory or estimated.
 
@@ -65,7 +65,7 @@ source is named. The 2D demos are deliberate analogues of 3D algorithms.
 - Far Cry 3's 2012 "deferred radiance transfer volumes" attribution and Unreal 4.24 as the first SSGI release: from memory.
 
 ## draw-calls-and-instancing
-Built but its agent was cut off before reporting. Renders clean (no console errors, no
+Not reviewed line by line yet. Renders clean (no console errors, no
 overflow at 1100 and 400 px) but its numbers and citations have had no second look.
 Worth a read-through: the µs-per-draw costs, the sort-key bit layout, and the
 "Approaching Zero Driver Overhead" (NVIDIA, GDC 2014) and Alan Wake 2 mesh-shader claims.
@@ -142,7 +142,7 @@ Worth a read-through: the µs-per-draw costs, the sort-key bit layout, and the
 - The "one-sided min depth derivative" thickness rule is the author's formulation, not a quoted engine implementation.
 
 
-# Visuals pass (2026-09-13): modelling choices the agents flagged
+# Modelling choices worth knowing about
 
 Every demo was rebuilt as a game scene. These are the places where the new picture involved a
 choice worth knowing about; none changes a formula, table number or citation.

@@ -1,6 +1,6 @@
 // usage: node shared/build-site.js [--base /rendering-library]
 // Builds the publishable site into dist/: rebuilds the hub, wraps every page fragment in a
-// full HTML document, rewrites links to absolute paths under --base (moistfridge serves a folder
+// full HTML document, rewrites links to absolute paths under --base (some hosts serve a folder
 // at /slug with no trailing slash, so relative links would resolve against the site root), and
 // adds previous / next navigation in hub order at the foot of every page.
 const fs = require('fs');
