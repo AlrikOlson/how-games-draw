@@ -168,7 +168,7 @@ export function boot(cfg) {
     lamp(x, z, h = 3, intensity = 20) {
       const g = new THREE.Group(); g.position.set(x, 0, z); g.userData.kind = 'lamp'; g.name = 'lamp';
       g.add(mesh(new THREE.CylinderGeometry(0.05, 0.07, h, 8), mat(PAL.metal), 0, h / 2, 0));
-      g.add(new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 10), new THREE.MeshBasicMaterial({ color: 0xffe2a0 }))).position.y = h;
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 10), new THREE.MeshBasicMaterial({ color: 0xffe2a0 })); bulb.position.y = h; g.add(bulb);
       const light = new THREE.PointLight(0xffd27a, intensity, 18, 2); light.position.y = h; light.name = 'lamplight'; g.add(light);
       scene.add(g); return g;
     },
