@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Post Effects · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'post-effects', title: 'Post Effects',
+  blurb: 'A night street at the camp, drawn by a real GPU into a picture with real brightness, then run through the three passes games add last: a glow around the lamps, a lens blur that keeps only the knight sharp, and a smear on the passing car. Every slider changes a real pass, and the order of the passes is yours to break.',
+  camera: { pos: [7.5, 3.2, 10.5], target: [0, 1.2, -2.5], near: 0.1, far: 300 }
+});
+const scene = sb.scene, camera = sb.camera, renderer = sb.renderer, world = sb.world;
+scene.background = null; renderer.info.autoReset = false;
+
+// ---- night: a dim blue sky light, the moon as the shadow caster, street lamps doing the real work
+sb.lights.hemi.color.set(0x4a5f8f); sb.lights.hemi.groundColor.set(0x141a1a); sb.lights.hemi.intensity = 0.45;
+const moonLight = sb.lights.sun; moonLight.color.set(0x9fb4ff); moonLight.intensity = 0.7; moonLight.position.set(-14, 24, -12);
+const shc = moonLight.shadow.camera; shc.left = shc.bottom = -34; shc.right = shc.top = 34; shc.far = 100; shc.updateProjectionMatrix(); moonLight.shadow.bias = -0.0006;
+const skyCol = new THREE.Color(0.006, 0.009, 0.022);
+// a material that is brighter than white: real brightness, no ceiling, for the things that will glow
+const hdr = (r, g, b, k) => new THREE.MeshBasicMaterial({ color: new THREE.Color(r * k, g * k, b * k) });
+
+// ---- the street
+world.ground(90, 0x24402f);
+const road = sb.mesh(new THREE.BoxGeometry(90, 0.06, 4.8), sb.mat(0x3a3e46), 0, 0.03, -6); road.castShadow = false; scene.add(road);
+for (const z of [-3.4, -8.6]) { const kerb = sb.mesh(new THREE.BoxGeometry(90, 0.16, 0.7), sb.mat(PAL.stoneLite), 0, 0.08, z); kerb.castShadow = false; scene.add(kerb); }
+function streetLamp(x, z, h = 3.6) {
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.name = 'streetlamp';
+  g.add(sb.mesh(new THREE.CylinderGeometry(0.06, 0.1, h, 8), sb.mat(PAL.metal), 0, h / 2, 0));
+  const arm = sb.mesh(new THREE.BoxGeometry(0.16, 0.16, 0.9), sb.mat(PAL.metal), 0, h, -0.35); arm.castShadow = false; g.add(arm);
+  const head = sb.mesh(new THREE.SphereGeometry(0.2, 12, 10), hdr(1, 0.86, 0.55, 40), 0, h - 0.12, -0.7); head.castShadow = false; head.name = 'lamphead'; g.add(head);
+  const light = new THREE.PointLight(0xffd27a, 110, 26, 2); light.position.set(0, h - 0.2, -0.7); g.add(light);
+  scene.add(g); return g;
+}
+const lamps = [streetLamp(-9, -3.1), streetLamp(0, -3.1), streetLamp(9, -3.1)];
+const knight = world.knight(-0.6, 1.4, 1.8, 0.5);
+const fire = world.fire(2.8, 2.9); fire.getObjectByName('flame').material = hdr(1, 0.55, 0.15, 6); fire.traverse(m => { if (m.isMesh) m.castShadow = false; });
+world.crate(-3.6, 4.6, 0.9, 0.3); world.crate(4.2, 5.0, 0.7, -0.5);
+world.rock(6.5, 1.5, 0.6); world.rock(-7, 2.5, 0.5);
+[[-15, -11.5, 5], [-8, -13, 4.5, false], [-2, -13.5, 5.5], [5, -12.5, 4.2], [11, -14, 5, false], [19, -12, 4.6]].forEach(a => world.tree(...a));
+const house = world.house(14, -11, 4.6, 3.2, 2.8, 0.3); house.children[3].material.emissiveIntensity = 4;
+const moon = new THREE.Mesh(new THREE.SphereGeometry(2.6, 16, 12), hdr(0.9, 0.95, 1, 5)); moon.position.set(-60, 44, -95); scene.add(moon);
+// the spark: one dot about a pixel wide and 400 times brighter than white, drifting across the sky
+const spark = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 4), hdr(1, 1, 1, 400)); spark.position.set(0, 9, -28); spark.visible = false; scene.add(spark);
+// the car
+function makeCar() {
+  const g = new THREE.Group(); g.name = 'car';
+  g.add(sb.mesh(new THREE.BoxGeometry(3.8, 0.8, 1.7), sb.mat(0xd8433a), 0, 0.75, 0));
+  g.add(sb.mesh(new THREE.BoxGeometry(1.9, 0.7, 1.5), sb.mat(0x2f3a55), -0.2, 1.5, 0));
+  const wheelG = new THREE.CylinderGeometry(0.36, 0.36, 0.3, 12), wheelM = sb.mat(0x14161a);
+  for (const [x, z] of [[1.25, 0.8], [1.25, -0.8], [-1.25, 0.8], [-1.25, -0.8]]) { const w = sb.mesh(wheelG, wheelM, x, 0.36, z); w.rotation.x = Math.PI / 2; w.castShadow = false; g.add(w); }
+  const bulb = new THREE.SphereGeometry(0.11, 8, 6), headM = hdr(1, 0.95, 0.8, 14), tailM = hdr(1, 0.12, 0.08, 6);
+  for (const z of [0.55, -0.55]) { const a = sb.mesh(bulb, headM, 1.92, 0.75, z), b = sb.mesh(bulb, tailM, -1.92, 0.8, z); a.castShadow = b.castShadow = false; g.add(a, b); }
+  const light = new THREE.PointLight(0xfff0d0, 18, 14, 2); light.position.set(2.3, 0.7, 0); g.add(light);
+  g.position.set(-14, 0, -6.2); scene.add(g); return g;
+}
+const car = makeCar();
+sb.label('the street lamp, 40 times brighter than white', lamps[1].getObjectByName('lamphead')).off.set(0, 0.5, 0);
+sb.label('the knight, where the lens is focused', knight, 'blue').off.set(0, 2.1, 0);
+sb.label('the car, passing behind', car, 'amber').off.set(0, 2.3, 0);
+
+// ---- every mesh gets a second material that writes how far its pixels moved since last frame (motion vectors)
+const uPrevVP = { value: new THREE.Matrix4() }, uRes = { value: new THREE.Vector2(1, 1) };
+const velVS = 'uniform mat4 uPrevModel; uniform mat4 uPrevVP; out vec4 vCur; out vec4 vPrev; void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vCur = projectionMatrix * viewMatrix * wp; vPrev = uPrevVP * uPrevModel * vec4(position, 1.0); gl_Position = vCur; }';
+const velFS = 'uniform vec2 uRes; in vec4 vCur; in vec4 vPrev; out vec4 o; void main(){ vec2 a = vCur.xy / vCur.w; vec2 b = vPrev.xy / vPrev.w; o = vec4((a - b) * 0.5 * uRes, 1.0, 1.0); }';
+const meshes = []; scene.updateMatrixWorld(true);
+scene.traverse(m => { if (!m.isMesh) return; meshes.push(m); m.userData.lit = m.material;
+  m.userData.vel = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: velVS, fragmentShader: velFS, uniforms: { uPrevModel: { value: m.matrixWorld.clone() }, uPrevVP, uRes } }); });
+const carMeshes = []; car.traverse(m => { if (m.isMesh) carMeshes.push(m); });
+
+// ---- the passes: every one is a full-screen quad with its own shader, drawing into a render target
+const GL3 = THREE.GLSL3, VS = 'out vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const quadScene = new THREE.Scene(), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2)); quadScene.add(quad);
+const SM = (fs, uniforms) => new THREE.ShaderMaterial({ glslVersion: GL3, vertexShader: VS, fragmentShader: fs, uniforms, depthTest: false, depthWrite: false });
+const U = { near: { value: camera.near }, far: { value: camera.far }, focus: { value: 8 }, fmm: { value: 50 }, fstop: { value: 1.4 }, T: { value: 1.0 }, K: { value: 0.5 }, I: { value: 0.35 } };
+const LIN = 'uniform float uNear; uniform float uFar; float lin(float d){ return (uNear * uFar) / (uFar - d * (uFar - uNear)); }';
+const COC = 'uniform float uFocus; uniform float uFmm; uniform float uFstop; float cocOf(float dist, float pxPerMm, float maxCoc){ float d = dist * 1000.0; float df = uFocus * 1000.0; float A = uFmm / uFstop; float c = A * (uFmm * (d - df)) / (d * (df - uFmm)); return clamp(c * pxPerMm, -maxCoc, maxCoc); }';
+const HASH = 'float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }';
+const TONE = 'vec3 tone(vec3 x){ return x / (1.0 + x); }';
+
+// bloom 1: keep only what is brighter than the threshold, fading in around it (soft knee)
+const preMat = SM(`uniform sampler2D tSrc; uniform float uT; uniform float uK; in vec2 vUv; out vec4 o;
+void main(){ vec3 c = texture(tSrc, vUv).rgb; float br = max(c.r, max(c.g, c.b)); float soft = clamp(br - uT + uK, 0.0, 2.0 * uK); soft = soft * soft / (4.0 * uK + 1e-5);
+  c *= max(soft, br - uT) / max(br, 1e-5); o = vec4(max(c, 0.0), 1.0); }`, { tSrc: { value: null }, uT: U.T, uK: U.K });
+// bloom 2: shrink by half with 13 reads, and on the first shrink let dim reads outvote one very bright one
+const downMat = SM(`uniform sampler2D tSrc; uniform vec2 uTexel; uniform float uKaris; in vec2 vUv; out vec4 o;
+vec3 box(float x, float y){ return texture(tSrc, vUv + vec2(x, y) * uTexel).rgb; }
+float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+vec3 grp(vec3 a, vec3 b, vec3 c, vec3 d){ if (uKaris < 0.5) return 0.25 * (a + b + c + d); float wa = 1.0 / (1.0 + luma(a)), wb = 1.0 / (1.0 + luma(b)), wc = 1.0 / (1.0 + luma(c)), wd = 1.0 / (1.0 + luma(d)); return (a * wa + b * wb + c * wc + d * wd) / (wa + wb + wc + wd); }
+void main(){ vec3 a = box(-2.0, 2.0), b = box(0.0, 2.0), c = box(2.0, 2.0), d = box(-2.0, 0.0), e = box(0.0, 0.0), f = box(2.0, 0.0), g = box(-2.0, -2.0), h = box(0.0, -2.0), i = box(2.0, -2.0);
+  vec3 j = box(-1.0, 1.0), k = box(1.0, 1.0), l = box(-1.0, -1.0), m = box(1.0, -1.0);
+  vec3 down = 0.5 * grp(j, k, l, m) + 0.125 * (grp(a, b, d, e) + grp(b, c, e, f) + grp(d, e, g, h) + grp(e, f, h, i)); o = vec4(down, 1.0); }`,
+  { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uKaris: { value: 1 } });
+// bloom 3: grow the smaller copy back with a 3 by 3 tent and add it to this size
+const upMat = SM(`uniform sampler2D tSmall; uniform sampler2D tHere; uniform vec2 uTexel; in vec2 vUv; out vec4 o;
+vec3 t(float x, float y){ return texture(tSmall, vUv + vec2(x, y) * uTexel).rgb; }
+void main(){ vec3 s = t(-1.0, 1.0) + 2.0 * t(0.0, 1.0) + t(1.0, 1.0) + 2.0 * t(-1.0, 0.0) + 4.0 * t(0.0, 0.0) + 2.0 * t(1.0, 0.0) + t(-1.0, -1.0) + 2.0 * t(0.0, -1.0) + t(1.0, -1.0);
+  o = vec4(texture(tHere, vUv).rgb + s / 16.0, 1.0); }`, { tSmall: { value: null }, tHere: { value: null }, uTexel: { value: new THREE.Vector2() } });
+// bloom 4: add the glow to the picture
+const bloomCompMat = SM('uniform sampler2D tSrc; uniform sampler2D tBloom; uniform float uI; in vec2 vUv; out vec4 o; void main(){ o = vec4(texture(tSrc, vUv).rgb + uI * texture(tBloom, vUv).rgb, 1.0); }', { tSrc: { value: null }, tBloom: { value: null }, uI: U.I });
+// the squeeze for the screen: real brightness to 0..1
+const toneMat = SM(TONE + ' uniform sampler2D tSrc; in vec2 vUv; out vec4 o; void main(){ o = vec4(tone(texture(tSrc, vUv).rgb), 1.0); }', { tSrc: { value: null } });
+
+// depth of field 1: a half-size copy of the picture, with each pixel's disc size worked out from the depth picture and the lens
+const dofDownMat = SM(LIN + COC + ` uniform sampler2D tSrc; uniform sampler2D tDepth; uniform float uPxPerMm; uniform float uMaxCoc; in vec2 vUv; out vec4 o;
+void main(){ float coc = cocOf(lin(texture(tDepth, vUv).r), uPxPerMm, uMaxCoc); o = vec4(texture(tSrc, vUv).rgb, coc); }`,
+  { tSrc: { value: null }, tDepth: { value: null }, uNear: U.near, uFar: U.far, uFocus: U.focus, uFmm: U.fmm, uFstop: U.fstop, uPxPerMm: { value: 1 }, uMaxCoc: { value: 16 } });
+// depth of field 2: the widest disc in each 8 by 8 block, behind the focus (red channel) and in front of it (green)
+const cocTileMat = SM(`uniform sampler2D tDof; in vec2 vUv; out vec4 o;
+void main(){ ivec2 sz = textureSize(tDof, 0); ivec2 base = ivec2(gl_FragCoord.xy) * 8; float f = 0.0, n = 0.0;
+  for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) { float c = texelFetch(tDof, min(base + ivec2(x, y), sz - 1), 0).a; f = max(f, c); n = max(n, -c); } o = vec4(f, n, 0.0, 1.0); }`, { tDof: { value: null } });
+const cocNeighMat = SM(`uniform sampler2D tTile; in vec2 vUv; out vec4 o;
+void main(){ ivec2 sz = textureSize(tTile, 0); ivec2 p = ivec2(gl_FragCoord.xy); vec2 m = vec2(0.0);
+  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) m = max(m, texelFetch(tTile, clamp(p + ivec2(x, y), ivec2(0), sz - 1), 0).rg); o = vec4(m, 0.0, 1.0); }`, { tTile: { value: null } });
+// depth of field 3: gather. mode 0 blurs every pixel by its own disc; mode 1 is the far field with the disc check; mode 2 is the near field with its cover value
+const gatherMat = SM(HASH + ` uniform sampler2D tDof; uniform sampler2D tNeigh; uniform int uMode; uniform int uN; uniform float uShape; uniform vec2 uTexel; in vec2 vUv; out vec4 o;
+void main(){ vec4 P = texture(tDof, vUv); float cocP = P.a; vec2 nb = texture(tNeigh, vUv).rg;
+  float R = uMode == 0 ? abs(cocP) : (uMode == 1 ? nb.r : nb.g);
+  if (R < 0.5) { o = uMode == 2 ? vec4(0.0) : vec4(P.rgb, 1.0); return; }
+  float jit = hash(gl_FragCoord.xy) * 6.2831853; vec3 sum = vec3(0.0); float wsum = 0.0;
+  for (int i = 0; i < 64; i++) { if (i >= uN) break;
+    float r = sqrt((float(i) + 0.5) / float(uN)); float th = float(i) * 2.39996 + jit; vec2 dir = vec2(cos(th), sin(th));
+    float shape = 1.0; if (uShape > 0.5) { float a = mod(th, 1.0471976) - 0.5235988; shape = 0.8660254 / cos(a); }
+    vec4 Q = texture(tDof, vUv + dir * r * shape * R * uTexel); float cocQ = Q.a; float w;
+    if (uMode == 0) w = 1.0;
+    else if (uMode == 1) { w = clamp(cocQ - r * R + 1.0, 0.0, 1.0); if (cocQ > cocP) w *= clamp(abs(cocP) / max(cocQ, 1e-3), 0.0, 1.0); }
+    else w = clamp(-cocQ - r * R + 1.0, 0.0, 1.0);
+    sum += w * Q.rgb; wsum += w; }
+  vec3 c = wsum > 0.0 ? sum / wsum : P.rgb;
+  o = uMode == 2 ? vec4(c, clamp(wsum / float(uN), 0.0, 1.0)) : vec4(c, 1.0); }`,
+  { tDof: { value: null }, tNeigh: { value: null }, uMode: { value: 1 }, uN: { value: 32 }, uShape: { value: 0 }, uTexel: { value: new THREE.Vector2() } });
+// depth of field 4: full size again. sharp where the disc is small, the far field where it is big, and the near field laid on top by its cover value
+const dofCompMat = SM(LIN + COC + ` uniform sampler2D tSrc; uniform sampler2D tFar; uniform sampler2D tNear; uniform sampler2D tDepth; uniform int uMode; uniform float uPxPerMm; uniform float uMaxCoc; in vec2 vUv; out vec4 o;
+void main(){ float coc = cocOf(lin(texture(tDepth, vUv).r), uPxPerMm, uMaxCoc); vec3 sharp = texture(tSrc, vUv).rgb; vec3 far = texture(tFar, vUv).rgb;
+  float fb = uMode == 0 ? clamp(abs(coc) - 0.5, 0.0, 1.0) : clamp(coc - 0.5, 0.0, 1.0); vec3 c = mix(sharp, far, fb);
+  if (uMode == 1) { vec4 n = texture(tNear, vUv); c = mix(c, n.rgb, n.a); } o = vec4(c, 1.0); }`,
+  { tSrc: { value: null }, tFar: { value: null }, tNear: { value: null }, tDepth: { value: null }, uNear: U.near, uFar: U.far, uFocus: U.focus, uFmm: U.fmm, uFstop: U.fstop, uMode: { value: 1 }, uPxPerMm: { value: 1 }, uMaxCoc: { value: 32 } });
+
+// motion blur 1: the longest move in each 16 by 16 block, then the longest in the 3 by 3 blocks around
+const vTileMat = SM(`uniform sampler2D tVel; in vec2 vUv; out vec4 o;
+void main(){ ivec2 sz = textureSize(tVel, 0); ivec2 base = ivec2(gl_FragCoord.xy) * 16; vec2 m = vec2(0.0);
+  for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) { vec2 v = texelFetch(tVel, min(base + ivec2(x, y), sz - 1), 0).xy; if (dot(v, v) > dot(m, m)) m = v; } o = vec4(m, 0.0, 1.0); }`, { tVel: { value: null } });
+const vNeighMat = SM(`uniform sampler2D tTile; in vec2 vUv; out vec4 o;
+void main(){ ivec2 sz = textureSize(tTile, 0); ivec2 p = ivec2(gl_FragCoord.xy); vec2 m = vec2(0.0);
+  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) { vec2 v = texelFetch(tTile, clamp(p + ivec2(x, y), ivec2(0), sz - 1), 0).xy; if (dot(v, v) > dot(m, m)) m = v; } o = vec4(m, 0.0, 1.0); }`, { tTile: { value: null } });
+// motion blur 2: walk along the movement and weigh each read by whether it can reach this pixel (McGuire 2012). Depths here are distances, so f is 1 when the read is nearer than this pixel, b when it is farther.
+const mbMat = SM(LIN + HASH + ` uniform sampler2D tSrc; uniform sampler2D tVel; uniform sampler2D tNeigh; uniform sampler2D tDepth; uniform int uN; uniform int uMode; uniform float uShutter; uniform float uMaxV; uniform float uSoftZ; uniform vec2 uTexel; in vec2 vUv; out vec4 o;
+vec2 clampV(vec2 v){ float l = length(v); return l > uMaxV ? v * (uMaxV / l) : v; }
+float cone(float d, float l){ return clamp(1.0 - d / max(l, 1e-3), 0.0, 1.0); }
+float cyl(float d, float l){ return l < 1e-4 ? 0.0 : 1.0 - smoothstep(0.95 * l, 1.05 * l, d); }
+void main(){ vec3 cX = texture(tSrc, vUv).rgb; vec2 vX = clampV(texture(tVel, vUv).xy * uShutter); float zX = lin(texture(tDepth, vUv).r);
+  vec2 vN = uMode == 0 ? vX : clampV(texture(tNeigh, vUv).xy * uShutter); float lN = length(vN);
+  if (lN < 0.5) { o = vec4(cX, 1.0); return; }
+  float jitter = hash(gl_FragCoord.xy) - 0.5; float lX = length(vX);
+  float wX = uMode == 0 ? 1.0 : 1.0 / max(lX, 0.5); vec3 sum = cX * wX; float wsum = wX;
+  for (int i = 0; i < 16; i++) { if (i >= uN) break;
+    float t = (float(i) + 0.5 + jitter) / float(uN) - 0.5; vec2 p = vUv + vN * t * uTexel; float d = abs(t) * lN; vec3 cY = texture(tSrc, p).rgb; float w = 1.0;
+    if (uMode > 0) { vec2 vY = clampV(texture(tVel, p).xy * uShutter); float lY = length(vY); float f = 1.0, b = 1.0;
+      if (uMode == 2) { float zY = lin(texture(tDepth, p).r); f = clamp(1.0 - (zY - zX) / uSoftZ, 0.0, 1.0); b = clamp(1.0 - (zX - zY) / uSoftZ, 0.0, 1.0); }
+      w = f * cone(d, lY) + b * cone(d, lX) + 2.0 * cyl(d, lY) * cyl(d, lX); }
+    sum += w * cY; wsum += w; }
+  o = vec4(sum / max(wsum, 1e-4), 1.0); }`,
+  { tSrc: { value: null }, tVel: { value: null }, tNeigh: { value: null }, tDepth: { value: null }, uN: { value: 8 }, uMode: { value: 2 }, uShutter: { value: 0.5 }, uMaxV: { value: 64 }, uSoftZ: { value: 0.6 }, uTexel: { value: new THREE.Vector2() }, uNear: U.near, uFar: U.far });
+
+// the last pass: the finished picture to the screen, or one of the views, encoded for the screen
+const showMat = SM(LIN + TONE + ` uniform sampler2D tSrc; uniform sampler2D tHdr; uniform sampler2D tAux; uniform sampler2D tDof; uniform sampler2D tVel; uniform sampler2D tNeigh; uniform sampler2D tDepth; uniform int uMode; uniform float uGain; uniform float uT; uniform float uK; uniform float uMaxCoc; in vec2 vUv; out vec4 o;
+vec3 srgb(vec3 c){ c = clamp(c, 0.0, 1.0); return mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
+vec3 dirCol(vec2 v, float scale){ float s = clamp(length(v) / scale, 0.0, 1.0); vec3 col = v.x >= 0.0 ? vec3(0.95, 0.64, 0.25) : vec3(0.29, 0.64, 1.0); return mix(vec3(0.04), col, sqrt(s)); }
+void main(){ vec3 c;
+  if (uMode == 0) c = texture(tSrc, vUv).rgb;
+  else if (uMode == 1) c = tone(texture(tAux, vUv).rgb * uGain);
+  else if (uMode == 2) { float coc = texture(tDof, vUv).a; float s = clamp(abs(coc) / uMaxCoc, 0.0, 1.0); c = mix(vec3(0.03), coc < 0.0 ? vec3(0.29, 0.64, 1.0) : vec3(0.95, 0.64, 0.25), sqrt(s)); }
+  else if (uMode == 3) c = dirCol(texture(tVel, vUv).xy, 24.0);
+  else if (uMode == 4) c = dirCol(texture(tNeigh, vUv).xy, 24.0);
+  else if (uMode == 5) { vec3 h = texture(tHdr, vUv).rgb; float br = max(h.r, max(h.g, h.b)); float soft = clamp(br - uT + uK, 0.0, 2.0 * uK); soft = soft * soft / (4.0 * uK + 1e-5); float w = clamp(max(soft, br - uT) / max(br, 1e-5), 0.0, 1.0); c = mix(texture(tSrc, vUv).rgb * 0.3, vec3(0.95, 0.64, 0.25), w); }
+  else if (uMode == 6) { float d = lin(texture(tDepth, vUv).r); c = vec3(1.0 - clamp((d - uNear) / (40.0 - uNear), 0.0, 1.0)); }
+  else if (uMode == 7) c = tone(texture(tAux, vUv).rgb);
+  else { vec4 n = texture(tAux, vUv); c = tone(n.rgb) * n.a; }
+  o = vec4(srgb(c), 1.0); }`,
+  { tSrc: { value: null }, tHdr: { value: null }, tAux: { value: null }, tDof: { value: null }, tVel: { value: null }, tNeigh: { value: null }, tDepth: { value: null }, uMode: { value: 0 }, uGain: { value: 1 }, uT: U.T, uK: U.K, uMaxCoc: { value: 16 }, uNear: U.near, uFar: U.far });
+
+// ---- render targets: every image a pass draws into. Half-float colour keeps real brightness.
+const NEAREST = { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter };
+let T = null, tKey = ''; const size = new THREE.Vector2();
+let renderScale = 1, bloomScale = 0.5, dofScale = 0.5;
+function ensureTargets() {
+  renderer.getDrawingBufferSize(size); const W = Math.max(2, Math.round(size.x * renderScale)), H = Math.max(2, Math.round(size.y * renderScale));
+  const k = [W, H, bloomScale, dofScale].join('/'); if (k === tKey) return; tKey = k;
+  if (T) for (const r of T.all) r.dispose();
+  T = { all: [], mem: 0, w: W, h: H };
+  const mk = (w, h, o) => { const r = new THREE.WebGLRenderTarget(w, h, Object.assign({ type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, stencilBuffer: false }, o || {})); T.all.push(r); T.mem += w * h * (8 + (o && o.depthBuffer ? 4 : 0)); return r; };
+  T.scene = mk(W, H, { depthBuffer: true, depthTexture: new THREE.DepthTexture(W, H) });
+  T.vel = mk(W, H, Object.assign({ depthBuffer: true }, NEAREST));
+  T.ping = [mk(W, H), mk(W, H)];
+  let bw = Math.max(2, Math.round(W * bloomScale)), bh = Math.max(2, Math.round(H * bloomScale)); T.mips = []; T.ups = [];
+  for (let i = 0; i < 6; i++) { T.mips.push(mk(bw, bh)); if (i < 5) T.ups.push(mk(bw, bh)); bw = Math.max(2, bw >> 1); bh = Math.max(2, bh >> 1); }
+  T.tw = Math.ceil(W / 16); T.th = Math.ceil(H / 16); T.vtile = mk(T.tw, T.th, NEAREST); T.vneigh = mk(T.tw, T.th, NEAREST);
+  T.dw = Math.max(2, Math.round(W * dofScale)); T.dh = Math.max(2, Math.round(H * dofScale)); T.dof = mk(T.dw, T.dh); T.far = mk(T.dw, T.dh); T.near = mk(T.dw, T.dh);
+  T.cw = Math.ceil(T.dw / 8); T.ch = Math.ceil(T.dh / 8); T.ctile = mk(T.cw, T.ch, NEAREST); T.cneigh = mk(T.cw, T.ch, NEAREST);
+  uRes.value.set(W, H);
+}
+
+// ---- a stopwatch on the GPU when the browser offers one, the CPU clock otherwise
+const gl = renderer.getContext(); const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+const timer = { ms: {}, ran: new Set(), free: [], pend: [], cur: null, t0: 0,
+  begin(label) { this.ran.add(label); if (ext) { const q = this.free.pop() || gl.createQuery(); gl.beginQuery(ext.TIME_ELAPSED_EXT, q); this.cur = { q, label }; } else { this.cur = { label }; this.t0 = performance.now(); } },
+  end() { if (!this.cur) return; if (ext) { gl.endQuery(ext.TIME_ELAPSED_EXT); this.pend.push(this.cur); } else this.take(this.cur.label, performance.now() - this.t0); this.cur = null; },
+  take(label, v) { this.ms[label] = this.ms[label] == null ? v : this.ms[label] + (v - this.ms[label]) * 0.12; },
+  poll() { if (!ext) return; if (gl.getParameter(ext.GPU_DISJOINT_EXT)) { for (const p of this.pend) this.free.push(p.q); this.pend.length = 0; return; }
+    while (this.pend.length && gl.getQueryParameter(this.pend[0].q, gl.QUERY_RESULT_AVAILABLE)) { const p = this.pend.shift(); this.take(p.label, gl.getQueryParameter(p.q, gl.QUERY_RESULT) / 1e6); this.free.push(p.q); } } };
+
+// ---- state
+let view = 'picture', order = 'usual', bloomOn = true, dofOn = true, mbOn = true, karis = true, dofMethod = 'split', mbMethod = 2, carSpeed = 9;
+const ORDERS = { usual: ['mb', 'dof', 'bloom', 'tone'], dofFirst: ['dof', 'mb', 'bloom', 'tone'], glowFirst: ['bloom', 'mb', 'dof', 'tone'], wrong: ['tone', 'mb', 'dof', 'bloom'] };
+const STAGE_OF = { pre: 0, m1: 1, m2: 2, m3: 3, m4: 4, m5: 5 };
+let bytes = 0, passes = 0, bloomReads = 0, bloomInput = null, frameMs = 16, lastNow = 0, firstFrame = true;
+const acct = (px, outBpp, reads, readBpp) => { bytes += px * (outBpp + reads * readBpp); passes++; };
+function blit(mat, target) { quad.material = mat; renderer.setRenderTarget(target); renderer.render(quadScene, quadCam); }
+const needsDof = () => view === 'coc' || view === 'near' || view === 'far', needsBloom = () => view in STAGE_OF || view === 'up' || view === 'glowonly', needsTiles = () => view === 'tiles';
+
+function runBloom(src, out) {
+  timer.begin('bloom'); bloomInput = src; bloomReads = 0; const m = T.mips, u = T.ups;
+  preMat.uniforms.tSrc.value = src.texture; blit(preMat, m[0]); acct(m[0].width * m[0].height, 8, 1, 8); bloomReads += m[0].width * m[0].height;
+  for (let i = 1; i < 6; i++) { downMat.uniforms.tSrc.value = m[i - 1].texture; downMat.uniforms.uTexel.value.set(1 / m[i - 1].width, 1 / m[i - 1].height); downMat.uniforms.uKaris.value = i === 1 && karis ? 1 : 0; blit(downMat, m[i]); acct(m[i].width * m[i].height, 8, 13, 8); bloomReads += 13 * m[i].width * m[i].height; }
+  for (let i = 4; i >= 0; i--) { const small = i === 4 ? m[5] : u[i + 1]; upMat.uniforms.tSmall.value = small.texture; upMat.uniforms.tHere.value = m[i].texture; upMat.uniforms.uTexel.value.set(1 / small.width, 1 / small.height); blit(upMat, u[i]); acct(u[i].width * u[i].height, 8, 10, 8); bloomReads += 10 * u[i].width * u[i].height; }
+  bloomCompMat.uniforms.tSrc.value = src.texture; bloomCompMat.uniforms.tBloom.value = u[0].texture; blit(bloomCompMat, out); acct(T.w * T.h, 8, 2, 8); bloomReads += 2 * T.w * T.h;
+  timer.end(); return out;
+}
+function runDoF(src, out) {
+  timer.begin('dof'); const maxD = 32 * T.dh / T.h, N = gatherMat.uniforms.uN.value, split = dofMethod === 'split';
+  dofDownMat.uniforms.tSrc.value = src.texture; dofDownMat.uniforms.tDepth.value = T.scene.depthTexture; dofDownMat.uniforms.uPxPerMm.value = T.dh / 24; dofDownMat.uniforms.uMaxCoc.value = maxD; blit(dofDownMat, T.dof); acct(T.dw * T.dh, 8, 2, 8);
+  cocTileMat.uniforms.tDof.value = T.dof.texture; blit(cocTileMat, T.ctile); acct(T.cw * T.ch, 8, 64, 8);
+  cocNeighMat.uniforms.tTile.value = T.ctile.texture; blit(cocNeighMat, T.cneigh); acct(T.cw * T.ch, 8, 9, 8);
+  gatherMat.uniforms.tDof.value = T.dof.texture; gatherMat.uniforms.tNeigh.value = T.cneigh.texture; gatherMat.uniforms.uTexel.value.set(1 / T.dw, 1 / T.dh);
+  gatherMat.uniforms.uMode.value = split ? 1 : 0; blit(gatherMat, T.far); acct(T.dw * T.dh, 8, N + 2, 8);
+  if (split) { gatherMat.uniforms.uMode.value = 2; blit(gatherMat, T.near); acct(T.dw * T.dh, 8, N + 2, 8); }
+  const c = dofCompMat.uniforms; c.tSrc.value = src.texture; c.tFar.value = T.far.texture; c.tNear.value = T.near.texture; c.tDepth.value = T.scene.depthTexture; c.uMode.value = split ? 1 : 0; c.uPxPerMm.value = T.h / 24; c.uMaxCoc.value = maxD * T.h / T.dh;
+  blit(dofCompMat, out); acct(T.w * T.h, 8, 4, 8); showMat.uniforms.uMaxCoc.value = maxD;
+  timer.end(); return out;
+}
+function runTiles() {
+  vTileMat.uniforms.tVel.value = T.vel.texture; blit(vTileMat, T.vtile); acct(T.tw * T.th, 8, 256, 8);
+  vNeighMat.uniforms.tTile.value = T.vtile.texture; blit(vNeighMat, T.vneigh); acct(T.tw * T.th, 8, 9, 8);
+}
+function runMB(src, out) {
+  timer.begin('mblur'); runTiles(); const u = mbMat.uniforms;
+  u.tSrc.value = src.texture; u.tVel.value = T.vel.texture; u.tNeigh.value = T.vneigh.texture; u.tDepth.value = T.scene.depthTexture; u.uMode.value = mbMethod; u.uTexel.value.set(1 / T.w, 1 / T.h);
+  blit(mbMat, out); acct(T.w * T.h, 8, 1 + u.uN.value * (mbMethod === 2 ? 3 : mbMethod === 1 ? 2 : 1), 8);
+  timer.end(); return out;
+}
+function runTone(src, out) { timer.begin('tone'); toneMat.uniforms.tSrc.value = src.texture; blit(toneMat, out); acct(T.w * T.h, 8, 1, 8); timer.end(); return out; }
+
+const curVP = new THREE.Matrix4();
+sb.onRender((scene, camera, renderer) => {
+  ensureTargets(); timer.poll(); timer.ran.clear(); renderer.info.reset(); bytes = 0; passes = 0;
+  camera.updateMatrixWorld(); scene.updateMatrixWorld();
+  curVP.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  if (firstFrame) { uPrevVP.value.copy(curVP); for (const m of meshes) m.userData.vel.uniforms.uPrevModel.value.copy(m.matrixWorld); firstFrame = false; }
+  // 1 how far every pixel moved since last frame, in pixels (the velocity buffer)
+  timer.begin('scene'); renderer.shadowMap.autoUpdate = false;
+  for (const m of meshes) m.material = m.userData.vel;
+  renderer.setRenderTarget(T.vel); renderer.setClearColor(0x000000, 0); renderer.render(scene, camera);
+  for (const m of meshes) { m.material = m.userData.lit; m.userData.vel.uniforms.uPrevModel.value.copy(m.matrixWorld); }
+  uPrevVP.value.copy(curVP);
+  // 2 the picture itself, with real brightness and a real depth picture behind it
+  renderer.shadowMap.needsUpdate = true; renderer.setRenderTarget(T.scene); renderer.setClearColor(skyCol, 1); renderer.render(scene, camera);
+  acct(T.w * T.h, 12, 0, 0); acct(T.w * T.h, 12, 0, 0); timer.end();
+  // 3 the chain, in the chosen order. A pass that is switched off still runs when a view needs its pictures, but its result is dropped.
+  let cur = T.scene; const next = () => T.ping[cur === T.ping[0] ? 1 : 0];
+  for (const step of ORDERS[order]) {
+    if (step === 'bloom') { if (bloomOn || needsBloom()) { const out = runBloom(cur, next()); if (bloomOn) cur = out; } }
+    else if (step === 'dof') { if (dofOn || needsDof()) { const out = runDoF(cur, next()); if (dofOn) cur = out; } }
+    else if (step === 'mb') { if (mbOn) cur = runMB(cur, next()); else if (needsTiles()) runTiles(); }
+    else cur = runTone(cur, next());
+  }
+  // 4 to the screen
+  const s = showMat.uniforms; s.tSrc.value = cur.texture; s.tHdr.value = (bloomInput || T.scene).texture; s.tDof.value = T.dof.texture; s.tVel.value = T.vel.texture; s.tNeigh.value = T.vneigh.texture; s.tDepth.value = T.scene.depthTexture;
+  let mode = 0, aux = null, gain = 1;
+  if (view in STAGE_OF) { mode = 1; aux = T.mips[STAGE_OF[view]]; gain = 3; } else if (view === 'up') { mode = 1; aux = T.ups[0]; gain = 3; } else if (view === 'glowonly') { mode = 1; aux = T.ups[0]; gain = U.I.value; }
+  else if (view === 'coc') mode = 2; else if (view === 'vel') mode = 3; else if (view === 'tiles') mode = 4; else if (view === 'glowmask') mode = 5; else if (view === 'depth') mode = 6; else if (view === 'far') { mode = 7; aux = T.far; } else if (view === 'near') { mode = 8; aux = T.near; }
+  s.uMode.value = mode; s.uGain.value = gain; s.tAux.value = (aux || T.scene).texture;
+  quad.material = showMat; renderer.setRenderTarget(null); renderer.render(quadScene, quadCam); acct(size.x * size.y, 4, 1, 8);
+});
+
+// ---- the panel
+const viewSegs = [];
+function setView(v, from) { view = v; for (const sg of viewSegs) if (sg !== from) sg.set('picture', false);
+  const words = { picture: null, glowmask: 'amber: the pixels brighter than the threshold, the only ones that may glow', glowonly: 'the glow on its own, before it is added to the picture', pre: 'bright pass at half size, shown 3 times brighter', m1: 'shrunk to a quarter, shown 3 times brighter', m2: 'shrunk to an eighth, shown 3 times brighter', m3: 'shrunk to 1/16, shown 3 times brighter', m4: 'shrunk to 1/32, shown 3 times brighter', m5: 'shrunk to 1/64, shown 3 times brighter', up: 'grown back up and added at every size, shown 3 times brighter', depth: 'the depth picture: bright is near, dark is far', coc: 'blur size per pixel: blue in front of the focus, amber behind it, brighter is a wider disc', near: 'the near field: things in front of the focus, blurred, with how much they cover', far: 'the far field: things behind the focus, blurred', vel: 'movement per pixel: amber moved right, blue moved left, brighter is faster', tiles: 'the longest move in each 16 by 16 block, widened to the blocks around' };
+  sb.hud('view', words[v]); }
+
+const s1 = sb.panel.section('01 · Bloom', 'Only pixels brighter than the threshold get to glow. 1 is white paper. The lamp heads are 40, the fire 6, the moon 5, the car\'s headlights 14, and nothing else passes 1 unless you lower the bar.');
+s1.slider('Glow threshold, 1 = white paper', { min: 0.1, max: 8, step: 0.05, value: 1, fmt: v => v.toFixed(2) }, v => { U.T.value = v; });
+s1.slider('Soft edge around the threshold (knee)', { min: 0, max: 1, step: 0.05, value: 0.5, fmt: v => v.toFixed(2) }, v => { U.K.value = v; });
+s1.slider('Glow strength', { min: 0, max: 1.5, step: 0.05, value: 0.35, fmt: v => v.toFixed(2) }, v => { U.I.value = v; });
+viewSegs.push(s1.segment('View', [{ value: 'picture', label: 'picture' }, { value: 'glowmask', label: 'pixels allowed to glow' }, { value: 'glowonly', label: 'the glow on its own' }], 'picture', v => setView(v, viewSegs[0])));
+s1.note('Drag the threshold down to 0.3 and the house walls and the road start to glow too: that is the haze a wrong threshold makes.');
+
+const s2 = sb.panel.section('02 · The glow chain', 'The bright pixels are shrunk five times, blurred a little at each size, then grown back and added up. That is how a glow hundreds of pixels wide costs only a handful of reads per screen pixel.');
+viewSegs.push(s2.segment('Show one step', [{ value: 'picture', label: 'picture' }, { value: 'pre', label: 'bright pass' }, { value: 'm1', label: '1/4' }, { value: 'm2', label: '1/8' }, { value: 'm3', label: '1/16' }, { value: 'm4', label: '1/32' }, { value: 'm5', label: '1/64' }, { value: 'up', label: 'grown back' }], 'picture', v => setView(v, viewSegs[1])));
+s2.toggle('let dim pixels outvote one very bright one on the first shrink (Karis vote)', true, v => { karis = v; });
+s2.toggle('add a spark: one dot 400 times brighter than white, drifting across the sky', false, v => { spark.visible = v; });
+const chainRead = s2.readout('pixel reads for the chain, per frame');
+const perPxRead = s2.readout('that is, per screen pixel');
+s2.note('With the spark on and the vote off, its glow pulses as the dot slides across pixel boundaries. Turn the vote on and it settles, and shrinks.');
+
+const s3 = sb.panel.section('03 · The order of the passes', 'Each pass reads what the pass before it wrote. Blur the real brightness first and squeeze it for the screen once, at the end. Squeeze first and the glow has to work on a picture where nothing is brighter than 1.');
+s3.segment('Chain order', [{ value: 'usual', label: 'smear, then lens blur, then glow, then squeeze' }, { value: 'dofFirst', label: 'lens blur, then smear, then glow, then squeeze' }, { value: 'glowFirst', label: 'glow first, then smear and lens blur' }, { value: 'wrong', label: 'squeeze first, then everything else' }], 'usual', v => { order = v; });
+s3.toggle('bloom on', true, v => { bloomOn = v; });
+s3.toggle('depth of field on', true, v => { dofOn = v; });
+s3.toggle('motion blur on', true, v => { mbOn = v; });
+s3.note('Pick squeeze first: the glow goes out, because a squeezed picture never reaches 1. Now drag the threshold down to 0.3 to get any glow back, and watch the whole street fog up.');
+
+const s4 = sb.panel.section('04 · Depth of field', 'A lens is sharp at one distance only. The blur size for every pixel is worked out from the depth picture and the lens: how far the pixel is from the focus, and how wide the lens is open.');
+const camPos = new THREE.Vector3(), wp = new THREE.Vector3();
+const distTo = o => { camera.getWorldPosition(camPos); o.getWorldPosition(wp); return wp.distanceTo(camPos); };
+const focusS = s4.slider('Focus distance', { min: 1, max: 40, step: 0.1, value: 8, unit: ' m' }, v => { U.focus.value = v; });
+s4.slider('Lens opening (f-stop), lower is wider', { min: 1, max: 16, step: 0.1, value: 1.4, fmt: v => 'f/' + v.toFixed(1) }, v => { U.fstop.value = v; });
+s4.slider('Focal length, the zoom', { min: 24, max: 135, step: 1, value: 50, unit: ' mm' }, v => { U.fmm.value = v; });
+s4.button('Focus on the knight', () => focusS.set(+distTo(knight).toFixed(1)));
+s4.button('Focus on the car', () => focusS.set(+distTo(car).toFixed(1)));
+s4.button('Focus on the far house', () => focusS.set(+Math.min(40, distTo(house)).toFixed(1)));
+s4.segment('How to blur', [{ value: 'naive', label: 'every pixel by its own disc' }, { value: 'split', label: 'near and far apart, with a disc check' }], 'split', v => { dofMethod = v; });
+s4.segment('Shape of a blurred light', [{ value: 0, label: 'circle' }, { value: 1, label: 'hexagon' }], 0, v => { gatherMat.uniforms.uShape.value = +v; });
+s4.segment('Reads per pixel', [16, 32, 64], 32, v => { gatherMat.uniforms.uN.value = +v; });
+viewSegs.push(s4.segment('View', [{ value: 'picture', label: 'picture' }, { value: 'depth', label: 'depth picture' }, { value: 'coc', label: 'blur size per pixel' }, { value: 'near', label: 'near field' }, { value: 'far', label: 'far field' }], 'picture', v => setView(v, viewSegs[2])));
+s4.key([['#4aa3ff', 'in front of the focus: spills over what is behind'], ['#f2a341', 'behind the focus: hidden by sharp things in front']]);
+s4.note('Every pixel by its own disc: the crates in front stay cut out sharp against the knight, and the knight leaks a halo into the blurred street. The split with the disc check fixes both.');
+
+const s5 = sb.panel.section('05 · Motion blur', 'Every pixel records how far it moved since the last frame, in pixels. The car moves in the world; drag the view and the camera moves too. Each pixel is then smeared along a movement.');
+viewSegs.push(s5.segment('View', [{ value: 'picture', label: 'picture' }, { value: 'vel', label: 'movement per pixel' }, { value: 'tiles', label: 'longest move per block' }], 'picture', v => setView(v, viewSegs[3])));
+s5.segment('Smear each pixel along', [{ value: 0, label: 'its own movement' }, { value: 1, label: 'the longest move nearby' }, { value: 2, label: 'the longest nearby, checking depth' }], 2, v => { mbMethod = +v; });
+s5.slider('Shutter: how much of the frame\'s travel to smear', { min: 0, max: 1, step: 0.05, value: 0.5, unit: ' frame', fmt: v => v.toFixed(2) + ' of a frame' }, v => { mbMat.uniforms.uShutter.value = v; });
+s5.segment('Reads per pixel', [4, 8, 16], 8, v => { mbMat.uniforms.uN.value = +v; });
+s5.slider('Car speed', { min: 0, max: 30, step: 0.5, value: 9, unit: ' m/s', fmt: v => v.toFixed(1) + ' m/s' }, v => { carSpeed = v; });
+s5.toggle('pan the camera slowly', false, v => { sb.controls.autoRotate = v; });
+s5.note('Along its own movement, the smear stops dead at the car\'s edge. Along the longest move nearby, the car spreads over the street behind it, and with the depth check it no longer spreads over the knight in front.');
+
+const s6 = sb.panel.section('06 · What the whole stack costs', 'Every pass touches every pixel of the image it draws into, every frame. Shrink the images and the cost drops with them.');
+s6.segment('Render size', [{ value: 1, label: '100 %' }, { value: 0.67, label: '67 %' }, { value: 0.5, label: '50 %' }], 1, v => { renderScale = +v; });
+s6.segment('Bloom starts from a copy at', [{ value: 0.5, label: 'half size' }, { value: 0.25, label: 'quarter size' }], 0.5, v => { bloomScale = +v; });
+s6.segment('Depth of field runs at', [{ value: 0.5, label: 'half size' }, { value: 1, label: 'full size' }], 0.5, v => { dofScale = +v; });
+const stackRead = s6.readout('post effects, whole stack'), bloomMsRead = s6.readout('bloom'), dofMsRead = s6.readout('depth of field'), mbMsRead = s6.readout('motion blur');
+const frameRead = s6.readout('frame, this machine'), callRead = s6.readout('draw calls'), passRead = s6.readout('passes this frame'), memRead = s6.readout('images drawn into'), bwRead = s6.readout('reads and writes, per frame'), gbRead = s6.readout('at 60 frames a second'), sizeRead = s6.readout('image size');
+s6.note(ext ? 'Times are measured on the GPU with a timer query.' : 'This browser gives no GPU timer, so the times are how long the CPU took to hand the passes to the GPU.');
+sb.controls.autoRotateSpeed = 0.9;
+
+// ---- per frame: move the car, update the numbers
+const ms = l => timer.ms[l] == null ? 'not yet' : timer.ms[l].toFixed(2) + ' ms';
+let carX = -14, wrapPending = false;
+sb.onFrame((dt, t) => {
+  carX += carSpeed * dt; if (carX > 32) { carX = -32; wrapPending = true; } car.position.x = carX;
+  if (wrapPending) { car.updateMatrixWorld(true); for (const m of carMeshes) m.userData.vel.uniforms.uPrevModel.value.copy(m.matrixWorld); wrapPending = false; }
+  spark.position.x = Math.sin(t * 0.15) * 6;
+  const now = performance.now(); if (lastNow) frameMs += ((now - lastNow) - frameMs) * 0.1; lastNow = now;
+  const post = ['bloom', 'dof', 'mblur', 'tone'].reduce((a, l) => a + (timer.ran.has(l) && timer.ms[l] != null ? timer.ms[l] : 0), 0);
+  stackRead(post.toFixed(2) + ' ms' + (ext ? ' on the GPU' : ' to hand over'));
+  bloomMsRead(timer.ran.has('bloom') ? ms('bloom') : 'off'); dofMsRead(timer.ran.has('dof') ? ms('dof') : 'off'); mbMsRead(timer.ran.has('mblur') ? ms('mblur') : 'off');
+  frameRead(frameMs.toFixed(1) + ' ms, ' + (1000 / frameMs).toFixed(0) + ' per second');
+  callRead(renderer.info.render.calls); passRead(passes);
+  if (T) { memRead(T.all.length + ' images, ' + (T.mem / 1048576).toFixed(0) + ' MB'); sizeRead(T.w + ' × ' + T.h + ' px'); }
+  bwRead((bytes / 1048576).toFixed(0) + ' MB'); gbRead((bytes * 60 / 1073741824).toFixed(1) + ' GB/s');
+  chainRead(bloomReads.toLocaleString()); if (T) perPxRead((bloomReads / (T.w * T.h)).toFixed(1) + ' reads');
+});
+setView('picture');
+sb.start();
+</script>
+</body>
+</html>
