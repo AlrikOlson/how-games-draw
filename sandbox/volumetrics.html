@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volumetric Fog &amp; Light · Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="_kit.css">
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+</head>
+<body>
+<script type="module">
+import { boot, THREE, PAL } from './_kit.js';
+
+const sb = boot({
+  slug: 'volumetrics', title: 'Volumetric Fog & Light',
+  blurb: 'The knight\'s camp on a foggy night, with a floodlight on a mast you can drag between the trees. The fog is real: every frame a shader walks each line of sight step by step, asks the floodlight\'s shadow map whether each step is lit, and adds the glow up. Swap that for a coarse grid of cells, or for a one-line formula, and add a cloud bank that shades itself.',
+  camera: { pos: [10, 4.5, 13], target: [0, 1.5, -2], near: 0.1, far: 200 },
+  hint: 'drag to orbit · scroll to zoom · drag the floodlight mast to move it'
+});
+const { scene, camera, renderer, controls } = sb;
+renderer.shadowMap.type = THREE.BasicShadowMap;   // a plain depth photo, so the fog pass can read it directly
+scene.background = null; renderer.setClearColor(0x000000, 1);
+controls.minDistance = 1; controls.maxDistance = 60;
+
+// ---- the world at night: the camp, a wider ground, a ring of forest, a floodlight on a mast
+const camp = sb.world.camp(); camp.ground.scale.set(6, 6, 1);
+const moon = sb.lights.sun; moon.castShadow = false; moon.color.set(0x9fb4ff); moon.intensity = 0.4;
+sb.lights.hemi.color.set(0x26324a); sb.lights.hemi.groundColor.set(0x0b120e); sb.lights.hemi.intensity = 0.35;
+camp.house.children[3].material.emissiveIntensity = 0.9;  // the window glows brighter at night
+
+// the forest: one instanced mesh per part, so twenty-odd trees cost three draw calls
+const forest = [[-0.8, -4.6, 5.5], [0.6, -1.8, 4.2], [-6, -6.2, 6], [-0.5, -8.5, 5], [2.6, -8.8, 4.8], [-7.5, -8, 5.2], [-9, -1, 4.6], [-10, 4, 5], [-6, 9, 4.4], [-12, -6, 5.6], [-3, -14, 5], [3, -13, 4.6], [8, -12, 5.2], [11, -7, 4.8], [13, -2, 5.4], [-14, 1, 4.8], [-11, 9, 5], [-7, 14, 4.4], [1, 15, 5], [12, 5, 4.2], [-16, -10, 5], [7, -16, 5.4], [-4, 20, 5], [16, -9, 4.6], [-18, 6, 5.2], [-2, 12, 4], [15, 10, 4.8]];
+const instanced = (g, m) => { const im = new THREE.InstancedMesh(g, m, forest.length); im.castShadow = im.receiveShadow = true; scene.add(im); return im; };
+const trunks = instanced(new THREE.CylinderGeometry(0.27, 0.36, 2.03, 7), sb.mat(PAL.wood));
+const crowns = instanced(new THREE.IcosahedronGeometry(1.44, 1), sb.mat(PAL.leaf));
+const tops = instanced(new THREE.IcosahedronGeometry(0.9, 1), sb.mat(PAL.leafLite));
+{ const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3();
+  forest.forEach(([x, z, h], i) => { const s = h / 4.5; S.set(s, s, s); Q.setFromAxisAngle(P.set(0, 1, 0), i * 1.7);
+    M.compose(P.set(x, h * 0.225, z), Q, S); trunks.setMatrixAt(i, M);
+    M.compose(P.set(x, h * 0.62, z), Q, S); crowns.setMatrixAt(i, M);
+    M.compose(P.set(x - h * 0.1, h * 0.8, z + h * 0.05), Q, S); tops.setMatrixAt(i, M); }); }
+
+const mast = new THREE.Group(); mast.position.set(-3, 0, -7); scene.add(mast);
+const pole = sb.mesh(new THREE.CylinderGeometry(0.07, 0.1, 1, 8), sb.mat(PAL.metal), 0, 0.5, 0); mast.add(pole);
+const base = sb.mesh(new THREE.BoxGeometry(0.9, 0.35, 0.9), sb.mat(PAL.wood), 0, 0.175, 0); mast.add(base);
+const head = new THREE.Group(); mast.add(head);
+const housing = sb.mesh(new THREE.BoxGeometry(0.6, 0.42, 0.5), sb.mat(PAL.stone), 0, 0, 0); head.add(housing);
+const lens = new THREE.Mesh(new THREE.CircleGeometry(0.22, 16), new THREE.MeshBasicMaterial({ color: 0xfff4d6 })); lens.position.set(0, 0, 0.26); head.add(lens);
+const spot = new THREE.SpotLight(0xfff1d0, 400, 0, 0.5, 0.35, 2); spot.castShadow = true; spot.shadow.mapSize.set(1024, 1024);
+spot.shadow.camera.near = 0.5; spot.shadow.camera.far = 45; spot.shadow.bias = -0.002; head.add(spot);
+const aim = new THREE.Object3D(); aim.position.set(1, 0, 1); scene.add(aim); spot.target = aim;
+const mastMeshes = [pole, base, housing, lens];
+sb.label('the floodlight (drag it)', head, 'amber').off.set(0, 0.7, 0);
+sb.label('the knight', camp.knight).off.set(0, 2.0, 0);
+sb.label('the campfire', camp.fire).off.set(0, 1.4, 0);
+
+// ---- state
+const S = { mode: 0, steps: 48, shadow: true, dither: false, fogView: 0, fogScale: 0.5, g: 0.6, twoLobe: false,
+  cellsX: 32, slices: 64, froxRead: 0, grid: true, froxView: 0, plain: false, hMode: 0, hSteps: 12,
+  clouds: true, cN: 32, cM: 6, cover: 0.55, powder: true, moonEl: 24, moonAz: -35, mastH: 7.5, cone: 28, bright: 400 };
+
+// ---- shaders: one set of uniforms shared by every pass
+const U = {
+  tScene: { value: null }, tDepth: { value: null }, tFog: { value: null }, tHist: { value: null }, tShadow: { value: null }, tInject: { value: null }, tInteg: { value: null },
+  uInvProj: { value: new THREE.Matrix4() }, uInvView: { value: new THREE.Matrix4() }, uCamPos: { value: new THREE.Vector3() }, uFogFar: { value: 60 }, uRes: { value: new THREE.Vector2(1, 1) }, uScreen: { value: new THREE.Vector2(1, 1) },
+  uMode: { value: 0 }, uSteps: { value: 48 }, uShadowOn: { value: 1 }, uDither: { value: 0 }, uFogView: { value: 0 },
+  uBase: { value: 0.015 }, uGround: { value: 0.06 }, uH: { value: 5 }, uPatch: { value: 0.5 }, uTime: { value: 0 }, uAlbedo: { value: 0.9 },
+  uG: { value: 0.6 }, uTwoLobe: { value: 0 },
+  uSpotPos: { value: new THREE.Vector3() }, uSpotDir: { value: new THREE.Vector3(0, -1, 0) }, uSpotCol: { value: new THREE.Color(0xfff1d0) }, uSpotI: { value: 400 }, uCosOuter: { value: Math.cos(0.5) }, uCosInner: { value: Math.cos(0.5 * 0.65) }, uShadowMat: { value: spot.shadow.matrix }, uBias: { value: 0.0006 },
+  uFirePos: { value: new THREE.Vector3(1.2, 0.8, 2.2) }, uFireCol: { value: new THREE.Color(1.0, 0.55, 0.22) }, uFireI: { value: 2.5 },
+  uMoonDir: { value: new THREE.Vector3(0, 1, 0) }, uMoonCol: { value: new THREE.Color(0.62, 0.7, 1.0) }, uMoonI: { value: 0.22 },
+  uCellsX: { value: 32 }, uCellsY: { value: 24 }, uSlices: { value: 64 }, uPerRow: { value: 64 }, uAtlasSize: { value: new THREE.Vector2(1, 1) }, uFroxRead: { value: 0 }, uGridOn: { value: 1 }, uFroxView: { value: 0 }, uJitter: { value: new THREE.Vector3(0.5, 0.5, 0.5) }, uNearF: { value: 0.5 },
+  uPlain: { value: 0 }, uHMode: { value: 0 }, uHSteps: { value: 12 }, uFogCol: { value: new THREE.Color(0.035, 0.045, 0.07) },
+  uCloudOn: { value: 1 }, uCN: { value: 32 }, uCM: { value: 6 }, uCover: { value: 0.55 }, uPowder: { value: 1 }, uCloudBase: { value: 20 }, uCloudTop: { value: 28 }, uCloudDense: { value: 2.5 },
+  uAlpha: { value: 1 }
+};
+const passVert = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const COMMON = `
+  varying vec2 vUv;
+  uniform sampler2D tScene, tDepth, tFog, tHist, tShadow, tInject, tInteg;
+  uniform mat4 uInvProj, uInvView, uShadowMat;
+  uniform vec3 uCamPos, uSpotPos, uSpotDir, uSpotCol, uFirePos, uFireCol, uMoonDir, uMoonCol, uFogCol, uJitter;
+  uniform vec2 uRes, uAtlasSize, uScreen;
+  uniform float uFogFar, uShadowOn, uDither, uBase, uGround, uH, uPatch, uTime, uAlbedo, uG, uTwoLobe, uSpotI, uCosOuter, uCosInner, uBias, uFireI, uMoonI, uGridOn, uNearF, uPlain, uCloudOn, uCover, uPowder, uCloudBase, uCloudTop, uCloudDense, uAlpha;
+  uniform int uMode, uSteps, uFogView, uCellsX, uCellsY, uSlices, uPerRow, uFroxRead, uFroxView, uHMode, uHSteps, uCN, uCM;
+
+  float hash3(vec3 p) { p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3)); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+  float hash2(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+  float vnoise(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x), mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),
+               mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x), mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z); }
+  // fog per metre at a point: fog everywhere, plus ground mist that thins with height, plus drifting patches
+  float density(vec3 p) {
+    float y = max(p.y, 0.0); float d = uBase + uGround * exp(-y / uH);
+    if (uPatch > 0.0) { float n = vnoise(p * 0.35 + vec3(uTime * 0.05, 0.0, uTime * 0.03)) * 0.65 + vnoise(p * 0.9 - vec3(0.0, uTime * 0.04, 0.0)) * 0.35;
+      d += uPatch * max(n - 0.45, 0.0) * 0.5 * exp(-y / (uH * 1.5)); }
+    return d; }
+  // the phase function: how much of the light a fog particle throws toward the eye, for the angle between the two
+  float hg(float c, float g) { float g2 = g * g; float d = 1.0 + g2 - 2.0 * g * c; return (1.0 - g2) / (12.566371 * d * sqrt(d)); }
+  float phase(float c) { return uTwoLobe > 0.5 ? mix(hg(c, uG), hg(c, -0.2), 0.15) : hg(c, uG); }
+  // the shadow test: project the point into the floodlight's depth photo and compare
+  float shadowV(vec3 p) { vec4 sc = uShadowMat * vec4(p, 1.0); sc.xyz /= sc.w;
+    if (sc.x < 0.0 || sc.x > 1.0 || sc.y < 0.0 || sc.y > 1.0 || sc.z > 1.0) return 1.0;
+    return step(sc.z - uBias, texture2D(tShadow, sc.xy).r); }
+  // light arriving at a point and bounced toward the eye: floodlight (shadowed), campfire, moon
+  vec3 lightAt(vec3 p, vec3 rd) {
+    vec3 d = p - uSpotPos; float d2 = dot(d, d) + 2.0; vec3 toP = d * inversesqrt(d2);
+    float cone = smoothstep(uCosOuter, uCosInner, dot(toP, uSpotDir));
+    vec3 Ls = uSpotCol * uSpotI * cone / d2; if (uShadowOn > 0.5 && cone > 0.0) Ls *= shadowV(p);
+    vec3 f = p - uFirePos; float f2 = max(dot(f, f), 0.5); vec3 toPf = f * inversesqrt(f2); vec3 Lf = uFireCol * uFireI / f2;
+    return Ls * phase(dot(-rd, toP)) + Lf * phase(dot(-rd, toPf)) + uMoonCol * uMoonI * phase(dot(rd, uMoonDir)); }
+  vec3 skyCol(vec3 rd) {
+    float h = clamp(rd.y, -0.2, 1.0);
+    vec3 c = mix(vec3(0.014, 0.018, 0.032), vec3(0.006, 0.010, 0.026), smoothstep(-0.02, 0.55, h)); c += vec3(0.02, 0.026, 0.04) * exp(-abs(h) * 9.0);
+    float m = dot(rd, uMoonDir);
+    c += vec3(0.85, 0.9, 1.0) * (smoothstep(0.99935, 0.9996, m) * 3.0 + pow(max(m, 0.0), 48.0) * 0.05);
+    float s = hash3(floor(rd * 260.0)); c += vec3(0.7, 0.75, 0.9) * step(0.9965, s) * smoothstep(0.05, 0.35, rd.y) * 0.5;
+    return c; }
+  float cloudDensity(vec3 p) {
+    float h = (p.y - uCloudBase) / (uCloudTop - uCloudBase); if (h < 0.0 || h > 1.0) return 0.0;
+    float prof = smoothstep(0.0, 0.25, h) * smoothstep(1.0, 0.55, h);
+    vec3 q = p * 0.05 + vec3(uTime * 0.03, 0.0, 0.0);
+    float n = vnoise(q) * 0.55 + vnoise(q * 2.7) * 0.28 + vnoise(q * 6.1) * 0.17;
+    return max(n - (1.0 - uCover), 0.0) * prof * uCloudDense; }
+  // clouds: N steps up through the bank, and at each one M short steps toward the moon to see how much cloud is in the way
+  vec3 clouds(vec3 ro, vec3 rd, vec3 sky) {
+    float t0 = (uCloudBase - ro.y) / rd.y, t1 = (uCloudTop - ro.y) / rd.y; float len = min(t1 - t0, 160.0); float dt = len / float(uCN);
+    float T = 1.0; vec3 L = vec3(0.0); float phm = hg(dot(rd, uMoonDir), 0.3) * 6.0 + 0.25; vec3 moonC = vec3(0.7, 0.78, 1.0);
+    for (int i = 0; i < 96; i++) { if (i >= uCN) break;
+      vec3 p = ro + rd * (t0 + (float(i) + 0.5) * dt); float rho = cloudDensity(p);
+      if (rho > 0.0) { float tau = 0.0; float ds = 2.0;
+        for (int k = 0; k < 16; k++) { if (k >= uCM) break; tau += cloudDensity(p + uMoonDir * (float(k) + 0.5) * ds) * ds; }
+        float E = uPowder > 0.5 ? 2.0 * exp(-tau) * (1.0 - exp(-2.0 * tau)) : exp(-tau);
+        float sT = exp(-rho * dt); L += T * (1.0 - sT) * (moonC * E * phm + vec3(0.05, 0.06, 0.09)); T *= sT; if (T < 0.01) break; } }
+    return sky * T + L; }
+  // the froxel grid: slice fronts spaced so each slice covers about the same screen area near and far
+  float sliceZ(float s) { return uNearF * pow(uFogFar / uNearF, s); }
+  vec3 cellRay(vec2 uv, out float perDepth) { vec4 c = uInvProj * vec4(uv * 2.0 - 1.0, 1.0, 1.0); vec3 v = c.xyz / c.w; perDepth = length(v) / max(-v.z, 1e-4); return normalize(mat3(uInvView) * v); }
+  vec2 cellUv(ivec3 c) { c.x = clamp(c.x, 0, uCellsX - 1); c.y = clamp(c.y, 0, uCellsY - 1); int col = c.z - (c.z / uPerRow) * uPerRow, row = c.z / uPerRow;
+    return (vec2(float(col * uCellsX + c.x), float(row * uCellsY + c.y)) + 0.5) / uAtlasSize; }
+  vec4 fetchJ(ivec3 c) { return texture2D(tInject, cellUv(c)); }
+  vec4 fetchI(ivec3 c) { if (c.z < 0) return vec4(0.0, 0.0, 0.0, 1.0); c.z = min(c.z, uSlices - 1); return texture2D(tInteg, cellUv(c)); }
+  vec4 sliceBilin(vec2 cf, int k) { vec2 fl = floor(cf), fr = cf - fl; ivec2 i0 = ivec2(fl);
+    return mix(mix(fetchI(ivec3(i0, k)), fetchI(ivec3(i0.x + 1, i0.y, k)), fr.x), mix(fetchI(ivec3(i0.x, i0.y + 1, k)), fetchI(ivec3(i0.x + 1, i0.y + 1, k)), fr.x), fr.y); }
+`;
+const fogFrag = COMMON + `
+  void main() {
+    float d = texture2D(tDepth, vUv).r;
+    vec4 c = uInvProj * vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0); vec3 v = c.xyz / c.w;
+    vec3 wp = (uInvView * vec4(v, 1.0)).xyz;
+    vec3 ro = uCamPos; vec3 rd = normalize(wp - ro); float D = length(wp - ro); float viewZ = max(-v.z, 1e-4);
+    float perDepth = D / viewZ; bool sky = d > 0.99999 || D > uFogFar;   // beyond the fog range the ground is treated like the sky
+    if (sky) { D = uFogFar; viewZ = D / perDepth; }
+    float T = 1.0; vec3 L = vec3(0.0);
+    float sc = float(uSlices) * log(max(viewZ, uNearF) / uNearF) / log(uFogFar / uNearF);
+    vec2 cf = vUv * vec2(float(uCellsX), float(uCellsY)) - 0.5;
+    if (uMode == 0) {
+      // the march: equal steps along the line of sight, lit fog added up, each step dimmed by everything before it
+      float dt = D / float(uSteps); float j = uDither > 0.5 ? hash2(gl_FragCoord.xy + uJitter.xy * 97.0) : 0.5;
+      for (int i = 0; i < 160; i++) { if (i >= uSteps) break;
+        vec3 p = ro + rd * ((float(i) + j) * dt); float rho = density(p); float sigT = max(rho, 1e-5);
+        vec3 Sg = uAlbedo * rho * lightAt(p, rd); float sT = exp(-sigT * dt);
+        L += T * Sg * (1.0 - sT) / sigT; T *= sT; if (T < 0.005) break; }
+    } else if (uMode == 1) {
+      // the grid: one read of the cell the pixel's depth falls in; the grid itself was filled in two small passes
+      float kf = min(sc - 1.0, float(uSlices) - 1.0); vec4 fog;
+      if (uFroxRead == 0) fog = fetchI(ivec3(int(floor(cf.x + 0.5)), int(floor(cf.y + 0.5)), int(floor(kf + 0.5))));
+      else { float k0 = floor(kf); float fr = kf - k0; fog = mix(sliceBilin(cf, int(k0)), sliceBilin(cf, int(k0) + 1), fr); }
+      L = fog.rgb; T = fog.a;
+    } else if (uMode == 2) {
+      // the formula: how much mist the line crosses, in one calculation, then one flat fog colour
+      float tau;
+      if (uHMode == 0) { if (uPlain > 0.5) tau = (uBase + uGround) * D;
+        else { float k = rd.y / uH; float b = uGround * exp(-max(ro.y, 0.0) / uH); tau = uBase * D + (abs(k) < 1e-4 ? b * D : b * (1.0 - exp(-k * D)) / k); } }
+      else { float dt = D / float(uHSteps); tau = 0.0;
+        for (int i = 0; i < 64; i++) { if (i >= uHSteps) break; vec3 p = ro + rd * ((float(i) + 0.5) * dt);
+          tau += (uPlain > 0.5 ? uBase + uGround : uBase + uGround * exp(-max(p.y, 0.0) / uH)) * dt; } }
+      T = exp(-tau); L = uFogCol * (1.0 - T);
+    }
+    vec3 back = vec3(0.0);
+    if (sky) { back = skyCol(rd); if (uCloudOn > 0.5 && rd.y > 0.02) back = mix(back, clouds(ro, rd, back), smoothstep(0.02, 0.1, rd.y)); }
+    vec3 outc; float outT;
+    if (uFogView == 1) { outc = vec3(T); outT = 0.0; }
+    else if (uFogView == 2) { outc = L; outT = 0.0; }
+    else if (sky) { outc = L + T * back; outT = 0.0; }
+    else { outc = L; outT = T; }
+    if (uMode == 1) {
+      ivec3 cell = ivec3(int(floor(cf.x + 0.5)), int(floor(cf.y + 0.5)), int(floor(min(sc - 1.0, float(uSlices) - 1.0) + 0.5)));
+      if (uFroxView == 1) { outc = fetchJ(ivec3(cell.xy, max(cell.z, 0))).rgb * 3.0; outT = 0.0; }
+      else if (uFroxView == 2) { outc = fetchI(cell).rgb; outT = 0.0; }
+      else if (uFroxView == 3) { outc = vec3(fetchI(cell).a); outT = 0.0; }
+    }
+    gl_FragColor = vec4(outc, outT);
+  }`;
+const injectFrag = COMMON + `
+  void main() {
+    ivec2 tx = ivec2(gl_FragCoord.xy); int col = tx.x / uCellsX, cx = tx.x - col * uCellsX, row = tx.y / uCellsY, cy = tx.y - row * uCellsY; int k = row * uPerRow + col;
+    if (k >= uSlices) { gl_FragColor = vec4(0.0); return; }
+    vec3 jit = uFroxRead == 2 ? uJitter - 0.5 : vec3(0.0);
+    vec2 uv = (vec2(float(cx), float(cy)) + 0.5 + jit.xy) / vec2(float(uCellsX), float(uCellsY));
+    float perDepth; vec3 rd = cellRay(uv, perDepth);
+    float zc = sliceZ((float(k) + 0.5 + jit.z) / float(uSlices));
+    vec3 p = uCamPos + rd * (zc * perDepth);
+    float rho = density(p);
+    gl_FragColor = vec4(uAlbedo * rho * lightAt(p, rd), rho);
+  }`;
+const integFrag = COMMON + `
+  void main() {
+    ivec2 tx = ivec2(gl_FragCoord.xy); int col = tx.x / uCellsX, cx = tx.x - col * uCellsX, row = tx.y / uCellsY, cy = tx.y - row * uCellsY; int k = row * uPerRow + col;
+    if (k >= uSlices) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+    vec2 uv = (vec2(float(cx), float(cy)) + 0.5) / vec2(float(uCellsX), float(uCellsY));
+    float perDepth; cellRay(uv, perDepth); float N = float(uSlices);
+    vec3 L = vec3(0.0); float T = 1.0;
+    for (int i = 0; i < 160; i++) { if (i > k) break;
+      vec4 cell = fetchJ(ivec3(cx, cy, i)); float dz = (sliceZ((float(i) + 1.0) / N) - sliceZ(float(i) / N)) * perDepth;
+      float e = max(cell.a, 1e-5); float sT = exp(-e * dz); L += T * cell.rgb * (1.0 - sT) / e; T *= sT; }
+    gl_FragColor = vec4(L, T);
+  }`;
+const histFrag = COMMON + ' void main(){ gl_FragColor = mix(texture2D(tHist, vUv), texture2D(tFog, vUv), uAlpha); }';
+const compFrag = COMMON + `
+  void main() {
+    vec4 f = texture2D(tFog, vUv); vec3 c = texture2D(tScene, vUv).rgb * f.a + f.rgb;
+    if (uMode == 1 && uGridOn > 0.5) {
+      // the cell outlines, drawn at full size: columns across the screen, and every other slice a little darker
+      float d = texture2D(tDepth, vUv).r; vec4 cp = uInvProj * vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0); vec3 v = cp.xyz / cp.w;
+      float viewZ = d > 0.99999 ? uFogFar * (-v.z) / length(v) : max(-v.z, 1e-4);
+      float sc = float(uSlices) * log(max(viewZ, uNearF) / uNearF) / log(uFogFar / uNearF);
+      vec2 cells = vec2(float(uCellsX), float(uCellsY)); vec2 fr = fract(vUv * cells); vec2 px = fr * (uScreen / cells);
+      if (mod(floor(min(sc, float(uSlices) - 1.0)), 2.0) < 1.0) c *= 0.8;
+      if (min(px.x, px.y) < 1.0) c = mix(c, vec3(0.95, 0.64, 0.25), 0.3);
+    }
+    gl_FragColor = linearToOutputTexel(vec4(1.0 - exp(-1.4 * c), 1.0));  // a soft curve: bright glow rolls off instead of clipping
+  }`;
+
+const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const pass = frag => { const m = new THREE.ShaderMaterial({ uniforms: U, vertexShader: passVert, fragmentShader: frag, depthTest: false, depthWrite: false }); const s = new THREE.Scene(); const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), m); q.frustumCulled = false; s.add(q); return s; };
+const fogPass = pass(fogFrag), injectPass = pass(injectFrag), integPass = pass(integFrag), histPass = pass(histFrag), compPass = pass(compFrag);
+const depthTex = new THREE.DepthTexture(4, 4, THREE.UnsignedIntType); depthTex.format = THREE.DepthFormat; depthTex.minFilter = depthTex.magFilter = THREE.NearestFilter;
+const rtScene = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthTexture: depthTex, depthBuffer: true });
+const half = () => new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
+const rtFog = half(); let histA = half(), histB = half();
+const atlas = () => new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false });
+const rtInject = atlas(), rtInteg = atlas();
+U.tScene.value = rtScene.texture; U.tDepth.value = depthTex; U.tInject.value = rtInject.texture; U.tInteg.value = rtInteg.texture;
+const maxTex = renderer.capabilities.maxTextureSize;
+let cellsY = 24, histReset = true, calls = 0, msAvg = 16, fogW = 1, fogH = 1;
+const size = new THREE.Vector2(), lastCam = new THREE.Matrix4();
+function ensureAtlas() {
+  const cy = Math.max(1, Math.round(S.cellsX * size.y / size.x)), perRow = Math.max(1, Math.min(S.slices, Math.floor(maxTex / S.cellsX))), rows = Math.ceil(S.slices / perRow);
+  const w = perRow * S.cellsX, h = rows * cy; cellsY = cy;
+  if (rtInject.width !== w || rtInject.height !== h) { rtInject.setSize(w, h); rtInteg.setSize(w, h); histReset = true; }
+  U.uCellsX.value = S.cellsX; U.uCellsY.value = cy; U.uSlices.value = S.slices; U.uPerRow.value = perRow; U.uAtlasSize.value.set(w, h);
+}
+renderer.info.autoReset = false;
+sb.onRender((scene, camera, renderer) => {
+  renderer.info.reset();
+  renderer.getDrawingBufferSize(size);
+  if (rtScene.width !== size.x || rtScene.height !== size.y) { rtScene.setSize(size.x, size.y); U.uScreen.value.copy(size); }
+  fogW = Math.max(1, Math.round(size.x * S.fogScale)); fogH = Math.max(1, Math.round(size.y * S.fogScale));
+  if (rtFog.width !== fogW || rtFog.height !== fogH) { rtFog.setSize(fogW, fogH); histA.setSize(fogW, fogH); histB.setSize(fogW, fogH); histReset = true; U.uRes.value.set(fogW, fogH); }
+  U.uInvProj.value.copy(camera.projectionMatrixInverse); U.uInvView.value.copy(camera.matrixWorld); camera.getWorldPosition(U.uCamPos.value);
+  U.uJitter.value.set(Math.random(), Math.random(), Math.random());
+  // 1: the scene itself, colour plus depth, into a buffer. This pass also refreshes the floodlight's shadow map.
+  renderer.setRenderTarget(rtScene); renderer.render(scene, camera);
+  U.tShadow.value = spot.shadow.map ? spot.shadow.map.depthTexture : null;
+  // 2: in grid mode, fill every cell with lit fog, then sweep each column front to back
+  if (S.mode === 1) { ensureAtlas(); renderer.setRenderTarget(rtInject); renderer.render(injectPass, ortho); renderer.setRenderTarget(rtInteg); renderer.render(integPass, ortho); }
+  // 3: the fog pass, at the chosen size: glow in rgb, light getting through in alpha
+  renderer.setRenderTarget(rtFog); renderer.render(fogPass, ortho);
+  let fogTex = rtFog.texture;
+  // 4: in wobble mode, average with the last frames while the camera holds still
+  if (S.mode === 1 && S.froxRead === 2) {
+    U.uAlpha.value = (histReset || !camera.matrixWorld.equals(lastCam)) ? 1 : 0.1; U.tFog.value = rtFog.texture; U.tHist.value = histA.texture;
+    renderer.setRenderTarget(histB); renderer.render(histPass, ortho); const t = histA; histA = histB; histB = t; fogTex = histA.texture; histReset = false;
+  }
+  lastCam.copy(camera.matrixWorld);
+  // 5: composite: scene colour times light getting through, plus the glow
+  U.tFog.value = fogTex; renderer.setRenderTarget(null); renderer.render(compPass, ortho);
+  calls = renderer.info.render.calls;
+});
+
+// ---- dragging the mast: grab any part of it, slide it over the ground
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit = new THREE.Vector3();
+const el = renderer.domElement; let dragging = false;
+const toNdc = e => { const r = el.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); };
+const overMast = e => { toNdc(e); ray.setFromCamera(ndc, camera); const h = ray.intersectObjects(mastMeshes, false); if (h.length) groundPlane.constant = -h[0].point.y; return h.length > 0; };  // drag on a level plane through the grabbed point
+el.addEventListener('pointerdown', e => { if (e.button !== 0 || !overMast(e)) return; dragging = true; controls.enabled = false; el.setPointerCapture(e.pointerId); e.stopImmediatePropagation(); }, { capture: true });
+el.addEventListener('pointermove', e => {
+  if (dragging) { toNdc(e); ray.setFromCamera(ndc, camera); if (ray.ray.intersectPlane(groundPlane, hit)) { const r = Math.hypot(hit.x, hit.z); if (r > 18) hit.multiplyScalar(18 / r); mast.position.set(hit.x, 0, hit.z); histReset = true; } e.stopImmediatePropagation(); }
+  else el.style.cursor = overMast(e) ? 'grab' : '';
+}, { capture: true });
+const release = e => { if (!dragging) return; dragging = false; controls.enabled = true; try { el.releasePointerCapture(e.pointerId); } catch (_) {} };
+el.addEventListener('pointerup', release, { capture: true }); el.addEventListener('pointercancel', release, { capture: true });
+
+// ---- panel
+const sizeName = () => S.fogScale === 1 ? 'full size' : S.fogScale === 0.5 ? 'half size' : 'quarter size';
+const readName = () => S.froxRead === 0 ? 'one cell per pixel' : S.froxRead === 1 ? 'blending the neighbours' : 'wobbling and averaging';
+function hud() {
+  sb.hud('mode', S.mode === 0 ? 'marching: ' + S.steps + ' looks per pixel, ' + (S.shadow ? 'shadow map read at each' : 'no shadow test') + ', fog at ' + sizeName()
+    : S.mode === 1 ? 'grid of cells: ' + S.cellsX + ' by ' + cellsY + ' by ' + S.slices + ', ' + readName()
+    : S.mode === 2 ? 'one formula per pixel: ' + (S.plain ? 'plain distance fog' : 'ground mist') + (S.hMode ? ', stepped with ' + S.hSteps + ' looks' : ', exact') : 'no fog: the plain scene');
+  sb.hud('view', S.fogView === 1 ? 'showing light getting through (transmittance): white = clear' : S.fogView === 2 ? 'showing the fog glow on its own' : S.mode === 1 && S.froxView ? ['', 'each cell: its own lit glow', 'each cell: glow added up from the player', 'each cell: light getting through'][S.froxView] : null);
+}
+let methodSeg;
+const touch = m => { if (S.mode !== m) methodSeg.set(m); };
+const dirty = () => { histReset = true; };
+
+const s1 = sb.panel.section('01 · The fog and the floodlight', 'Fog has no colour of its own. What you see is lamp light bounced off specks in the air, so it is bright inside the floodlight\'s cone and dark behind a tree. Drag the mast around the camp and watch the glow move with it.');
+s1.slider('Fog everywhere', { min: 0, max: 0.12, step: 0.005, value: 0.015, unit: ' per m' }, v => { U.uBase.value = v; dirty(); });
+s1.slider('Drifting mist patches', { min: 0, max: 1, step: 0.05, value: 0.5 }, v => { U.uPatch.value = v; dirty(); });
+s1.slider('Mast height', { min: 3, max: 12, step: 0.5, value: 7.5, unit: ' m' }, v => { S.mastH = v; dirty(); });
+s1.slider('Cone width', { min: 12, max: 50, step: 1, value: 28, unit: ' degrees' }, v => { S.cone = v; spot.angle = v * Math.PI / 180; U.uCosOuter.value = Math.cos(spot.angle); U.uCosInner.value = Math.cos(spot.angle * (1 - spot.penumbra)); dirty(); });
+s1.slider('Floodlight brightness', { min: 50, max: 800, step: 10, value: 400 }, v => { spot.intensity = v; U.uSpotI.value = v; dirty(); });
+const posRead = s1.readout('floodlight stands at');
+
+const s2 = sb.panel.section('02 · Marching one line of sight', 'For every pixel the shader walks from the eye out to whatever the pixel shows, in equal steps. At each step it takes the fog there, times the light reaching it, times how much survives the trip back. Fewer steps is cheaper and shows bands.');
+methodSeg = s2.segment('How the fog is worked out', [{ value: 0, label: 'march every pixel' }, { value: 1, label: 'grid of cells (froxels)' }, { value: 2, label: 'one formula (height fog)' }, { value: 3, label: 'no fog' }], 0, v => { S.mode = +v; U.uMode.value = S.mode; dirty(); hud(); });
+s2.slider('Steps along each line of sight', { min: 4, max: 128, step: 1, value: 48 }, v => { S.steps = v; U.uSteps.value = v; touch(0); hud(); });
+s2.toggle('shadow test at every step (light shafts)', true, v => { S.shadow = v; U.uShadowOn.value = v ? 1 : 0; touch(0); dirty(); hud(); });
+s2.toggle('start each pixel\'s walk at a random offset (dither)', false, v => { S.dither = v; U.uDither.value = v ? 1 : 0; touch(0); });
+s2.segment('Fog picture size', [{ value: 1, label: 'full' }, { value: 0.5, label: 'half' }, { value: 0.25, label: 'quarter' }], 0.5, v => { S.fogScale = +v; hud(); });
+s2.segment('Show', [{ value: 0, label: 'the picture' }, { value: 1, label: 'light getting through' }, { value: 2, label: 'the glow only' }], 0, v => { S.fogView = +v; U.uFogView.value = S.fogView; hud(); });
+s2.note('Drop to 8 steps and the cone edge breaks into bands. Random offsets (dither) turn the bands into fine grain, which a blur or the next frame hides. Half size is what shipped games do: the fog is soft anyway, so a small picture scaled up looks the same for a quarter of the cost.');
+const looksRead = s2.readout('looks per pixel'), pixRead = s2.readout('fog pixels this frame'), workRead = s2.readout('fog looks this frame'), msRead = s2.readout('time per frame'), callRead = s2.readout('draw calls');
+
+const s3 = sb.panel.section('03 · Which way fog throws light', 'A fog particle throws most light onward, in the direction the light was already going. So the fog is brightest when you look toward the floodlight, and dim with the light behind you. The one knob (anisotropy, g) sets how strong that preference is.');
+s3.slider('How strongly fog throws light forward (g)', { min: -0.9, max: 0.9, step: 0.05, value: 0.6, fmt: v => v.toFixed(2) + (v < -0.25 ? ', mostly back' : v < 0.25 ? ', evenly' : v < 0.65 ? ', forward' : ', mostly forward') }, v => { S.g = v; U.uG.value = v; dirty(); });
+s3.toggle('add a small backward lobe (two lobes, the usual engine setup)', false, v => { S.twoLobe = v; U.uTwoLobe.value = v ? 1 : 0; dirty(); });
+// the kit keeps the orbit above the horizon; looking up at a target needs that cap lifted, and the ground clamp below keeps the camera up
+const lookUp = up => { controls.maxPolarAngle = up ? Math.PI * 0.98 : Math.PI * 0.49; };
+s3.button('Look toward the floodlight', () => { lookUp(true); camera.position.set(mast.position.x + 7.5, 1.6, mast.position.z + 11.5); head.getWorldPosition(controls.target); });
+s3.button('Stand under it, look away', () => { lookUp(false); camera.position.set(mast.position.x - 0.5, 1.7, mast.position.z + 2.8); controls.target.set(mast.position.x + 8, 1.2, mast.position.z + 10); });
+s3.button('Back to the rise', () => { lookUp(false); camera.position.set(10, 4.5, 13); controls.target.set(0, 1.5, -2); });
+s3.note('At 0.9 the cone glows hard when you face the light and nearly vanishes from behind. At 0 every direction gets the same share and the cone looks the same from everywhere.');
+
+const s4 = sb.panel.section('04 · Fog in a grid of cells', 'Instead of walking every pixel, the engine chops the view into a fan of cells (froxels), works out the lit fog once per cell, sweeps each column front to back, and then every pixel reads one cell. Cheap, but the cone and the shadows come out blocky.');
+s4.segment('Cells across the view', [16, 32, 64], 32, v => { S.cellsX = +v; touch(1); dirty(); hud(); });
+s4.segment('Cells along the distance (slices)', [16, 32, 64, 128], 64, v => { S.slices = +v; touch(1); dirty(); hud(); });
+s4.segment('When a pixel reads the grid', [{ value: 0, label: 'take one cell' }, { value: 1, label: 'blend the neighbours' }, { value: 2, label: 'wobble and average' }], 0, v => { S.froxRead = +v; U.uFroxRead.value = S.froxRead; touch(1); dirty(); hud(); });
+s4.toggle('draw the cells', true, v => { S.grid = v; U.uGridOn.value = v ? 1 : 0; touch(1); });
+s4.segment('Colour each cell by', [{ value: 0, label: 'the picture' }, { value: 1, label: 'its own lit glow' }, { value: 2, label: 'glow added up' }, { value: 3, label: 'light getting through' }], 0, v => { S.froxView = +v; U.uFroxView.value = S.froxView; touch(1); hud(); });
+const cellRead = s4.readout('cells in the grid');
+s4.note('Blending the neighbours smooths the blocks. Wobbling moves the sample point inside each cell every frame and averages with the last frames, so hold the camera still and watch the edges settle. Unreal at 1080p uses one cell per 8 by 8 pixel tile and 64 slices: about 2 million cells, as many as pixels, but each one is written once and read by every pixel along its column.');
+
+const s5 = sb.panel.section('05 · Ground mist with no loop', 'When the fog only depends on height, how much a line of sight crosses is one formula: no steps at all. The price is that the fog can only be one flat colour. No cone, no light shafts, no dark air behind a tree.');
+s5.slider('Ground mist thickness', { min: 0, max: 0.3, step: 0.01, value: 0.06, unit: ' per m' }, v => { U.uGround.value = v; dirty(); });
+s5.slider('Thinning height', { min: 1, max: 15, step: 0.5, value: 5, unit: ' m' }, v => { U.uH.value = v; dirty(); });
+s5.toggle('same thickness at every height (plain distance fog)', false, v => { S.plain = v; U.uPlain.value = v ? 1 : 0; touch(2); hud(); });
+const hSeg = s5.segment('Work it out by', [{ value: 0, label: 'the formula, one calculation' }, { value: 1, label: 'stepping' }], 0, v => { S.hMode = +v; U.uHMode.value = S.hMode; touch(2); hud(); });
+s5.slider('Steps, if stepping', { min: 2, max: 48, step: 1, value: 12 }, v => { S.hSteps = v; U.uHSteps.value = v; if (S.hMode !== 1) hSeg.set(1); else { touch(2); hud(); } });
+s5.note('Switch to stepping with a few steps and look at the ground near the camp: the steps miss the thick layer at the bottom and the mist comes out wrong. The formula gets it exact for free.');
+
+const s6 = sb.panel.section('06 · Clouds that shade themselves', 'A cloud bank sits above the forest. Each step up through it takes a few more short steps toward the moon to find how much cloud is in the way, so a cloud pixel costs the steps along the line times one plus the steps toward the moon.');
+s6.toggle('draw the cloud bank', true, v => { S.clouds = v; U.uCloudOn.value = v ? 1 : 0; });
+s6.slider('Steps up through the cloud', { min: 4, max: 96, step: 1, value: 32 }, v => { S.cN = v; U.uCN.value = v; cloudReads(); });
+s6.slider('Steps toward the moon, at each one', { min: 0, max: 16, step: 1, value: 6 }, v => { S.cM = v; U.uCM.value = v; cloudReads(); });
+s6.slider('How much sky the cloud covers', { min: 0, max: 1, step: 0.05, value: 0.55 }, v => { U.uCover.value = v; });
+s6.segment('Dimming rule', [{ value: 0, label: 'plain dimming (Beer)' }, { value: 1, label: 'dark edges (Beer-Powder)' }], 1, v => { U.uPowder.value = +v; });
+s6.slider('Moon height', { min: 8, max: 80, step: 1, value: 24, unit: ' degrees' }, v => { S.moonEl = v; placeMoon(); });
+s6.slider('Moon side', { min: -180, max: 180, step: 5, value: -35, unit: ' degrees' }, v => { S.moonAz = v; placeMoon(); });
+s6.button('Look up at the clouds', () => { lookUp(true); camera.position.set(4, 2.5, 6); controls.target.set(-2, 24, -12); });
+const cloudRead = s6.readout('looks per cloud pixel');
+const cloudReads = () => cloudRead(S.cN + ' times (1 + ' + S.cM + ') = ' + (S.cN * (1 + S.cM)));
+cloudReads();
+s6.note('Plain dimming makes cloud edges brightest, since the least cloud sits between them and the moon. Real clouds have dark edges and a bright middle; the dark-edges rule fakes that with no extra steps. With 0 steps toward the moon the cloud is a flat grey lump.');
+
+function placeMoon() {
+  const el = S.moonEl * Math.PI / 180, az = S.moonAz * Math.PI / 180;
+  U.uMoonDir.value.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
+  moon.position.copy(U.uMoonDir.value).multiplyScalar(60); dirty();
+}
+placeMoon(); hud();
+
+// ---- per frame: the mast, the light's uniforms, the readouts
+const aimW = new THREE.Vector3(); let frameN = 0;
+sb.onFrame((dt, t) => {
+  msAvg += (dt * 1000 - msAvg) * 0.1; U.uTime.value = t;
+  if (camera.position.y < 0.6) camera.position.y = 0.6;
+  pole.scale.y = S.mastH; pole.position.y = S.mastH / 2; head.position.y = S.mastH;
+  aim.getWorldPosition(aimW); head.lookAt(aimW);
+  head.getWorldPosition(U.uSpotPos.value); U.uSpotDir.value.copy(aimW).sub(U.uSpotPos.value).normalize();
+  if ((frameN++ & 7) === 0) {
+    posRead(mast.position.x.toFixed(1) + ' m, ' + mast.position.z.toFixed(1) + ' m, ' + S.mastH.toFixed(1) + ' m up');
+    const looks = S.mode === 0 ? S.steps : S.mode === 1 ? 1 : S.mode === 2 ? (S.hMode ? S.hSteps : 1) : 0;
+    looksRead(S.mode === 0 ? S.steps + ' steps, each with a shadow read' : S.mode === 1 ? (S.froxRead ? '8 cell reads, blended' : '1 cell read') : S.mode === 2 ? (S.hMode ? S.hSteps + ' steps' : '1 formula') : '0');
+    pixRead(fogW + ' by ' + fogH + ' = ' + (fogW * fogH).toLocaleString());
+    const cells = S.cellsX * cellsY * S.slices;
+    workRead(S.mode === 1 ? (cells).toLocaleString() + ' cells filled, then 1 read per pixel' : (looks * fogW * fogH / 1e6).toFixed(1) + ' million');
+    msRead(msAvg.toFixed(1) + ' ms'); callRead(calls);
+    cellRead(S.cellsX + ' by ' + cellsY + ' by ' + S.slices + ' = ' + cells.toLocaleString());
+  }
+});
+sb.start();
+</script>
+</body>
+</html>
