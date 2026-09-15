@@ -152,7 +152,7 @@ const rockB = [newBlas(), newBlas()]; addPart(rockB[0], rockGeo(3), M.ROCK); add
   const fy = terrainH(FIRE.x, FIRE.z); for (let i = 0; i < 4; i++) add(new THREE.CylinderGeometry(0.07, 0.09, 1.2, 8), M.BARK, new THREE.Vector3(FIRE.x, fy + 0.12 + i * 0.06, FIRE.z), i * 0.8 + 0.3, Math.PI / 2 - 0.25);
   for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2, s = 0.22 + rnd() * 0.1; addInst(rockB[i % 2], new THREE.Matrix4().compose(new THREE.Vector3(FIRE.x + Math.cos(a) * 1.05, fy + 0.05, FIRE.z + Math.sin(a) * 1.05), new THREE.Quaternion().setFromAxisAngle(UPV, rnd() * 6), new THREE.Vector3(s, s, s))); }
   for (let i = 0; i < 6; i++) spheres.push({ c: new THREE.Vector3(FIRE.x + (rnd() - 0.5) * 0.7, fy + 0.1, FIRE.z + (rnd() - 0.5) * 0.7), r: 0.06, mat: M.EMBER, light: 0 });
-  spheres.push({ c: new THREE.Vector3(FIRE.x, fy + 0.55, FIRE.z), r: 0.3, mat: M.FLAME, light: 1 });
+  spheres.push({ c: new THREE.Vector3(FIRE.x, fy + 0.55, FIRE.z), r: 0.3, mat: M.FLAME, light: 1, hidden: 1 });
   const lake = new THREE.CircleGeometry(19, 72); lake.rotateX(-Math.PI / 2); add(lake, M.WATER, new THREE.Vector3(LAKE.x, -0.55, LAKE.z));
   addInst(bi, new THREE.Matrix4()); }
 const plinthY = terrainH(13, 6) + 0.2; const ballSpots = [];
@@ -209,7 +209,7 @@ const instData = new Float32Array(Math.ceil(NI * 4 / TW) * TW * 4); { const inv 
 const buildMs = performance.now() - tb0;
 const dataTex = (arr, w, h) => { const t = new THREE.DataTexture(arr, w, h, THREE.RGBAFormat, THREE.FloatType); t.minFilter = t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; t.needsUpdate = true; return t; };
 const nodeTex = dataTex(nodeData, TW, nodeRows), triTex = dataTex(triData, TW, triRows), attrTex = dataTex(attrData, TW, attrRows), instTex = dataTex(instData, TW, Math.ceil(NI * 4 / TW));
-const MAXS = 40; const sphA = new Float32Array(MAXS * 4), sphB = new Float32Array(MAXS * 4), sphCount = { value: 0 }; function writeSpheres() { spheres.forEach((s, i) => { sphA.set([s.c.x, s.c.y, s.c.z, s.r], i * 4); sphB.set([s.mat, s.light, 0, 0], i * 4); }); sphCount.value = spheres.length; }
+const MAXS = 40; const sphA = new Float32Array(MAXS * 4), sphB = new Float32Array(MAXS * 4), sphCount = { value: 0 }; function writeSpheres() { spheres.forEach((s, i) => { sphA.set([s.c.x, s.c.y, s.c.z, s.r], i * 4); sphB.set([s.mat, s.light, s.hidden || 0, 0], i * 4); }); sphCount.value = spheres.length; }
 writeSpheres();
 
 // ---- the sky, on the CPU: the same numbers the shader uses, for the sun's colour and the haze
@@ -411,7 +411,7 @@ struct Params { invPV: mat4x4f, camPos: vec4f, sunDir: vec4f, sunCol: vec4f, moo
   sunE: f32, sunfade: f32, mieG: f32, sunCos: f32, night: f32, skyOn: f32, bounceOn: f32, fogD: f32, sunSize: f32, moonSize: f32, noiseShift: f32, blend: f32,
   tlasRoot: i32, nsph: i32, shadowK: i32, giK: i32, view: i32, frame: i32, shadowStride: i32, giStride: i32,
   matA: array<vec4f, ${MATN}>, matB: array<vec4f, ${MATN}>, matC: array<vec4f, ${MATN}>, sphA: array<vec4f, 40>, sphB: array<vec4f, 40>,
-  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32 };
+  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f };
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> nodes: array<vec4f>;
 @group(0) @binding(2) var<storage, read> tris: array<vec4f>;
@@ -419,6 +419,9 @@ struct Params { invPV: mat4x4f, camPos: vec4f, sunDir: vec4f, sunCol: vec4f, moo
 @group(0) @binding(4) var<storage, read> insts: array<vec4f>;
 @group(0) @binding(5) var texArr: texture_2d_array<f32>;
 @group(0) @binding(6) var samp: sampler;
+@group(0) @binding(7) var tWater: texture_2d<f32>;
+@group(0) @binding(8) var tFire: texture_3d<f32>;
+@group(0) @binding(9) var tChim: texture_3d<f32>;
 const PI: f32 = 3.14159265;
 const LAKE: vec2f = vec2f(${LAKE.x.toFixed(1)}, ${LAKE.z.toFixed(1)});
 const LAKE_R: f32 = ${LAKE_R.toFixed(1)};
@@ -469,7 +472,7 @@ fn instRay(s: i32, o: vec3f, d: vec3f, ol: ptr<function, vec3f>, dl: ptr<functio
 struct Hit { hit: bool, t: f32, tri: i32, inst: i32, sph: i32, bary: vec2f };
 fn trace(o: vec3f, d: vec3f, tMaxIn: f32, anyHit: bool) -> Hit {
   var H: Hit; H.hit = false; H.t = tMaxIn; H.tri = -1; H.inst = -1; H.sph = -1; H.bary = vec2f(0.0);
-  for (var i = 0; i < 40; i++) { if (i >= P.nsph) { break; } let s = P.sphA[i]; let oc = o - s.xyz; let b = dot(oc, d); let c = dot(oc, oc) - s.w * s.w; let disc = b * b - c; if (disc < 0.0) { continue; } let t = -b - sqrt(disc); if (t > 1e-4 && t < H.t) { H.t = t; H.sph = i; H.hit = true; if (anyHit) { return H; } } }
+  for (var i = 0; i < 40; i++) { if (i >= P.nsph) { break; } if (P.sphB[i].z > 0.5 && P.simOn.w > 0.5) { continue; } let s = P.sphA[i]; let oc = o - s.xyz; let b = dot(oc, d); let c = dot(oc, oc) - s.w * s.w; let disc = b * b - c; if (disc < 0.0) { continue; } let t = -b - sqrt(disc); if (t > 1e-4 && t < H.t) { H.t = t; H.sph = i; H.hit = true; if (anyHit) { return H; } } }
   var stack: array<i32, 40>; var sp = 1; stack[0] = P.tlasRoot; let invD = 1.0 / safeDir(d);
   for (var guard = 0; guard < 4096 && sp > 0; guard++) { sp -= 1; let ni = stack[sp]; let a = nodes[ni * 2]; let b = nodes[ni * 2 + 1]; if (!slab(a.xyz, b.xyz, o, invD, H.t)) { continue; } let cnt = i32(b.w);
     if (cnt > 0) { let first = i32(a.w); for (var k = 0; k < cnt; k++) { let s = first + k; var ol: vec3f; var dl: vec3f; instRay(s, o, d, &ol, &dl); var ht = -1; var bb = vec2f(0.0); var tm = H.t;
@@ -483,7 +486,10 @@ fn hitInfo(ro: vec3f, d: vec3f, H: Hit) -> Surf { var S: Surf; S.p = ro + d * H.
   else { let a0 = attrs[H.tri * 4]; let a1 = attrs[H.tri * 4 + 1]; let a2 = attrs[H.tri * 4 + 2]; let a3 = attrs[H.tri * 4 + 3]; let b0 = 1.0 - H.bary.x - H.bary.y; let nl = normalize(a0.xyz * b0 + a1.xyz * H.bary.x + a2.xyz * H.bary.y);
     let r0 = insts[H.inst * 4]; let r1 = insts[H.inst * 4 + 1]; let r2 = insts[H.inst * 4 + 2]; S.n = normalize(r0.xyz * nl.x + r1.xyz * nl.y + r2.xyz * nl.z); S.mid = i32(tris[H.tri * 3].w); S.uv = vec2f(a0.w * b0 + a1.w * H.bary.x + a2.w * H.bary.y, a3.x * b0 + a3.y * H.bary.x + a3.z * H.bary.y); }
   if (dot(S.n, d) > 0.0) { S.n = -S.n; }
-  if (P.matB[S.mid].w == 3.0) { let t = P.time; let a = S.p.xz * 1.7 + vec2f(t * 0.18, t * 0.07); let b = S.p.xz * 3.9 + vec2f(-t * 0.11, t * 0.16); let g = vec2f(vn(a) - vn(a + 0.15), vn(a.yx) - vn(a.yx + 0.15)) * 0.22 + vec2f(vn(b) - vn(b + 0.12), vn(b.yx) - vn(b.yx + 0.12)) * 0.1; S.n = normalize(S.n + vec3f(g.x, 0.0, g.y)); }
+  if (P.matB[S.mid].w == 3.0) { let t = P.time; let b = S.p.xz * 3.9 + vec2f(-t * 0.11, t * 0.16); var g = vec2f(vn(b) - vn(b + 0.12), vn(b.yx) - vn(b.yx + 0.12)) * 0.05 * P.wind;
+    if (P.simOn.x > 0.5) { let wu = (S.p.xz - P.waterOrg.xy) / P.waterOrg.z; if (all(wu > vec2f(0.0)) && all(wu < vec2f(1.0))) { let n = P.waterOrg.w; let q = vec2i(wu * n); let cell = P.waterOrg.z / n; let hx = textureLoad(tWater, min(q + vec2i(1, 0), vec2i(i32(n) - 1)), 0).x - textureLoad(tWater, max(q - vec2i(1, 0), vec2i(0)), 0).x; let hz = textureLoad(tWater, min(q + vec2i(0, 1), vec2i(i32(n) - 1)), 0).x - textureLoad(tWater, max(q - vec2i(0, 1), vec2i(0)), 0).x; g += vec2f(hx, hz) / (2.0 * cell) * 0.45; } }
+    else { let a = S.p.xz * 1.7 + vec2f(t * 0.18, t * 0.07); g += vec2f(vn(a) - vn(a + 0.15), vn(a.yx) - vn(a.yx + 0.15)) * 0.22; }
+    S.n = normalize(S.n + vec3f(g.x, 0.0, g.y)); }
   return S; }
 fn frameOf(w: vec3f) -> mat3x3f { let u = normalize(cross(select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(w.y) < 0.9), w)); let v = cross(w, u); return mat3x3f(u, v, w); }
 fn coneK(w: vec3f, ang: f32, k: i32, K: i32, rot: f32) -> vec3f { let F = frameOf(w); let r = sqrt((f32(k) + 0.5) / f32(K)) * tan(ang); let ph = 6.2831853 * (f32(k) * 0.618034 + rot); return normalize(w + F[0] * (r * cos(ph)) + F[1] * (r * sin(ph))); }
@@ -580,6 +586,14 @@ fn upsampleV(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let st = P.shadowStride; 
 fn upsampleG(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let st = P.giStride; let lc = (vec2f(px) + 0.5) / f32(st) - 0.5; let f = fract(lc); let base = vec2i(floor(lc)); var sum = vec4f(0.0); var ws = 0.0; let full = vec2i(P.res) - 1; let lo = vec2i(P.giRes) - 1;
   for (var j = 0; j < 4; j++) { let q = clamp(base + vec2i(j & 1, j >> 1), vec2i(0), lo); let Al = textureLoad(gA, min(q * st, full), 0); if (Al.w < 0.0) { continue; } let nl = textureLoad(gB, min(q * st, full), 0).xyz; let bw = select(select(select(f.x * f.y, (1.0 - f.x) * f.y, j == 2), f.x * (1.0 - f.y), j == 1), (1.0 - f.x) * (1.0 - f.y), j == 0); let w = bw * exp(-abs(Al.w - A.w) / (0.03 * A.w + 0.05)) * pow(max(dot(nl, n), 0.0), 8.0) + 1e-4; sum += textureLoad(tG, q, 0) * w; ws += w; }
   return select(vec4f(0.0), sum / ws, ws > 0.0); }
+fn boxT(ro: vec3f, rd: vec3f, b0: vec3f, b1: vec3f) -> vec2f { let inv = 1.0 / rd; let t0 = (b0 - ro) * inv; let t1 = (b1 - ro) * inv; let tmin = min(t0, t1); let tmax = max(t0, t1); return vec2f(max(max(tmin.x, tmin.y), max(tmin.z, 0.0)), min(min(tmax.x, tmax.y), tmax.z)); }
+// walk through a box of simulated air: heat glows, smoke shades
+fn marchVol(ro: vec3f, rd: vec3f, tMax: f32, b0: vec3f, b1: vec3f, isFire: bool, jit: f32, colIn: vec3f) -> vec3f { let tt = boxT(ro, rd, b0, b1); let t0 = tt.x; let t1 = min(tt.y, tMax); if (t1 <= t0) { return colIn; }
+  let n = 40; let dt = (t1 - t0) / f32(n); var T = 1.0; var acc = vec3f(0.0); let ext = b1 - b0; let smokeLit = (P.skyZen.xyz * 2.5 + P.skyHor.xyz + P.sunCol.xyz * 0.12) * 0.45;
+  for (var i = 0; i < 40; i++) { let t = t0 + (f32(i) + jit) * dt; let q = (ro + rd * t - b0) / ext; var s: vec2f; if (isFire) { s = textureSampleLevel(tFire, samp, q, 0.0).xy; } else { s = textureSampleLevel(tChim, samp, q, 0.0).xy; }
+    let heat = s.y; let dens = s.x; let glow = mix(vec3f(1.0, 0.10, 0.01), vec3f(1.0, 0.70, 0.25), clamp(heat * 0.5, 0.0, 1.0)) * heat * heat * 40.0;
+    let a = 1.0 - exp(-(dens * 3.0 + heat * 2.0) * dt); acc += T * a * (glow + smokeLit * dens * 0.8 + vec3f(1.0, 0.35, 0.08) * dens * heat * 2.0); T *= 1.0 - a; if (T < 0.01) { break; } }
+  return colIn * T + acc; }
 @compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.res.x || f32(px.y) >= P.res.y) { return; }
   let A = textureLoad(gA, px, 0); var col: vec3f;
   if (A.w < 0.0) { col = skyRad2(A.xyz, true, ign(vec2f(px))); }
@@ -597,12 +611,14 @@ fn upsampleG(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let st = P.giStride; let 
     let sharp = select(0.0, 1.0 - smoothstep(0.12, 0.45, rough), R.a > 0.5); col += mix(specAmb, F * R.rgb, sharp) * select(vec3f(1.0), alb, metal > 0.5);
     if (P.matB[i32(D.w)].w == 3.0) { // water: what the mirror does not take goes down into it, and comes back tinted by how far it went
       let Fw = 0.02 + 0.98 * pow(1.0 - ndv, 5.0); let rd = refract(-v, n, 1.0 / 1.33); var under = vec3f(0.01, 0.06, 0.08);
-      if (dot(rd, rd) > 0.0) { let H = trace(p - n * 3e-3, rd, 40.0, false); if (H.hit) { let S = hitInfo(p - n * 3e-3, rd, H); let bottom = bounceShade(S, -rd, H.t + A.w, ign0(vec2f(px))); let ab = exp(-vec3f(0.55, 0.22, 0.14) * H.t * 1.6); under = bottom * ab + vec3f(0.02, 0.10, 0.12) * (1.0 - ab) * (P.skyZen.xyz * 3.0 + P.sunCol.xyz * 0.02); let foam = (1.0 - smoothstep(0.15, 0.9, H.t)) * smoothstep(0.45, 0.7, vn(p.xz * 3.0 + vec2f(P.time * 0.3, 0.0)) * 0.6 + vn(p.xz * 7.0 - P.time * 0.2) * 0.4); under = mix(under, (P.skyZen.xyz * 2.0 + P.sunCol.xyz * 0.25) * 0.8, foam * 0.85); } }
+      if (dot(rd, rd) > 0.0) { let H = trace(p - n * 3e-3, rd, 40.0, false); if (H.hit) { let S = hitInfo(p - n * 3e-3, rd, H); let bottom = bounceShade(S, -rd, H.t + A.w, ign0(vec2f(px))); let ab = exp(-vec3f(0.55, 0.22, 0.14) * (H.t * 2.2 + 0.9)); under = bottom * ab + vec3f(0.02, 0.10, 0.12) * (1.0 - ab) * (P.skyZen.xyz * 3.0 + P.sunCol.xyz * 0.02); let foam = (1.0 - smoothstep(0.03, 0.35, H.t)) * smoothstep(0.55, 0.75, vn(p.xz * 3.0 + vec2f(P.time * 0.3, 0.0)) * 0.6 + vn(p.xz * 7.0 - P.time * 0.2) * 0.4); under = mix(under, (P.skyZen.xyz * 2.0 + P.sunCol.xyz * 0.25) * 0.8, foam * 0.5); } }
       col = emis + sunVis * ndl * P.sunCol.xyz * specBRDF(n, v, P.sunDir.xyz, rough, vec3f(0.02)) + sphereLights(p + n * 3e-3, n, v, vec3f(0.0), vec3f(0.02), rough, ign0(vec2f(px)), 1, 24.0) + Fw * select(specAmb, R.rgb, R.a > 0.5) + (1.0 - Fw) * under; }
     // haze, and a mist that pools low in the valley
     let hc = max(P.camPos.y, 0.0); let hp = max(p.y, 0.0); let dh = hp - hc; let mistInt = select(exp(-hc / 6.0) * (1.0 - exp(-dh / 6.0)) / (dh / 6.0), exp(-hc / 6.0), abs(dh) < 0.01);
     col = mix(P.fogCol.xyz, col, exp(-(P.fogD + P.mist * mistInt) * A.w));
     if (P.view == 1) { col = vec3f(sunVis); } else if (P.view == 2) { col = E * 0.5; } else if (P.view == 3) { col = select(vec3f(0.0), R.rgb, R.a > 0.5); } }
+  { let uv = (vec2f(px) + 0.5) / P.res; let w = P.invPV * vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0); let d = normalize(w.xyz / w.w - P.camPos.xyz); let tm = select(A.w, 1e9, A.w < 0.0); let j = ign(vec2f(px));
+    if (P.simOn.y > 0.5) { col = marchVol(P.camPos.xyz, d, tm, P.fireBox0.xyz, P.fireBox1.xyz, true, j, col); } if (P.simOn.z > 0.5) { col = marchVol(P.camPos.xyz, d, tm, P.chimBox0.xyz, P.chimBox1.xyz, false, j, col); } }
   textureStore(oCur, px, vec4f(col, A.w)); }`;
 // temporal anti-aliasing: find where this pixel was last frame, and blend, unless the history clearly does not belong here
 const WG_TAA = WG_COMMON + `
@@ -635,7 +651,59 @@ fn srgb(c0: vec3f) -> vec3f { let c = clamp(c0, vec3f(0.0), vec3f(1.0)); return 
 @fragment fn fs(i: VO) -> @location(0) vec4f { var c = textureSampleLevel(tSrc, samp, i.uv, 0.0).rgb; let bl = textureSampleLevel(tBloom, samp, i.uv, 0.0).rgb; c += bl * D.bloom;
   if (D.shafts > 0.0 && D.sunUp > 0.0) { var sh = vec3f(0.0); let dv = (D.sunUv - i.uv) / 24.0; var uv = i.uv; var wsum = 0.0; for (var k = 0; k < 24; k++) { uv += dv; let w = 1.0 - f32(k) / 24.0; sh += textureSampleLevel(tBloom, samp, uv, 0.0).rgb * w; wsum += w; } let dist = length((D.sunUv - i.uv) * vec2f(1.0, 0.75)); c += sh / wsum * D.shafts * D.sunUp * (1.0 - smoothstep(0.35, 0.9, dist)); }
   c *= D.exposure; if (D.curve == 1.0) { c = aces(c); } else if (D.curve == 2.0) { c = c / (1.0 + c); } let lum = dot(c, vec3f(0.3, 0.59, 0.11)); c = mix(vec3f(lum), c, 1.1); let vd = length((i.uv - 0.5) * vec2f(1.0, 0.85)); c *= 1.0 - 0.28 * smoothstep(0.35, 0.95, vd); return vec4f(srgb(c), 1.0); }`;
-let gpu = null; const prevPV = new THREE.Matrix4(); const fx = { time: 0, mist: 0, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0.35 };
+let gpu = null; const prevPV = new THREE.Matrix4(); const fx = { time: 0, dt: 0.016, mist: 0, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0.35, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1 };
+// the simulation grids: a wave grid over the lake (with the shore as a wall), and two boxes of air over the fire and the chimney
+const SIM = (() => { const n = 256, size = 44, x0 = LAKE.x - size / 2, z0 = LAKE.z - size / 2; const land = new Uint8Array(n * n); for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = x0 + (i + 0.5) / n * size, z = z0 + (j + 0.5) / n * size; land[j * n + i] = terrainH(x, z) > -0.55 ? 255 : 0; }
+  const fy = terrainH(FIRE.x, FIRE.z); const ca = Math.cos(-0.55), sa = Math.sin(-0.55); const cx = CABIN.x + (3.2 - 1.2) * ca + (-2.3 + 0.9) * sa, cz = CABIN.z - (3.2 - 1.2) * sa + (-2.3 + 0.9) * ca; const cy = terrainH(CABIN.x, CABIN.z) - 0.1 + 5.5;
+  return { water: { n, size, x0, z0, land }, fire: { min: [FIRE.x - 1.3, fy + 0.05, FIRE.z - 1.3], max: [FIRE.x + 1.3, fy + 3.65, FIRE.z + 1.3], cell: 0.06, dims: [44, 60, 44], src: [FIRE.x, fy + 0.3, FIRE.z], srcR: 0.45, buoy: 7.0, heat: 1.0, smoke: 0.25 },
+    chim: { min: [cx - 1.5, cy - 0.2, cz - 1.5], max: [cx + 1.5, cy + 5.2, cz + 1.5], cell: 0.09, dims: [34, 60, 34], src: [cx, cy + 0.05, cz], srcR: 0.32, buoy: 4.0, heat: 0.22, smoke: 1.6 } }; })();
+const WG_WATER = `
+struct WP { n: f32, size: f32, dt: f32, time: f32, wind: f32, rain: f32, windDir: f32, pad: f32, drops: array<vec4f, 8>, nd: f32, p1: f32, p2: f32, p3: f32 };
+@group(0) @binding(0) var<uniform> W: WP; @group(0) @binding(1) var tIn: texture_2d<f32>; @group(0) @binding(2) var tLand: texture_2d<f32>; @group(0) @binding(3) var oOut: texture_storage_2d<rg32float, write>;
+fn h21(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453); }
+fn vn(p: vec2f) -> f32 { let i = floor(p); var f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h21(i), h21(i + vec2f(1.0, 0.0)), f.x), mix(h21(i + vec2f(0.0, 1.0)), h21(i + vec2f(1.0, 1.0)), f.x), f.y); }
+fn hAt(q: vec2i) -> f32 { let n = i32(W.n); if (q.x < 0 || q.y < 0 || q.x >= n || q.y >= n) { return 0.0; } if (textureLoad(tLand, q, 0).r > 0.5) { return 0.0; } return textureLoad(tIn, q, 0).x; }
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); let n = i32(W.n); if (px.x >= n || px.y >= n) { return; }
+  if (textureLoad(tLand, px, 0).r > 0.5) { textureStore(oOut, px, vec4f(0.0)); return; }
+  let hv = textureLoad(tIn, px, 0).xy; var h = hv.x; var v = hv.y; let avg = (hAt(px + vec2i(1, 0)) + hAt(px - vec2i(1, 0)) + hAt(px + vec2i(0, 1)) + hAt(px - vec2i(0, 1))) * 0.25;
+  v = (v + (avg - h) * 0.45) * 0.994; h = (h + v) * 0.9985;
+  // wind drags little ripples across, rain drops dimples, clicks make rings
+  let cell = W.size / W.n; let wp = vec2f(px) * cell; let gust = vn(wp * 0.9 + vec2f(W.time * 2.2, W.time * 0.7)) * vn(wp * 0.35 - vec2f(W.time * 0.9, 0.0)); h += (gust - 0.32) * 0.0012 * W.wind * W.dt * 60.0;
+  if (W.rain > 0.0) { let cellId = vec2f(px / 3); let r = h21(cellId + floor(W.time * 40.0)); if (r < W.rain * 0.002) { h -= 0.05; } }
+  for (var i = 0; i < 8; i++) { if (f32(i) >= W.nd) { break; } let d = W.drops[i]; let dd = length(vec2f(px) - d.xy * W.n); if (dd < d.z) { h -= d.w * (1.0 - dd / d.z) * (1.0 - dd / d.z); } }
+  textureStore(oOut, px, vec4f(h, v, 0.0, 0.0)); }`;
+const WG_SIMH = `
+struct FP { org: vec3f, cell: f32, dims: vec3f, dt: f32, src: vec3f, srcR: f32, buoy: f32, heat: f32, smoke: f32, wind: f32, time: f32, isFire: f32, p0: f32, p1: f32 };
+@group(0) @binding(0) var<uniform> F: FP;
+fn h31(p: vec3f) -> f32 { return fract(sin(dot(p, vec3f(127.1, 311.7, 74.7))) * 43758.5453); }
+fn vn3(p: vec3f) -> f32 { let i = floor(p); var f = fract(p); f = f * f * (3.0 - 2.0 * f); let a = mix(mix(h31(i), h31(i + vec3f(1, 0, 0)), f.x), mix(h31(i + vec3f(0, 1, 0)), h31(i + vec3f(1, 1, 0)), f.x), f.y); let b = mix(mix(h31(i + vec3f(0, 0, 1)), h31(i + vec3f(1, 0, 1)), f.x), mix(h31(i + vec3f(0, 1, 1)), h31(i + vec3f(1, 1, 1)), f.x), f.y); return mix(a, b, f.z); }
+fn inside(c: vec3i) -> bool { return c.x >= 0 && c.y >= 0 && c.z >= 0 && c.x < i32(F.dims.x) && c.y < i32(F.dims.y) && c.z < i32(F.dims.z); }`;
+// move velocity, smoke and heat along the flow, then add heat and smoke at the source and let hot air rise
+const WG_ADV = WG_SIMH + `
+@group(0) @binding(1) var vIn: texture_3d<f32>; @group(0) @binding(2) var qIn: texture_3d<f32>; @group(0) @binding(3) var vOut: texture_storage_3d<rgba16float, write>; @group(0) @binding(4) var qOut: texture_storage_3d<rgba16float, write>; @group(0) @binding(5) var samp: sampler;
+@compute @workgroup_size(4, 4, 4) fn main(@builtin(global_invocation_id) gid: vec3u) { let c = vec3i(gid); if (!inside(c)) { return; } let pc = vec3f(c) + 0.5; let vel = textureLoad(vIn, c, 0).xyz;
+  let back = pc - vel * F.dt / F.cell; let uvw = back / F.dims; let outside = any(uvw < vec3f(0.0)) || any(uvw > vec3f(1.0));
+  var v = select(textureSampleLevel(vIn, samp, uvw, 0.0).xyz, vec3f(0.0), outside) * 0.99; var q = select(textureSampleLevel(qIn, samp, uvw, 0.0).xy, vec2f(0.0), outside) * vec2f(0.992, 0.93);
+  let wp = F.org + pc * F.cell; let ds = length((wp - F.src) * vec3f(1.0, 2.2, 1.0)); let s = smoothstep(F.srcR, F.srcR * 0.3, ds);
+  let flick = 0.55 + 0.9 * vn3(vec3f(wp.xz * 6.0, F.time * 9.0)); q += vec2f(F.smoke * 3.0, F.heat * 6.0 * flick) * s * F.dt;
+  v.y += (q.y * F.buoy - q.x * 0.04) * F.dt; let turb = vec3f(vn3(wp * 5.0 + F.time * 2.0) - 0.5, 0.0, vn3(wp * 5.0 + 7.0 + F.time * 2.0) - 0.5); v += turb * q.y * 2.5 * F.dt * F.isFire; v.x += F.wind * 0.25 * F.dt * smoothstep(0.2, 1.0, pc.y / F.dims.y);
+  if (c.y == 0 || c.x <= 0 || c.z <= 0 || c.x >= i32(F.dims.x) - 1 || c.z >= i32(F.dims.z) - 1) { v = vec3f(0.0); }
+  textureStore(vOut, c, vec4f(v, 0.0)); textureStore(qOut, c, vec4f(clamp(q, vec2f(0.0), vec2f(4.0)), 0.0, 0.0)); }`;
+const WG_DIV = WG_SIMH + `
+@group(0) @binding(1) var vIn: texture_3d<f32>; @group(0) @binding(2) var oDiv: texture_storage_3d<r32float, write>;
+fn vAt(c: vec3i) -> vec3f { if (!inside(c)) { return vec3f(0.0); } return textureLoad(vIn, c, 0).xyz; }
+@compute @workgroup_size(4, 4, 4) fn main(@builtin(global_invocation_id) gid: vec3u) { let c = vec3i(gid); if (!inside(c)) { return; }
+  let d = 0.5 * (vAt(c + vec3i(1, 0, 0)).x - vAt(c - vec3i(1, 0, 0)).x + vAt(c + vec3i(0, 1, 0)).y - vAt(c - vec3i(0, 1, 0)).y + vAt(c + vec3i(0, 0, 1)).z - vAt(c - vec3i(0, 0, 1)).z); textureStore(oDiv, c, vec4f(d, 0.0, 0.0, 0.0)); }`;
+const WG_JAC = WG_SIMH + `
+@group(0) @binding(1) var pIn: texture_3d<f32>; @group(0) @binding(2) var tDiv: texture_3d<f32>; @group(0) @binding(3) var pOut: texture_storage_3d<r32float, write>;
+fn pAt(c: vec3i) -> f32 { let q = clamp(c, vec3i(0), vec3i(F.dims) - 1); return textureLoad(pIn, q, 0).x; }
+@compute @workgroup_size(4, 4, 4) fn main(@builtin(global_invocation_id) gid: vec3u) { let c = vec3i(gid); if (!inside(c)) { return; }
+  let p = (pAt(c + vec3i(1, 0, 0)) + pAt(c - vec3i(1, 0, 0)) + pAt(c + vec3i(0, 1, 0)) + pAt(c - vec3i(0, 1, 0)) + pAt(c + vec3i(0, 0, 1)) + pAt(c - vec3i(0, 0, 1)) - textureLoad(tDiv, c, 0).x) / 6.0; textureStore(pOut, c, vec4f(p, 0.0, 0.0, 0.0)); }`;
+const WG_PROJ = WG_SIMH + `
+@group(0) @binding(1) var vIn: texture_3d<f32>; @group(0) @binding(2) var pIn: texture_3d<f32>; @group(0) @binding(3) var vOut: texture_storage_3d<rgba16float, write>;
+fn pAt(c: vec3i) -> f32 { let q = clamp(c, vec3i(0), vec3i(F.dims) - 1); return textureLoad(pIn, q, 0).x; }
+@compute @workgroup_size(4, 4, 4) fn main(@builtin(global_invocation_id) gid: vec3u) { let c = vec3i(gid); if (!inside(c)) { return; }
+  let g = 0.5 * vec3f(pAt(c + vec3i(1, 0, 0)) - pAt(c - vec3i(1, 0, 0)), pAt(c + vec3i(0, 1, 0)) - pAt(c - vec3i(0, 1, 0)), pAt(c + vec3i(0, 0, 1)) - pAt(c - vec3i(0, 0, 1))); textureStore(vOut, c, vec4f(textureLoad(vIn, c, 0).xyz - g, 0.0)); }`;
 async function startWebGPU() {
   if (!navigator.gpu) return null; const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null); if (!adapter) return null;
   const need = Math.max(nodeData.byteLength, triData.byteLength, attrData.byteLength, instData.byteLength); if (adapter.limits.maxStorageBufferBindingSize < need) return null;
@@ -644,12 +712,41 @@ async function startWebGPU() {
   const ctx = canvas.getContext('webgpu'); const format = navigator.gpu.getPreferredCanvasFormat(); ctx.configure({ device, format, alphaMode: 'opaque' });
   const mkBuf = (arr, usage) => { const b = device.createBuffer({ size: Math.ceil(arr.byteLength / 16) * 16, usage, mappedAtCreation: true }); new Float32Array(b.getMappedRange()).set(arr); b.unmap(); return b; };
   const bNodes = mkBuf(nodeData, GPUBufferUsage.STORAGE), bTris = mkBuf(triData, GPUBufferUsage.STORAGE), bAttr = mkBuf(attrData, GPUBufferUsage.STORAGE), bInst = mkBuf(instData, GPUBufferUsage.STORAGE);
-  const PARAMS_F = 84 + MATN * 12 + 320 + 20; const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const PARAMS_F = 84 + MATN * 12 + 320 + 20 + 24; const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const layers = [barkTex, birchTex, leafO, leafP, leafB, rockTex, woodTex, stoneTex, groundTex, grassTex]; const texArr = device.createTexture({ size: [256, 256, layers.length], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   layers.forEach((t, i) => device.queue.copyExternalImageToTexture({ source: t.image }, { texture: texArr, origin: [0, 0, i] }, [256, 256]));
   const samp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat' });
-  const g0Layout = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, ...[1, 2, 3, 4].map(b => ({ binding: b, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } })), { binding: 5, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '2d-array' } }, { binding: 6, visibility: GPUShaderStage.COMPUTE, sampler: {} }] });
-  const g0 = device.createBindGroup({ layout: g0Layout, entries: [{ binding: 0, resource: { buffer: bParams } }, { binding: 1, resource: { buffer: bNodes } }, { binding: 2, resource: { buffer: bTris } }, { binding: 3, resource: { buffer: bAttr } }, { binding: 4, resource: { buffer: bInst } }, { binding: 5, resource: texArr.createView({ dimension: '2d-array' }) }, { binding: 6, resource: samp }] });
+  const g0Layout = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, ...[1, 2, 3, 4].map(b => ({ binding: b, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } })), { binding: 5, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '2d-array' } }, { binding: 6, visibility: GPUShaderStage.COMPUTE, sampler: {} }, { binding: 7, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'unfilterable-float' } }, { binding: 8, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d' } }, { binding: 9, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d' } }] });
+  // ---- the fluids: a wave grid over the lake, and two small smoke-and-fire grids
+  const WN = SIM.water.n; const mk2 = (fmt) => device.createTexture({ size: [WN, WN], format: fmt, usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+  const wTex = [mk2('rg32float'), mk2('rg32float')]; const landTex = device.createTexture({ size: [WN, WN], format: 'r8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST }); device.queue.writeTexture({ texture: landTex }, SIM.water.land, { bytesPerRow: WN }, [WN, WN]);
+  const mk3 = (d, fmt) => device.createTexture({ size: d, format: fmt, dimension: '3d', usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
+  const vols = {}; for (const k of ['fire', 'chim']) { const d = SIM[k].dims; vols[k] = { vel: [mk3(d, 'rgba16float'), mk3(d, 'rgba16float')], q: [mk3(d, 'rgba16float'), mk3(d, 'rgba16float')], pr: [mk3(d, 'r32float'), mk3(d, 'r32float')], div: mk3(d, 'r32float'), buf: device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }) }; }
+  const wBuf = device.createBuffer({ size: 176, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const g0s = [0, 1].map(i => device.createBindGroup({ layout: g0Layout, entries: [{ binding: 0, resource: { buffer: bParams } }, { binding: 1, resource: { buffer: bNodes } }, { binding: 2, resource: { buffer: bTris } }, { binding: 3, resource: { buffer: bAttr } }, { binding: 4, resource: { buffer: bInst } }, { binding: 5, resource: texArr.createView({ dimension: '2d-array' }) }, { binding: 6, resource: samp }, { binding: 7, resource: wTex[i].createView() }, { binding: 8, resource: vols.fire.q[i].createView() }, { binding: 9, resource: vols.chim.q[i].createView() }] }));
+  let g0 = g0s[0];
+  const simL = { water: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'unfilterable-float' } }, { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'unfilterable-float' } }, { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rg32float' } }] }),
+    adv: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d' } }, { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d' } }, { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba16float', viewDimension: '3d' } }, { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba16float', viewDimension: '3d' } }, { binding: 5, visibility: GPUShaderStage.COMPUTE, sampler: {} }] }),
+    div: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d', sampleType: 'unfilterable-float' } }, { binding: 2, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'r32float', viewDimension: '3d' } }] }),
+    jac: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d', sampleType: 'unfilterable-float' } }, { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d', sampleType: 'unfilterable-float' } }, { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'r32float', viewDimension: '3d' } }] }),
+    proj: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d', sampleType: 'unfilterable-float' } }, { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d', sampleType: 'unfilterable-float' } }, { binding: 3, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba16float', viewDimension: '3d' } }] }) };
+  const simPipe = (code, l) => device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [l] }), compute: { module: device.createShaderModule({ code }), entryPoint: 'main' } });
+  const simP = { water: simPipe(WG_WATER, simL.water), adv: simPipe(WG_ADV, simL.adv), div: simPipe(WG_DIV, simL.div), jac: simPipe(WG_JAC, simL.jac), proj: simPipe(WG_PROJ, simL.proj) };
+  const wGroups = [0, 1].map(i => device.createBindGroup({ layout: simL.water, entries: [{ binding: 0, resource: { buffer: wBuf } }, { binding: 1, resource: wTex[i].createView() }, { binding: 2, resource: landTex.createView() }, { binding: 3, resource: wTex[1 - i].createView() }] }));
+  const volSamp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge', addressModeW: 'clamp-to-edge' });
+  const vGroups = {}; for (const k of ['fire', 'chim']) { const V = vols[k]; const B = { buffer: V.buf }; const E = (b, r) => ({ binding: b, resource: r });
+    vGroups[k] = { adv: [0, 1].map(i => device.createBindGroup({ layout: simL.adv, entries: [E(0, B), E(1, V.vel[0].createView()), E(2, V.q[i].createView()), E(3, V.vel[1].createView()), E(4, V.q[1 - i].createView()), E(5, volSamp)] })),
+      div: [0, 1].map(i => device.createBindGroup({ layout: simL.div, entries: [E(0, B), E(1, V.vel[1].createView()), E(2, V.div.createView())] })),
+      jac: [0, 1].map(i => device.createBindGroup({ layout: simL.jac, entries: [E(0, B), E(1, V.pr[i].createView()), E(2, V.div.createView()), E(3, V.pr[1 - i].createView())] })),
+      proj: [0, 1].map(i => device.createBindGroup({ layout: simL.proj, entries: [E(0, B), E(1, V.vel[1].createView()), E(2, V.pr[0].createView()), E(3, V.vel[0].createView())] })) }; }
+  const drops = []; window.__drops = drops;
+  function simStep(enc, dt, cur) {
+    if (fx.waterOn) { const a = new Float32Array(44); a.set([SIM.water.n, SIM.water.size, dt, fx.time, fx.wind, fx.rain, fx.wind, 0]); const nd = Math.min(drops.length, 8); for (let i = 0; i < nd; i++) { const d = drops[i]; a.set([d.u, d.v, d.r, d.s], 8 + i * 4); } a[40] = nd; drops.length = 0; device.queue.writeBuffer(wBuf, 0, a);
+      for (let sub = 0; sub < 2; sub++) { const src = (cur + sub) & 1; const c = enc.beginComputePass(); c.setPipeline(simP.water); c.setBindGroup(0, wGroups[src]); c.dispatchWorkgroups(Math.ceil(WN / 8), Math.ceil(WN / 8)); c.end(); } }
+    for (const k of ['fire', 'chim']) { if (!fx[k === 'fire' ? 'fireOn' : 'chimOn']) continue; const V = vols[k], G = vGroups[k], d = SIM[k].dims, S2 = SIM[k];
+      device.queue.writeBuffer(V.buf, 0, new Float32Array([...S2.min, S2.cell, ...d, Math.min(dt, 0.033), ...S2.src, S2.srcR, S2.buoy, S2.heat * (k === 'fire' ? fx.fireStrength : 1), S2.smoke * (k === 'fire' ? fx.smokeAmt : 1), fx.wind, fx.time, k === 'fire' ? 1 : 0, 0, 0]));
+      const wg = [Math.ceil(d[0] / 4), Math.ceil(d[1] / 4), Math.ceil(d[2] / 4)]; const run = (pipe, grp) => { const c = enc.beginComputePass(); c.setPipeline(pipe); c.setBindGroup(0, grp); c.dispatchWorkgroups(...wg); c.end(); };
+      run(simP.adv, G.adv[cur]); run(simP.div, G.div[cur]); for (let it = 0; it < 10; it++) run(simP.jac, G.jac[it & 1]); run(simP.proj, G.proj[cur]); } }
   const T = (b) => ({ binding: b, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'unfilterable-float' } }), W = (b, fmt) => ({ binding: b, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: fmt } });
   const layouts = { gbuf: device.createBindGroupLayout({ entries: [W(0, 'rgba32float'), W(1, 'rgba32float'), W(2, 'rgba32float'), W(3, 'rgba32float')] }), shadow: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }), gi: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }),
     blur: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), W(3, 'rgba16float'), { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }), refl: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }), comp: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), T(3), T(4), T(5), T(6), W(7, 'rgba16float')] }),
@@ -684,11 +781,11 @@ async function startWebGPU() {
     f[56] = w; f[57] = h; f[58] = st.lw; f[59] = st.lh; f[60] = st.qw; f[61] = st.qh; f[62] = jitter.x; f[63] = jitter.y;
     f[64] = U.uSunE.value; f[65] = U.uSunfade.value; f[66] = U.uMieG.value; f[67] = U.uSunCos.value; f[68] = U.uNight.value; f[69] = U.uSkyOn.value; f[70] = U.uBounceOn.value; f[71] = U.uFogD.value; f[72] = U.uSunSize.value; f[73] = U.uMoonSize.value; f[74] = U.uNoiseShift.value; f[75] = blend;
     paramsI[76] = tlasRoot; paramsI[77] = spheres.length; paramsI[78] = U.uShadowK.value; paramsI[79] = U.uGiK.value; paramsI[80] = view; paramsI[81] = U.uFrame.value; paramsI[82] = st.ss; paramsI[83] = st.gs;
-    f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 160); const o2 = 84 + MATN * 12 + 320; f.set(prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; device.queue.writeBuffer(bParams, 0, paramsArr); }
+    f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 160); const o2 = 84 + MATN * 12 + 320; f.set(prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; f.set([...SIM.fire.min, 0, ...SIM.fire.max, 0, ...SIM.chim.min, 0, ...SIM.chim.max, 0, SIM.water.x0, SIM.water.z0, SIM.water.size, SIM.water.n, fx.waterOn ? 1 : 0, fx.fireOn ? 1 : 0, fx.chimOn ? 1 : 0, fx.hideFlame ? 1 : 0], o2 + 20); device.queue.writeBuffer(bParams, 0, paramsArr); }
   function render(w, h, blend, view, jitter, doBlur, ss, gs) {
     ensure(w, h, ss, gs); fillParams(w, h, blend, view, jitter); const sc = sunDir.clone().multiplyScalar(1000).add(camera.position).project(camera); device.queue.writeBuffer(bDisp, 0, new Float32Array([dispU.uExposure.value, dispU.uCurve.value, fx.bloom, fx.shafts, sc.x * 0.5 + 0.5, 0.5 - sc.y * 0.5, sc.z < 1 && sunDir.y > 0.02 ? 1 : 0, 0]));
     const cw = Math.max(1, Math.round(sb.stage.clientWidth * Math.min(devicePixelRatio || 1, 2))), ch = Math.max(1, Math.round(sb.stage.clientHeight * Math.min(devicePixelRatio || 1, 2))); if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
-    const enc = device.createCommandEncoder(); const G = st.groups; const run = (p, g, x, y) => { const c = enc.beginComputePass(); c.setPipeline(p); c.setBindGroup(0, g0); c.setBindGroup(1, g); c.dispatchWorkgroups(Math.ceil(x / 8), Math.ceil(y / 8)); c.end(); };
+    const enc = device.createCommandEncoder(); const G = st.groups; simStep(enc, fx.dt, cur); g0 = g0s[1 - cur]; const run = (p, g, x, y) => { const c = enc.beginComputePass(); c.setPipeline(p); c.setBindGroup(0, g0); c.setBindGroup(1, g); c.dispatchWorkgroups(Math.ceil(x / 8), Math.ceil(y / 8)); c.end(); };
     run(pipes.gbuf, G.gbuf, w, h); run(pipes.shadow, G.shadow, st.lw, st.lh); run(pipes.acc, G.accS[cur], st.lw, st.lh); run(pipes.gi, G.gi, st.qw, st.qh); run(pipes.acc, G.accG[cur], st.qw, st.qh);
     run(pipes.blur, G.blurS1[cur], st.lw, st.lh); run(pipes.blur, G.blurS2, st.lw, st.lh); run(pipes.blur, G.blurG1[cur], st.qw, st.qh); run(pipes.blur, G.blurG2, st.qw, st.qh);
     run(pipes.refl, G.refl, w, h); run(pipes.comp, G.comp, w, h); run(pipes.taa, G.taa[cur], w, h); run(pipes.bright, G.bright[cur], st.bw, st.bh); run(pipes.gauss, G.gauss1, st.bw, st.bh); run(pipes.gauss, G.gauss2, st.bw, st.bh);
@@ -757,6 +854,16 @@ s5.slider('Morning mist, pooling low', { min: 0, max: 0.08, step: 0.002, value: 
 s5.slider('Glow around bright things (bloom)', { min: 0, max: 0.5, step: 0.01, value: 0.12, fmt: v => (+v).toFixed(2) }, v => { fx.bloom = v; });
 s5.slider('Sun shafts', { min: 0, max: 1, step: 0.02, value: 0.35, fmt: v => (+v).toFixed(2) }, v => { fx.shafts = v; });
 
+const s7 = sb.panel.section('07 · Fluids', 'The lake is a grid of water heights that push on their neighbours, so waves travel, bounce off the shore and cross. The fire and the chimney are boxes of air: heat rises, the flow is kept from piling up, and smoke and heat ride along. What you see is a ray marched through those boxes.');
+s7.toggle('simulate the water', true, v => { fx.waterOn = v; });
+s7.slider('Rain', { min: 0, max: 1, step: 0.05, value: 0, fmt: v => (+v).toFixed(2) }, v => { fx.rain = v; });
+s7.note('Click on the lake to drop a stone in.');
+s7.toggle('simulate the fire', true, v => { fx.fireOn = v; fx.hideFlame = v; });
+s7.slider('Fire strength', { min: 0.2, max: 2.5, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { fx.fireStrength = v; });
+s7.slider('Smoke', { min: 0, max: 3, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { fx.smokeAmt = v; });
+s7.toggle('smoke from the chimney', true, v => { fx.chimOn = v; });
+s7.readout('water cells')('256 × 256'); s7.readout('air cells, fire and chimney')((44 * 60 * 44).toLocaleString() + ' + ' + (34 * 60 * 34).toLocaleString());
+
 const s6 = sb.panel.section('06 · The renderer', 'This is how a game ray traces: one ray per pixel finds the surface, a few rays per pixel ask the sun, the moon, the fire and the sky, one mirror ray serves anything smooth, and the soft light is worked out at half size and smoothed without crossing edges. Nothing is random, so every frame is complete. Holding still only adds anti-aliasing.');
 s6.segment('Show', [{ value: 0, label: 'the picture' }, { value: 1, label: 'the sun\'s shadow rays' }, { value: 2, label: 'sky and bounce light' }, { value: 3, label: 'the mirror rays' }], 0, v => { compMat.uniforms.uView.value = +v; dirty(); });
 s6.segment('Quality', [{ value: 'balanced', label: 'balanced' }, { value: 'high', label: 'high' }, { value: 'ultra', label: 'ultra' }], 'balanced', v => { quality = v; if (v === 'ultra') { U.uShadowK.value = 4; U.uGiK.value = 6; } dirty(); });
@@ -776,13 +883,16 @@ sb.label('your ball', yourC, 'blue').off.set(0, 1.2, 0);
 sb.label('the cabin', new THREE.Vector3(CABIN.x, terrainH(CABIN.x, CABIN.z), CABIN.z)).off.set(0, 5.2, 0);
 sb.label('the fire', new THREE.Vector3(FIRE.x, terrainH(FIRE.x, FIRE.z), FIRE.z)).off.set(0, 1.4, 0);
 { const pe = document.querySelector('.sb-panel'); pe.addEventListener('input', dirty); pe.addEventListener('change', dirty); pe.addEventListener('click', dirty); }
+// a click on the lake drops a stone in
+{ let down = null; const el = renderer.domElement; el.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+  el.addEventListener('pointerup', e => { if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4 || !window.__drops) { down = null; return; } down = null; const r = el.getBoundingClientRect(); const nd = new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); const rc = new THREE.Raycaster(); rc.setFromCamera(nd, camera); const hit = new THREE.Vector3(); if (!rc.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0.55), hit)) return; const u = (hit.x - SIM.water.x0) / SIM.water.size, v = (hit.z - SIM.water.z0) / SIM.water.size; if (u < 0 || u > 1 || v < 0 || v > 1 || terrainH(hit.x, hit.z) > -0.55) return; window.__drops.push({ u, v, r: 4, s: 0.35 }); }); }
 
 // ---- the frame
 let msAvg = 0, lastNow = 0, frame = 0; const invPV = new THREE.Matrix4();
 placeSun();
 sb.onFrame((dt) => {
   if (running) { runT += dt; if (runT > 2) { runT = 0; hour += 0.35; if (hour > 21) hour = 4.5; hourS.set(hour, false); placeSun(); } }
-  fx.time += dt; { const night = 1 - THREE.MathUtils.smoothstep(sunDir.y, -0.02, 0.06); fireflies.forEach((f, i) => { const sp = spheres[spheres.length - 14 + i]; const t = fx.time * 0.35 + f.s; sp.c.set(f.x + Math.sin(t * 1.3) * 2.2 + Math.sin(t * 0.7 + 2) * 1.1, night > 0.2 ? terrainH(f.x, f.z) + f.h + Math.sin(t * 2.1) * 0.35 : -500, f.z + Math.cos(t * 1.1) * 2.2 + Math.cos(t * 0.5 + 1) * 1.0); }); matB[FIREFLY * 4 + 1] = 12 * (0.5 + 0.5 * Math.sin(fx.time * 3)) * night; writeSpheres(); }
+  fx.time += dt; fx.dt = Math.min(dt, 0.05); { const night = 1 - THREE.MathUtils.smoothstep(sunDir.y, -0.02, 0.06); fireflies.forEach((f, i) => { const sp = spheres[spheres.length - 14 + i]; const t = fx.time * 0.35 + f.s; sp.c.set(f.x + Math.sin(t * 1.3) * 2.2 + Math.sin(t * 0.7 + 2) * 1.1, night > 0.2 ? terrainH(f.x, f.z) + f.h + Math.sin(t * 2.1) * 0.35 : -500, f.z + Math.cos(t * 1.1) * 2.2 + Math.cos(t * 0.5 + 1) * 1.0); }); matB[FIREFLY * 4 + 1] = 12 * (0.5 + 0.5 * Math.sin(fx.time * 3)) * night; writeSpheres(); }
   if (fireOn) { const fl = 0.95 + 0.07 * vnoise(fx.time * 5, 3) + 0.03 * vnoise(fx.time * 13, 8); matB[M.FLAME * 4 + 1] = 45 * fl; matB[M.EMBER * 4 + 1] = 6 * (0.85 + 0.3 * vnoise(fx.time * 4, 1)); const fs = spheres[8]; fs.c.set(FIRE.x + (vnoise(fx.time * 4, 2) - 0.5) * 0.03, terrainH(FIRE.x, FIRE.z) + 0.55 + (vnoise(fx.time * 5, 4) - 0.5) * 0.05, FIRE.z + (vnoise(fx.time * 4, 9) - 0.5) * 0.03); fs.r = 0.29 + 0.02 * vnoise(fx.time * 7, 6); writeSpheres(); }
   const now = performance.now(); if (lastNow) msAvg += ((now - lastNow) - msAvg) * 0.08; lastNow = now; msRead(msAvg.toFixed(1) + ' ms');
   expRead(exposure.toFixed(2) + (autoExp ? ', automatic' : ', by hand')); accRead(!accumulate ? 'off' : gpu ? 'temporal, reprojected' : Math.min(accN, 32) + (accN === 1 ? ' frame' : ' frames') + (rtScale < 1 ? ', small picture' : ''));
