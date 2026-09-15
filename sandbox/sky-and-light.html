@@ -15,7 +15,7 @@ import { boot, THREE, PAL } from './_kit.js';
 
 const sb = boot({
   slug: 'sky-and-light', title: 'Sky, Sun & Light', standalone: true,
-  blurb: 'One camp, one whole day, and every pixel is a ray. The sky is computed from how air and haze scatter sunlight. The sun, the moon, the fire and the lanterns are real lights with real size, so shadows are soft where they should be. Light bounces off the ground and the walls, the sky lights whatever can see it, the lake and the polished balls reflect it all, and at night it is actually dark except where the fire reaches. Hold the camera still and the picture settles.',
+  blurb: 'One camp, one whole day, ray traced the way a game does it: no photos of the scene, no shortcuts, just rays. The sky is computed from how air and haze scatter sunlight. The sun, the moon, the fire and the lanterns are real lights with real size, so their shadows soften with distance. Rays off the ground and the walls bring bounced light, rays into the sky bring sky light, the lake and the polished balls reflect what a mirror ray finds, and at night it is actually dark except where the fire reaches.',
   camera: { pos: [13, 4.2, 19], target: [-1, 2.2, -3], near: 0.1, far: 9000 },
   hint: 'drag to orbit · scroll to zoom · right-drag to pan'
 });
@@ -199,22 +199,22 @@ function skyConsts() { const s = sunDir; const sunE = 1000 * Math.max(0, 1 - Mat
 function skyCPU(dx, dy, dz, K) { const zen = Math.acos(Math.max(0, dy)), inv = 1 / (Math.cos(zen) + 0.15 * Math.pow(93.885 - zen * 180 / Math.PI, -1.253)), sR = 8.4e3 * inv, sM = 1.25e3 * inv; const cosT = dx * sunDir.x + dy * sunDir.y + dz * sunDir.z, rp = 0.05968310365946075 * (1 + Math.pow(cosT * 0.5 + 0.5, 2)), g = atm.g, hg = 0.07957747154594767 * ((1 - g * g) / Math.pow(1 - 2 * g * cosT + g * g, 1.5)); const out = [0, 0, 0], fex = [0, 0, 0]; const hm = Math.min(1, Math.max(0, Math.pow(1 - sunDir.y, 5)));
   for (let k = 0; k < 3; k++) { const bR = K.betaR[k], bM = K.betaM[k]; const F = Math.exp(-(bR * sR + bM * sM)); fex[k] = F; const ratio = (bR * rp + bM * hg) / (bR + bM); let Lin = Math.pow(K.sunE * ratio * (1 - F), 1.5); Lin *= 1 + (Math.pow(K.sunE * ratio * F, 0.5) - 1) * hm; const tex = (Lin + 0.1 * F) * 0.04 + [0, 0.0003, 0.00075][k]; out[k] = Math.pow(tex, 1 / (1.2 + 1.2 * K.fade)); } return { c: out, fex }; }
 
-// ---- the tracer
+// ---- the ray tracer: a chain of passes, every one of them rays, none of them random
 const GL3 = THREE.GLSL3, QVS = 'out vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 const v3s = hex => { const c = lin(hex); return `vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)})`; };
 const U = {
-  uNodes: { value: nodeTex }, uTris: { value: triTex }, uAttr: { value: attrTex }, uInst: { value: instTex }, tPrev: { value: null },
+  uNodes: { value: nodeTex }, uTris: { value: triTex }, uAttr: { value: attrTex }, uInst: { value: instTex },
   tBark: { value: barkTex }, tBirch: { value: birchTex }, tLeafO: { value: leafO }, tLeafP: { value: leafP }, tLeafB: { value: leafB }, tRock: { value: rockTex }, tWood: { value: woodTex }, tStone: { value: stoneTex }, tGround: { value: groundTex },
-  uTlasRoot: { value: tlasRoot }, uFrame: { value: 0 }, uBounces: { value: 2 }, uNSph: { value: NSPH }, uSpp: { value: 1 }, uBlend: { value: 1 }, uFogD: { value: 0.0025 }, uSunSize: { value: 0.27 * Math.PI / 180 }, uMoonSize: { value: 0.3 * Math.PI / 180 },
-  uCamPos: { value: new THREE.Vector3() }, uInvPV: { value: new THREE.Matrix4() }, uSunDir: { value: sunDir }, uSunCol: { value: new THREE.Vector3() }, uMoonDir: { value: moonDir }, uMoonCol: { value: new THREE.Vector3() }, uFogCol: { value: new THREE.Vector3() },
-  uBetaR: { value: new THREE.Vector3() }, uBetaM: { value: new THREE.Vector3() }, uSunE: { value: 0 }, uSunfade: { value: 1 }, uMieG: { value: 0.8 }, uSunCos: { value: 1 }, uNight: { value: 1 }, uSkyOn: { value: 1 }, uRes: { value: new THREE.Vector2(1, 1) },
+  uTlasRoot: { value: tlasRoot }, uFrame: { value: 0 }, uNSph: { value: NSPH }, uFogD: { value: 0.0025 }, uSunSize: { value: 0.27 * Math.PI / 180 }, uMoonSize: { value: 0.3 * Math.PI / 180 }, uShadowK: { value: 4 }, uGiK: { value: 6 }, uNoiseShift: { value: 0 }, uJitter: { value: new THREE.Vector2() },
+  uCamPos: { value: new THREE.Vector3() }, uInvPV: { value: new THREE.Matrix4() }, uSunDir: { value: sunDir }, uSunCol: { value: new THREE.Vector3() }, uMoonDir: { value: moonDir }, uMoonCol: { value: new THREE.Vector3() }, uFogCol: { value: new THREE.Vector3() }, uSkyZen: { value: new THREE.Vector3() }, uSkyHor: { value: new THREE.Vector3() },
+  uBetaR: { value: new THREE.Vector3() }, uBetaM: { value: new THREE.Vector3() }, uSunE: { value: 0 }, uSunfade: { value: 1 }, uMieG: { value: 0.8 }, uSunCos: { value: 1 }, uNight: { value: 1 }, uSkyOn: { value: 1 }, uBounceOn: { value: 1 }, uRes: { value: new THREE.Vector2(1, 1) }, uLoRes: { value: new THREE.Vector2(1, 1) },
   uMatA: { value: matA }, uMatB: { value: matB }, uMatC: { value: matC }, uSphA: { value: sphA }, uSphB: { value: sphB }
 };
-const TRACE = `precision highp float; precision highp int; precision highp sampler2D;
-in vec2 vUv; out vec4 o;
-uniform sampler2D uNodes, uTris, uAttr, uInst, tPrev, tBark, tBirch, tLeafO, tLeafP, tLeafB, tRock, tWood, tStone, tGround;
-uniform int uTlasRoot, uFrame, uBounces, uNSph, uSpp; uniform float uBlend, uFogD, uSunSize, uMoonSize, uSunE, uSunfade, uMieG, uSunCos, uNight, uSkyOn; uniform vec2 uRes;
-uniform vec3 uCamPos, uSunDir, uSunCol, uMoonDir, uMoonCol, uFogCol, uBetaR, uBetaM; uniform mat4 uInvPV;
+const CORE = `precision highp float; precision highp int; precision highp sampler2D;
+in vec2 vUv;
+uniform sampler2D uNodes, uTris, uAttr, uInst, tLeafO, tLeafP, tLeafB;
+uniform int uTlasRoot, uFrame, uNSph, uShadowK, uGiK; uniform float uFogD, uSunSize, uMoonSize, uSunE, uSunfade, uMieG, uSunCos, uNight, uSkyOn, uBounceOn, uNoiseShift; uniform vec2 uRes, uLoRes, uJitter;
+uniform vec3 uCamPos, uSunDir, uSunCol, uMoonDir, uMoonCol, uFogCol, uBetaR, uBetaM, uSkyZen, uSkyHor; uniform mat4 uInvPV;
 uniform vec4 uMatA[${MATN}], uMatB[${MATN}], uMatC[${MATN}], uSphA[24], uSphB[24];
 #define PI 3.14159265
 #define LAKE vec2(${LAKE.x.toFixed(1)}, ${LAKE.z.toFixed(1)})
@@ -224,14 +224,13 @@ vec4 fetchN(int i) { return texelFetch(uNodes, ivec2(i & 2047, i >> 11), 0); }
 vec4 fetchT(int i) { return texelFetch(uTris, ivec2(i & 2047, i >> 11), 0); }
 vec4 fetchA(int i) { return texelFetch(uAttr, ivec2(i & 2047, i >> 11), 0); }
 vec4 fetchI(int i) { return texelFetch(uInst, ivec2(i & 2047, i >> 11), 0); }
-float hash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }
+// a fixed dither per pixel: the same every frame, so nothing crawls
+float ign(vec2 px) { return fract(52.9829189 * fract(0.06711056 * px.x + 0.00583715 * px.y) + uNoiseShift); }
 float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
 float fb3(vec2 p) { return (0.5 * vn(p) + 0.25 * vn(p * 2.03 + 7.0) + 0.125 * vn(p * 4.1 + 3.0)) / 0.875; }
 vec3 safeDir(vec3 d) { return vec3(abs(d.x) < 1e-6 ? 1e-6 : d.x, abs(d.y) < 1e-6 ? 1e-6 : d.y, abs(d.z) < 1e-6 ? 1e-6 : d.z); }
-// textures are read with an explicit level: derivatives mean nothing inside a ray loop
-vec4 sampleTex(int id, vec2 uv, float lod) { if (id == 1) return textureLod(tBark, uv, lod); if (id == 2) return textureLod(tBirch, uv, lod); if (id == 3) return textureLod(tLeafO, uv, lod); if (id == 4) return textureLod(tLeafP, uv, lod); if (id == 5) return textureLod(tLeafB, uv, lod); if (id == 6) return textureLod(tRock, uv, lod); if (id == 7) return textureLod(tWood, uv, lod); if (id == 8) return textureLod(tStone, uv, lod); return vec4(1.0); }
-// ---- the sky: single scattering of sunlight by air and haze
+float leafAlpha(int id, vec2 uv) { if (id == 3) return textureLod(tLeafO, uv, 0.0).a; if (id == 4) return textureLod(tLeafP, uv, 0.0).a; if (id == 5) return textureLod(tLeafB, uv, 0.0).a; return 1.0; }
 float rayleighPhase(float c) { return 0.05968310365946075 * (1.0 + c * c); }
 float hgPhase(float c, float g) { float g2 = g * g; return 0.07957747154594767 * ((1.0 - g2) / pow(1.0 - 2.0 * g * c + g2, 1.5)); }
 vec3 skyRad(vec3 d, bool disk) {
@@ -241,11 +240,12 @@ vec3 skyRad(vec3 d, bool disk) {
   vec3 Lin = pow(uSunE * ratio * (1.0 - Fex), vec3(1.5)); Lin *= mix(vec3(1.0), pow(uSunE * ratio * Fex, vec3(0.5)), clamp(pow(1.0 - uSunDir.y, 5.0), 0.0, 1.0));
   vec3 L0 = vec3(0.1) * Fex; if (disk) L0 += uSunE * 19000.0 * Fex * smoothstep(uSunCos, uSunCos + (1.0 - uSunCos) * 0.35, cosT);
   vec3 tex = (Lin + L0) * 0.04 + vec3(0.0, 0.0003, 0.00075); return pow(tex, vec3(1.0 / (1.2 + 1.2 * uSunfade))) * uNight; }
-// ---- walking the trees of boxes
+// the sky as a soft light from above, without firing rays: for the ends of paths
+vec3 skyAmb(vec3 n) { return mix(uSkyHor, uSkyZen, n.y * 0.5 + 0.5) * PI * uSkyOn; }
 bool slab(vec3 bmin, vec3 bmax, vec3 o, vec3 invD, float tMax) { vec3 t0 = (bmin - o) * invD, t1 = (bmax - o) * invD; vec3 tmin = min(t0, t1), tmax = max(t0, t1); float tN = max(max(tmin.x, tmin.y), max(tmin.z, 0.0)), tF = min(min(tmax.x, tmax.y), min(tmax.z, tMax)); return tN <= tF; }
 bool alphaOK(int ti, float u, float w) { int mid = int(fetchT(ti * 3).w); vec4 mb = uMatB[mid]; if (mb.w != 4.0) return true;
   vec4 a0 = fetchA(ti * 4), a1 = fetchA(ti * 4 + 1), a2 = fetchA(ti * 4 + 2), a3 = fetchA(ti * 4 + 3); float b0 = 1.0 - u - w; vec2 uv = vec2(a0.w * b0 + a1.w * u + a2.w * w, a3.x * b0 + a3.y * u + a3.z * w);
-  return sampleTex(int(mb.z), uv * uMatC[mid].xy, 0.0).a >= 0.5; }
+  return leafAlpha(int(mb.z), uv * uMatC[mid].xy) >= 0.5; }
 float triT(int ti, vec3 o, vec3 d, out float uo, out float wo) { vec3 v0 = fetchT(ti * 3).xyz, v1 = fetchT(ti * 3 + 1).xyz, v2 = fetchT(ti * 3 + 2).xyz; vec3 e1 = v1 - v0, e2 = v2 - v0, p = cross(d, e2); float det = dot(e1, p); if (abs(det) < 1e-9) return -1.0;
   float inv = 1.0 / det; vec3 tv = o - v0; float u = dot(tv, p) * inv; if (u < 0.0 || u > 1.0) return -1.0; vec3 q = cross(tv, e1); float w = dot(d, q) * inv; if (w < 0.0 || u + w > 1.0) return -1.0; uo = u; wo = w; return dot(e2, q) * inv; }
 bool walkTree(int root, vec3 o, vec3 d, inout float tMax, inout int hitTri, inout vec2 bary, bool anyHit) {
@@ -265,7 +265,31 @@ bool trace(vec3 o, vec3 d, inout float tMax, out int hitTri, out int hitInst, ou
     else { int axis = -cnt - 1; int left = int(a.w); float dc = axis == 0 ? d.x : (axis == 1 ? d.y : d.z); bool lf = dc >= 0.0; if (sp < 38) { stack[sp++] = lf ? left + 1 : left; stack[sp++] = lf ? left : left + 1; } } }
   return hitTri >= 0 || hitSph >= 0; }
 bool occluded(vec3 o, vec3 d, float tMax) { int ht, hi, hs; vec2 bb; float t = tMax; return trace(o, d, t, ht, hi, bb, hs, true); }
-// ---- what a surface is made of
+// where a ray landed: the surface's normal, material and texture spot
+void hitInfo(vec3 ro, vec3 d, float t, int ht, int hi, vec2 bary, int hs, out vec3 p, out vec3 n, out int mid, out vec2 uv) {
+  p = ro + d * t;
+  if (hs >= 0) { n = normalize(p - uSphA[hs].xyz); mid = int(uSphB[hs].x); uv = vec2(atan(n.z, n.x) / 6.2831853 + 0.5, n.y * 0.5 + 0.5); }
+  else { vec4 a0 = fetchA(ht * 4), a1 = fetchA(ht * 4 + 1), a2 = fetchA(ht * 4 + 2), a3 = fetchA(ht * 4 + 3); float b0 = 1.0 - bary.x - bary.y; vec3 nl = normalize(a0.xyz * b0 + a1.xyz * bary.x + a2.xyz * bary.y);
+    vec4 r0 = fetchI(hi * 4), r1 = fetchI(hi * 4 + 1), r2 = fetchI(hi * 4 + 2); n = normalize(r0.xyz * nl.x + r1.xyz * nl.y + r2.xyz * nl.z); mid = int(fetchT(ht * 3).w); uv = vec2(a0.w * b0 + a1.w * bary.x + a2.w * bary.y, a3.x * b0 + a3.y * bary.x + a3.z * bary.y); }
+  if (dot(n, d) > 0.0) n = -n;
+  if (uMatB[mid].w == 3.0) { vec2 g = vec2(vn(p.xz * 2.1 + 5.0) - vn(p.xz * 2.1 + 5.3), vn(p.zx * 2.3 + 1.0) - vn(p.zx * 2.3 + 1.3)); n = normalize(n + vec3(g.x, 0.0, g.y) * 0.25); } }
+// fixed sample sets: k of K around a cone or a dome, turned by the pixel's own dither
+vec3 coneK(vec3 w, float ang, int k, int K, float rot) { vec3 u = normalize(cross(abs(w.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), w)); vec3 vv = cross(w, u); float r = sqrt((float(k) + 0.5) / float(K)) * tan(ang); float ph = 6.2831853 * (float(k) * 0.618034 + rot); return normalize(w + u * (r * cos(ph)) + vv * (r * sin(ph))); }
+vec3 cosK(vec3 n, int k, int K, float rot) { float u1 = (float(k) + 0.5) / float(K), ph = 6.2831853 * fract(float(k) * 0.618034 + rot); float r = sqrt(u1); vec3 u = normalize(cross(abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), n)); vec3 vv = cross(n, u); return normalize(u * (r * cos(ph)) + vv * (r * sin(ph)) + n * sqrt(max(1.0 - u1, 0.0))); }
+vec3 hemiK(vec3 toward, int k, int K, float rot) { float z = (float(k) + 0.5) / float(K), ph = 6.2831853 * fract(float(k) * 0.618034 + rot); float r = sqrt(max(0.0, 1.0 - z * z)); vec3 u = normalize(cross(abs(toward.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), toward)); vec3 vv = cross(toward, u); return normalize(u * (r * cos(ph)) + vv * (r * sin(ph)) + toward * z); }
+vec3 specBRDF(vec3 n, vec3 v, vec3 l, float rough, vec3 F0) { vec3 h = normalize(v + l); float a = max(rough * rough, 0.01); float ndh = max(dot(n, h), 0.0), ndv = max(dot(n, v), 1e-3), ndl = max(dot(n, l), 1e-3), vdh = max(dot(v, h), 0.0); float a2 = a * a; float D = a2 / (PI * pow(ndh * ndh * (a2 - 1.0) + 1.0, 2.0)); float k = a / 2.0; float G = (ndv / (ndv * (1.0 - k) + k)) * (ndl / (ndl * (1.0 - k) + k)); vec3 F = F0 + (1.0 - F0) * pow(1.0 - vdh, 5.0); return min(D * G * F / (4.0 * ndv * ndl), vec3(20.0)); }
+// the fire and the lanterns: a few rays each toward the near half of the sphere, only when close enough to matter
+vec3 sphereLights(vec3 p, vec3 n, vec3 v, vec3 diffuse, vec3 F0, float rough, float rot, int K) {
+  vec3 L = vec3(0.0);
+  for (int i = 0; i < 24; i++) { if (i >= uNSph) break; if (uSphB[i].y < 0.5) continue; vec4 s = uSphA[i]; int lm = int(uSphB[i].x); vec3 emis = uMatA[lm].rgb * uMatB[lm].y; if (dot(emis, emis) <= 0.0) continue;
+    vec3 toP = p - s.xyz; float dc = length(toP); if (dc > 30.0) continue; vec3 tw = toP / dc; float sum = 0.0; vec3 lSum = vec3(0.0);
+    for (int k = 0; k < 4; k++) { if (k >= K) break; vec3 sn = hemiK(tw, k, K, rot + float(i) * 0.31); vec3 q = s.xyz + s.w * sn; vec3 dq = q - p; float dist = length(dq); vec3 l = dq / dist; float ndl = dot(n, l), nl = dot(sn, -l); if (ndl <= 0.0 || nl <= 0.0) continue; if (occluded(p, l, dist - 1e-3)) continue;
+      lSum += (diffuse + specBRDF(n, v, l, rough, F0)) * ndl * nl / (dist * dist); }
+    L += emis * lSum * (2.0 * PI * s.w * s.w) / float(K); }
+  return L; }
+`;
+const MATS = `uniform sampler2D tBark, tBirch, tRock, tWood, tStone, tGround;
+vec4 sampleTex(int id, vec2 uv, float lod) { if (id == 1) return textureLod(tBark, uv, lod); if (id == 2) return textureLod(tBirch, uv, lod); if (id == 3) return textureLod(tLeafO, uv, lod); if (id == 4) return textureLod(tLeafP, uv, lod); if (id == 5) return textureLod(tLeafB, uv, lod); if (id == 6) return textureLod(tRock, uv, lod); if (id == 7) return textureLod(tWood, uv, lod); if (id == 8) return textureLod(tStone, uv, lod); return vec4(1.0); }
 vec3 terrainColor(vec3 p, vec3 n) { float slope = 1.0 - n.y; float macro = fb3(p.xz / 60.0 + 2.0), micro = fb3(p.xz / 7.0);
   vec3 c = mix(${v3s(0x4f7a2f)}, ${v3s(0x6f8a3a)}, smoothstep(0.35, 0.65, macro)); c = mix(c, ${v3s(0x3f6a33)}, smoothstep(0.3, 0.7, micro) * 0.5);
   c = mix(c, ${v3s(0x6b5a3c)}, smoothstep(0.22, 0.45, slope + (micro - 0.5) * 0.15)); c = mix(c, ${v3s(0x76726a)}, smoothstep(0.4, 0.62, slope));
@@ -278,68 +302,86 @@ void matEval(int mid, vec3 p, vec3 n, vec2 uv, float dist, out vec3 alb, out flo
   vec4 a = uMatA[mid], b = uMatB[mid], c = uMatC[mid]; alb = a.rgb; rough = a.w; metal = b.x; emis = a.rgb * b.y;
   int tex = int(b.z); if (tex > 0) alb *= sampleTex(tex, uv * c.xy, clamp(log2(max(dist, 1.0)) - 2.5, 0.0, 5.0)).rgb;
   if (b.w == 1.0) alb = terrainColor(p, n); else if (b.w == 2.0) alb = grassColor(p, uv); }
-// ---- light
-vec3 coneSample(vec3 w, float ang, float seed) { vec3 u = normalize(cross(abs(w.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), w)); vec3 vv = cross(w, u); float r = sqrt(hash(vec3(gl_FragCoord.xy, seed))) * tan(ang); float ph = 6.2831853 * hash(vec3(gl_FragCoord.yx, seed + 3.7)); return normalize(w + u * (r * cos(ph)) + vv * (r * sin(ph))); }
-vec3 cosDir(vec3 n, float seed) { float u1 = hash(vec3(gl_FragCoord.xy, seed + 8.4)), u2 = hash(vec3(gl_FragCoord.yx, seed + 1.9)); float r = sqrt(u1), ph = 6.2831853 * u2; vec3 u = normalize(cross(abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), n)); vec3 vv = cross(n, u); return normalize(u * (r * cos(ph)) + vv * (r * sin(ph)) + n * sqrt(max(1.0 - u1, 0.0))); }
-vec3 ggxHalf(vec3 n, float a, float seed) { float u1 = hash(vec3(gl_FragCoord.xy, seed + 4.2)), u2 = hash(vec3(gl_FragCoord.yx, seed + 6.6)); float a2 = a * a; float cosT = sqrt((1.0 - u1) / (1.0 + (a2 - 1.0) * u1)), sinT = sqrt(max(0.0, 1.0 - cosT * cosT)), ph = 6.2831853 * u2; vec3 u = normalize(cross(abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), n)); vec3 vv = cross(n, u); return normalize(u * (sinT * cos(ph)) + vv * (sinT * sin(ph)) + n * cosT); }
-vec3 sphereSample(float seed) { float u1 = hash(vec3(gl_FragCoord.xy, seed + 2.2)), u2 = hash(vec3(gl_FragCoord.yx, seed + 5.9)); float z = 1.0 - 2.0 * u1, r = sqrt(max(0.0, 1.0 - z * z)), ph = 6.2831853 * u2; return vec3(r * cos(ph), z, r * sin(ph)); }
-vec3 specBRDF(vec3 n, vec3 v, vec3 l, float rough, vec3 F0) { vec3 h = normalize(v + l); float a = max(rough * rough, 0.004); float ndh = max(dot(n, h), 0.0), ndv = max(dot(n, v), 1e-3), ndl = max(dot(n, l), 1e-3), vdh = max(dot(v, h), 0.0); float a2 = a * a; float D = a2 / (PI * pow(ndh * ndh * (a2 - 1.0) + 1.0, 2.0)); float k = a / 2.0; float G = (ndv / (ndv * (1.0 - k) + k)) * (ndl / (ndl * (1.0 - k) + k)); vec3 F = F0 + (1.0 - F0) * pow(1.0 - vdh, 5.0); return min(D * G * F / (4.0 * ndv * ndl), vec3(40.0)); }
-vec3 direct(vec3 p, vec3 n, vec3 v, vec3 alb, float rough, float metal, float seed) {
-  vec3 L = vec3(0.0); vec3 diffuse = alb * (1.0 - metal) / PI; vec3 F0 = mix(vec3(0.04), alb, metal); bool glossy = rough >= 0.2;
-  if (dot(uSunCol, uSunCol) > 0.0) { vec3 l = coneSample(uSunDir, uSunSize, seed); float ndl = dot(n, l); if (ndl > 0.0 && !occluded(p, l, 1e9)) L += uSunCol * ndl * (diffuse + (glossy ? specBRDF(n, v, l, rough, F0) : vec3(0.0))); }
-  if (dot(uMoonCol, uMoonCol) > 0.0) { vec3 l = coneSample(uMoonDir, uMoonSize, seed + 9.0); float ndl = dot(n, l); if (ndl > 0.0 && !occluded(p, l, 1e9)) L += uMoonCol * ndl * (diffuse + (glossy ? specBRDF(n, v, l, rough, F0) : vec3(0.0))); }
-  for (int i = 0; i < 24; i++) { if (i >= uNSph) break; if (uSphB[i].y < 0.5) continue; vec4 s = uSphA[i]; int lm = int(uSphB[i].x); vec3 emis = uMatA[lm].rgb * uMatB[lm].y; if (dot(emis, emis) <= 0.0) continue;
-    vec3 sn = sphereSample(seed + float(i) * 1.7); if (dot(sn, p - s.xyz) < 0.0) sn = -sn; vec3 q = s.xyz + s.w * sn; vec3 dq = q - p; float dist = length(dq); vec3 l = dq / dist; float ndl = dot(n, l), nl = dot(sn, -l); if (ndl <= 0.0 || nl <= 0.0) continue; if (occluded(p, l, dist - 1e-3)) continue;
-    L += emis * (diffuse + (glossy ? specBRDF(n, v, l, rough, F0) : vec3(0.0))) * ndl * nl * (2.0 * PI * s.w * s.w) / (dist * dist); }
-  return L; }
-void main() {
-  vec3 col = vec3(0.0);
-  for (int sp = 0; sp < 4; sp++) { if (sp >= uSpp) break;
-    float seed = fract(float(uFrame * 4 + sp) * 0.618034) * 97.0;
-    vec2 jit = (vec2(hash(vec3(gl_FragCoord.xy, seed + 0.3)), hash(vec3(gl_FragCoord.yx, seed + 0.7))) - 0.5) / uRes;
-    vec4 w = uInvPV * vec4((vUv + jit) * 2.0 - 1.0, 1.0, 1.0); vec3 d = normalize(w.xyz / w.w - uCamPos); vec3 ro = uCamPos;
-    vec3 acc = vec3(0.0), thr = vec3(1.0); bool specBounce = false; float lastRough = 1.0; float tPrimary = -1.0;
-    for (int b = 0; b <= 3; b++) { if (b > uBounces) break;
-      float tMax = 1e9; int ht, hi, hs; vec2 bary; bool hit = trace(ro, d, tMax, ht, hi, bary, hs, false);
-      if (!hit) { acc += thr * skyRad(d, b == 0 || (specBounce && lastRough < 0.2)) * (b == 0 ? 1.0 : uSkyOn); break; }
-      vec3 p = ro + d * tMax; vec3 n; int mid; vec2 uv = vec2(0.0); bool isLight = false;
-      if (hs >= 0) { n = normalize(p - uSphA[hs].xyz); mid = int(uSphB[hs].x); isLight = uSphB[hs].y > 0.5; uv = vec2(atan(n.z, n.x) / 6.2831853 + 0.5, n.y * 0.5 + 0.5); }
-      else { vec4 a0 = fetchA(ht * 4), a1 = fetchA(ht * 4 + 1), a2 = fetchA(ht * 4 + 2), a3 = fetchA(ht * 4 + 3); float b0 = 1.0 - bary.x - bary.y; vec3 nl = normalize(a0.xyz * b0 + a1.xyz * bary.x + a2.xyz * bary.y);
-        vec4 r0 = fetchI(hi * 4), r1 = fetchI(hi * 4 + 1), r2 = fetchI(hi * 4 + 2); n = normalize(r0.xyz * nl.x + r1.xyz * nl.y + r2.xyz * nl.z); mid = int(fetchT(ht * 3).w); uv = vec2(a0.w * b0 + a1.w * bary.x + a2.w * bary.y, a3.x * b0 + a3.y * bary.x + a3.z * bary.y); }
-      if (dot(n, d) > 0.0) n = -n;
-      if (b == 0) tPrimary = tMax;
-      vec3 alb; float rough, metal; vec3 emis; matEval(mid, p, n, uv, tMax, alb, rough, metal, emis);
-      if (uMatB[mid].w == 3.0) { vec2 g = vec2(vn(p.xz * 2.1 + 5.0) - vn(p.xz * 2.1 + 5.3), vn(p.zx * 2.3 + 1.0) - vn(p.zx * 2.3 + 1.3)); n = normalize(n + vec3(g.x, 0.0, g.y) * 0.25); }
-      if (dot(emis, emis) > 0.0 && (b == 0 || !isLight || specBounce)) acc += thr * emis;
-      vec3 v = -d; vec3 po = p + n * 2e-3;
-      acc += thr * direct(po, n, v, alb, rough, metal, seed + float(b) * 7.3);
-      if (b == uBounces) break;
-      vec3 F0 = mix(vec3(0.04), alb, metal); float ndv = max(dot(n, v), 0.0); vec3 F = F0 + (1.0 - F0) * pow(1.0 - ndv, 5.0);
-      float ps = metal > 0.5 ? 1.0 : clamp(max(F.r, max(F.g, F.b)) * 1.5, 0.08, 0.7); if (uMatB[mid].w == 3.0) ps = clamp(F.r * 4.0, 0.05, 0.95);
-      float pick = hash(vec3(gl_FragCoord.xy, seed + 13.0 + float(b) * 2.1)); vec3 nd;
-      if (pick < ps) { vec3 h = ggxHalf(n, max(rough * rough, 0.004), seed + float(b) * 5.5); nd = reflect(d, h); if (dot(nd, n) <= 0.0) break; thr *= (metal > 0.5 ? alb : F / ps) * (metal > 0.5 ? 1.0 : 1.0); specBounce = true; }
-      else { nd = cosDir(n, seed + float(b) * 5.5); thr *= alb * (1.0 - metal) / (1.0 - ps); specBounce = false; }
-      lastRough = rough; d = nd; ro = po;
-    }
-    if (tPrimary > 0.0) { acc = min(acc, vec3(40.0)); acc = mix(uFogCol, acc, exp(-uFogD * tPrimary)); }
-    if (any(isnan(acc)) || any(isinf(acc))) acc = vec3(0.0);
-    col += acc / float(uSpp); }
-  o = vec4(mix(texture(tPrev, vUv).rgb, col, uBlend), 1.0);
-}`;
-const traceMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: U, vertexShader: QVS, fragmentShader: TRACE, depthTest: false, depthWrite: false });
+// light leaving a surface a secondary ray landed on: the sun through one shadow ray, the fire, the sky as a soft dome
+vec3 bounceShade(vec3 q, vec3 nq, vec3 v, float dist, int mid, vec2 uv, float rot) {
+  vec3 alb; float rough, metal; vec3 emis; matEval(mid, q, nq, uv, dist, alb, rough, metal, emis);
+  vec3 diffuse = alb * (1.0 - metal) / PI; vec3 F0 = mix(vec3(0.04), alb, metal); vec3 L = emis; vec3 qo = q + nq * 3e-3;
+  if (dot(uSunCol, uSunCol) > 0.0) { float ndl = dot(nq, uSunDir); if (ndl > 0.0 && !occluded(qo, uSunDir, 1e9)) L += uSunCol * ndl * (diffuse + specBRDF(nq, v, uSunDir, rough, F0)); }
+  if (dot(uMoonCol, uMoonCol) > 0.0) { float ndl = dot(nq, uMoonDir); if (ndl > 0.0 && !occluded(qo, uMoonDir, 1e9)) L += uMoonCol * ndl * diffuse; }
+  L += sphereLights(qo, nq, v, diffuse, F0, rough, rot, 1);
+  L += diffuse * skyAmb(nq) * 0.55 * uBounceOn; return L; }
+`;
+// pass 1: cast one ray per pixel and remember what it hit
+const GBUF = CORE + MATS + `layout(location = 0) out vec4 oA; layout(location = 1) out vec4 oB; layout(location = 2) out vec4 oC; layout(location = 3) out vec4 oD;
+void main() { vec4 w = uInvPV * vec4((vUv + uJitter / uRes) * 2.0 - 1.0, 1.0, 1.0); vec3 d = normalize(w.xyz / w.w - uCamPos); float tMax = 1e9; int ht, hi, hs; vec2 bary;
+  if (!trace(uCamPos, d, tMax, ht, hi, bary, hs, false)) { oA = vec4(d, -1.0); oB = vec4(0.0); oC = vec4(0.0); oD = vec4(0.0); return; }
+  vec3 p, n; int mid; vec2 uv; hitInfo(uCamPos, d, tMax, ht, hi, bary, hs, p, n, mid, uv); vec3 alb; float rough, metal; vec3 emis; matEval(mid, p, n, uv, tMax, alb, rough, metal, emis);
+  oA = vec4(p, tMax); oB = vec4(n, rough); oC = vec4(alb, metal); oD = vec4(emis, float(mid)); }`;
+// pass 2, at half size: shadow rays to the sun and the moon, and rays up into the sky and off the ground for the soft light
+const LO = CORE + MATS + `uniform sampler2D gA, gB; layout(location = 0) out vec4 oV; layout(location = 1) out vec4 oG;
+void main() { vec4 A = texture(gA, vUv); if (A.w < 0.0) { oV = vec4(1.0, 1.0, 0.0, 0.0); oG = vec4(0.0); return; } vec3 p = A.xyz, n = texture(gB, vUv).xyz; vec3 po = p + n * 3e-3; float rot = ign(floor(vUv * uLoRes));
+  float sv = 1.0; if (dot(uSunCol, uSunCol) > 0.0) { sv = 0.0; if (dot(n, uSunDir) > -0.1) { for (int k = 0; k < 8; k++) { if (k >= uShadowK) break; vec3 l = coneK(uSunDir, uSunSize, k, uShadowK, rot); if (!occluded(po, l, 1e9)) sv += 1.0; } sv /= float(uShadowK); } }
+  float mv = 1.0; if (dot(uMoonCol, uMoonCol) > 0.0) { mv = 0.0; vec3 l = coneK(uMoonDir, uMoonSize, 0, 1, rot); if (dot(n, l) > 0.0 && !occluded(po, l, 1e9)) mv = 1.0; }
+  vec3 E = vec3(0.0); vec3 v = normalize(uCamPos - p);
+  for (int k = 0; k < 8; k++) { if (k >= uGiK) break; vec3 dd = cosK(n, k, uGiK, rot + 0.37); float tMax = 1e9; int ht, hi, hs; vec2 bb;
+    if (!trace(po, dd, tMax, ht, hi, bb, hs, false)) E += skyRad(dd, false) * uSkyOn;
+    else if (uBounceOn > 0.5) { vec3 q, nq; int mq; vec2 uq; hitInfo(po, dd, tMax, ht, hi, bb, hs, q, nq, mq, uq); E += bounceShade(q, nq, -dd, tMax + A.w, mq, uq, rot + float(k) * 0.13); } }
+  E *= PI / float(uGiK);
+  oV = vec4(sv, mv, 0.0, 1.0); oG = vec4(E, 1.0); }`;
+// pass 3: smooth the half-size answers without crossing edges, once across, once down
+const BLUR = CORE + `uniform sampler2D gA, gB, tV, tG; uniform vec2 uDir; layout(location = 0) out vec4 oV; layout(location = 1) out vec4 oG;
+void main() { vec4 A0 = texture(gA, vUv); vec4 v0 = texture(tV, vUv), g0 = texture(tG, vUv); if (A0.w < 0.0 || uDir.x + uDir.y == 0.0) { oV = v0; oG = g0; return; } vec3 n0 = texture(gB, vUv).xyz; float z0 = A0.w; vec4 sv = vec4(0.0), sg = vec4(0.0); float ws = 0.0;
+  for (int i = -4; i <= 4; i++) { vec2 uv2 = vUv + uDir * float(i) / uLoRes; if (uv2.x < 0.0 || uv2.x > 1.0 || uv2.y < 0.0 || uv2.y > 1.0) continue; vec4 A = texture(gA, uv2); if (A.w < 0.0) continue; vec3 n = texture(gB, uv2).xyz;
+    float w = exp(-abs(A.w - z0) / (0.03 * z0 + 0.05)) * pow(max(dot(n, n0), 0.0), 12.0) * exp(-float(i * i) / 8.0); sv += texture(tV, uv2) * w; sg += texture(tG, uv2) * w; ws += w; }
+  oV = ws > 0.0 ? sv / ws : v0; oG = ws > 0.0 ? sg / ws : g0; }`;
+// pass 4: one mirror ray for anything smooth enough to show a reflection
+const REFL = CORE + MATS + `uniform sampler2D gA, gB, gC; out vec4 o;
+void main() { vec4 A = texture(gA, vUv), B = texture(gB, vUv); if (A.w < 0.0 || B.w >= 0.45) { o = vec4(0.0); return; } vec3 p = A.xyz, n = B.xyz; vec3 v = normalize(uCamPos - p); vec3 r = reflect(-v, n); if (dot(r, n) <= 0.0) { o = vec4(0.0); return; }
+  vec3 po = p + n * 3e-3; float tMax = 1e9; int ht, hi, hs; vec2 bb; vec3 col;
+  if (!trace(po, r, tMax, ht, hi, bb, hs, false)) col = skyRad(r, true);
+  else { vec3 q, nq; int mq; vec2 uq; hitInfo(po, r, tMax, ht, hi, bb, hs, q, nq, mq, uq); col = bounceShade(q, nq, -r, tMax + A.w, mq, uq, ign(gl_FragCoord.xy)); col = mix(uFogCol, col, exp(-uFogD * tMax)); }
+  o = vec4(col, 1.0); }`;
+// pass 5: put it together at full size: direct light, the fire and the lanterns by rays, the smoothed soft light, reflections, haze
+const COMP = CORE + `uniform sampler2D gA, gB, gC, gD, tV, tG, tR, tPrev; uniform float uBlend; uniform int uView; out vec4 o;
+void main() { vec4 A = texture(gA, vUv); vec3 col;
+  if (A.w < 0.0) col = skyRad(A.xyz, true);
+  else { vec4 B = texture(gB, vUv), C = texture(gC, vUv), D = texture(gD, vUv); vec3 p = A.xyz, n = B.xyz, alb = C.rgb; float rough = B.w, metal = C.w; vec3 emis = D.rgb; vec3 v = normalize(uCamPos - p);
+    // the half-size answers, picked from the four nearest cells that belong to the same surface
+    vec2 lc = vUv * uLoRes - 0.5; vec2 f = fract(lc); vec2 base = (floor(lc) + 0.5) / uLoRes; vec4 sv = vec4(0.0); float ws = 0.0;
+    for (int j = 0; j < 4; j++) { vec2 uv2 = base + vec2(float(j & 1), float(j >> 1)) / uLoRes; vec4 Al = texture(gA, uv2); if (Al.w < 0.0) continue; vec3 nl = texture(gB, uv2).xyz; float w = (j == 0 ? (1.0 - f.x) * (1.0 - f.y) : j == 1 ? f.x * (1.0 - f.y) : j == 2 ? (1.0 - f.x) * f.y : f.x * f.y) * exp(-abs(Al.w - A.w) / (0.03 * A.w + 0.05)) * pow(max(dot(nl, n), 0.0), 8.0) + 1e-4; sv += vec4(texture(tV, uv2).xy, texture(tG, uv2).rg) * w; ws += w; }
+    vec4 vG = ws > 0.0 ? sv / ws : vec4(1.0, 1.0, 0.0, 0.0); vec3 E = vec3(0.0); { vec4 sg = vec4(0.0); float w2 = 0.0; for (int j = 0; j < 4; j++) { vec2 uv2 = base + vec2(float(j & 1), float(j >> 1)) / uLoRes; vec4 Al = texture(gA, uv2); if (Al.w < 0.0) continue; vec3 nl = texture(gB, uv2).xyz; float w = (j == 0 ? (1.0 - f.x) * (1.0 - f.y) : j == 1 ? f.x * (1.0 - f.y) : j == 2 ? (1.0 - f.x) * f.y : f.x * f.y) * exp(-abs(Al.w - A.w) / (0.03 * A.w + 0.05)) * pow(max(dot(nl, n), 0.0), 8.0) + 1e-4; sg += texture(tG, uv2) * w; w2 += w; } E = w2 > 0.0 ? sg.rgb / w2 : vec3(0.0); }
+    float sunVis = vG.x, moonVis = vG.y;
+    vec3 diffuse = alb * (1.0 - metal) / PI; vec3 F0 = mix(vec3(0.04), alb, metal); float ndv = max(dot(n, v), 0.0); vec3 F = F0 + (1.0 - F0) * pow(1.0 - ndv, 5.0);
+    col = emis;
+    float ndl = max(dot(n, uSunDir), 0.0); col += uSunCol * sunVis * ndl * (diffuse + specBRDF(n, v, uSunDir, rough, F0));
+    float ndm = max(dot(n, uMoonDir), 0.0); col += uMoonCol * moonVis * ndm * diffuse;
+    col += sphereLights(p + n * 3e-3, n, v, diffuse, F0, rough, ign(gl_FragCoord.xy), 2);
+    col += diffuse * E;
+    // reflections: a traced mirror for the smooth, the soft sky for the rough, blended by how rough
+    vec4 R = texture(tR, vUv); float open = clamp(dot(E, vec3(0.33)) / max(dot(skyAmb(n), vec3(0.33)), 1e-3), 0.0, 1.0);
+    vec3 specAmb = F * mix(uSkyHor, uSkyZen, reflect(-v, n).y * 0.5 + 0.5) * uSkyOn * open;
+    float sharp = R.a > 0.5 ? 1.0 - smoothstep(0.12, 0.45, rough) : 0.0; col += mix(specAmb, F * R.rgb, sharp) * (metal > 0.5 ? alb / max(F, vec3(1e-3)) * F : vec3(1.0));
+    col = mix(uFogCol, col, exp(-uFogD * A.w));
+    if (uView == 1) col = vec3(sunVis); else if (uView == 2) col = E * 0.5; else if (uView == 3) col = R.a > 0.5 ? R.rgb : vec3(0.0); }
+  if (any(isnan(col))) col = vec3(0.0);
+  o = vec4(mix(texture(tPrev, vUv).rgb, col, uBlend), 1.0); }`;
+const mk = (frag, extra) => new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: Object.assign({}, U, extra || {}), vertexShader: QVS, fragmentShader: frag, depthTest: false, depthWrite: false });
+const gbufMat = mk(GBUF); const loMat = mk(LO, { gA: { value: null }, gB: { value: null } }); const blurMat = mk(BLUR, { gA: { value: null }, gB: { value: null }, tV: { value: null }, tG: { value: null }, uDir: { value: new THREE.Vector2() } });
+const reflMat = mk(REFL, { gA: { value: null }, gB: { value: null }, gC: { value: null } }); const compMat = mk(COMP, { gA: { value: null }, gB: { value: null }, gC: { value: null }, gD: { value: null }, tV: { value: null }, tG: { value: null }, tR: { value: null }, tPrev: { value: null }, uBlend: { value: 1 }, uView: { value: 0 } });
 const dispU = { tSrc: { value: null }, uExposure: { value: 0.42 }, uCurve: { value: 1 } };
 const dispMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: dispU, vertexShader: QVS, depthTest: false, depthWrite: false, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D tSrc; uniform float uExposure; uniform int uCurve;
 vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
 vec3 srgb(vec3 c) { c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
 void main() { vec3 c = texture(tSrc, vUv).rgb * uExposure; c = uCurve == 1 ? aces(c) : uCurve == 2 ? c / (1.0 + c) : c; o = vec4(srgb(c), 1.0); }` });
-const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quadGeo = new THREE.PlaneGeometry(2, 2);
-const traceScene = new THREE.Scene(); traceScene.add(new THREE.Mesh(quadGeo, traceMat)); const dispScene = new THREE.Scene(); dispScene.add(new THREE.Mesh(quadGeo, dispMat));
-let rt = null, rtPrev = null, rtScale = 0, accN = 0;
-function ensureRT(scale) { const w = Math.max(2, Math.round(sb.stage.clientWidth * scale)), h = Math.max(2, Math.round(sb.stage.clientHeight * scale)); if (rt && rt.width === w && rt.height === h) return; if (rt) { rt.dispose(); rtPrev.dispose(); }
-  const mk = () => new THREE.WebGLRenderTarget(w, h, { type: THREE.FloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false }); rt = mk(); rtPrev = mk(); accN = 0; U.uRes.value.set(w, h); }
+const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quadGeo = new THREE.PlaneGeometry(2, 2), quad = new THREE.Mesh(quadGeo, gbufMat), quadScene = new THREE.Scene(); quadScene.add(quad);
+function pass(mat, target) { quad.material = mat; renderer.setRenderTarget(target); renderer.render(quadScene, quadCam); }
+let rtG = null, rtLo = null, rtLoT = null, rtLoB = null, rtR = null, acc = null, accPrev = null, rtScale = 0, accN = 0;
+const mkRT = (w, h, count, linear) => new THREE.WebGLRenderTarget(w, h, { count, type: THREE.FloatType, minFilter: linear ? THREE.LinearFilter : THREE.NearestFilter, magFilter: linear ? THREE.LinearFilter : THREE.NearestFilter, depthBuffer: false });
+function ensureRT(scale) { const w = Math.max(2, Math.round(sb.stage.clientWidth * scale)), h = Math.max(2, Math.round(sb.stage.clientHeight * scale)); if (rtG && rtG.width === w && rtG.height === h) return; for (const r of [rtG, rtLo, rtLoT, rtLoB, rtR, acc, accPrev]) if (r) r.dispose();
+  const lw = Math.max(2, w >> 1), lh = Math.max(2, h >> 1); rtG = mkRT(w, h, 4, false); rtLo = mkRT(lw, lh, 2, false); rtLoT = mkRT(lw, lh, 2, false); rtLoB = mkRT(lw, lh, 2, false); rtR = mkRT(w, h, 1, false); acc = mkRT(w, h, 1, true); accPrev = mkRT(w, h, 1, true); accN = 0; U.uRes.value.set(w, h); U.uLoRes.value.set(lw, lh); }
 
 // ---- state
-let hour = 9.5, running = false, sunStrength = 1, moonOn = true, lightFrom = 'both', autoExp = true, exposure = 0.42, fogOn = true, fogDensity = 0.0025, stillScale = 1, moveScale = 0.3, accumulate = true, fireOn = true, lampsOn = true, rowsOn = true;
+let hour = 9.5, running = false, sunStrength = 1, moonOn = true, lightFrom = 'both', autoExp = true, exposure = 0.42, fogOn = true, fogDensity = 0.0025, stillScale = 1, moveScale = 0.5, accumulate = true, fireOn = true, lampsOn = true, rowsOn = true, denoise = true;
 let lastMove = 0, runT = 0; const lastCam = new THREE.Matrix4(); let stateKey = '';
 function dirty() { accN = 0; }
 function placeSun() {
@@ -349,8 +391,8 @@ function placeSun() {
   const upness = THREE.MathUtils.smoothstep(sunDir.y, -0.02, 0.06), night = 1 - THREE.MathUtils.smoothstep(sunDir.y, -0.02, 0.1); const nightScale = 0.03 + 0.97 * THREE.MathUtils.smoothstep(sunDir.y, -0.2, -0.02); U.uNight.value = nightScale;
   const { fex } = skyCPU(sunDir.x, Math.max(sunDir.y, 0.001), sunDir.z, K); const sunI = (lightFrom === 'sky' ? 0 : sunStrength) * 13 * upness; U.uSunCol.value.set(fex[0] * sunI, fex[1] * sunI, fex[2] * sunI);
   const moonI = moonOn && lightFrom !== 'sky' ? 0.05 * (1 - THREE.MathUtils.smoothstep(sunDir.y, -0.16, -0.01)) : 0; U.uMoonCol.value.set(0.55 * moonI, 0.65 * moonI, 1.0 * moonI);
-  U.uSkyOn.value = lightFrom === 'sun' ? 0 : 1;
-  let r = 0, g = 0, b = 0; for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; const c = skyCPU(Math.cos(a) * 0.999, 0.035, Math.sin(a) * 0.999, K).c; r += c[0]; g += c[1]; b += c[2]; } U.uFogCol.value.set(r / 8 * nightScale, g / 8 * nightScale, b / 8 * nightScale);
+  U.uSkyOn.value = lightFrom === 'sun' ? 0 : 1; const zc = skyCPU(0, 1, 0, K).c; U.uSkyZen.value.set(zc[0] * nightScale, zc[1] * nightScale, zc[2] * nightScale);
+  let r = 0, g = 0, b = 0; for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; const c = skyCPU(Math.cos(a) * 0.999, 0.035, Math.sin(a) * 0.999, K).c; r += c[0]; g += c[1]; b += c[2]; } U.uFogCol.value.set(r / 8 * nightScale, g / 8 * nightScale, b / 8 * nightScale); U.uSkyHor.value.copy(U.uFogCol.value);
   matB[M.GLASS * 4 + 1] = 4 * night; matB[M.LAMP * 4 + 1] = lampsOn ? 22 * night : 0; matB[M.FLAME * 4 + 1] = fireOn ? 45 : 0; matB[M.EMBER * 4 + 1] = fireOn ? 6 : 0;
   if (autoExp) exposure = THREE.MathUtils.lerp(2.6, 0.42, THREE.MathUtils.smoothstep(sunDir.y, -0.12, 0.12)); dispU.uExposure.value = exposure;
   sunHRead((Math.asin(sunDir.y) * 180 / Math.PI).toFixed(0) + '° above the horizon'); const sc = new THREE.Color(fex[0], fex[1], fex[2]); sunCRead(sunI > 0.01 ? '#' + sc.getHexString() + ' × ' + sunI.toFixed(1) : 'below the horizon'); dirty();
@@ -371,7 +413,7 @@ const sunHRead = s1.readout('sun height'), sunCRead = s1.readout('sun colour and
 const s2 = sb.panel.section('02 · Light and bounces', 'The sun, the moon, the fire and the lanterns are the only things that make light. Everything else is light that bounced: off the sky, off the ground, off the walls. Turn the sky off and every shadow goes black; turn the bounces off and the underside of everything goes black.');
 s2.segment('Light from', [{ value: 'both', label: 'sun and sky' }, { value: 'sun', label: 'the sun only' }, { value: 'sky', label: 'the sky only' }], 'both', v => { lightFrom = v; placeSun(); });
 s2.slider('Sun strength', { min: 0, max: 3, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { sunStrength = v; placeSun(); });
-s2.slider('Bounces the light may take', { min: 0, max: 3, step: 1, value: 2, fmt: v => v === 0 ? 'none, direct light only' : v + (v === 1 ? ' bounce' : ' bounces') }, v => { U.uBounces.value = v; dirty(); });
+s2.toggle('bounced light (rays off the ground and the walls)', true, v => { U.uBounceOn.value = v ? 1 : 0; dirty(); });
 s2.toggle('the campfire', true, v => { fireOn = v; placeSun(); });
 s2.toggle('the lanterns', true, v => { lampsOn = v; placeSun(); });
 s2.note('Look for the red bounce from the crates on the grass beside them, the green bounce under the trees, and at night the fire lighting the cabin wall from below.');
@@ -392,12 +434,15 @@ const s5 = sb.panel.section('05 · Air in the distance', 'Far things fade into t
 s5.toggle('haze in the distance', true, v => { fogOn = v; U.uFogD.value = v ? fogDensity : 0; dirty(); });
 s5.slider('How thick', { min: 0, max: 0.02, step: 0.0005, value: 0.0025, fmt: v => (+v).toFixed(4) }, v => { fogDensity = v; if (fogOn) U.uFogD.value = v; dirty(); });
 
-const s6 = sb.panel.section('06 · The renderer', 'Every pixel fires one ray a frame, and the frames blend while nothing moves. While you drag, it draws a small picture so it can keep up, then goes back to full size and settles. This is the same trade every path traced game makes, with a denoiser instead of your patience.');
+const s6 = sb.panel.section('06 · The renderer', 'This is how a game ray traces: one ray per pixel finds the surface, a few rays per pixel ask the sun, the moon, the fire and the sky, one mirror ray serves anything smooth, and the soft light is worked out at half size and smoothed without crossing edges. Nothing is random, so every frame is complete. Holding still only adds anti-aliasing.');
+s6.segment('Show', [{ value: 0, label: 'the picture' }, { value: 1, label: 'the sun\'s shadow rays' }, { value: 2, label: 'sky and bounce light' }, { value: 3, label: 'the mirror rays' }], 0, v => { compMat.uniforms.uView.value = +v; dirty(); });
+s6.segment('Shadow rays per pixel, toward the sun', [{ value: 1, label: '1' }, { value: 2, label: '2' }, { value: 4, label: '4' }, { value: 8, label: '8' }], 4, v => { U.uShadowK.value = +v; dirty(); });
+s6.segment('Rays per pixel for sky and bounce light', [{ value: 2, label: '2' }, { value: 4, label: '4' }, { value: 6, label: '6' }, { value: 8, label: '8' }], 6, v => { U.uGiK.value = +v; dirty(); });
+s6.toggle('smooth the shadow and bounce answers (denoise)', true, v => { denoise = v; dirty(); });
 s6.segment('Picture size while still', [{ value: 1, label: 'full' }, { value: 0.5, label: 'half' }], 1, v => { stillScale = +v; });
-s6.segment('Picture size while moving', [{ value: 0.5, label: 'half' }, { value: 0.3, label: 'a third' }, { value: 0.2, label: 'a fifth' }], 0.3, v => { moveScale = +v; });
-s6.segment('Rays per pixel each frame', [{ value: 1, label: '1' }, { value: 2, label: '2' }, { value: 4, label: '4' }], 1, v => { U.uSpp.value = +v; });
-s6.toggle('blend frames while nothing moves', true, v => { accumulate = v; dirty(); });
-const triRead = s6.readout('triangles in the scene'), instRead = s6.readout('placed copies'), boxRead = s6.readout('boxes in the trees'), buildRead = s6.readout('building the trees took'), accRead = s6.readout('frames blended'), msRead = s6.readout('milliseconds per frame');
+s6.segment('Picture size while moving', [{ value: 0.75, label: 'three quarters' }, { value: 0.5, label: 'half' }, { value: 0.35, label: 'a third' }], 0.5, v => { moveScale = +v; });
+s6.toggle('anti-alias by blending frames while still', true, v => { accumulate = v; dirty(); });
+const triRead = s6.readout('triangles in the scene'), instRead = s6.readout('placed copies'), boxRead = s6.readout('boxes in the trees'), buildRead = s6.readout('building the trees took'), accRead = s6.readout('frames blended for anti-aliasing'), msRead = s6.readout('milliseconds per frame');
 triRead(totalTris.toLocaleString()); instRead(NI.toLocaleString() + ' (' + treeCount + ' trees, 70,000 blades of grass)'); boxRead(nodeTotal.toLocaleString()); buildRead((genMs + buildMs).toFixed(0) + ' ms');
 
 const sunPos = new THREE.Vector3(); const sunLabel = sb.label('the sun', sunPos, 'amber');
@@ -414,18 +459,26 @@ placeSun();
 sb.onFrame((dt) => {
   if (running) { runT += dt; if (runT > 2) { runT = 0; hour += 0.35; if (hour > 21) hour = 4.5; hourS.set(hour, false); placeSun(); } }
   const now = performance.now(); if (lastNow) msAvg += ((now - lastNow) - msAvg) * 0.08; lastNow = now; msRead(msAvg.toFixed(1) + ' ms');
-  expRead(exposure.toFixed(2) + (autoExp ? ', automatic' : ', by hand')); accRead(!accumulate ? 'off, one frame at a time' : accN + (accN === 1 ? ' frame' : ' frames') + (rtScale < 1 ? ', small picture' : ''));
-  sb.hud('mode', (hour < 5 || hour > 20 ? 'night: dark except where the fire and the lanterns reach, and a little moon' : hour < 8 || hour > 17.5 ? 'a low sun through a lot of air: orange light, long soft shadows' : 'high sun: white light, blue sky, hills fading into blue haze') + ' · every pixel is a path of rays');
+  expRead(exposure.toFixed(2) + (autoExp ? ', automatic' : ', by hand')); accRead(!accumulate ? 'off' : Math.min(accN, 32) + (accN === 1 ? ' frame' : ' frames') + (rtScale < 1 ? ', small picture' : ''));
+  sb.hud('mode', (hour < 5 || hour > 20 ? 'night: dark except where the fire and the lanterns reach, and a little moon' : hour < 8 || hour > 17.5 ? 'a low sun through a lot of air: orange light, long soft shadows' : 'high sun: white light, blue sky, hills fading into blue haze') + ' · one ray per pixel finds the surface, a few more light it');
 });
 sb.onRender((scene, camera, renderer) => {
   camera.updateMatrixWorld(); invPV.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).invert();
   if (!lastCam.equals(camera.matrixWorld)) { lastCam.copy(camera.matrixWorld); lastMove = performance.now(); dirty(); }
-  const moving = performance.now() - lastMove < 350; const scale = moving ? moveScale : stillScale; if (scale !== rtScale) { rtScale = scale; ensureRT(scale); dirty(); } else ensureRT(scale);
+  const moving = performance.now() - lastMove < 300; const scale = moving ? moveScale : stillScale; if (scale !== rtScale) { rtScale = scale; ensureRT(scale); dirty(); } else ensureRT(scale);
+  const still = !moving && accumulate; const k = accN % 16; U.uJitter.value.set(still ? (k % 4) / 4 - 0.375 : 0, still ? Math.floor(k / 4) / 4 - 0.375 : 0); U.uNoiseShift.value = still ? accN * 0.618034 : 0;
   U.uInvPV.value.copy(invPV); U.uCamPos.value.copy(camera.position); U.uFrame.value = frame++;
-  const blending = accumulate; if (!blending) accN = 0; U.uBlend.value = blending ? 1 / (accN + 1) : 1; if (blending && accN < 100000) accN++;
-  U.tPrev.value = rtPrev.texture; renderer.setRenderTarget(rt); renderer.render(traceScene, quadCam);
-  renderer.setRenderTarget(null); dispU.tSrc.value = rt.texture; renderer.render(dispScene, quadCam);
-  const sw = rt; rt = rtPrev; rtPrev = sw;
+  pass(gbufMat, rtG);
+  loMat.uniforms.gA.value = rtG.textures[0]; loMat.uniforms.gB.value = rtG.textures[1]; pass(loMat, rtLo);
+  let loOut = rtLo;
+  if (denoise) { blurMat.uniforms.gA.value = rtG.textures[0]; blurMat.uniforms.gB.value = rtG.textures[1]; blurMat.uniforms.tV.value = rtLo.textures[0]; blurMat.uniforms.tG.value = rtLo.textures[1]; blurMat.uniforms.uDir.value.set(1, 0); pass(blurMat, rtLoT);
+    blurMat.uniforms.tV.value = rtLoT.textures[0]; blurMat.uniforms.tG.value = rtLoT.textures[1]; blurMat.uniforms.uDir.value.set(0, 1); pass(blurMat, rtLoB); loOut = rtLoB; }
+  reflMat.uniforms.gA.value = rtG.textures[0]; reflMat.uniforms.gB.value = rtG.textures[1]; reflMat.uniforms.gC.value = rtG.textures[2]; pass(reflMat, rtR);
+  const cu = compMat.uniforms; cu.gA.value = rtG.textures[0]; cu.gB.value = rtG.textures[1]; cu.gC.value = rtG.textures[2]; cu.gD.value = rtG.textures[3]; cu.tV.value = loOut.textures[0]; cu.tG.value = loOut.textures[1]; cu.tR.value = rtR.texture; cu.tPrev.value = accPrev.texture;
+  if (!still) accN = 0; cu.uBlend.value = still ? 1 / (Math.min(accN, 31) + 1) : 1; if (still) accN++;
+  pass(compMat, acc);
+  renderer.setRenderTarget(null); dispU.tSrc.value = acc.texture; quad.material = dispMat; renderer.render(quadScene, quadCam);
+  const sw = acc; acc = accPrev; accPrev = sw;
 });
 sb.start();
 </script>
