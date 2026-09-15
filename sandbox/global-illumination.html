@@ -15,19 +15,22 @@ import { boot, THREE, PAL } from './_kit.js';
 
 const sb = boot({
   slug: 'global-illumination', title: 'Global Illumination',
-  blurb: 'A stone room at the camp with one red wall and a window the sun shines through. Drag the sun, walk the knight up to the red wall, and switch between the five ways games find bounce light: a baked lightmap, probes in the air, the frame you already drew, and a grid of cubes read with cones.',
+  blurb: 'A stone room at the camp with one red wall and a window the sun shines through. Left of the line, the shortcuts games use for bounce light: a baked lightmap, probes in the air, the frame you already drew, a grid of cubes read with cones. Right of the line, the true answer: every pixel fires real rays to the sun, the sky and the walls, and the frames blend until the noise is gone.',
   camera: { pos: [5.5, 4.6, 14.5], target: [-1, 1.4, -0.5], near: 0.1, far: 300 }
 });
 const { scene, renderer, camera } = sb;
 const sun = sb.lights.sun, hemi = sb.lights.hemi;
-sun.intensity = 4.5; hemi.intensity = 0.55; sun.target.position.set(0, 1.5, 0);
+sun.intensity = 3.2; hemi.intensity = 0.9; sun.target.position.set(0, 1.5, 0);
 renderer.shadowMap.autoUpdate = false; renderer.info.autoReset = false;
+scene.background = null; renderer.setClearColor(PAL.sky, 1);
 
 // ---- the world: the camp around a room with an open front
-sb.world.ground(60);
-[sb.world.tree(-9, -2, 4.5), sb.world.tree(8.5, -9, 5), sb.world.tree(-7, -11, 4, false), sb.world.tree(11.5, 2.5, 3.6, false), sb.world.tree(-11.5, 5, 4)];
-sb.world.house(10.5, -5, 4, 3, 2.6, -0.5); sb.world.fire(4.5, 9.5);
-sb.world.crate(-7.2, 3, 0.9, 0.3); sb.world.crate(-7.9, 4, 0.7, -0.4); sb.world.rock(8, 6.5, 0.7); sb.world.rock(-9.5, 8.5, 0.5);
+const groundMesh = sb.world.ground(60); groundMesh.material.color.setHex(0x3f6a45);
+// everything outside the room is drawn the usual way on both sides of the line; the tracer only knows it as stand-in boxes that block rays
+const outdoor = [sb.world.tree(-9, -2, 4.5), sb.world.tree(8.5, -9, 5), sb.world.tree(-7, -11, 4, false), sb.world.tree(11.5, 2.5, 3.6, false), sb.world.tree(-11.5, 5, 4),
+  sb.world.house(10.5, -5, 4, 3, 2.6, -0.5), sb.world.fire(4.5, 9.5),
+  sb.world.crate(-7.2, 3, 0.9, 0.3), sb.world.crate(-7.9, 4, 0.7, -0.4), sb.world.rock(8, 6.5, 0.7), sb.world.rock(-9.5, 8.5, 0.5)];
+const fireGroup = outdoor[6], fireLight = fireGroup.getObjectByName('firelight');
 const knight = sb.world.knight(-2.2, 0.8, 1.8, 0.5);
 
 // room: interior x -4..4, y 0..3.6, z -4..4, open toward +z. The window is a hole in the back wall.
@@ -39,7 +42,7 @@ function addBox(min, max, mat, opts) {
   if (!(opts && opts.noMesh)) { const m = sb.mesh(new THREE.BoxGeometry(max[0] - min[0], max[1] - min[1], max[2] - min[2]), mat, (min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2); m.userData.gi = 0; b.mesh = m; scene.add(m); }
   boxes.push(b); return b;
 }
-const groundBox = addBox([-30, -0.3, -30], [30, 0, 30], sb.mat(PAL.grass), { noMesh: true, name: 'ground' });
+const groundBox = addBox([-30, -0.3, -30], [30, 0, 30], groundMesh.material, { noMesh: true, name: 'ground' });
 const leftBox = addBox([-R - T, 0, -R - T], [-R, H + T, R], stoneMat, { name: 'left wall' });
 const rightBox = addBox([R, 0, -R - T], [R + T, H + T, R], stoneMat, { name: 'right wall' });
 const backLo = addBox([-R - T, 0, -R - T], [R + T, WY0, -R], stoneMat, { name: 'back wall' });
@@ -68,6 +71,10 @@ const backQ = [addQuad('back', [-R, 0, -R + E], [1, 0, 0], [0, 1, 0], [0, 0, 1],
 const leftQ = addQuad('red wall', [-R + E, 0, R], [0, 0, -1], [0, 1, 0], [1, 0, 0], 2 * R, H, 0xd8402f, leftBox, 1);
 const rightQ = addQuad('right wall', [R - E, 0, -R], [0, 0, 1], [0, 1, 0], [-1, 0, 0], 2 * R, H, PAL.wall, rightBox, 0);
 for (const q of quads) { q.albedo = q.mat.color; q.c = q.o.clone().addScaledVector(q.U, q.w / 2).addScaledVector(q.V, q.h / 2); }
+// stand-in boxes for the props outside: they block sun, sky and bounce rays (on both sides of the line), but camera rays pass through them
+scene.updateMatrixWorld(true); const bb3 = new THREE.Box3(); const roomBoxCount = boxes.length;
+for (const g of outdoor) g.traverse(m => { if (!m.isMesh || m.material.isMeshBasicMaterial) return; bb3.setFromObject(m, true);
+  boxes.push({ min: bb3.min.clone(), max: bb3.max.clone(), albedo: m.material.color.clone(), name: 'outside', occluder: true }); });
 
 // ---- the sun as a thing you can drag
 const sunHandle = new THREE.Mesh(new THREE.SphereGeometry(1.6, 16, 12), new THREE.MeshBasicMaterial({ color: PAL.amber })); sunHandle.userData.overlay = true; scene.add(sunHandle);
@@ -404,6 +411,150 @@ const crateSets = crates.map(b => { const sh = [new THREE.Vector3(), new THREE.V
 scene.traverse(o => { if (o.isMesh && o.material.isMeshLambertMaterial && !o.material.userData.u) inject(o.material, 0); });
 const knightSHv = [knightSH.uSh0.value, knightSH.uSh1.value, knightSH.uSh2.value, knightSH.uSh3.value];
 
+
+// ---- times of day: the same numbers go to the kit's lights (the left half and the bake) and to the tracer (the right half)
+const TIMES = {
+  day: { sunCol: 0xffe2b0, sunI: 3.2, hemiSky: 0x8fa8c8, hemiGnd: 0x2a3a2a, hemiI: 0.9, fireI: 12, sky: [7, 8, 11] },
+  sunset: { sunCol: 0xffa050, sunI: 2.8, hemiSky: 0x7a86ad, hemiGnd: 0x3a2e24, hemiI: 0.55, fireI: 20, sky: [7, 3.2, 1.6] },
+  night: { sunCol: 0xffe2b0, sunI: 0, hemiSky: 0x4a5a80, hemiGnd: 0x1a2020, hemiI: 0.16, fireI: 60, sky: [0.3, 0.35, 0.6] }
+};
+let timeOfDay = 'day';
+function setTime(name) {
+  const t = TIMES[name]; timeOfDay = name;
+  sun.color.setHex(t.sunCol); sun.intensity = t.sunI; sun.castShadow = t.sunI > 0; hemi.color.setHex(t.hemiSky); hemi.groundColor.setHex(t.hemiGnd); hemi.intensity = t.hemiI; fireLight.intensity = t.fireI;
+  U.uSkyScale.value.set(...t.sky); skyU.uSkyScale.value.copy(U.uSkyScale.value);
+  if (name === 'sunset' && sunEl > 14) sunEl = 9; if (name === 'day' && sunEl < 14) sunEl = 22; if (typeof elS !== 'undefined') elS.set(Math.round(sunEl), false);
+  syncLights(); sunMoved();
+}
+function syncLights() {
+  U.uSunCol.value.set(sun.color.r, sun.color.g, sun.color.b).multiplyScalar(sun.intensity); skyU.uSunCol.value.copy(U.uSunCol.value);
+  U.uHemiSky.value.set(hemi.color.r, hemi.color.g, hemi.color.b).multiplyScalar(hemi.intensity); U.uHemiGnd.value.set(hemi.groundColor.r, hemi.groundColor.g, hemi.groundColor.b).multiplyScalar(hemi.intensity);
+  U.uFireCol.value.set(fireLight.color.r, fireLight.color.g, fireLight.color.b).multiplyScalar(fireLight.intensity); U.uFirePos.value.set(fireGroup.position.x, 0.9, fireGroup.position.z); dirty();
+}
+
+// ---- the true answer: a path tracer over the room's boxes, one pixel per ray, frames blended while nothing moves
+let compare = 'split', splitF = 0.5, shadowN = 1, sunSize = 2.5, skyRays = true, diff = 3, accumulate = true, layer = 0, accN = 0, rtScale = 1, frame = 0;
+function dirty() { accN = 0; }
+const GL3 = THREE.GLSL3, QVS = 'out vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+const SRGBFN = `vec3 srgb(vec3 c) { c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }`;
+const SKYFN = `${SRGBFN}
+vec3 sky(vec3 d) { vec3 base = vec3(0.0033, 0.0046, 0.0083); vec3 horizon = vec3(0.05, 0.07, 0.11) * exp(-abs(d.y) * 5.0); float s = dot(d, uSunDir);
+  vec3 sun = uSunCol * (smoothstep(0.9985, 0.9997, s) * 2.5 + pow(max(s, 0.0), 48.0) * 0.06); return (base + horizon) * uSkyScale + sun; }`;
+const skyU = { uInvPV: { value: new THREE.Matrix4() }, uCamPos: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Vector3() }, uSkyScale: { value: new THREE.Vector3(1, 1, 1) } };
+const skyMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: skyU, vertexShader: QVS, depthTest: false, depthWrite: false, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform mat4 uInvPV; uniform vec3 uCamPos, uSunDir, uSunCol, uSkyScale; ${SKYFN}
+void main(){ vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, 1.0, 1.0); vec3 d = normalize(w.xyz / w.w - uCamPos); o = vec4(srgb(sky(d)), 1.0); }` });
+// the boxes as a float texture, four texels each: min + which face carries the room's paint, max + kind, albedo, paint
+const MAXB = 96, boxData = new Float32Array(MAXB * 16);
+const boxTex = new THREE.DataTexture(boxData, MAXB * 4, 1, THREE.RGBAFormat, THREE.FloatType); boxTex.minFilter = boxTex.magFilter = THREE.NearestFilter; boxTex.needsUpdate = true;
+const knightMeshes = []; knight.traverse(m => { if (m.isMesh) knightMeshes.push(m); });
+let nBox = 0;
+function writeBox(i, mn, mx, alb, kind, face, paint) { const o = i * 16; boxData[o] = mn.x; boxData[o + 1] = mn.y; boxData[o + 2] = mn.z; boxData[o + 3] = face; boxData[o + 4] = mx.x; boxData[o + 5] = mx.y; boxData[o + 6] = mx.z; boxData[o + 7] = kind;
+  boxData[o + 8] = alb.r; boxData[o + 9] = alb.g; boxData[o + 10] = alb.b; boxData[o + 12] = paint ? paint.r : 0; boxData[o + 13] = paint ? paint.g : 0; boxData[o + 14] = paint ? paint.b : 0; }
+function writeBoxes() {
+  let i = 0;
+  for (let b = 0; b < boxes.length && i < MAXB - 8; b++) { const bx = boxes[b]; let face = -1, paint = null; for (let f = 0; f < 6; f++) { const q = boxFace.get(b * 6 + f); if (q) { face = f; paint = q.albedo; } }
+    writeBox(i++, bx.min, bx.max, bx.albedo, bx.occluder ? 1 : bx.name === 'ground' ? 2 : 0, face, paint); }
+  knightBoxAt = i; for (const m of knightMeshes) { bb3.setFromObject(m, true); writeBox(i++, bb3.min, bb3.max, m.material.color, 0, -1, null); }
+  nBox = i; U.uNBox.value = nBox; boxTex.needsUpdate = true; dirty();
+}
+let knightBoxAt = 0, knightBoxesDirty = false;
+function updateKnightBoxes() { knight.updateMatrixWorld(true); let i = knightBoxAt; for (const m of knightMeshes) { bb3.setFromObject(m, true); writeBox(i++, bb3.min, bb3.max, m.material.color, 0, -1, null); } boxTex.needsUpdate = true; dirty(); }
+const U = {
+  uBoxes: { value: boxTex }, tPrev: { value: null }, uNBox: { value: 0 }, uShadowN: { value: 1 }, uDiff: { value: 3 }, uSkyRays: { value: 1 }, uLayer: { value: 0 }, uFrame: { value: 0 },
+  uSplit: { value: 0.5 }, uSunSize: { value: 2.5 * Math.PI / 180 }, uFireR: { value: 0.35 }, uBlend: { value: 1 }, uShowDirect: { value: 1 }, uShowIndirect: { value: 1 }, uRoom: { value: R },
+  uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Vector3() }, uHemiSky: { value: new THREE.Vector3() }, uHemiGnd: { value: new THREE.Vector3() }, uCamPos: { value: new THREE.Vector3() },
+  uFirePos: { value: new THREE.Vector3() }, uFireCol: { value: new THREE.Vector3() }, uSkyScale: { value: new THREE.Vector3(1, 1, 1) }, uInvPV: { value: new THREE.Matrix4() }
+};
+const TRACE = `precision highp float; precision highp int; precision highp sampler2D;
+in vec2 vUv; out vec4 o;
+uniform sampler2D uBoxes, tPrev; uniform int uNBox, uShadowN, uDiff, uSkyRays, uLayer, uFrame;
+uniform float uSplit, uSunSize, uFireR, uBlend, uShowDirect, uShowIndirect, uRoom;
+uniform vec3 uSunDir, uSunCol, uHemiSky, uHemiGnd, uCamPos, uFirePos, uFireCol, uSkyScale; uniform mat4 uInvPV;
+#define PI 3.14159265
+${SKYFN}
+vec4 fetchB(int i, int k) { return texelFetch(uBoxes, ivec2(i * 4 + k, 0), 0); }
+float hash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }
+vec3 safeDir(vec3 d) { return vec3(abs(d.x) < 1e-6 ? 1e-6 : d.x, abs(d.y) < 1e-6 ? 1e-6 : d.y, abs(d.z) < 1e-6 ? 1e-6 : d.z); }
+// the nearest box along a ray: the slab test on every box, and the face the ray came in through
+bool hitBoxes(vec3 o, vec3 d, bool camRay, bool anyHit, inout float tMax, out int hb, out int hf) {
+  hb = -1; hf = -1; vec3 invD = 1.0 / safeDir(d);
+  for (int i = 0; i < 96; i++) { if (i >= uNBox) break;
+    vec4 a = fetchB(i, 0), b = fetchB(i, 1); if (camRay && b.w == 1.0) continue;
+    vec3 t0 = (a.xyz - o) * invD, t1 = (b.xyz - o) * invD; vec3 tmin = min(t0, t1), tmax = max(t0, t1);
+    float tn = max(max(tmin.x, tmin.y), tmin.z), tf = min(min(tmax.x, tmax.y), tmax.z);
+    if (tn > tf || tn < 1e-4 || tn > tMax) continue;
+    hf = tmin.x >= tmin.y && tmin.x >= tmin.z ? (d.x > 0.0 ? 0 : 1) : tmin.y >= tmin.z ? (d.y > 0.0 ? 2 : 3) : (d.z > 0.0 ? 4 : 5);
+    tMax = tn; hb = i; if (anyHit) return true;
+  }
+  return hb >= 0; }
+vec3 faceN(int f) { return f == 0 ? vec3(-1.0, 0.0, 0.0) : f == 1 ? vec3(1.0, 0.0, 0.0) : f == 2 ? vec3(0.0, -1.0, 0.0) : f == 3 ? vec3(0.0, 1.0, 0.0) : f == 4 ? vec3(0.0, 0.0, -1.0) : vec3(0.0, 0.0, 1.0); }
+// the colour of a box face: the room's paint on the face that carries it (the ground only inside the room), the box's own colour elsewhere
+vec3 albedoOf(int b, int f, vec3 p) { vec4 a = fetchB(b, 0), k = fetchB(b, 1); bool inRoom = abs(p.x) < uRoom && abs(p.z) < uRoom;
+  return int(a.w) == f && (k.w != 2.0 || inRoom) ? fetchB(b, 3).rgb : fetchB(b, 2).rgb; }
+vec3 sunSample(float seed) { vec3 w = uSunDir; vec3 u = normalize(cross(abs(w.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), w)); vec3 vv = cross(w, u);
+  float r = sqrt(hash(vec3(gl_FragCoord.xy, seed))) * tan(uSunSize); float ph = 6.2831853 * hash(vec3(gl_FragCoord.yx, seed + 3.7)); return normalize(w + u * (r * cos(ph)) + vv * (r * sin(ph))); }
+vec3 fireSample(float seed) { float u1 = hash(vec3(gl_FragCoord.xy, seed + 2.2)), u2 = hash(vec3(gl_FragCoord.yx, seed + 5.9)); float z = 1.0 - 2.0 * u1, r = sqrt(max(0.0, 1.0 - z * z)), ph = 6.2831853 * u2; return uFirePos + uFireR * vec3(r * cos(ph), z, r * sin(ph)); }
+vec3 cosDir(vec3 n, float seed) { float u1 = hash(vec3(gl_FragCoord.xy, seed + 8.4)), u2 = hash(vec3(gl_FragCoord.yx, seed + 1.9)); float r = sqrt(u1), ph = 6.2831853 * u2;
+  vec3 u = normalize(cross(abs(n.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), n)); vec3 vv = cross(n, u); return normalize(u * (r * cos(ph)) + vv * (r * sin(ph)) + n * sqrt(max(1.0 - u1, 0.0))); }
+vec3 dome(vec3 d) { return mix(uHemiGnd, uHemiSky, d.y * 0.5 + 0.5); }
+// direct light: the sun through nSun shadow rays toward its disc, the campfire through one shadow ray toward a point on it
+void direct(vec3 p, vec3 n, float seed, int nSun, out vec3 sunC, out vec3 fireC, out float vis) {
+  sunC = vec3(0.0); fireC = vec3(0.0); vis = 0.0; float ndl = max(dot(n, uSunDir), 0.0); float tm; int hb, hf;
+  if (ndl > 0.0) { vis = 1.0;
+    if (nSun > 0) { vis = 0.0; for (int k = 0; k < 8; k++) { if (k >= nSun) break; tm = 1e9; if (!hitBoxes(p, sunSample(seed + float(k) * 1.618), false, true, tm, hb, hf)) vis += 1.0; } vis /= float(nSun); }
+    sunC = uSunCol * ndl * vis; }
+  vec3 fs = fireSample(seed); vec3 fv = fs - p; float fd = length(fv); vec3 fl = fv / fd; float nfl = max(dot(n, fl), 0.0);
+  if (nfl > 0.0 && fd < 14.0) { float att = 1.0 / max(fd * fd, 0.01); float c = 1.0 - pow(fd / 14.0, 4.0); att *= c * c; tm = fd - 2e-3;
+    if (!hitBoxes(p, fl, false, true, tm, hb, hf)) fireC = uFireCol * att * nfl; }
+}
+// sky light and bounced light: one ray up and away; a miss is the sky, a hit is another surface lit by the sun and the fire, and on it goes
+void indirect(vec3 p, vec3 n, vec3 alb, float seed, out vec3 skyC, out vec3 bounceC) {
+  skyC = vec3(0.0); bounceC = vec3(0.0);
+  if (uSkyRays == 0) skyC = alb * dome(n) / PI;
+  if (uSkyRays == 0 && uDiff == 0) return;
+  vec3 thr = alb; vec3 pp = p, nn = n;
+  for (int k = 0; k < 4; k++) {
+    if (k > 0 && k >= uDiff) break;
+    vec3 dd = cosDir(nn, seed + 11.0 + float(k) * 5.1); float tm = 1e9; int hb, hf;
+    if (!hitBoxes(pp, dd, false, false, tm, hb, hf)) { if (uSkyRays == 1) { vec3 c = thr * dome(dd) / PI; if (k == 0) skyC += c; else bounceC += c; } break; }
+    if (uDiff == 0) break;
+    vec3 q = pp + dd * tm; vec3 nq = faceN(hf); vec3 aq = albedoOf(hb, hf, q);
+    vec3 sC, fC; float vs; direct(q + nq * 1e-3, nq, seed + 23.0 + float(k) * 3.3, 1, sC, fC, vs);
+    bounceC += thr * aq * (sC + fC) / PI;
+    thr *= aq; pp = q + nq * 1e-3; nn = nq;
+  }
+}
+void main() {
+  if (vUv.x < uSplit) discard;
+  vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, 1.0, 1.0); vec3 d = normalize(w.xyz / w.w - uCamPos);
+  float seed = fract(float(uFrame) * 0.618034) * 97.0; float tMax = 1e9; int hb, hf; vec3 c; float tOut = -1.0;
+  if (!hitBoxes(uCamPos, d, true, false, tMax, hb, hf)) c = uLayer == 6 ? vec3(1.0) : uLayer == 0 ? sky(d) : vec3(0.0);
+  else {
+    vec3 p = uCamPos + d * tMax; vec3 n = faceN(hf); vec3 alb = albedoOf(hb, hf, p); tOut = tMax; vec3 po = p + n * 1e-3;
+    vec3 sC, fC, kC, bC; float vs; direct(po, n, seed, uShadowN, sC, fC, vs); indirect(po, n, alb, seed + 13.1, kC, bC);
+    vec3 sunC = alb * sC / PI, fireC = alb * fC / PI;
+    c = uLayer == 0 ? (sunC + fireC) * uShowDirect + (kC + bC) * uShowIndirect : uLayer == 1 ? sunC : uLayer == 2 ? kC : uLayer == 3 ? bC : uLayer == 4 ? fireC : vec3(vs);
+    c *= uLayer == 2 ? 4.0 : uLayer == 3 ? 6.0 : uLayer == 4 ? 2.0 : 1.0;
+  }
+  o = vec4(mix(texture(tPrev, vUv).rgb, c, uBlend), tOut);
+}`;
+const traceMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: U, vertexShader: QVS, fragmentShader: TRACE, depthTest: false, depthWrite: false });
+// the composite: colour to screen values, and the traced distance written as real depth so the props outside can be drawn on top the usual way
+const compU = { tRT: { value: null }, uSplit: { value: 0.5 }, uRes: { value: new THREE.Vector2(1, 1) }, uPV: { value: new THREE.Matrix4() }, uInvPV: { value: new THREE.Matrix4() }, uCamPos: { value: new THREE.Vector3() } };
+const compMat = new THREE.ShaderMaterial({ glslVersion: GL3, uniforms: compU, vertexShader: QVS, depthTest: true, depthWrite: true, depthFunc: THREE.AlwaysDepth, fragmentShader: `precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D tRT; uniform float uSplit; uniform vec2 uRes; uniform mat4 uPV, uInvPV; uniform vec3 uCamPos; ${SRGBFN}
+void main(){ if (vUv.x < uSplit) discard; vec4 s = texture(tRT, vUv);
+  if (uSplit > 0.0 && uSplit < 1.0 && (vUv.x - uSplit) * uRes.x < 2.0) { o = vec4(0.95, 0.85, 0.6, 1.0); gl_FragDepth = 0.0; return; }
+  o = vec4(srgb(s.rgb), 1.0);
+  if (s.a < 0.0) gl_FragDepth = 1.0; else { vec4 w = uInvPV * vec4(vUv * 2.0 - 1.0, 1.0, 1.0); vec3 d = normalize(w.xyz / w.w - uCamPos); vec4 cl = uPV * vec4(uCamPos + d * s.a, 1.0); gl_FragDepth = clamp(cl.z / cl.w * 0.5 + 0.5, 0.0, 1.0); } }` });
+const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quadGeo = new THREE.PlaneGeometry(2, 2);
+const skyScene = new THREE.Scene(); skyScene.add(new THREE.Mesh(quadGeo, skyMat));
+const traceScene = new THREE.Scene(); traceScene.add(new THREE.Mesh(quadGeo, traceMat));
+const compScene = new THREE.Scene(); compScene.add(new THREE.Mesh(quadGeo, compMat));
+let rt = null, rtPrev = null, rtW = 0, rtH = 0;
+function ensureTraceRT() { const w = Math.max(2, Math.round(sb.stage.clientWidth * rtScale)), h = Math.max(2, Math.round(sb.stage.clientHeight * rtScale)); if (rt && rt.width === w && rt.height === h) return; if (rt) { rt.dispose(); rtPrev.dispose(); }
+  const mk = () => new THREE.WebGLRenderTarget(w, h, { type: THREE.FloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false }); rt = mk(); rtPrev = mk(); rtW = w; rtH = h; dirty(); }
+const outdoorSet = new Set(outdoor); const hidden = [];
+
 // ---- the frame: shadows once, then (screen-space mode) a half-size copy of the direct-lit frame with its depth, then the real draw
 let ssOn = false, frameMs = 16, lastCalls = 0, lastTris = 0;
 let rtSS = null;
@@ -413,18 +564,39 @@ function ensureRT() {
   if (rtSS) { rtSS.depthTexture.dispose(); rtSS.dispose(); }
   rtSS = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthTexture: new THREE.DepthTexture(w, h, THREE.UnsignedIntType) });
 }
-const overlays = [];
+const overlays = [], invPV = new THREE.Matrix4(), lastCam = new THREE.Matrix4();
 sb.onRender((scene, camera, renderer) => {
   renderer.info.reset(); renderer.shadowMap.needsUpdate = true;
-  if (ssOn) {
-    ensureRT(); overlays.length = 0; scene.traverse(o => { if (o.userData.overlay && o.visible) { overlays.push(o); o.visible = false; } });
-    G.uPrePass.value = 1; G.uSsColor.value = dummy2; G.uSsDepth.value = dummy2;
-    renderer.setRenderTarget(rtSS); renderer.render(scene, camera); renderer.setRenderTarget(null);
-    for (const o of overlays) o.visible = true;
-    G.uPrePass.value = 0; G.uSsColor.value = rtSS.texture; G.uSsDepth.value = rtSS.depthTexture; G.uProj.value.copy(camera.projectionMatrix); G.uNear.value = camera.near; G.uFar.value = camera.far;
+  camera.updateMatrixWorld(); invPV.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).invert();
+  if (!lastCam.equals(camera.matrixWorld)) { lastCam.copy(camera.matrixWorld); dirty(); }
+  U.uInvPV.value.copy(invPV); U.uCamPos.value.copy(camera.position); U.uSunDir.value.copy(sunDir); skyU.uInvPV.value.copy(invPV); skyU.uCamPos.value.copy(camera.position); skyU.uSunDir.value.copy(sunDir);
+  const W = sb.stage.clientWidth, Hh = sb.stage.clientHeight, split = compare === 'game' ? 1 : compare === 'truth' ? 0 : splitF;
+  renderer.autoClear = false; renderer.setRenderTarget(null); renderer.setScissorTest(false); renderer.clear();
+  renderer.render(skyScene, quadCam);
+  if (split > 0) { // left of the line: the game's answer
+    renderer.setScissorTest(true); renderer.setScissor(0, 0, Math.ceil(W * split), Hh);
+    if (ssOn) {
+      ensureRT(); overlays.length = 0; scene.traverse(o => { if (o.userData.overlay && o.visible) { overlays.push(o); o.visible = false; } });
+      G.uPrePass.value = 1; G.uSsColor.value = dummy2; G.uSsDepth.value = dummy2;
+      renderer.setRenderTarget(rtSS); renderer.clear(); renderer.render(scene, camera); renderer.setRenderTarget(null);
+      for (const o of overlays) o.visible = true;
+      G.uPrePass.value = 0; G.uSsColor.value = rtSS.texture; G.uSsDepth.value = rtSS.depthTexture; G.uProj.value.copy(camera.projectionMatrix); G.uNear.value = camera.near; G.uFar.value = camera.far;
+    }
+    renderer.render(scene, camera);
+    lastCalls = renderer.info.render.calls; lastTris = renderer.info.render.triangles;
   }
-  renderer.render(scene, camera);
-  lastCalls = renderer.info.render.calls; lastTris = renderer.info.render.triangles;
+  if (split < 1) { // right of the line: the true answer, then the props outside drawn on top with the traced depth
+    ensureTraceRT(); U.uSplit.value = split; U.uFrame.value = frame++;
+    const blending = accumulate; if (!blending) accN = 0; U.uBlend.value = blending ? 1 / (accN + 1) : 1; if (blending && accN < 4096) accN++;
+    U.tPrev.value = rtPrev.texture; renderer.setScissorTest(false); renderer.setRenderTarget(rt); renderer.render(traceScene, quadCam); renderer.setRenderTarget(null);
+    renderer.setScissorTest(true); renderer.setScissor(Math.floor(W * split), 0, W - Math.floor(W * split), Hh);
+    compU.tRT.value = rt.texture; compU.uSplit.value = split; compU.uRes.value.set(W, Hh); compU.uPV.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); compU.uInvPV.value.copy(invPV); compU.uCamPos.value.copy(camera.position);
+    renderer.render(compScene, quadCam);
+    hidden.length = 0; for (const o of scene.children) { if (o.visible && !o.isLight && o !== sun.target && !outdoorSet.has(o)) { hidden.push(o); o.visible = false; } }
+    renderer.render(scene, camera); for (const o of hidden) o.visible = true;
+    const sw = rt; rt = rtPrev; rtPrev = sw;
+  }
+  renderer.setScissorTest(false);
 });
 
 // ---- panel
@@ -434,9 +606,23 @@ s1.segment('Show', [{ value: 'direct', label: 'direct only' }, { value: 'both', 
 const elS = s1.slider('Sun height', { min: 6, max: 80, step: 1, value: sunEl, unit: '°' }, v => { sunEl = v; sunMoved(); });
 const azS = s1.slider('Sun direction (compass)', { min: 0, max: 360, step: 1, value: sunAz, unit: '°' }, v => { sunAz = v; sunMoved(); });
 s1.segment('Paint on the left wall', [{ value: 0xd8402f, label: 'red' }, { value: 0xd8d0c0, label: 'white' }, { value: 0x2f6fd8, label: 'blue' }], 0xd8402f, v => { leftQ.mat.color.setHex(+v); leftQ.albedo = leftQ.mat.color; startBake(); });
-s1.note('Use the sliders, or orbit to the right until the amber sun comes into view and drag it. Shadows are real shadow maps. Bounce light on the walls is a lightmap baked on the spot (02), on the knight it comes from the probes (03).');
+s1.note('Use the sliders, or orbit to the right until the amber sun comes into view and drag it. Left of the line, shadows are shadow maps and the bounce on the walls is a lightmap baked on the spot (03); the knight gets his from the probes (04). Right of the line, everything is rays.');
 
-const s2 = sb.panel.section('02 · Baked lightmap', 'The walls are cut into texels. For each one, a few dozen rays go out over the hemisphere and add up the light they find; one pass per bounce. The result is written into a texture and read back for free.');
+const sT = sb.panel.section('02 · The true answer, traced', 'Right of the line there are no shortcuts: every pixel fires rays to the sun, the sky and the walls, and on to whatever the light bounced off, and the frames blend until the noise is gone. Everything on the left is an approximation of this picture. Look for what each one gets wrong.');
+sT.segment('Compare', [{ value: 'game', label: 'the game\'s answer' }, { value: 'split', label: 'split' }, { value: 'truth', label: 'the true answer' }], 'split', v => { compare = v; apply(); });
+sT.slider('Where the true answer begins', { min: 0, max: 100, step: 1, value: 50, unit: ' %' }, x => { splitF = x / 100; });
+sT.segment('Time of day', [{ value: 'day', label: 'day' }, { value: 'sunset', label: 'sunset' }, { value: 'night', label: 'night' }], 'day', x => { setTime(x); apply(); });
+sT.slider('Sun size (a bigger sun makes softer shadows)', { min: 0, max: 8, step: 0.5, value: 2.5, unit: '°' }, x => { sunSize = x; U.uSunSize.value = x * Math.PI / 180; });
+sT.slider('Bounces the light may take', { min: 0, max: 4, step: 1, value: 3, fmt: x => x === 0 ? 'none, direct light only' : x + (x === 1 ? ' bounce' : ' bounces') }, x => { diff = x; U.uDiff.value = x; });
+sT.toggle('sky light: ask the sky if it can see each point', true, x => { skyRays = x; U.uSkyRays.value = x ? 1 : 0; });
+sT.slider('Shadow rays per pixel, toward the sun', { min: 0, max: 8, step: 1, value: 1 }, x => { shadowN = x; U.uShadowN.value = x; });
+sT.toggle('blend frames while nothing moves (the noise settles)', true, x => { accumulate = x; dirty(); });
+sT.segment('Light to show on the traced side', [{ value: 0, label: 'all of it' }, { value: 1, label: 'sun only' }, { value: 2, label: 'sky only' }, { value: 3, label: 'bounced only' }, { value: 4, label: 'campfire only' }, { value: 6, label: 'lit or in shadow' }], 0, x => { layer = +x; U.uLayer.value = layer; apply(); });
+sT.segment('Ray picture size', [{ value: 1, label: 'full' }, { value: 0.5, label: 'half' }], 1, x => { rtScale = +x; });
+const accRead = sT.readout('frames blended'), rppRead = sT.readout('rays per pixel, at most');
+sT.note('Things to look for: the knight has no shadow on the wall behind him on the left, because the lightmap was baked without him. At night the campfire shines straight through the wall on the left; on the right its light has to come in through the open front and bounce.');
+
+const s2 = sb.panel.section('03 · Baked lightmap', 'The walls are cut into texels. For each one, a few dozen rays go out over the hemisphere and add up the light they find; one pass per bounce. The result is written into a texture and read back for free.');
 const texS = s2.slider('Lightmap texel, one texture pixel', { min: 0.15, max: 1, step: 0.05, value: texelSize, unit: ' m' }, v => { texelSize = v; allocLightmaps(); startBake(); });
 s2.slider('Rays per texel', { min: 8, max: 128, step: 8, value: raysPerTexel }, v => { raysPerTexel = v; startBake(); });
 s2.segment('Bounces', [{ value: 1, label: '1' }, { value: 2, label: '2' }, { value: 3, label: '3' }], 2, v => { bouncePasses = +v; startBake(); });
@@ -446,16 +632,16 @@ s2.button('Bake again now', () => startBake());
 s2.note('Turn the re-bake off, then move the sun: the shadows move at once but the bounce stays where the old sun put it. A bake is right until anything moves.');
 const texRead = s2.readout('texels in the lightmap'), rayRead = s2.readout('rays cast'), bakeRead = s2.readout('bake');
 
-const s3 = sb.panel.section('03 · Probes for things that move', 'The knight was not there when the walls were baked. He borrows bounce light from probes floating in the air: each sphere shows the light it sees from every direction, squashed into 4 numbers per colour (L1 spherical harmonics).');
+const s3 = sb.panel.section('04 · Probes for things that move', 'The knight was not there when the walls were baked. He borrows bounce light from probes floating in the air: each sphere shows the light it sees from every direction, squashed into 4 numbers per colour (L1 spherical harmonics).');
 s3.toggle('show the probes', true, v => { showProbes = v; if (probes.mesh) probes.mesh.visible = v; });
 s3.slider('Probe spacing', { min: 1, max: 3, step: 0.25, value: probeSpacing, unit: ' m' }, v => { probeSpacing = v; buildProbes(); });
 s3.segment('Blend the 8 probes around the knight', [{ value: 'dist', label: 'by distance only' }, { value: 'ddgi', label: 'plus a can-it-see check (DDGI)' }], 'dist', v => { ddgi = v === 'ddgi'; knightBlendDirty = true; });
-const kxS = s3.slider('Knight, left to right', { min: -3.6, max: 3.6, step: 0.1, value: knight.position.x, unit: ' m' }, v => { knight.position.x = v; knightBlendDirty = true; });
-const kzS = s3.slider('Knight, back to front', { min: -3.6, max: 6, step: 0.1, value: knight.position.z, unit: ' m' }, v => { knight.position.z = v; knightBlendDirty = true; });
+const kxS = s3.slider('Knight, left to right', { min: -3.6, max: 3.6, step: 0.1, value: knight.position.x, unit: ' m' }, v => { knight.position.x = v; knightBlendDirty = knightBoxesDirty = true; });
+const kzS = s3.slider('Knight, back to front', { min: -3.6, max: 6, step: 0.1, value: knight.position.z, unit: ' m' }, v => { knight.position.z = v; knightBlendDirty = knightBoxesDirty = true; });
 s3.note('Walk the knight to the red wall and his left side turns pink. Stand him just inside a wall with the blend by distance only, and probes on the far side of the stone leak their light through; the can-it-see check drops them.');
 const probeRead = s3.readout('probes'), usedRead = s3.readout('probes lighting the knight');
 
-const s4 = sb.panel.section('04 · Bounce from the frame you already drew', 'No bake, no probes: every pixel sends a few rays and checks them against the depth picture of the frame just drawn. A ray that dips behind a drawn surface takes that surface\'s colour. Anything outside the frame gives nothing.');
+const s4 = sb.panel.section('05 · Bounce from the frame you already drew', 'No bake, no probes: every pixel sends a few rays and checks them against the depth picture of the frame just drawn. A ray that dips behind a drawn surface takes that surface\'s colour. Anything outside the frame gives nothing.');
 s4.toggle('use the screen-space method for everything', false, v => { ssOn = v; G.uSsOn.value = v ? 1 : 0; apply(); });
 s4.slider('How thick surfaces are assumed to be', { min: 0.1, max: 2, step: 0.1, value: 0.5, unit: ' m' }, v => { G.uThick.value = v; });
 s4.slider('Rays per pixel', { min: 1, max: 8, step: 1, value: 4 }, v => { G.uRays.value = v; });
@@ -463,7 +649,7 @@ s4.slider('Steps per ray', { min: 4, max: 32, step: 2, value: 12 }, v => { G.uSt
 s4.note('Orbit so the red wall leaves the frame: its red bounce on the floor vanishes with it. Few rays per pixel show the grain a game must smooth away with last frame\'s result. Sky light is flat in this mode, the ceiling no longer blocks it, because the frame holds no sky to search.');
 const msRead = s4.readout('milliseconds per frame'), callRead = s4.readout('draw calls');
 
-const s5 = sb.panel.section('05 · Cubes and cones', 'The room is chopped into a grid of cubes that store colour and how solid they are, plus half-size and quarter-size copies. The knight reads that grid with five fat cones instead of hundreds of rays.');
+const s5 = sb.panel.section('06 · Cubes and cones', 'The room is chopped into a grid of cubes that store colour and how solid they are, plus half-size and quarter-size copies. The knight reads that grid with five fat cones instead of hundreds of rays.');
 s5.toggle('show the grid as cubes', false, v => { showVoxels = v; if (vox.mesh) vox.mesh.visible = v; });
 s5.segment('Grid', [{ value: 16, label: '16 by 16' }, { value: 32, label: '32 by 32' }, { value: 64, label: '64 by 64' }], 32, v => { gridN = +v; buildVoxels(); });
 s5.segment('Cubes shown at', [{ value: 0, label: 'full size' }, { value: 1, label: 'half (mip 1)' }, { value: 2, label: 'quarter (mip 2)' }], 0, v => { voxLevel = +v; buildVoxelCubes(); });
@@ -474,13 +660,18 @@ const voxRead = s5.readout('cubes holding a surface');
 
 // ---- state and glue
 let knightBlendDirty = true;
-function sunMoved() { placeSun(); if (rebakeOnMove) startBake(); else refreshLightNumbers(); }
+function sunMoved() { placeSun(); if (rebakeOnMove) startBake(); else refreshLightNumbers(); dirty(); }
 function apply() {
-  G.uDirectMul.value = light === 'bounce' ? 0 : 1; G.uIndirectMul.value = light === 'direct' ? 0 : 1;
+  G.uDirectMul.value = light === 'bounce' ? 0 : 1; G.uIndirectMul.value = light === 'direct' ? 0 : 1; U.uShowDirect.value = light === 'bounce' ? 0 : 1; U.uShowIndirect.value = light === 'direct' ? 0 : 1;
   const kn = ssOn ? 'the frame' : coneOnKnight ? 'cones through the cubes' : 'probes';
-  sb.hud('mode', light === 'direct' ? 'direct light only: sun, sky and fire, nothing bounced' : (light === 'bounce' ? 'bounce light only' : 'direct and bounce') + ' · walls from ' + (ssOn ? 'the frame' : 'the baked lightmap') + ' · knight from ' + kn);
+  const game = (light === 'direct' ? 'direct light only, nothing bounced' : (light === 'bounce' ? 'bounce light only' : 'direct and bounce')) + ' · walls from ' + (ssOn ? 'the frame' : 'the baked lightmap') + ' · knight from ' + kn;
+  const LAY = ['the true answer, traced', 'sun light only, with its soft shadows', 'sky light only, brightened 4 times: dark where the sky is hidden', 'bounced light only, brightened 6 times', 'campfire light only, brightened 2 times', '', 'white where the sun is visible, black where a shadow ray was blocked'];
+  sb.hud('mode', compare === 'game' ? game : compare === 'truth' ? LAY[layer] : 'left: ' + game + ' · right: ' + LAY[layer]);
+  dirty();
 }
 apply();
+{ const pe = document.querySelector('.sb-panel'); pe.addEventListener('input', dirty); pe.addEventListener('change', dirty); pe.addEventListener('click', dirty); }
+writeBoxes(); setTime('day');
 
 // dragging the sun: grab the amber ball, the orbit camera stays still while it is held
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); let dragging = false;
@@ -508,6 +699,8 @@ sb.onFrame(dt => {
   else if (frameN % 10 === 0) bakeRead(bake.done ? bake.ms.toFixed(0) + ' ms, ' + bouncePasses + ' bounce' + (bouncePasses > 1 ? 's' : '') : 'not yet');
   if (frameN % 10 === 0) { texRead(bake.total.toLocaleString()); rayRead(bake.rays.toLocaleString()); msRead(msAvg.toFixed(1)); callRead(lastCalls); }
   if (probes.sh && (knightBlendDirty || ddgi)) { blendProbes(knight.position.x, 0.95, knight.position.z, knightSHv, ddgi); knightBlendDirty = false; usedRead(probesUsed + ' of 8'); }
+  if (knightBoxesDirty) { updateKnightBoxes(); knightBoxesDirty = false; }
+  if (frameN % 10 === 0) { const perHit = 2 + shadowN + (skyRays || diff > 0 ? 1 : 0) + diff * 2 + Math.max(diff - 1, 0); rppRead(perHit + ' per surface hit'); accRead(compare === 'game' ? 'no traced side shown' : !accumulate ? 'off, one frame at a time' : accN + (accN === 1 ? ' frame' : ' frames')); }
 });
 sb.start();
 </script>
