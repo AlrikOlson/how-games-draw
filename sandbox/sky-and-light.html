@@ -480,11 +480,11 @@ fn leafAlpha(id: i32, uv: vec2f) -> f32 { return textureSampleLevel(texArr, samp
 fn rayleighPhase(c: f32) -> f32 { return 0.05968310365946075 * (1.0 + c * c); }
 fn hgPhase(c: f32, g: f32) -> f32 { let g2 = g * g; return 0.07957747154594767 * ((1.0 - g2) / pow(1.0 - 2.0 * g * c + g2, 1.5)); }
 fn skyRad2(d: vec3f, disk: bool, jit: f32) -> vec3f { return skyRad3(d, disk, jit, 40); }
-fn skyRad3(d: vec3f, disk: bool, jit: f32, steps: i32) -> vec3f { let r = Rb + max(P.camPos.y, 0.0) * 0.001 + 0.05; var base = textureSampleLevel(tSkyView, sampC, skyViewUV(d, P.sunDir.xyz, r), 0.0).rgb;
-  if (disk) { let cosT = dot(d, P.sunDir.xyz); if (cosT > P.sunCos - (1.0 - P.sunCos) * 0.2 && P.sunDir.y > -0.05) { let T = textureSampleLevel(tTrans, sampC, transUV(r, d.y), 0.0).rgb; let limb = 1.0 - 0.6 * (1.0 - sqrt(max(0.0, 1.0 - pow((1.0 - cosT) / max(1.0 - P.sunCos, 1e-7), 2.0)))); base += T * SUN_ILL * 600.0 * limb * smoothstep(P.sunCos - (1.0 - P.sunCos) * 0.2, P.sunCos + (1.0 - P.sunCos) * 0.1, cosT); } }
-  if (disk && P.night < 0.6) { let dark = 1.0 - smoothstep(0.03, 0.6, P.night); let c = floor(d * 900.0); let h = h21(c.xy * 0.37 + c.z * 0.11); let st = pow(max(h - 0.985, 0.0) / 0.015, 3.0) * (0.6 + 0.4 * h21(c.zx)); base += vec3f(st * 0.05) * vec3f(0.9, 0.95, 1.0) * dark * smoothstep(0.0, 0.1, d.y);
-    let cm = dot(d, P.moonDir.xyz); base += P.moonCol.xyz * 60.0 * smoothstep(0.99985, 0.99992, cm) + P.moonCol.xyz * 0.6 * pow(max(cm, 0.0), 300.0); }
-  if (disk) { return clouds(d, base, jit, steps); } return base; }
+fn skyRad3(d: vec3f, disk: bool, jit: f32, steps: i32) -> vec3f { let r = Rb + max(P.camPos.y, 0.0) * 0.001 + 0.05; var base = textureSampleLevel(tSkyView, sampC, skyViewUV(d, P.sunDir.xyz, r), 0.0).rgb; var behind = vec3f(0.0);
+  if (disk) { let cosT = dot(d, P.sunDir.xyz); if (cosT > P.sunCos - (1.0 - P.sunCos) * 0.2 && P.sunDir.y > -0.05) { let T = textureSampleLevel(tTrans, sampC, transUV(r, d.y), 0.0).rgb; let limb = 1.0 - 0.6 * (1.0 - sqrt(max(0.0, 1.0 - pow((1.0 - cosT) / max(1.0 - P.sunCos, 1e-7), 2.0)))); behind += T * SUN_ILL * 600.0 * limb * smoothstep(P.sunCos - (1.0 - P.sunCos) * 0.2, P.sunCos + (1.0 - P.sunCos) * 0.1, cosT); } }
+  if (disk && P.night < 0.6) { let dark = 1.0 - smoothstep(0.03, 0.6, P.night); let c = floor(d * 900.0); let h = h21(c.xy * 0.37 + c.z * 0.11); let st = pow(max(h - 0.985, 0.0) / 0.015, 3.0) * (0.6 + 0.4 * h21(c.zx)); behind += vec3f(st * 0.05) * vec3f(0.9, 0.95, 1.0) * dark * smoothstep(0.0, 0.1, d.y);
+    let cm = dot(d, P.moonDir.xyz); behind += P.moonCol.xyz * 60.0 * smoothstep(0.99985, 0.99992, cm) + P.moonCol.xyz * 0.6 * pow(max(cm, 0.0), 300.0); }
+  if (disk) { let c = clouds(d, base, jit, steps); return c.rgb + behind * c.w; } return base; }
 fn skyRad(d: vec3f, disk: bool) -> vec3f { return skyRad3(d, disk, 0.5, 16); }
 // aerial perspective: the froxel table gives what the air adds and what it takes away up to a distance
 fn aerial(uv: vec2f, dist: f32, col: vec3f) -> vec3f { let z = sqrt(clamp(dist / 6000.0, 0.0, 1.0)); let ap = textureSampleLevel(tAP, sampC, vec3f(uv, z), 0.0); return col * ap.a + ap.rgb; }
@@ -500,7 +500,7 @@ fn cloudDensityW(q: vec3f, fine: bool, w: vec2f) -> f32 { let h = (q.y - CB) / (
   var base = remap(n.r, 1.0 - cov, 1.0, 0.0, 1.0) * prof; if (!fine || base <= 0.0) { return base; }
   let d = textureSampleLevel(tNoise, samp, uvw * 5.0 + vec3f(0.0, P.time * 0.01, 0.0), 0.0); let det = d.g * 0.625 + d.b * 0.25 + d.a * 0.125; let detMod = mix(det, 1.0 - det, clamp(h * 5.0, 0.0, 1.0)); return remap(base, detMod * 0.35, 1.0, 0.0, 1.0) * (0.6 + 0.4 * w.x); }
 fn cloudLightOD(q: vec3f, sun: vec3f, w: vec2f) -> f32 { var od = 0.0; var t = 35.0; for (var k = 0; k < 4; k++) { od += cloudDensityW(q + sun * t, false, w) * t * 0.8 * CSIG; t *= 1.9; } return od; }
-fn clouds(d: vec3f, base: vec3f, jit: f32, n: i32) -> vec3f { if (d.y < 0.02 || P.cover <= 0.01) { return base; } let t0 = (CB - P.camPos.y) / d.y; let t1 = (CT - P.camPos.y) / d.y; let dt = (t1 - t0) / f32(n); var T = 1.0; var acc = vec3f(0.0);
+fn clouds(d: vec3f, base: vec3f, jit: f32, n: i32) -> vec4f { if (d.y < 0.02 || P.cover <= 0.01) { return vec4f(base, 1.0); } let t0 = (CB - P.camPos.y) / d.y; let t1 = (CT - P.camPos.y) / d.y; let dt = (t1 - t0) / f32(n); var T = 1.0; var acc = vec3f(0.0);
   let cosT = dot(d, P.sunDir.xyz); let sun = P.sunDir.xyz; let sunUp = smoothstep(-0.08, 0.12, sun.y); let sunL = P.sunCol.xyz * (0.45 + 0.55 * sunUp) + P.moonCol.xyz * 2.0;
   let ambTop = P.skyZen.xyz * 1.0 + P.skyHor.xyz * 0.35; let ambBot = P.skyHor.xyz * 0.45; let haze = 1.0 - exp(-t0 * 0.00009); var empty = 0;
   for (var i = 0; i < n; i++) { let t = t0 + (f32(i) + jit) * dt; let q = P.camPos.xyz + d * t; let w = cloudWeather(q.xz); var dens = cloudDensityW(q, empty < 2, w); if (dens <= 0.001) { empty += 1; continue; } empty = 0;
@@ -508,7 +508,7 @@ fn clouds(d: vec3f, base: vec3f, jit: f32, n: i32) -> vec3f { if (d.y < 0.02 || 
     for (var o = 0; o < 3; o++) { let ph = mix(hg2(cosT, -0.3 * c), hg2(cosT, 0.85 * c), 0.6); lit += b * exp(-od * a) * ph; a *= 0.5; b *= 0.55; c *= 0.7; }
     let powder = 1.0 - exp(-dens * dt * CSIG * 4.0 - od * 0.3); let col = sunL * lit * (0.5 + 0.5 * powder) + mix(ambBot, ambTop, h) * (0.5 + 0.5 * (1.0 - exp(-od * 0.5)));
     let al = 1.0 - exp(-dens * dt * CSIG); acc += T * al * col; T *= 1.0 - al; if (T < 0.03) { break; } }
-  let far = 1.0 - smoothstep(0.02, 0.09, d.y); let cl = base * T + acc * (1.0 - far * 0.6); return mix(cl, base, haze); }
+  let far = 1.0 - smoothstep(0.02, 0.09, d.y); let cl = base * T + acc * (1.0 - far * 0.6); return vec4f(mix(cl, base, haze), T); }
 fn hg2(c: f32, g: f32) -> f32 { let g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159265 * pow(1.0 + g2 - 2.0 * g * c, 1.5)); }
 fn cloudShadow(p: vec3f) -> f32 { let sun = P.sunDir.xyz; if (sun.y < 0.06 || P.cover <= 0.01) { return 1.0; } let w = cloudWeather((p + sun * ((CB + 350.0 - p.y) / sun.y)).xz); var od = 0.0; for (var k = 0; k < 3; k++) { let hy = CB + (CT - CB) * (0.2 + 0.3 * f32(k)); let q = p + sun * ((hy - p.y) / sun.y); od += cloudDensityW(q, false, w) * (CT - CB) * 0.3 * CSIG; } return mix(1.0, exp(-od), 0.9); }
 // wind waves: a tiled height field from a JONSWAP spectrum, turned into slopes, foam and a caustic factor by the FFT passes (tOcean = slope x, slope z, foam, caustic)
