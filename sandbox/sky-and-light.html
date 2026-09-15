@@ -75,20 +75,20 @@ const compose = (p, ry, s) => new THREE.Matrix4().compose(p, new THREE.Quaternio
 
 // the ground: flat around the camp, rolling hills, then mountains with snow, from noise
 const LAKE = new THREE.Vector3(-19, 0, 11), LAKE_R = 11.5, FIRE = new THREE.Vector3(1.5, 0, 4), CABIN = new THREE.Vector3(10.5, 0, -9);
-function terrainH(x, z) { const d = Math.hypot(x, z); const flat = sstep(38, 130, d); const hills = (fbm(x / 230 + 5, z / 230 + 9, 4) - 0.5) * 2 * 24; const far = sstep(380, 1000, d); const ridge = ridged(x / 760 + 3, z / 760 + 1, 5); const mountains = ridge * ridge * 300 * far; const detail = (fbm(x / 16, z / 16, 3) - 0.5) * 1.4; const dl = Math.hypot(x - LAKE.x, z - LAKE.z); const dip = -3.2 * (1 - sstep(LAKE_R - 3, LAKE_R + 3.5, dl)); return flat * (hills + mountains) + detail * (0.25 + 0.75 * flat) + dip; }
+function terrainH(x, z) { const d = Math.hypot(x, z); const flat = sstep(38, 130, d); const hills = (fbm(x / 230 + 5, z / 230 + 9, 4) - 0.5) * 2 * 24; const far = sstep(380, 1000, d); const ridge = ridged(x / 760 + 3, z / 760 + 1, 5); const mountains = ridge * ridge * 300 * far; const detail = (fbm(x / 16, z / 16, 3) - 0.5) * 1.4; const dl = Math.hypot(x - LAKE.x, z - LAKE.z); const dip = -3.4 * (1 - sstep(LAKE_R - 4, LAKE_R + 2.5, dl)); return flat * (hills + mountains) + detail * (0.25 + 0.75 * flat) + dip; }
 const t0 = performance.now();
 { const g = new THREE.PlaneGeometry(2600, 2600, 300, 300); g.rotateX(-Math.PI / 2); const pos = g.attributes.position; for (let i = 0; i < pos.count; i++) pos.setY(i, terrainH(pos.getX(i), pos.getZ(i))); g.computeVertexNormals(); const bi = newBlas(); addPart(bi, g, M.TERRAIN); addInst(bi, new THREE.Matrix4()); }
 
 // grass: one bent blade, copied tens of thousands of times straight into world space (one flat tree of boxes beats a box per blade)
 const PATH = [[CABIN.x - 1.2, CABIN.z + 3.2], [7, 0], [FIRE.x + 1.8, FIRE.z + 1.2], [-4, 8], [LAKE.x + LAKE_R - 1.5, LAKE.z - 3]];
 function pathDist(x, z) { let d = 1e9; for (let i = 0; i + 1 < PATH.length; i++) { const [ax, az] = PATH[i], [bx, bz] = PATH[i + 1]; const vx = bx - ax, vz = bz - az; const t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / (vx * vx + vz * vz))); d = Math.min(d, Math.hypot(x - ax - vx * t, z - az - vz * t)); } return d; }
-function clearOf(x, z) { if (pathDist(x, z) < 0.75 + fbm(x * 0.5, z * 0.5, 2) * 0.4) return false; if (Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE_R + 1) return false; if (Math.hypot(x - FIRE.x, z - FIRE.z) < 2.4) return false; const dx = x - CABIN.x, dz = z - CABIN.z, ca = Math.cos(0.55), sa = Math.sin(0.55); const lx = dx * ca - dz * sa, lz = dx * sa + dz * ca; if (Math.abs(lx) < 4.4 && Math.abs(lz) < 3.6) return false; if (Math.abs(x - 13) < 4.2 && Math.abs(z - 6) < 1.8) return false; return true; }
-{ const segs = 3, w = 0.03; const P = [], Uv = [], I = []; for (let i = 0; i <= segs; i++) { const t = i / segs, ww = w * (1 - t * 0.85); P.push(-ww, t, t * t * 0.18, ww, t, t * t * 0.18); Uv.push(0, t, 1, t); } for (let i = 0; i < segs; i++) { const a = i * 2; I.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+function clearOf(x, z) { if (pathDist(x, z) < 0.75 + fbm(x * 0.5, z * 0.5, 2) * 0.4) return false; if (terrainH(x, z) < -0.35) return false; if (Math.hypot(x - FIRE.x, z - FIRE.z) < 2.4) return false; const dx = x - CABIN.x, dz = z - CABIN.z, ca = Math.cos(0.55), sa = Math.sin(0.55); const lx = dx * ca - dz * sa, lz = dx * sa + dz * ca; if (Math.abs(lx) < 4.4 && Math.abs(lz) < 3.6) return false; if (Math.abs(x - 13) < 4.2 && Math.abs(z - 6) < 1.8) return false; return true; }
+{ const segs = 2, w = 0.03; const P = [], Uv = [], I = []; for (let i = 0; i <= segs; i++) { const t = i / segs, ww = w * (1 - t * 0.85); P.push(-ww, t, t * t * 0.18, ww, t, t * t * 0.18); Uv.push(0, t, 1, t); } for (let i = 0; i < segs; i++) { const a = i * 2; I.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
   const g0 = new THREE.BufferGeometry(); g0.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g0.setAttribute('uv', new THREE.Float32BufferAttribute(Uv, 2)); g0.setIndex(I); g0.computeVertexNormals(); const g = g0.toNonIndexed();
   const bp = g.attributes.position.array, bn = g.attributes.normal.array, bu = g.attributes.uv.array, nv = g.attributes.position.count; const bi = newBlas(); const B = blas[bi];
   let n = 0, tries = 0; const m = new THREE.Matrix4(), nm = new THREE.Matrix3(), p = new THREE.Vector3(), sc = new THREE.Vector3(), vv = new THREE.Vector3(), vn3 = new THREE.Vector3();
-  while (n < 45000 && tries++ < 300000) { const a = rnd() * Math.PI * 2, r = 36 * Math.sqrt(rnd()); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (!clearOf(x, z)) continue; if (rnd() > 0.35 + 0.65 * fbm(x / 9, z / 9, 2)) continue;
-    p.set(x, terrainH(x, z) - 0.02, z); sc.set(1 + rnd() * 0.5, 0.16 + rnd() * 0.28, 1); m.compose(p, new THREE.Quaternion().setFromAxisAngle(UPV, rnd() * Math.PI * 2), sc); nm.getNormalMatrix(m);
+  while (n < 32000 && tries++ < 300000) { const a = rnd() * Math.PI * 2, r = 36 * Math.sqrt(rnd()); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (!clearOf(x, z)) continue; if (rnd() > 0.35 + 0.65 * fbm(x / 9, z / 9, 2)) continue; const far = Math.pow(r / 36, 1.5);
+    p.set(x, terrainH(x, z) - 0.02, z); sc.set((1 + rnd() * 0.5) * (1 + 2.2 * far), 0.16 + rnd() * 0.28 + 0.1 * far, 1); m.compose(p, new THREE.Quaternion().setFromAxisAngle(UPV, rnd() * Math.PI * 2), sc); nm.getNormalMatrix(m);
     for (let i = 0; i < nv; i++) { vv.set(bp[i * 3], bp[i * 3 + 1], bp[i * 3 + 2]).applyMatrix4(m); vn3.set(bn[i * 3], bn[i * 3 + 1], bn[i * 3 + 2]).applyMatrix3(nm).normalize(); B.tris.push(vv.x, vv.y, vv.z); B.nrms.push(vn3.x, vn3.y, vn3.z); B.uvs.push(bu[i * 2], bu[i * 2 + 1]); if (i % 3 === 0) B.mats.push(M.GRASS); } n++; }
   // wildflowers: a stem and a small tilted head, in drifts
   let nf = 0, ft = 0; while (nf < 2200 && ft++ < 60000) { const a = rnd() * Math.PI * 2, r = 34 * Math.sqrt(rnd()); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (!clearOf(x, z)) continue; if (fbm(x / 6 + 40, z / 6 + 9, 2) < 0.58) continue; const y = terrainH(x, z); const mat = rnd() < 0.5 ? FLOWER_Y : rnd() < 0.6 ? FLOWER_W : FLOWER_P; const hgt = 0.22 + rnd() * 0.16;
@@ -153,7 +153,7 @@ const rockB = [newBlas(), newBlas()]; addPart(rockB[0], rockGeo(3), M.ROCK); add
   for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2, s = 0.22 + rnd() * 0.1; addInst(rockB[i % 2], new THREE.Matrix4().compose(new THREE.Vector3(FIRE.x + Math.cos(a) * 1.05, fy + 0.05, FIRE.z + Math.sin(a) * 1.05), new THREE.Quaternion().setFromAxisAngle(UPV, rnd() * 6), new THREE.Vector3(s, s, s))); }
   for (let i = 0; i < 6; i++) spheres.push({ c: new THREE.Vector3(FIRE.x + (rnd() - 0.5) * 0.7, fy + 0.1, FIRE.z + (rnd() - 0.5) * 0.7), r: 0.06, mat: M.EMBER, light: 0 });
   spheres.push({ c: new THREE.Vector3(FIRE.x, fy + 0.55, FIRE.z), r: 0.3, mat: M.FLAME, light: 1 });
-  const lake = new THREE.CircleGeometry(LAKE_R + 1.5, 64); lake.rotateX(-Math.PI / 2); add(lake, M.WATER, new THREE.Vector3(LAKE.x, -0.55, LAKE.z));
+  const lake = new THREE.CircleGeometry(19, 72); lake.rotateX(-Math.PI / 2); add(lake, M.WATER, new THREE.Vector3(LAKE.x, -0.55, LAKE.z));
   addInst(bi, new THREE.Matrix4()); }
 const plinthY = terrainH(13, 6) + 0.2; const ballSpots = [];
 for (let i = 0; i < 6; i++) for (let row = 0; row < 2; row++) { const c = new THREE.Vector3(13 - 2.75 + i * 1.1, plinthY + 0.25 + 0.42, 6 + (row ? -0.6 : 0.6)); ballSpots.push(c); spheres.push({ c, r: 0.42, mat: BALL0 + i * 2 + row, light: 0 }); }
@@ -502,14 +502,14 @@ fn terrainColor(p: vec3f, n: vec3f) -> vec3f { let slope = 1.0 - n.y; let macroN
   var c = mix(${v3s(0x4f7a2f).replace('vec3(', 'vec3f(')}, ${v3s(0x6f8a3a).replace('vec3(', 'vec3f(')}, smoothstep(0.35, 0.65, macroN)); c = mix(c, ${v3s(0x3f6a33).replace('vec3(', 'vec3f(')}, smoothstep(0.3, 0.7, micro) * 0.5);
   c = mix(c, ${v3s(0x6b5a3c).replace('vec3(', 'vec3f(')}, smoothstep(0.22, 0.45, slope + (micro - 0.5) * 0.15)); c = mix(c, ${v3s(0x76726a).replace('vec3(', 'vec3f(')}, smoothstep(0.4, 0.62, slope));
   let snowLine = 150.0 + (macroN - 0.5) * 60.0; c = mix(c, ${v3s(0xf2f5f8).replace('vec3(', 'vec3f(')}, smoothstep(snowLine, snowLine + 35.0, p.y) * (1.0 - smoothstep(0.5, 0.75, slope)));
-  let dl = distance(p.xz, LAKE); c = mix(c, ${v3s(0x8c7d5c).replace('vec3(', 'vec3f(')}, (1.0 - smoothstep(LAKE_R + 0.5, LAKE_R + 4.0, dl)) * 0.85);
+  let dl = distance(p.xz, LAKE); let shore = (1.0 - smoothstep(-0.2, 0.5, p.y)) * (1.0 - smoothstep(LAKE_R + 2.0, LAKE_R + 7.0, dl)); c = mix(c, ${v3s(0x8c7d5c).replace('vec3(', 'vec3f(')}, shore * 0.9);
   let df = distance(p.xz, FIRE); c = mix(c, ${v3s(0x6b5a3c).replace('vec3(', 'vec3f(')}, (1.0 - smoothstep(2.5, 5.0, df + (micro - 0.5) * 2.0)) * 0.8);
   let gt = pow(textureSampleLevel(texArr, samp, p.xz * 0.35, 9, 0.0).rgb, vec3f(2.2)); let det = textureSampleLevel(texArr, samp, p.xz * 0.14, 8, 0.0).r; c = c * (0.55 + 0.9 * det) * mix(vec3f(1.0), gt * 3.2, 0.55);
   let an = pow(abs(n), vec3f(4.0)); let aw = an / (an.x + an.y + an.z); let rk = pow(textureSampleLevel(texArr, samp, p.zy * 0.12, 5, 0.0).rgb, vec3f(2.2)) * aw.x + pow(textureSampleLevel(texArr, samp, p.xz * 0.12, 5, 0.0).rgb, vec3f(2.2)) * aw.y + pow(textureSampleLevel(texArr, samp, p.xy * 0.12, 5, 0.0).rgb, vec3f(2.2)) * aw.z;
   let rockAmt = smoothstep(0.3, 0.55, slope + (micro - 0.5) * 0.2); c = mix(c, rk * 1.5 * mix(vec3f(0.9, 0.88, 0.85), vec3f(1.0), 0.5), rockAmt * (1.0 - smoothstep(snowLine + 10.0, snowLine + 45.0, p.y)));
   let far = smoothstep(150.0, 260.0, length(p.xz)); let forest = smoothstep(0.42, 0.5, fb3(p.xz / 110.0 + vec2f(8.0, 2.0))) * (1.0 - smoothstep(110.0, 130.0, p.y)) * (1.0 - smoothstep(0.35, 0.5, slope)); let canopy = fb3(p.xz * 0.35); c = mix(c, vec3f(0.06, 0.13, 0.05) * (0.7 + 0.6 * canopy), forest * far * 0.85);
   let pd = pathDist(p.xz); c = mix(c, vec3f(0.30, 0.22, 0.13) * (0.8 + 0.4 * det), 1.0 - smoothstep(0.55, 1.05, pd + (micro - 0.5) * 0.4));
-  c = mix(c, c * 0.55, (1.0 - smoothstep(LAKE_R - 0.5, LAKE_R + 1.6, dl))); return c; }
+  c = mix(c, c * 0.5, (1.0 - smoothstep(-0.6, 0.0, p.y)) * (1.0 - smoothstep(LAKE_R + 2.0, LAKE_R + 7.0, dl))); return c; }
 const NPATH: i32 = ${PATH.length};
 fn pathDist(q: vec2f) -> f32 { var pts = array<vec2f, ${PATH.length}>(${PATH.map(([x, z]) => `vec2f(${x.toFixed(2)}, ${z.toFixed(2)})`).join(', ')}); var d = 1e9; for (var i = 0; i < NPATH - 1; i++) { let a = pts[i]; let b = pts[i + 1]; let v = b - a; let t = clamp(dot(q - a, v) / dot(v, v), 0.0, 1.0); d = min(d, length(q - a - v * t)); } return d; }
 fn grassColor(p: vec3f, uv: vec2f) -> vec3f { let h = vn(p.xz * 0.15 + 3.0); let g = mix(${v3s(0x3f7a22).replace('vec3(', 'vec3f(')}, ${v3s(0x86a83a).replace('vec3(', 'vec3f(')}, h); return g * mix(0.35, 1.05, uv.y); }
@@ -590,7 +590,7 @@ fn upsampleG(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let st = P.giStride; let 
     let ndl = max(dot(n, P.sunDir.xyz), 0.0); col += P.sunCol.xyz * sunVis * ndl * (diffuse + specBRDF(n, v, P.sunDir.xyz, rough, F0));
     let mflag = P.matB[i32(D.w)].w; if (mflag == 4.0 || mflag == 2.0) { let back = max(-dot(n, P.sunDir.xyz), 0.0); col += P.sunCol.xyz * alb * vec3f(0.9, 1.0, 0.6) * back * select(0.22, 0.32, mflag == 4.0) * (0.3 + 0.7 * sunVis) * max(dot(v, -P.sunDir.xyz), 0.0); }
     let ndm = max(dot(n, P.moonDir.xyz), 0.0); col += P.moonCol.xyz * moonVis * ndm * diffuse;
-    col += sphereLights(p + n * 3e-3, n, v, diffuse, F0, rough, ign0(vec2f(px)), 1, 24.0);
+    col += sphereLights(p + n * 3e-3, n, v, diffuse, F0, rough, ign0(vec2f(px)), 1, 20.0);
     col += diffuse * E;
     let R = textureLoad(tR, px, 0); let open = clamp(dot(E, vec3f(0.33)) / max(dot(skyAmb(n), vec3f(0.33)), 1e-3), 0.0, 1.0);
     let specAmb = F * mix(P.skyHor.xyz, P.skyZen.xyz, reflect(-v, n).y * 0.5 + 0.5) * P.skyOn * open;
@@ -699,8 +699,8 @@ async function startWebGPU() {
 gpu = await startWebGPU();
 
 // ---- state
-let hour = 9.5, running = false, sunStrength = 1, moonOn = true, lightFrom = 'both', autoExp = true, exposure = 0.5, fogOn = true, fogDensity = 0.0015, stillScale = 1, moveScale = 1, accumulate = true, fireOn = true, lampsOn = true, rowsOn = true, denoise = true, quality = 'high';
-let lastMove = 0, runT = 0; const lastCam = new THREE.Matrix4(); let stateKey = '';
+let hour = 9.5, running = false, sunStrength = 1, moonOn = true, lightFrom = 'both', autoExp = true, exposure = 0.5, fogOn = true, fogDensity = 0.0015, stillScale = 1, moveScale = 1, accumulate = true, fireOn = true, lampsOn = true, rowsOn = true, denoise = true, quality = 'balanced';
+let lastMove = 0, runT = 0, stillN = 0; const lastCam = new THREE.Matrix4(); let stateKey = '';
 function dirty() { accN = 0; }
 function placeSun() {
   const el = 72 * Math.sin(Math.PI * (hour - 5) / 15) * Math.PI / 180, az = (90 + (hour - 12.5) * 15) * Math.PI / 180;
@@ -759,7 +759,7 @@ s5.slider('Sun shafts', { min: 0, max: 1, step: 0.02, value: 0.35, fmt: v => (+v
 
 const s6 = sb.panel.section('06 · The renderer', 'This is how a game ray traces: one ray per pixel finds the surface, a few rays per pixel ask the sun, the moon, the fire and the sky, one mirror ray serves anything smooth, and the soft light is worked out at half size and smoothed without crossing edges. Nothing is random, so every frame is complete. Holding still only adds anti-aliasing.');
 s6.segment('Show', [{ value: 0, label: 'the picture' }, { value: 1, label: 'the sun\'s shadow rays' }, { value: 2, label: 'sky and bounce light' }, { value: 3, label: 'the mirror rays' }], 0, v => { compMat.uniforms.uView.value = +v; dirty(); });
-s6.segment('Quality', [{ value: 'balanced', label: 'balanced' }, { value: 'high', label: 'high' }, { value: 'ultra', label: 'ultra' }], 'high', v => { quality = v; if (v === 'ultra') { U.uShadowK.value = 4; U.uGiK.value = 6; } dirty(); });
+s6.segment('Quality', [{ value: 'balanced', label: 'balanced' }, { value: 'high', label: 'high' }, { value: 'ultra', label: 'ultra' }], 'balanced', v => { quality = v; if (v === 'ultra') { U.uShadowK.value = 4; U.uGiK.value = 6; } dirty(); });
 s6.segment('Shadow rays per pixel, toward the sun', [{ value: 1, label: '1' }, { value: 2, label: '2' }, { value: 4, label: '4' }, { value: 8, label: '8' }], 2, v => { U.uShadowK.value = +v; dirty(); });
 s6.segment('Rays per pixel for sky and bounce light', [{ value: 2, label: '2' }, { value: 4, label: '4' }, { value: 6, label: '6' }, { value: 8, label: '8' }], 4, v => { U.uGiK.value = +v; dirty(); });
 s6.toggle('smooth the shadow and bounce answers (denoise)', true, v => { denoise = v; dirty(); });
@@ -767,7 +767,7 @@ s6.segment('Picture size while still', [{ value: 1, label: 'full' }, { value: 0.
 s6.segment('Picture size while moving', [{ value: 1, label: 'full' }, { value: 0.5, label: 'half' }, { value: 0.35, label: 'a third' }], 1, v => { moveScale = +v; });
 s6.toggle('anti-alias by blending frames while still', true, v => { accumulate = v; dirty(); });
 const triRead = s6.readout('triangles in the scene'), instRead = s6.readout('placed copies'), boxRead = s6.readout('boxes in the trees'), buildRead = s6.readout('building the trees took'), accRead = s6.readout('frames blended for anti-aliasing'), msRead = s6.readout('milliseconds per frame');
-triRead(totalTris.toLocaleString() + (gpu ? ' · WebGPU' : ' · WebGL')); instRead(NI.toLocaleString() + ' (' + treeCount + ' trees, 45,000 blades of grass)'); boxRead(nodeTotal.toLocaleString()); buildRead((genMs + buildMs).toFixed(0) + ' ms');
+triRead(totalTris.toLocaleString() + (gpu ? ' · WebGPU' : ' · WebGL')); instRead(NI.toLocaleString() + ' (' + treeCount + ' trees, 32,000 blades of grass)'); boxRead(nodeTotal.toLocaleString()); buildRead((genMs + buildMs).toFixed(0) + ' ms');
 
 const sunPos = new THREE.Vector3(); const sunLabel = sb.label('the sun', sunPos, 'amber');
 sb.label('the lake: the sky, reflected', new THREE.Vector3(LAKE.x, 0, LAKE.z)).off.set(0, 0.6, 0);
@@ -783,7 +783,7 @@ placeSun();
 sb.onFrame((dt) => {
   if (running) { runT += dt; if (runT > 2) { runT = 0; hour += 0.35; if (hour > 21) hour = 4.5; hourS.set(hour, false); placeSun(); } }
   fx.time += dt; { const night = 1 - THREE.MathUtils.smoothstep(sunDir.y, -0.02, 0.06); fireflies.forEach((f, i) => { const sp = spheres[spheres.length - 14 + i]; const t = fx.time * 0.35 + f.s; sp.c.set(f.x + Math.sin(t * 1.3) * 2.2 + Math.sin(t * 0.7 + 2) * 1.1, night > 0.2 ? terrainH(f.x, f.z) + f.h + Math.sin(t * 2.1) * 0.35 : -500, f.z + Math.cos(t * 1.1) * 2.2 + Math.cos(t * 0.5 + 1) * 1.0); }); matB[FIREFLY * 4 + 1] = 12 * (0.5 + 0.5 * Math.sin(fx.time * 3)) * night; writeSpheres(); }
-  if (fireOn) { const fl = 0.92 + 0.12 * vnoise(fx.time * 6, 3) + 0.05 * vnoise(fx.time * 17, 8); matB[M.FLAME * 4 + 1] = 45 * fl; matB[M.EMBER * 4 + 1] = 6 * (0.85 + 0.3 * vnoise(fx.time * 4, 1)); const fs = spheres[8]; fs.c.set(FIRE.x + (vnoise(fx.time * 5, 2) - 0.5) * 0.06, terrainH(FIRE.x, FIRE.z) + 0.55 + (vnoise(fx.time * 6, 4) - 0.5) * 0.08, FIRE.z + (vnoise(fx.time * 5, 9) - 0.5) * 0.06); fs.r = 0.28 + 0.04 * vnoise(fx.time * 9, 6); writeSpheres(); }
+  if (fireOn) { const fl = 0.95 + 0.07 * vnoise(fx.time * 5, 3) + 0.03 * vnoise(fx.time * 13, 8); matB[M.FLAME * 4 + 1] = 45 * fl; matB[M.EMBER * 4 + 1] = 6 * (0.85 + 0.3 * vnoise(fx.time * 4, 1)); const fs = spheres[8]; fs.c.set(FIRE.x + (vnoise(fx.time * 4, 2) - 0.5) * 0.03, terrainH(FIRE.x, FIRE.z) + 0.55 + (vnoise(fx.time * 5, 4) - 0.5) * 0.05, FIRE.z + (vnoise(fx.time * 4, 9) - 0.5) * 0.03); fs.r = 0.29 + 0.02 * vnoise(fx.time * 7, 6); writeSpheres(); }
   const now = performance.now(); if (lastNow) msAvg += ((now - lastNow) - msAvg) * 0.08; lastNow = now; msRead(msAvg.toFixed(1) + ' ms');
   expRead(exposure.toFixed(2) + (autoExp ? ', automatic' : ', by hand')); accRead(!accumulate ? 'off' : gpu ? 'temporal, reprojected' : Math.min(accN, 32) + (accN === 1 ? ' frame' : ' frames') + (rtScale < 1 ? ', small picture' : ''));
   sb.hud('mode', (hour < 5 || hour > 20 ? 'night: dark except where the fire and the lanterns reach, and a little moon' : hour < 8 || hour > 17.5 ? 'a low sun through a lot of air: orange light, long soft shadows' : 'high sun: white light, blue sky, hills fading into blue haze') + ' · one ray per pixel finds the surface, a few more light it');
@@ -797,7 +797,8 @@ sb.onRender((scene, camera, renderer) => {
     const hal = (i, b) => { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; }; const k = frame % 8 + 1; const jit = accumulate ? new THREE.Vector2((hal(k, 2) - 0.5) * 0.7, (hal(k, 3) - 0.5) * 0.7) : new THREE.Vector2(); U.uNoiseShift.value = accumulate ? (frame % 16) * 0.618034 : 0;
     U.uInvPV.value.copy(invPV); U.uCamPos.value.copy(camera.position); U.uFrame.value = frame++; accN = accumulate ? Math.min(accN + 1, 32) : 0;
     const ss = quality === 'balanced' ? 2 : 1, gs = quality === 'ultra' ? 2 : 4;
-    gpu.render(w, h, accumulate ? (moving ? 0.12 : 0.03) : 1, compMat.uniforms.uView.value, jit, denoise, ss, gs); return;
+    stillN = moving ? 0 : stillN + 1; const taaBlend = moving ? 0.12 : stillN < 40 ? 0.05 : stillN < 120 ? 0.02 : 0.01;
+    gpu.render(w, h, accumulate ? taaBlend : 1, compMat.uniforms.uView.value, jit, denoise, ss, gs); return;
   }
   if (!lastCam.equals(camera.matrixWorld)) { lastCam.copy(camera.matrixWorld); lastMove = performance.now(); dirty(); }
   const moving = performance.now() - lastMove < 300; const scale = moving ? moveScale : stillScale; if (scale !== rtScale) { rtScale = scale; ensureRT(scale); dirty(); } else ensureRT(scale);
