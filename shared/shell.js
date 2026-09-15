@@ -49,6 +49,7 @@
   if (pages) topics = '<select class="dash-topics" aria-label="Topic">' + pages.map(p => `<option value="${p.slug}"${p.slug === page ? ' selected' : ''}>${String(p.n).padStart(2, '0')} · ${esc(p.title)}</option>`).join('') + '</select>';
   top.innerHTML = `<a class="dash-home">How Games Draw</a><span class="dash-sep">/</span>${topics || '<span class="dash-title">' + esc(title) + '</span>'}` +
     `<select class="dash-stagesel" aria-label="Stage"></select><span class="dash-grow"></span>` +
+    `<div class="dash-mode" role="group" aria-label="Mode"><button type="button" data-m="guided">Guided</button><button type="button" data-m="sandbox">Sandbox</button></div>` +
     `<button type="button" class="dash-prev" aria-label="Previous stage">‹</button><span class="dash-pos"></span><button type="button" class="dash-next" aria-label="Next stage">›</button>`;
   top.querySelector('.dash-home').href = homeHref;
   const rail = el('nav', 'dash-rail');
@@ -86,6 +87,18 @@
   sel.addEventListener('change', e => show(e.target.value));
   window.addEventListener('hashchange', () => show(location.hash.slice(1), false));
   document.addEventListener('keydown', e => { if (e.target.matches('input, select, textarea, button')) return; if (e.key === 'ArrowRight' || e.key === 'PageDown') { step(1); e.preventDefault(); } if (e.key === 'ArrowLeft' || e.key === 'PageUp') { step(-1); e.preventDefault(); } });
+
+  // ---- guided (the steps) or sandbox (every control, no steps); remembered, and ?sandbox in the address turns it on
+  const modeKey = 'rl:mode';
+  function setMode(m, remember) {
+    const sandbox = m === 'sandbox';
+    document.documentElement.classList.toggle('sandbox', sandbox);
+    $$('.dash-mode button', top).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.m === m)));
+    if (remember !== false) { try { localStorage.setItem(modeKey, m); } catch (e) {} }
+    if (cur >= 0) fit();
+  }
+  $$('.dash-mode button', top).forEach(b => b.addEventListener('click', () => setMode(b.dataset.m)));
+  { let m = 'guided'; try { m = localStorage.getItem(modeKey) || 'guided'; } catch (e) {} if (/[?&]sandbox\b/.test(location.search)) m = 'sandbox'; setMode(m); }
 
   // ---- the picture block is sized so that its own layout (one canvas, or a page's row or grid of them) fits the middle
   function fit() {
