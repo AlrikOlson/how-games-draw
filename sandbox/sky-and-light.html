@@ -1769,7 +1769,78 @@ fn splatProject(px: vec2i, resolveOwner: bool) {
 @compute @workgroup_size(8, 8) fn depthMain(@builtin(global_invocation_id) gid: vec3u) { splatProject(vec2i(gid.xy), false); }
 @compute @workgroup_size(8, 8) fn ownerMain(@builtin(global_invocation_id) gid: vec3u) { splatProject(vec2i(gid.xy), true); }
 `;
-const WG_COMP = WG_COMMON + WG_SPLAT_HELPERS + `
+// SKY_R2_STAGE14: the local mist and both smoke simulations share extinction,
+// source radiance and a single front-to-back integral. History is not used here.
+const WG_FROXEL_UTIL = `
+struct FroxelParams { size: vec4u, depth: vec4f };
+fn froxelZ(k: f32, count: f32, far: f32) -> f32 { let u=k/count; return far*u*u; }
+fn froxelRay(uv: vec2f) -> vec3f { let w=P.invPV*vec4f(uv.x*2.0-1.0,1.0-uv.y*2.0,1.0,1.0); return normalize(w.xyz/w.w-P.camPos.xyz); }
+fn froxelForward() -> vec3f { return froxelRay(vec2f(0.5)); }
+fn froxelPhase(c: f32, g: f32) -> f32 { return (1.0-g*g)/(4.0*PI*pow(max(1.0+g*g-2.0*g*c,0.001),1.5)); }
+`;
+const WG_FROXEL_LIGHT = WG_COMMON + WG_FROXEL_UTIL + `
+@group(1) @binding(0) var<storage, read_write> froxels: array<vec4f>;
+@group(1) @binding(1) var<uniform> FV: FroxelParams;
+@group(1) @binding(2) var fSurface: texture_2d<f32>;
+// Integrate the part of a cell that intersects a simulation box. Two interior
+// samples preserve thin volume support even when its extent is below one slice.
+fn froxelSmoke(rd: vec3f,t0: f32,t1: f32,b0: vec3f,b1: vec3f,fire: bool) -> vec4f {
+  let inv=1.0/rd;let a=(b0-P.camPos.xyz)*inv;let b=(b1-P.camPos.xyz)*inv;let lo=min(a,b);let hi=max(a,b);
+  let start=max(t0,max(max(lo.x,lo.y),lo.z));let end=min(t1,min(min(hi.x,hi.y),hi.z));
+  if(end<=start){return vec4f(0.0);} var sigma=0.0;var scatter=0.0;var glow=vec3f(0.0);
+  for(var i=0;i<2;i++) { let t=mix(start,end,(f32(i)+0.5)*0.5);let uvw=clamp((P.camPos.xyz+rd*t-b0)/(b1-b0),vec3f(0.001),vec3f(0.999));var d:vec2f;
+    if(fire){d=textureSampleLevel(tFire,sampC,uvw,0.0).xy;}else{d=textureSampleLevel(tChim,sampC,uvw,0.0).xy;}
+    let ext=max(d.x*3.0+d.y*2.0,0.0);sigma+=ext;
+    let emission=mix(vec3f(1.0,0.10,0.01),vec3f(1.0,0.70,0.25),clamp(d.y*0.5,0.0,1.0))*d.y*d.y*40.0;
+    glow+=ext*emission;
+  }
+  let weight=(end-start)/max(t1-t0,1e-5)*0.5;return vec4f(glow*weight,sigma*weight);
+}
+fn froxelLamp(p: vec3f,viewRay: vec3f,i: i32) -> vec3f {
+  if(i>=P.nsph || P.sphB[i].y<0.5){return vec3f(0.0);}let m=i32(P.sphB[i].x);let e=P.matA[m].rgb*P.matB[m].y;
+  let a=P.sphA[i];let dp=a.xyz-p;let d2=dot(dp,dp);if(d2>576.0 || dot(e,e)<1e-8){return vec3f(0.0);}
+  let dist=sqrt(max(d2,1e-6));let dir=dp/dist;
+  // Stop at the source surface, otherwise the emissive sphere shadows itself.
+  if(dist>a.w+0.005 && occluded(p,dir,dist-a.w-0.005)){return vec3f(0.0);}
+  // SKY_R2_VOL_SOLID_ANGLE: emission is radiance. A distant sphere
+  // subtends pi*r*r/d*d steradians; retain the existing near-source cap.
+  return e*PI*(a.w*a.w)/max(d2,a.w*a.w)*froxelPhase(dot(viewRay,dir),0.2);
+}
+@compute @workgroup_size(4,4,4) fn main(@builtin(global_invocation_id) id:vec3u) {
+  if(any(id>=FV.size.xyz)){return;}let xy=id.y*FV.size.x+id.x;let index=id.z*FV.size.x*FV.size.y+xy;
+  let uv=(vec2f(id.xy)+0.5)/vec2f(FV.size.xy);let rd=froxelRay(uv);let ct=max(dot(rd,froxelForward()),0.01);
+  let t0=froxelZ(f32(id.z),f32(FV.size.z),FV.depth.x)/ct;let t1=froxelZ(f32(id.z+1u),f32(FV.size.z),FV.depth.x)/ct;
+  let screen=min(vec2i(uv*P.res),vec2i(P.res)-1);let A=textureLoad(fSurface,screen,0);
+  if(A.w>=0.0 && t0>A.w){froxels[index]=vec4f(0.0);return;}
+  let pos=P.camPos.xyz+rd*(t0+t1)*0.5;
+  let mist=max(P.mist,0.0)*exp(-max(pos.y,0.0)/6.0)+0.0004;var medium=vec4f(0.0);
+  if(P.simOn.y>0.5){medium+=froxelSmoke(rd,t0,t1,P.fireBox0.xyz,P.fireBox1.xyz,true);}
+  if(P.simOn.z>0.5){medium+=froxelSmoke(rd,t0,t1,P.chimBox0.xyz,P.chimBox1.xyz,false);}
+  let extinction=mist+medium.a;let scattering=mist+medium.a*0.72;
+  var light=skyAmb(vec3f(0.0,0.2,0.0))/PI*0.5;
+  if(dot(P.sunCol.xyz,P.sunCol.xyz)>1e-8 && P.sunDir.y>0.0){
+    let tr=cloudShadow(pos);if(tr>0.001 && !occluded(pos,P.sunDir.xyz,1e9)){light+=P.sunCol.xyz*tr*froxelPhase(dot(rd,P.sunDir.xyz),0.6);}
+  }
+  if(dot(P.moonCol.xyz,P.moonCol.xyz)>1e-8 && P.moonDir.y>0.0 && !occluded(pos,P.moonDir.xyz,1e9)){light+=P.moonCol.xyz*froxelPhase(dot(rd,P.moonDir.xyz),0.5);}
+  light+=froxelLamp(pos,rd,8)+froxelLamp(pos,rd,0)+froxelLamp(pos,rd,1);
+  // Current-frame fire radiance lights smoke whether or not that smoke is hot.
+  froxels[index]=vec4f(medium.rgb+scattering*light,extinction);
+}`;
+const WG_FROXEL_INTEGRATE = WG_COMMON + WG_FROXEL_UTIL + `
+@group(1) @binding(0) var<storage, read_write> froxels: array<vec4f>;
+@group(1) @binding(1) var<uniform> FV: FroxelParams;
+@compute @workgroup_size(8,8) fn main(@builtin(global_invocation_id) id:vec3u) {
+  if(any(id.xy>=FV.size.xy)){return;}let area=FV.size.x*FV.size.y;let xy=id.y*FV.size.x+id.x;let offset=area*FV.size.z;
+  let rd=froxelRay((vec2f(id.xy)+0.5)/vec2f(FV.size.xy));let ct=max(dot(rd,froxelForward()),0.01);
+  var L=vec3f(0.0);var T=1.0;froxels[offset+xy]=vec4f(L,T);
+  for(var z=0u;z<FV.size.z;z++) {let m=froxels[z*area+xy];let ds=(froxelZ(f32(z+1u),f32(FV.size.z),FV.depth.x)-froxelZ(f32(z),f32(FV.size.z),FV.depth.x))/ct;
+    let tr=exp(-max(m.a,0.0)*ds);let integral=select((1.0-tr)/max(m.a,1e-8),ds,m.a<1e-7);L+=T*m.rgb*integral;T*=tr;
+    froxels[offset+(z+1u)*area+xy]=vec4f(L,T);
+  }
+}`;
+const WG_COMP = WG_COMMON + WG_FROXEL_UTIL + WG_SPLAT_HELPERS + `
+@group(1) @binding(15) var<storage, read> fGrid: array<vec4f>;
+@group(1) @binding(16) var<uniform> FV: FroxelParams;
 @group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var gC: texture_2d<f32>; @group(1) @binding(3) var gD: texture_2d<f32>; @group(1) @binding(4) var tV: texture_2d<f32>; @group(1) @binding(5) var tG: texture_2d<f32>; @group(1) @binding(6) var tR: texture_2d<f32>; @group(1) @binding(7) var oCur: texture_storage_2d<rgba16float, write>; @group(1) @binding(8) var tVol: texture_2d<f32>;
 @group(1) @binding(9) var tRA: texture_2d<f32>; @group(1) @binding(10) var tRB: texture_2d<f32>; @group(1) @binding(11) var oRA: texture_storage_2d<rgba32float, write>; @group(1) @binding(12) var oRB: texture_storage_2d<rgba32float, write>;
 @group(1) @binding(13) var<storage, read_write> splatIds: array<atomic<u32>>;
@@ -1855,6 +1926,24 @@ fn upsampleV(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let st = P.shadowStride; 
 fn upsampleG(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let st = P.giStride; let lc = (vec2f(px) + 0.5) / f32(st) - 0.5; let f = fract(lc); let base = vec2i(floor(lc)); var sum = vec4f(0.0); var ws = 0.0; let full = vec2i(P.res) - 1; let lo = vec2i(P.giRes) - 1;
   for (var j = 0; j < 4; j++) { let q = clamp(base + vec2i(j & 1, j >> 1), vec2i(0), lo); let Al = textureLoad(gA, min(q * st, full), 0); if (Al.w < 0.0) { continue; } let nl = textureLoad(gB, min(q * st, full), 0).xyz; let bw = select(select(select(f.x * f.y, (1.0 - f.x) * f.y, j == 2), f.x * (1.0 - f.y), j == 1), (1.0 - f.x) * (1.0 - f.y), j == 0); let w = bw * exp(-abs(Al.w - A.w) / (0.03 * A.w + 0.05)) * pow(max(dot(nl, n), 0.0), 8.0) + 1e-4; sum += textureLoad(tG, q, 0) * w; ws += w; }
   return select(vec4f(0.0), sum / ws, ws > 0.0); }
+// Boundary values are interpolated in physical depth, not warped index space.
+fn froxelAt(uv:vec2f,dist:f32) -> vec4f {
+  let rd=froxelRay(uv);let depth=clamp(dist*max(dot(rd,froxelForward()),0.01),0.0,FV.depth.x);
+  let z=min(u32(sqrt(depth/FV.depth.x)*f32(FV.size.z)),FV.size.z-1u);let z0=froxelZ(f32(z),f32(FV.size.z),FV.depth.x);let z1=froxelZ(f32(z+1u),f32(FV.size.z),FV.depth.x);let fz=clamp((depth-z0)/max(z1-z0,1e-6),0.0,1.0);
+  let q=uv*vec2f(FV.size.xy)-0.5;let b=vec2i(floor(q));let f=fract(q);let area=FV.size.x*FV.size.y;let offset=area*FV.size.z;var sum=vec4f(0.0);
+  for(var j=0;j<4;j++){let off=vec2i(j&1,j>>1);let p=vec2u(clamp(b+off,vec2i(0),vec2i(FV.size.xy)-1));let w=select(1.0-f.x,f.x,off.x==1)*select(1.0-f.y,f.y,off.y==1);let i=p.y*FV.size.x+p.x;
+    let a=fGrid[offset+z*area+i];let c=fGrid[offset+(z+1u)*area+i];
+    // Homogeneous-cell interpolation keeps extinction exponential in distance.
+    let ratio=clamp(c.a/max(a.a,1e-8),0.0,1.0);let tf=pow(max(ratio,1e-12),fz);let lf=select((1.0-tf)/max(1.0-ratio,1e-8),fz,ratio>0.99999);
+    sum+=vec4f(a.rgb+(c.rgb-a.rgb)*lf,a.a*tf)*w;
+  }return sum;
+}
+fn aerialBeyondGrid(uv:vec2f,dist:f32,start:f32,col:vec3f) -> vec3f {
+  if(dist<=start){return col;}let scale=0.35+0.65*clamp(P.fogD/0.0015,0.0,3.0);
+  let near=textureSampleLevel(tAP,sampC,vec3f(uv,sqrt(clamp(start*scale/6000.0,0.0,1.0))),0.0);
+  let far=textureSampleLevel(tAP,sampC,vec3f(uv,sqrt(clamp(dist*scale/6000.0,0.0,1.0))),0.0);
+  return col*clamp(far.a/max(near.a,1e-5),0.0,1.0)+max((far.rgb-near.rgb)/max(near.a,1e-5),vec3f(0.0));
+}
 fn upsampleVol(px: vec2i, A: vec4f) -> vec3f { let st = P.giStride; let lc = (vec2f(px) + 0.5) / f32(st) - 0.5; let f = fract(lc); let base = vec2i(floor(lc)); var sum = vec3f(0.0); var ws = 0.0; let lo = vec2i(P.giRes) - 1; let dref = select(A.w, 140.0, A.w < 0.0);
   for (var j = 0; j < 4; j++) { let q = clamp(base + vec2i(j & 1, j >> 1), vec2i(0), lo); let v = textureLoad(tVol, q, 0); let dq = select(v.a, 140.0, v.a < 0.0); let bw = select(select(select(f.x * f.y, (1.0 - f.x) * f.y, j == 2), f.x * (1.0 - f.y), j == 1), (1.0 - f.x) * (1.0 - f.y), j == 0); let w = bw * exp(-abs(min(dq, 140.0) - min(dref, 140.0)) / (0.08 * dref + 0.5)) + 1e-4; sum += v.rgb * w; ws += w; }
   return sum / max(ws, 1e-4); }
@@ -1868,7 +1957,7 @@ fn marchVol(ro: vec3f, rd: vec3f, tMax: f32, b0: vec3f, b1: vec3f, isFire: bool,
   return colIn * T + acc; }
 @compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.res.x || f32(px.y) >= P.res.y) { return; }
   let A = textureLoad(gA, px, 0); var col: vec3f;
-  if (A.w < 0.0) { textureStore(oRA, px, vec4f(-1.0, 0.0, 0.0, 0.0)); textureStore(oRB, px, vec4f(0.0)); col = skyRad2(A.xyz, true, ign(vec2f(px))); let Tm = exp(-(P.mist * exp(-max(P.camPos.y, 0.0) / 6.0) + 0.0004) * 140.0); col = col * mix(1.0, Tm, 0.5) + upsampleVol(px, A); }
+  if (A.w < 0.0) { textureStore(oRA, px, vec4f(-1.0, 0.0, 0.0, 0.0)); textureStore(oRB, px, vec4f(0.0)); col = skyRad2(A.xyz, true, ign(vec2f(px))); let Tm = exp(-(P.mist * exp(-max(P.camPos.y, 0.0) / 6.0) + 0.0004) * 140.0); if(FV.size.w==0u){col = col * mix(1.0, Tm, 0.5) + upsampleVol(px, A);} }
   else { let Bv = textureLoad(gB, px, 0); let C = textureLoad(gC, px, 0); let D = textureLoad(gD, px, 0); let p = A.xyz; let n = Bv.xyz; let alb = C.rgb; let rough = Bv.w; let metal = C.w; let emis = D.rgb; let v = normalize(P.camPos.xyz - p);
     let vG = upsampleV(px, A, n); var E = upsampleG(px, A, n).rgb; if(P.instant.x>0.5){let fresh=instantLookup(p,n);let confidence=smoothstep(0.05,0.65,fresh.w);
       if(confidence<1.0&&P.ocean.z>0.5&&P.bounceOn>0.5){let prior=instantPrior(p,n);E=mix(E,prior.rgb,smoothstep(0.2,0.75,prior.w));}
@@ -1889,9 +1978,12 @@ fn marchVol(ro: vec3f, rd: vec3f, tMax: f32, b0: vec3f, b1: vec3f, isFire: bool,
       col = emis + sunVis * ndl * P.sunCol.xyz * specBRDF(n, v, P.sunDir.xyz, rough, vec3f(0.02)) + sphereLights(p + n * 3e-3, n, v, vec3f(0.0), vec3f(0.02), rough, ign0(vec2f(px)), 1, 24.0) + Fw * select(specAmb, R.rgb, R.a > 0.5) + (1.0 - Fw) * under; }
     // haze, and a mist that pools low in the valley
     let hc = max(P.camPos.y, 0.0); let hp = max(p.y, 0.0); let dh = hp - hc; let mistInt = select(exp(-hc / 6.0) * (1.0 - exp(-dh / 6.0)) / (dh / 6.0), exp(-hc / 6.0), abs(dh) < 0.01);
-    let Tm = exp(-(P.mist * mistInt + 0.0004) * min(A.w, 140.0)); col = col * Tm + upsampleVol(px, A); col = aerial((vec2f(px) + 0.5) / P.res, A.w * (0.35 + 0.65 * clamp(P.fogD / 0.0015, 0.0, 3.0)), col);
+    let Tm = exp(-(P.mist * mistInt + 0.0004) * min(A.w, 140.0)); if(FV.size.w==0u){col = col * Tm + upsampleVol(px, A); col = aerial((vec2f(px) + 0.5) / P.res, A.w * (0.35 + 0.65 * clamp(P.fogD / 0.0015, 0.0, 3.0)), col);}
     if (P.view == 1) { col = vec3f(sunVis); } else if (P.view == 2) { col = E * 0.5; } else if (P.view == 3) { col = select(vec3f(0.0), R.rgb, R.a > 0.5); } else if (P.view == 11) { let cE = cacheLookup(p, n, false); col = select(vec3f(0.6, 0.0, 0.0), cE.rgb * 0.5, cE.w > 0.0); } else if (P.view == 12) { let nE = nrcQuery(p, n); col = select(vec3f(0.6, 0.0, 0.0), nE * 0.5, nE.x >= 0.0); } }
-  { let uv = (vec2f(px) + 0.5) / P.res; let w = P.invPV * vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0); let d = normalize(w.xyz / w.w - P.camPos.xyz); let tm = select(A.w, 1e9, A.w < 0.0); let j = ign(vec2f(px));
+  if(FV.size.w>0u){
+    let uv=(vec2f(px)+0.5)/P.res;let rd=froxelRay(uv);let end=FV.depth.x/max(dot(rd,froxelForward()),0.01);let dist=select(min(A.w,end),end,A.w<0.0);
+    if(A.w>=0.0){col=aerialBeyondGrid(uv,A.w,end,col);}let fog=froxelAt(uv,dist);col=col*fog.a+fog.rgb;
+  }else{ let uv = (vec2f(px) + 0.5) / P.res; let w = P.invPV * vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0); let d = normalize(w.xyz / w.w - P.camPos.xyz); let tm = select(A.w, 1e9, A.w < 0.0); let j = ign(vec2f(px));
     if (P.simOn.y > 0.5) { col = marchVol(P.camPos.xyz, d, tm, P.fireBox0.xyz, P.fireBox1.xyz, true, j, col); } if (P.simOn.z > 0.5) { col = marchVol(P.camPos.xyz, d, tm, P.chimBox0.xyz, P.chimBox1.xyz, false, j, col); } }
   textureStore(oCur, px, vec4f(col, A.w)); }`;
 // temporal anti-aliasing: find where this pixel was last frame, and blend, unless the history clearly does not belong here
@@ -1969,7 +2061,7 @@ fn srgb(c0: vec3f) -> vec3f { let c = clamp(c0, vec3f(0.0), vec3f(1.0)); return 
 @fragment fn fs(i: VO) -> @location(0) vec4f { var c = textureSampleLevel(tSrc, samp, i.uv, 0.0).rgb; let bl = textureSampleLevel(tBloom, samp, i.uv, 0.0).rgb; c += bl * D.bloom;
   if (D.shafts > 0.0 && D.sunUp > 0.0) { var sh = vec3f(0.0); let dv = (D.sunUv - i.uv) / 24.0; var uv = i.uv; var wsum = 0.0; for (var k = 0; k < 24; k++) { uv += dv; let w = 1.0 - f32(k) / 24.0; sh += textureSampleLevel(tBloom, samp, uv, 0.0).rgb * w; wsum += w; } let dist = length((D.sunUv - i.uv) * vec2f(1.0, 0.75)); c += sh / wsum * D.shafts * D.sunUp * (1.0 - smoothstep(0.35, 0.9, dist)); }
   c *= D.exposure; if (D.curve == 1.0) { c = aces(c); } else if (D.curve == 2.0) { c = c / (1.0 + c); } let lum = dot(c, vec3f(0.3, 0.59, 0.11)); c = mix(vec3f(lum), c, 1.1); let vd = length((i.uv - 0.5) * vec2f(1.0, 0.85)); c *= 1.0 - 0.28 * smoothstep(0.35, 0.95, vd); return vec4f(srgb(c), 1.0); }`;
-let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { volReuse: false, subgroupsOn: false, ntcOn: false, instantOn: false, hashNrc: false, splatOn: true, discReuse: true, cvOn: true, vrr: false, nrcOn: true, restirOn: true, cacheOn: true, voxelOn: false, voxelDistance: 80, wideOn: false, cacheReuseOn: true, cacheReuseEpoch: 0, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true, refitOn: true };
+let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { froxelOn: false, volReuse: false, subgroupsOn: false, ntcOn: false, instantOn: false, hashNrc: false, splatOn: true, discReuse: true, cvOn: true, vrr: false, nrcOn: true, restirOn: true, cacheOn: true, voxelOn: false, voxelDistance: 80, wideOn: false, cacheReuseOn: true, cacheReuseEpoch: 0, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true, refitOn: true };
 // the simulation grids: a wave grid over the lake (with the shore as a wall), and two boxes of air over the fire and the chimney
 const SIM = (() => { const n = 256, size = 44, x0 = LAKE.x - size / 2, z0 = LAKE.z - size / 2; const land = new Uint8Array(n * n * 2); for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = x0 + (i + 0.5) / n * size, z = z0 + (j + 0.5) / n * size; const th = terrainH(x, z); land[(j * n + i) * 2] = th > -0.55 ? 255 : 0; const dp = Math.min(Math.max((-0.55 - th) / 0.9, 0), 1); land[(j * n + i) * 2 + 1] = Math.round(255 * dp * dp * (3 - 2 * dp)); }
   const fy = terrainH(FIRE.x, FIRE.z); const ca = Math.cos(-0.55), sa = Math.sin(-0.55); const cx = CABIN.x + (3.2 - 1.2) * ca + (-2.3 + 0.9) * sa, cz = CABIN.z - (3.2 - 1.2) * sa + (-2.3 + 0.9) * ca; const cy = terrainH(CABIN.x, CABIN.z) - 0.1 + 5.5;
@@ -2134,9 +2226,9 @@ fn inside(c: vec3i) -> bool { return c.x >= 0 && c.y >= 0 && c.z >= 0 && c.x < i
 // move velocity, smoke and heat along the flow, then add heat and smoke at the source and let hot air rise
 const WG_ADV = WG_SIMH + `
 @group(0) @binding(1) var vIn: texture_3d<f32>; @group(0) @binding(2) var qIn: texture_3d<f32>; @group(0) @binding(3) var vOut: texture_storage_3d<rgba16float, write>; @group(0) @binding(4) var qOut: texture_storage_3d<rgba16float, write>; @group(0) @binding(5) var samp: sampler;
-@compute @workgroup_size(4, 4, 4) fn main(@builtin(global_invocation_id) gid: vec3u) { let c = vec3i(gid); if (!inside(c)) { return; } let pc = vec3f(c) + 0.5; let vel = textureLoad(vIn, c, 0).xyz;
+@compute @workgroup_size(4, 4, 4) fn main(@builtin(global_invocation_id) gid: vec3u) { let c = vec3i(gid); if (!inside(c)) { return; } if (F.dt <= 0.0) { textureStore(vOut, c, textureLoad(vIn, c, 0)); textureStore(qOut, c, textureLoad(qIn, c, 0)); return; } let pc = vec3f(c) + 0.5; let vel = textureLoad(vIn, c, 0).xyz;
   let back = pc - vel * F.dt / F.cell; let uvw = back / F.dims; let outside = any(uvw < vec3f(0.0)) || any(uvw > vec3f(1.0));
-  var v = select(textureSampleLevel(vIn, samp, uvw, 0.0).xyz, vec3f(0.0), outside) * 0.99; var q = select(textureSampleLevel(qIn, samp, uvw, 0.0).xy, vec2f(0.0), outside) * vec2f(0.992, 0.93);
+  var v = select(textureSampleLevel(vIn, samp, uvw, 0.0).xyz, vec3f(0.0), outside) * pow(0.99, F.dt * 60.0); var q = select(textureSampleLevel(qIn, samp, uvw, 0.0).xy, vec2f(0.0), outside) * pow(vec2f(0.992, 0.93), vec2f(F.dt * 60.0));
   let wp = F.org + pc * F.cell; let ds = length((wp - F.src) * vec3f(1.0, 2.2, 1.0)); let s = smoothstep(F.srcR, F.srcR * 0.3, ds);
   let flick = 0.55 + 0.9 * vn3(vec3f(wp.xz * 6.0, F.time * 9.0)); q += vec2f(F.smoke * 3.0, F.heat * 6.0 * flick) * s * F.dt;
   v.y += (q.y * F.buoy - q.x * 0.04) * F.dt; let turb = vec3f(vn3(wp * 5.0 + F.time * 2.0) - 0.5, 0.0, vn3(wp * 5.0 + 7.0 + F.time * 2.0) - 0.5); v += turb * q.y * 2.5 * F.dt * F.isFire; v.x += F.wind * 0.25 * F.dt * smoothstep(0.2, 1.0, pc.y / F.dims.y);
@@ -2431,9 +2523,9 @@ async function startWebGPU() {
     if (fx.waterOn) { const a = new Float32Array(44); a.set([SIM.water.n, SIM.water.size, dt, fx.time, fx.wind, fx.rain, fx.wind, 0]); const nd = Math.min(drops.length, 8); for (let i = 0; i < nd; i++) { const d = drops[i]; a.set([d.u, d.v, d.r, d.s], 8 + i * 4); } a[40] = nd; drops.length = 0; device.queue.writeBuffer(wBuf, 0, a);
       for (let sub = 0; sub < 2; sub++) { const src = (cur + sub) & 1; const c = enc.beginComputePass(); c.setPipeline(simP.water); c.setBindGroup(0, wGroups[src]); c.dispatchWorkgroups(Math.ceil(WN / 8), Math.ceil(WN / 8)); c.end(); } }
     for (const k of ['fire', 'chim']) { if (!fx[k === 'fire' ? 'fireOn' : 'chimOn']) continue; const V = vols[k], G = vGroups[k], d = SIM[k].dims, S2 = SIM[k];
-      device.queue.writeBuffer(V.buf, 0, new Float32Array([...S2.min, S2.cell, ...d, Math.min(dt, 0.033), ...S2.src, S2.srcR, S2.buoy, S2.heat * (k === 'fire' ? fx.fireStrength : 1), S2.smoke * (k === 'fire' ? fx.smokeAmt : 1), fx.wind, fx.time, k === 'fire' ? 1 : 0, 0, 0]));
+      device.queue.writeBuffer(V.buf, 0, new Float32Array([...S2.min, S2.cell, ...d, Math.min(dt, 0.033), ...S2.src, S2.srcR, S2.buoy, S2.heat * (k === 'fire' ? (fireOn ? fx.fireStrength : 0) : 1), S2.smoke * (k === 'fire' ? (fireOn ? fx.smokeAmt : 0) : 1), fx.wind, fx.time, k === 'fire' ? 1 : 0, 0, 0]));
       const wg = [Math.ceil(d[0] / 4), Math.ceil(d[1] / 4), Math.ceil(d[2] / 4)]; const run = (pipe, grp) => { const c = enc.beginComputePass(); c.setPipeline(pipe); c.setBindGroup(0, grp); c.dispatchWorkgroups(...wg); c.end(); };
-      run(simP.adv, G.adv[cur]); run(simP.div, G.div[cur]); for (let it = 0; it < 10; it++) run(simP.jac, G.jac[it & 1]); run(simP.proj, G.proj[cur]); } }
+      run(simP.adv, G.adv[cur]); if (dt <= 0) continue; run(simP.div, G.div[cur]); for (let it = 0; it < 10; it++) run(simP.jac, G.jac[it & 1]); run(simP.proj, G.proj[cur]); } }
   const splatParam = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const splatParamData = new ArrayBuffer(80), splatParamF = new Float32Array(splatParamData), splatParamU = new Uint32Array(splatParamData);
   const splatPV = new THREE.Matrix4();
@@ -2445,13 +2537,18 @@ async function startWebGPU() {
     try { await splatRead.mapAsync(GPUMapMode.READ); const a = new Uint32Array(splatRead.getMappedRange()); splatStats.recovered = a[0]; splatStats.missing = a[1]; splatStats.n++; splatRead.unmap(); }
     catch (e) { splatStats.error = String(e); } splatPending = false;
   }
+  const FROXEL_DIMS=[160,90,64], FROXEL_CELLS=FROXEL_DIMS[0]*FROXEL_DIMS[1]*(FROXEL_DIMS[2]*2+1);
+  const froxelBuffer=device.createBuffer({size:FROXEL_CELLS*16,usage:GPUBufferUsage.STORAGE});
+  const froxelUniform=device.createBuffer({size:32,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+  const froxelData=new ArrayBuffer(32),froxelU=new Uint32Array(froxelData),froxelF=new Float32Array(froxelData);froxelU.set(FROXEL_DIMS);froxelF[4]=140;
+  window.__froxelStats={dimensions:FROXEL_DIMS.slice(),bytes:FROXEL_CELLS*16,history:false};
   const volRParam = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); const volRData = new Uint32Array(4);
   const T = (b) => ({ binding: b, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'unfilterable-float' } }), W = (b, fmt) => ({ binding: b, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: fmt } });
-  const layouts = { gbuf: device.createBindGroupLayout({ entries: [W(0, 'rgba32float'), W(1, 'rgba32float'), W(2, 'rgba32float'), W(3, 'rgba32float')] }), shadow: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float'), T(3), T(4), T(5), T(6), T(7), W(8, 'rgba32float'), W(9, 'rgba32float'), W(10, 'rgba32float'), T(11), T(12)] }), discDup: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }), gi: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float'), T(3), T(4), T(5), T(6), W(7, 'rgba32float')] }), vol: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float'), { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }), budget: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), T(3), T(4), T(5), W(6, 'rgba32float'), W(7, 'rgba32float'), W(8, 'rgba32float'), {binding:9,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}}, {binding:10,visibility:GPUShaderStage.COMPUTE,buffer:{type:'storage'}}] }),
-    blur: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), W(3, 'rgba16float'), { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }), refl: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }), cache: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }] }), nrcTrain: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }] }), comp: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), T(3), T(4), T(5), T(6), W(7, 'rgba16float'), T(8), T(9), T(10), W(11, 'rgba32float'), W(12, 'rgba32float'), { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 14, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }),
+  const layouts = { froxelLight: device.createBindGroupLayout({entries:[{binding:0,visibility:GPUShaderStage.COMPUTE,buffer:{type:'storage'}},{binding:1,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}},T(2)]}), froxelIntegrate: device.createBindGroupLayout({entries:[{binding:0,visibility:GPUShaderStage.COMPUTE,buffer:{type:'storage'}},{binding:1,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}}]}), gbuf: device.createBindGroupLayout({ entries: [W(0, 'rgba32float'), W(1, 'rgba32float'), W(2, 'rgba32float'), W(3, 'rgba32float')] }), shadow: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float'), T(3), T(4), T(5), T(6), T(7), W(8, 'rgba32float'), W(9, 'rgba32float'), W(10, 'rgba32float'), T(11), T(12)] }), discDup: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }), gi: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float'), T(3), T(4), T(5), T(6), W(7, 'rgba32float')] }), vol: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float'), { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }), budget: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), T(3), T(4), T(5), W(6, 'rgba32float'), W(7, 'rgba32float'), W(8, 'rgba32float'), {binding:9,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}}, {binding:10,visibility:GPUShaderStage.COMPUTE,buffer:{type:'storage'}}] }),
+    blur: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), W(3, 'rgba16float'), { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }), refl: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }), cache: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }] }), nrcTrain: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }] }), comp: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), T(3), T(4), T(5), T(6), W(7, 'rgba16float'), T(8), T(9), T(10), W(11, 'rgba32float'), W(12, 'rgba32float'), { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 14, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, {binding:15,visibility:GPUShaderStage.COMPUTE,buffer:{type:'read-only-storage'}}, {binding:16,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}}] }),
     taa: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), W(3, 'rgba16float')] }), acc: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), W(3, 'rgba16float'), { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }), bright: device.createBindGroupLayout({ entries: [T(0), W(1, 'rgba16float')] }), gauss: device.createBindGroupLayout({ entries: [T(0), W(1, 'rgba16float'), { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }) };
   const pipe = (code, l1) => device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [g0Layout, l1] }), compute: { module: device.createShaderModule({ code: nrcShader(code) }), entryPoint: 'main' } });
-  const pipes = { gbuf: pipe(WG_GBUF, layouts.gbuf), shadow: pipe(WG_SHADOW, layouts.shadow), discDup: pipe(WG_DISC_DUP, layouts.discDup), gi: pipe(WG_GI, layouts.gi), blur: pipe(WG_BLUR, layouts.blur), refl: pipe(WG_REFL, layouts.refl), cache: pipe(WG_CACHE, layouts.cache), cacheResolve: pipe(WG_CACHE_RESOLVE, layouts.cache), cacheTouch: pipe(WG_CACHE_TOUCH, layouts.cache), cacheSimple: pipe(WG_CACHE_SIMPLE, layouts.cache), nrcTrain: pipe(WG_NRC_TRAIN, layouts.nrcTrain), comp: pipe(WG_COMP, layouts.comp), taa: pipe(WG_TAA, layouts.taa), acc: pipe(WG_ACC, layouts.acc), budget: pipe(WG_BUDGET, layouts.budget), vol: pipe(WG_VOL, layouts.vol), bright: pipe(WG_BRIGHT, layouts.bright), gauss: pipe(WG_GAUSS, layouts.gauss) };
+  const pipes = { froxelLight: pipe(WG_FROXEL_LIGHT,layouts.froxelLight), froxelIntegrate: pipe(WG_FROXEL_INTEGRATE,layouts.froxelIntegrate), gbuf: pipe(WG_GBUF, layouts.gbuf), shadow: pipe(WG_SHADOW, layouts.shadow), discDup: pipe(WG_DISC_DUP, layouts.discDup), gi: pipe(WG_GI, layouts.gi), blur: pipe(WG_BLUR, layouts.blur), refl: pipe(WG_REFL, layouts.refl), cache: pipe(WG_CACHE, layouts.cache), cacheResolve: pipe(WG_CACHE_RESOLVE, layouts.cache), cacheTouch: pipe(WG_CACHE_TOUCH, layouts.cache), cacheSimple: pipe(WG_CACHE_SIMPLE, layouts.cache), nrcTrain: pipe(WG_NRC_TRAIN, layouts.nrcTrain), comp: pipe(WG_COMP, layouts.comp), taa: pipe(WG_TAA, layouts.taa), acc: pipe(WG_ACC, layouts.acc), budget: pipe(WG_BUDGET, layouts.budget), vol: pipe(WG_VOL, layouts.vol), bright: pipe(WG_BRIGHT, layouts.bright), gauss: pipe(WG_GAUSS, layouts.gauss) };
   const splatLayout = device.createBindGroupLayout({ entries: [T(0), T(1), T(2), T(3), { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] });
   const splatModule = device.createShaderModule({ code: WG_SPLAT });
   const splatPipe = entryPoint => device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [g0Layout, splatLayout] }), compute: { module: splatModule, entryPoint } });
@@ -2498,14 +2595,14 @@ async function startWebGPU() {
     st.splatGroups = [bg(splatLayout, [v.rA1, v.rB1, v.gA, v.gB, { buffer: st.splatDepth }, { buffer: st.splatOwner }, { buffer: splatParam }]), bg(splatLayout, [v.rA0, v.rB0, v.gA, v.gB, { buffer: st.splatDepth }, { buffer: st.splatOwner }, { buffer: splatParam }])];
     const blurP = (i, dir, stride, rw, rh) => { device.queue.writeBuffer(blurBufs[i], 0, new Float32Array([dir[0], dir[1], stride, denoise ? 1 : 0, rw, rh, 0, 0])); return blurBufs[i]; };
     device.queue.writeBuffer(accBufs[0], 0, new Float32Array([ss, 0.05, lw, lh])); device.queue.writeBuffer(accBufs[1], 0, new Float32Array([gs + 10, 0.06, qw, qh])); device.queue.writeBuffer(accBufs[2], 0, new Float32Array([gs + 10, 0.08, qw, qh]));
-    st.groups = { gbuf: bg(layouts.gbuf, [v.gA, v.gB, v.gC, v.gD]), shadow: [bg(layouts.shadow, [v.gA, v.gB, v.sRaw, v.sH1, v.sSun1, v.sMoon1, v.sSurf1, v.sDup1, v.sSun0, v.sMoon0, v.sSurf0, v.sBudget0, v.sProbe]), bg(layouts.shadow, [v.gA, v.gB, v.sRaw, v.sH0, v.sSun0, v.sMoon0, v.sSurf0, v.sDup0, v.sSun1, v.sMoon1, v.sSurf1, v.sBudget1, v.sProbe])], discDup: [bg(layouts.discDup, [v.sSun0, v.sMoon0, v.sDup0]), bg(layouts.discDup, [v.sSun1, v.sMoon1, v.sDup1])], gi: [bg(layouts.gi, [v.gA, v.gB, v.gRaw, v.gH1, v.gFirst1, v.gBudget0, v.gProbe, v.gFirst0]), bg(layouts.gi, [v.gA, v.gB, v.gRaw, v.gH0, v.gFirst0, v.gBudget1, v.gProbe, v.gFirst1])], cache: device.createBindGroup({ layout: layouts.cache, entries: [{ binding: 0, resource: { buffer: statsBuf } }, { binding: 1, resource: { buffer: bCacheReuse } }] }), nrcTrain: device.createBindGroup({ layout: layouts.nrcTrain, entries: [{ binding: 0, resource: { buffer: nrcBufs.part } }, { binding: 1, resource: { buffer: statsBuf } }] }),
+    st.groups = { froxelLight: bg(layouts.froxelLight,[{buffer:froxelBuffer},{buffer:froxelUniform},v.gA]), froxelIntegrate: bg(layouts.froxelIntegrate,[{buffer:froxelBuffer},{buffer:froxelUniform}]), gbuf: bg(layouts.gbuf, [v.gA, v.gB, v.gC, v.gD]), shadow: [bg(layouts.shadow, [v.gA, v.gB, v.sRaw, v.sH1, v.sSun1, v.sMoon1, v.sSurf1, v.sDup1, v.sSun0, v.sMoon0, v.sSurf0, v.sBudget0, v.sProbe]), bg(layouts.shadow, [v.gA, v.gB, v.sRaw, v.sH0, v.sSun0, v.sMoon0, v.sSurf0, v.sDup0, v.sSun1, v.sMoon1, v.sSurf1, v.sBudget1, v.sProbe])], discDup: [bg(layouts.discDup, [v.sSun0, v.sMoon0, v.sDup0]), bg(layouts.discDup, [v.sSun1, v.sMoon1, v.sDup1])], gi: [bg(layouts.gi, [v.gA, v.gB, v.gRaw, v.gH1, v.gFirst1, v.gBudget0, v.gProbe, v.gFirst0]), bg(layouts.gi, [v.gA, v.gB, v.gRaw, v.gH0, v.gFirst0, v.gBudget1, v.gProbe, v.gFirst1])], cache: device.createBindGroup({ layout: layouts.cache, entries: [{ binding: 0, resource: { buffer: statsBuf } }, { binding: 1, resource: { buffer: bCacheReuse } }] }), nrcTrain: device.createBindGroup({ layout: layouts.nrcTrain, entries: [{ binding: 0, resource: { buffer: nrcBufs.part } }, { binding: 1, resource: { buffer: statsBuf } }] }),
       accS: [device.createBindGroup({ layout: layouts.acc, entries: [E(0, v.gA), E(1, v.sRaw), E(2, v.sH1), E(3, v.sH0), E(4, { buffer: accBufs[0] })] }), device.createBindGroup({ layout: layouts.acc, entries: [E(0, v.gA), E(1, v.sRaw), E(2, v.sH0), E(3, v.sH1), E(4, { buffer: accBufs[0] })] })],
       accG: [device.createBindGroup({ layout: layouts.acc, entries: [E(0, v.gA), E(1, v.gRaw), E(2, v.gH1), E(3, v.gH0), E(4, { buffer: accBufs[1] })] }), device.createBindGroup({ layout: layouts.acc, entries: [E(0, v.gA), E(1, v.gRaw), E(2, v.gH0), E(3, v.gH1), E(4, { buffer: accBufs[1] })] })],
       vol: [bg(layouts.vol, [v.gA, v.gB, v.vRaw, { buffer: st.volReservoir[1] }, { buffer: st.volReservoir[0] }, { buffer: volRParam }]), bg(layouts.vol, [v.gA, v.gB, v.vRaw, { buffer: st.volReservoir[0] }, { buffer: st.volReservoir[1] }, { buffer: volRParam }])], accV: [device.createBindGroup({ layout: layouts.acc, entries: [E(0, v.gA), E(1, v.vRaw), E(2, v.vH1), E(3, v.vH0), E(4, { buffer: accBufs[2] })] }), device.createBindGroup({ layout: layouts.acc, entries: [E(0, v.gA), E(1, v.vRaw), E(2, v.vH0), E(3, v.vH1), E(4, { buffer: accBufs[2] })] })],
       blurV1: [0, 1].map(i => device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, i ? v.vH1 : v.vH0), E(3, v.vB2), E(4, { buffer: blurP(4, [1, 0], gs, qw, qh) })] })), blurV2: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.vB2), E(3, v.vB), E(4, { buffer: blurP(5, [0, 1], gs, qw, qh) })] }),
       blurS1: [0, 1].map(i => device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, i ? v.sH1 : v.sH0), E(3, v.sV2), E(4, { buffer: blurP(0, [1, 0], ss, lw, lh) })] })), blurS2: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.sV2), E(3, v.sV), E(4, { buffer: blurP(1, [0, 1], ss, lw, lh) })] }),
       blurG1: [0, 1].map(i => device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, i ? v.gH1 : v.gH0), E(3, v.gi2), E(4, { buffer: blurP(2, [1, 0], gs, qw, qh) })] })), blurG2: device.createBindGroup({ layout: layouts.blur, entries: [E(0, v.gA), E(1, v.gB), E(2, v.gi2), E(3, v.gi), E(4, { buffer: blurP(3, [0, 1], gs, qw, qh) })] }),
-      refl: bg(layouts.refl, [v.gA, v.gB, v.refl]), comp: [bg(layouts.comp, [v.gA, v.gB, v.gC, v.gD, v.sV, v.gi, v.refl, v.cur, v.vB, v.rA1, v.rB1, v.rA0, v.rB0, { buffer: st.splatOwner }, { buffer: splatParam }]), bg(layouts.comp, [v.gA, v.gB, v.gC, v.gD, v.sV, v.gi, v.refl, v.cur, v.vB, v.rA0, v.rB0, v.rA1, v.rB1, { buffer: st.splatOwner }, { buffer: splatParam }])],
+      refl: bg(layouts.refl, [v.gA, v.gB, v.refl]), comp: [bg(layouts.comp, [v.gA, v.gB, v.gC, v.gD, v.sV, v.gi, v.refl, v.cur, v.vB, v.rA1, v.rB1, v.rA0, v.rB0, { buffer: st.splatOwner }, { buffer: splatParam }, {buffer:froxelBuffer}, {buffer:froxelUniform}]), bg(layouts.comp, [v.gA, v.gB, v.gC, v.gD, v.sV, v.gi, v.refl, v.cur, v.vB, v.rA0, v.rB0, v.rA1, v.rB1, { buffer: st.splatOwner }, { buffer: splatParam }, {buffer:froxelBuffer}, {buffer:froxelUniform}])],
       taa: [bg(layouts.taa, [v.gA, v.cur, v.acc1, v.acc0]), bg(layouts.taa, [v.gA, v.cur, v.acc0, v.acc1])], bright: [bg(layouts.bright, [v.acc0, v.bl0]), bg(layouts.bright, [v.acc1, v.bl0])],
       gauss1: device.createBindGroup({ layout: layouts.gauss, entries: [E(0, v.bl0), E(1, v.bl1), E(2, { buffer: (device.queue.writeBuffer(gaussBufs[0], 0, new Float32Array([1, 0, bw, bh])), gaussBufs[0]) })] }), gauss2: device.createBindGroup({ layout: layouts.gauss, entries: [E(0, v.bl1), E(1, v.bl0), E(2, { buffer: (device.queue.writeBuffer(gaussBufs[1], 0, new Float32Array([0, 1, bw, bh])), gaussBufs[1]) })] }),
       disp: [device.createBindGroup({ layout: dispLayout, entries: [E(0, v.acc0), E(1, dispSamp), E(2, { buffer: bDisp }), E(3, v.bl0)] }), device.createBindGroup({ layout: dispLayout, entries: [E(0, v.acc1), E(1, dispSamp), E(2, { buffer: bDisp }), E(3, v.bl0)] })] };
@@ -2520,13 +2617,13 @@ async function startWebGPU() {
     f[56] = w; f[57] = h; f[58] = st.lw; f[59] = st.lh; f[60] = st.qw; f[61] = st.qh; f[62] = jitter.x; f[63] = jitter.y;
     f[64] = U.uSunE.value; f[65] = U.uSunfade.value; f[66] = U.uMieG.value; f[67] = U.uSunCos.value; f[68] = U.uNight.value; f[69] = U.uSkyOn.value; f[70] = U.uBounceOn.value; f[71] = U.uFogD.value; f[72] = U.uSunSize.value; f[73] = U.uMoonSize.value; f[74] = U.uNoiseShift.value; f[75] = blend;
     paramsI[76] = tlasRoot; paramsI[77] = spheres.length; paramsI[78] = U.uShadowK.value; paramsI[79] = U.uGiK.value; paramsI[80] = view; paramsI[81] = U.uFrame.value; paramsI[82] = st.ss; paramsI[83] = st.gs;
-    f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 160); const o2 = 84 + MATN * 12 + 320; f.set(prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; f.set([...SIM.fire.min, 0, ...SIM.fire.max, 0, ...SIM.chim.min, 0, ...SIM.chim.max, 0, SIM.water.x0, SIM.water.z0, SIM.water.size, SIM.water.n, fx.waterOn ? 1 : 0, fx.fireOn ? 1 : 0, fx.chimOn ? 1 : 0, fx.hideFlame ? 1 : 0], o2 + 20); f.set([fx.oceanOn ? 1 : 0, OCEAN_L, fx.cacheOn ? 1 : 0, fx.restirOn ? 1 : 0, fx.nrcOn && fx.cacheOn ? 1 : 0, 0, 0, fx.vrr ? 1 : 0, atm.rayScale, atm.mieScale, atm.g, 0], o2 + 44); f.set([fx.cvOn ? 1 : 0, 0, 0, 0], o2 + 56); f.set(prevLightA, o2 + 60); f.set(prevLightE, o2 + 220);
+    f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 160); const o2 = 84 + MATN * 12 + 320; f.set(prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; f.set([...SIM.fire.min, 0, ...SIM.fire.max, 0, ...SIM.chim.min, 0, ...SIM.chim.max, 0, SIM.water.x0, SIM.water.z0, SIM.water.size, SIM.water.n, fx.waterOn ? 1 : 0, fx.fireOn && fireOn ? 1 : 0, fx.chimOn ? 1 : 0, fx.hideFlame || !fireOn ? 1 : 0], o2 + 20); f.set([fx.oceanOn ? 1 : 0, OCEAN_L, fx.cacheOn ? 1 : 0, fx.restirOn ? 1 : 0, fx.nrcOn && fx.cacheOn ? 1 : 0, 0, 0, fx.vrr ? 1 : 0, atm.rayScale, atm.mieScale, atm.g, 0], o2 + 44); f.set([fx.cvOn ? 1 : 0, 0, 0, 0], o2 + 56); f.set(prevLightA, o2 + 60); f.set(prevLightE, o2 + 220);
     prevLightA.set(sphA); for (let i = 0; i < 40; i++) { const m = sphB[i * 4] | 0, on = i < spheres.length && sphB[i * 4 + 1] > 0.5; for (let j = 0; j < 3; j++) prevLightE[i * 4 + j] = on ? matA[m * 4 + j] * matB[m * 4 + 1] : 0; } f.set([fx.discReuse ? 1 : 0, 0, 0, 0], DISC_PARAM_F); f.set([fx.cacheReuseOn ? 1 : 0, fx.cacheReuseEpoch, 0, 0], CACHE_REUSE_OFFSET); const useHash=halfNrc&&fx.hashNrc;const trainHash=useHash&&(U.uFrame.value%8!==0);f.set([useHash?1:0,trainHash?1:0,halfNrc?1:0,0],HASH_PARAM_F);
     const model=trainHash?1:0;if(fx.nrcOn&&fx.cacheOn)nrcSteps[model]++;device.queue.writeBuffer(nrcMode,0,new Uint32Array([model,nrcSteps[model],0,0]));f.set([fx.instantOn ? 1 : 0, 6, 0, 0], INSTANT_PARAM_F); f.set([fx.ntcOn && ntcReady ? 1 : 0, 0, 0, 0], NTC_PARAM_O); f.set(ntcWeights, NTC_PARAM_O + 4); f.set([fx.wideOn ? 1 : 0, wideTlasRoot, wideNodeBase, wideBVH.words.length / 16], WIDE_BVH_OFFSET); f.set([fx.voxelOn ? 1 : 0, fx.voxelDistance, 6, 0], LEAF_VOX_OFFSET); device.queue.writeBuffer(bParams, 0, paramsArr); }
   function render(w, h, blend, view, jitter, doBlur, ss, gs) {
     const safeSize = fitRasterSize(w, h, device.limits.maxTextureDimension2D, viewportPixelLimit);
     resourceSize.primaryScaled = safeSize[0] !== w || safeSize[1] !== h; [w, h] = safeSize;
-    ensure(w, h, ss, gs); fillParams(w, h, blend, view, jitter); volRData[0] = fx.volReuse ? 1 : 0; device.queue.writeBuffer(volRParam, 0, volRData);
+    ensure(w, h, ss, gs); fillParams(w, h, blend, view, jitter); volRData[0] = fx.volReuse ? 1 : 0; device.queue.writeBuffer(volRParam, 0, volRData); froxelU[3]=fx.froxelOn?1:0;device.queue.writeBuffer(froxelUniform,0,froxelData);
     splatPV.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); splatParamF.set(splatPV.elements, 0); splatParamU[16] = w; splatParamU[17] = h; splatParamU[18] = fx.splatOn && fx.restirOn ? 1 : 0; device.queue.writeBuffer(splatParam, 0, splatParamData); const sc = sunDir.clone().multiplyScalar(1000).add(camera.position).project(camera); device.queue.writeBuffer(bDisp, 0, new Float32Array([dispU.uExposure.value, dispU.uCurve.value, fx.bloom, fx.shafts, sc.x * 0.5 + 0.5, 0.5 - sc.y * 0.5, sc.z < 1 && sunDir.y > 0.02 ? 1 : 0, 0]));
     const requestedCw = Math.max(2, Math.round(sb.stage.clientWidth * Math.min(devicePixelRatio || 1, 2))), requestedCh = Math.max(2, Math.round(sb.stage.clientHeight * Math.min(devicePixelRatio || 1, 2)));
     const [cw, ch] = fitRasterSize(requestedCw, requestedCh, device.limits.maxTextureDimension2D, Infinity); resourceSize.displayScaled = cw !== requestedCw || ch !== requestedCh; if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
@@ -2534,7 +2631,8 @@ async function startWebGPU() {
     if (fx.instantOn) enc.clearBuffer(bCache, 65536 * 64, INSTANT_BYTES); run(pipes.gbuf, G.gbuf, w, h);
     if (fx.splatOn && fx.restirOn) { enc.clearBuffer(st.splatDepth); enc.clearBuffer(st.splatOwner); run(splatPipes.depth, st.splatGroups[cur], w, h); run(splatPipes.owner, st.splatGroups[cur], w, h); } if (fx.cacheOn) { if (fx.cacheReuseOn) { enc.clearBuffer(bCacheReuse, CACHE_REUSE_BYTES, 16); run(pipes.cache, G.cache, 65536 / 8, 8); run(pipes.cacheResolve, G.cache, 65536 / 8, 8); run(pipes.cacheTouch, G.cache, 65536 / 8, 8); if (!cacheReusePending) { enc.copyBufferToBuffer(bCacheReuse, CACHE_REUSE_BYTES, cacheReuseRead, 0, 16); cacheReuseCopied = true; } } else { run(pipes.cacheSimple, G.cache, 65536 / 8, 8); } if (fx.nrcOn) { enc.clearBuffer(nrcBufs.part,NRC_GRAD*4,(NRC_VALID+4-NRC_GRAD)*4); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.nrcTrain:pipes.nrcTrain, G.nrcTrain, NRC_WG * 64 / 8, 8); const c = enc.beginComputePass(); c.setPipeline(nrcApply.pipe); c.setBindGroup(0, nrcApply.group); c.dispatchWorkgroups(Math.ceil((halfNrc&&fx.hashNrc&&(U.uFrame.value%8!==0)?NRC_HASH_ENTRIES:NRC_NP)/64)); c.end(); } } if (fx.vrr) { enc.clearBuffer(rayStatsBuf); run(pipes.budget, G.budgetS[cur], st.lw, st.lh); run(pipes.budget, G.budgetG[cur], st.qw, st.qh); } run(pipes.shadow, G.shadow[cur], st.lw, st.lh); if (fx.discReuse) run(pipes.discDup, G.discDup[cur], st.lw, st.lh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.acc:pipes.acc, G.accS[cur], st.lw, st.lh); run(pipes.gi, G.gi[cur], st.qw, st.qh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.acc:pipes.acc, G.accG[cur], st.qw, st.qh);
     run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.blur:pipes.blur, G.blurS1[cur], st.lw, st.lh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.blur:pipes.blur, G.blurS2, st.lw, st.lh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.blur:pipes.blur, G.blurG1[cur], st.qw, st.qh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.blur:pipes.blur, G.blurG2, st.qw, st.qh);
-    run(pipes.vol, G.vol[cur], st.qw, st.qh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.acc:pipes.acc, G.accV[cur], st.qw, st.qh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.blur:pipes.blur, G.blurV1[cur], st.qw, st.qh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.blur:pipes.blur, G.blurV2, st.qw, st.qh);
+    if(fx.froxelOn){const c=enc.beginComputePass();c.setPipeline(pipes.froxelLight);c.setBindGroup(0,g0);c.setBindGroup(1,G.froxelLight);c.dispatchWorkgroups(Math.ceil(FROXEL_DIMS[0]/4),Math.ceil(FROXEL_DIMS[1]/4),Math.ceil(FROXEL_DIMS[2]/4));c.end();run(pipes.froxelIntegrate,G.froxelIntegrate,FROXEL_DIMS[0],FROXEL_DIMS[1]);}
+    else{run(pipes.vol, G.vol[cur], st.qw, st.qh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.acc:pipes.acc, G.accV[cur], st.qw, st.qh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.blur:pipes.blur, G.blurV1[cur], st.qw, st.qh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.blur:pipes.blur, G.blurV2, st.qw, st.qh);}
     run(pipes.refl, G.refl, w, h); run(pipes.comp, G.comp[cur], w, h);
     if (fx.splatOn && fx.restirOn && !splatPending && U.uFrame.value % 16 === 0) { enc.copyBufferToBuffer(st.splatOwner, w * h * 4, splatRead, 0, 16); splatQueued = true; } run(pipes.taa, G.taa[cur], w, h); run(pipes.bright, G.bright[cur], st.bw, st.bh); run(pipes.gauss, G.gauss1, st.bw, st.bh); run(pipes.gauss, G.gauss2, st.bw, st.bh);
     const rp = enc.beginRenderPass({ ...timed(false), colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] }); rp.setPipeline(dispPipe); rp.setBindGroup(0, G.disp[cur]); rp.draw(3); rp.end();
@@ -2595,7 +2693,7 @@ s2.note('The learned grid starts off because it can mottle flat walls while trai
 const nrcRead = s2.readout('neural cache: error against the grid');
 gpuOnly(s2.toggle('use this frame’s bounce hits where enough meet [instant cache]', false, v => { fx.instantOn = v; dirty(); }));
 s2.note('This starts off because the night bounce can look blotchy. Six current-frame ray samples can answer a cell. Nearby cells blend where their surfaces agree. Sparse areas keep the filtered bounce answer or the temporal grid. Display anti-aliasing still blends frames.');
-s2.toggle('the campfire', true, v => { fireOn = v; placeSun(); });
+s2.toggle('the campfire', true, v => { fireOn = v; spheres[8].c.y = v ? terrainH(FIRE.x, FIRE.z) + 0.55 : -500; writeSpheres(); placeSun(); });
 s2.toggle('the lanterns', true, v => { lampsOn = v; placeSun(); });
 s2.note('Look for the red bounce from the crates on the grass beside them, the green bounce under the trees, and at night the fire lighting the cabin wall from below.');
 
@@ -2623,6 +2721,11 @@ s5.slider('How thick', { min: 0, max: 0.02, step: 0.0005, value: 0.0015, fmt: v 
 gpuOnly(s5.slider('Mist, pooling low (sun beams live in it)', { min: 0, max: 0.08, step: 0.002, value: 0.006, fmt: v => (+v).toFixed(3) }, v => { fx.mist = v; }));
 const shaftReuseCtl = gpuOnly(s5.toggle('reuse sun picks in the air [volumetric RIS]', false, v => { fx.volReuse = v; dirty(); }));
 const shaftReuseRead = s5.readout('sun rays through the mist');
+gpuOnly(s5.toggle('one shared grid for mist and smoke [froxel air]', false, v => {fx.froxelOn=v;refreshShaftControl();dirty();}));
+const froxelRead=s5.readout('shared air grid');
+s5.note('This starts off because the grid softens small flames. Smoke receives light from the fire and lanterns, but does not cast shadows on itself. The 160 × 90 × 64 grid holds about 28 MiB of air data.');
+function refreshShaftControl(){const disabled=!gpu||fx.froxelOn;shaftReuseCtl.el.querySelectorAll('input,button').forEach(e=>e.disabled=disabled);shaftReuseCtl.el.style.opacity=disabled?'0.45':'';shaftReuseCtl.el.title=fx.froxelOn?'the shared air grid supplies this light':!gpu?'needs WebGPU':'';}
+refreshShaftControl();
 s5.note('Reusing sun picks starts off because beam edges looked blotchy with a low sun.');
 gpuOnly(s5.slider('Glow around bright things (bloom)', { min: 0, max: 0.5, step: 0.01, value: 0.12, fmt: v => (+v).toFixed(2) }, v => { fx.bloom = v; }));
 
@@ -2707,7 +2810,8 @@ sb.onFrame((dt) => {
     ntcMemoryRead(kib(n.referenceBytes) + ' originals + ' + kib(n.atlasBytes + n.uniformBytes) + ' experiment');
     ntcQualityRead(n.state === 'ready' ? (fx.ntcOn ? 'on, ' : 'off, ') + (10 * Math.log10(1 / Math.max(n.mse, 1e-12))).toFixed(1) + ' dB [held-out PSNR], ' + (n.ms / 1000).toFixed(1) + ' s training' : n.state === 'error' ? n.error : n.state + ', ' + n.samples.toLocaleString() + ' samples');
   }
-  shaftReuseRead(!gpu ? 'needs WebGPU' : fx.volReuse ? ((lightFrom !== 'sky' && sunStrength > 0 && (window.__skyStats?.sun || []).some(v => v > 0)) ? 'one ray, with one frame of reused picks' : 'no direct sun, no sun rays') : ((lightFrom !== 'sky' && sunStrength > 0 && (window.__skyStats?.sun || []).some(v => v > 0)) ? '12 rays, one at each step' : 'no direct sun, no sun rays'));
+  froxelRead(!gpu?'needs WebGPU':fx.froxelOn?'160 × 90 × 64 cells, current light and smoke':'off, separate volume marches');
+  shaftReuseRead(!gpu ? 'needs WebGPU' : fx.froxelOn ? 'supplied by the shared air grid' : fx.volReuse ? ((lightFrom !== 'sky' && sunStrength > 0 && (window.__skyStats?.sun || []).some(v => v > 0)) ? 'one ray, with one frame of reused picks' : 'no direct sun, no sun rays') : ((lightFrom !== 'sky' && sunStrength > 0 && (window.__skyStats?.sun || []).some(v => v > 0)) ? '12 rays, one at each step' : 'no direct sun, no sun rays'));
   expRead(exposure.toFixed(2) + (autoExp ? ', automatic' : ', by hand')); cacheVarianceRead(!gpu ? 'needs WebGPU' : !(fx.cacheOn && fx.cacheReuseOn) ? 'off' : (window.__cacheReuseStats.before || 0).toFixed(3) + ' before, ' + (window.__cacheReuseStats.after || 0).toFixed(3) + ' after'); hashNrcRead(!gpu?'needs WebGPU':fx.hashNrc&&window.__nrcFeatures?.half?'8 grids, 2 learned values per cell, 512 KiB of packed grid features [f16 dots, f32 training]':'sine and cosine positions [f32 fallback]'); nrcRead(!gpu ? 'needs WebGPU' : !(fx.nrcOn && fx.cacheOn) ? 'off' : (window.__skyStats.nrcLoss || 0).toFixed(4) + ' per cell (log light)'); cellsRead(!gpu ? 'needs WebGPU' : !fx.cacheOn ? 'off' : (window.__skyStats.cells || 0).toLocaleString() + ' cells, ' + (window.__skyStats.cellsUpd || 0).toLocaleString() + ' refreshed this frame'); accRead(!accumulate ? 'off' : gpu ? 'temporal, reprojected' : Math.min(accN, 32) + (accN === 1 ? ' frame' : ' frames') + (rtScale < 1 ? ', small picture' : ''));
   sb.hud('mode', (hour < 5 || hour > 20 ? 'night: dark except where the fire and the lanterns reach, and a little moon' : hour < 8 || hour > 17.5 ? 'a low sun through a lot of air: orange light, long soft shadows' : 'high sun: white light, blue sky, hills fading into blue haze') + ' · one ray per pixel finds the surface, a few more light it');
 });
