@@ -440,7 +440,7 @@ struct Params { invPV: mat4x4f, camPos: vec4f, sunDir: vec4f, sunCol: vec4f, moo
   sunE: f32, sunfade: f32, mieG: f32, sunCos: f32, night: f32, skyOn: f32, bounceOn: f32, fogD: f32, sunSize: f32, moonSize: f32, noiseShift: f32, blend: f32,
   tlasRoot: i32, nsph: i32, shadowK: i32, giK: i32, view: i32, frame: i32, shadowStride: i32, giStride: i32,
   matA: array<vec4f, ${MATN}>, matB: array<vec4f, ${MATN}>, matC: array<vec4f, ${MATN}>, sphA: array<vec4f, 40>, sphB: array<vec4f, 40>,
-  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f, atm: vec4f };
+  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f, atm: vec4f, sampling: vec4f, prevLightA: array<vec4f, 40>, prevLightE: array<vec4f, 40> };
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> nodes: array<vec4f>;
 @group(0) @binding(2) var<storage, read> tris: array<vec4f>;
@@ -564,8 +564,12 @@ fn sphereLights(p: vec3f, n: vec3f, v: vec3f, diffuse: vec3f, F0: vec3f, rough: 
       lSum += (diffuse + specBRDF(n, v, l, rough, F0)) * ndl * nl / (dist * dist); }
     L += emis * lSum * (2.0 * PI * s.w * s.w) / f32(K); }
   return L; }
+// A reservoir seed selects both hemisphere coordinates. Quantize seeds before use
+// so packing light index + seed in one f32 preserves the exact point across frames.
+fn lightHash(v: u32) -> u32 { var h = v; h ^= h >> 16u; h *= 2146121005u; h ^= h >> 15u; h *= 2221713035u; return h ^ (h >> 16u); }
+fn lightPoint(w: vec3f, seed: f32) -> vec3f { let id = u32(seed * 131072.0); let z = (f32(lightHash(id) & 0x00ffffffu) + 0.5) / 16777216.0; let phi = 2.0 * PI * (f32(lightHash(id ^ 0x9e3779b9u) & 0x00ffffffu) + 0.5) / 16777216.0; let r = sqrt(max(1.0 - z * z, 0.0)); let f = frameOf(w); return normalize(w * z + r * (f[0] * cos(phi) + f[1] * sin(phi))); }
 // one light sample: light i, a point on it picked by seed; what it would give this surface if nothing were in the way
-fn lightEval(i: i32, seed: f32, p: vec3f, n: vec3f, v: vec3f, diffuse: vec3f, F0: vec3f, rough: f32, lo: ptr<function, vec3f>, dd: ptr<function, f32>) -> vec3f { let s = P.sphA[i]; let lm = i32(P.sphB[i].x); let emis = P.matA[lm].rgb * P.matB[lm].y; let toP = p - s.xyz; let dc = length(toP); if (dc < 1e-4) { return vec3f(0.0); } let sn = hemiK(toP / dc, 0, 1, seed); let q = s.xyz + s.w * sn; let dq = q - p; let dist = length(dq); let l = dq / dist; let ndl = dot(n, l); let nl = dot(sn, -l); if (ndl <= 0.0 || nl <= 0.0) { return vec3f(0.0); } *lo = l; *dd = dist; return emis * (diffuse + specBRDF(n, v, l, rough, F0)) * ndl * nl / (dist * dist) * (2.0 * PI * s.w * s.w); }
+fn lightEval(i: i32, seed: f32, p: vec3f, n: vec3f, v: vec3f, diffuse: vec3f, F0: vec3f, rough: f32, lo: ptr<function, vec3f>, dd: ptr<function, f32>) -> vec3f { let s = P.sphA[i]; let lm = i32(P.sphB[i].x); let emis = P.matA[lm].rgb * P.matB[lm].y; let toP = p - s.xyz; let dc = length(toP); if (dc < 1e-4) { return vec3f(0.0); } let sn = lightPoint(toP / dc, seed); let q = s.xyz + s.w * sn; let dq = q - p; let dist = length(dq); let l = dq / dist; let ndl = dot(n, l); let nl = dot(sn, -l); if (ndl <= 0.0 || nl <= 0.0) { return vec3f(0.0); } *lo = l; *dd = dist; return emis * (diffuse + specBRDF(n, v, l, rough, F0)) * ndl * nl / (dist * dist) * (2.0 * PI * s.w * s.w); }
 fn lum(c: vec3f) -> f32 { return dot(c, vec3f(0.2126, 0.7152, 0.0722)); }
 fn octEnc(n: vec3f) -> vec2f { var e = n.xy / (abs(n.x) + abs(n.y) + abs(n.z)); if (n.z < 0.0) { e = (1.0 - abs(e.yx)) * select(vec2f(-1.0), vec2f(1.0), e >= vec2f(0.0)); } return e; }
 fn octDec(e: vec2f) -> vec3f { var n = vec3f(e, 1.0 - abs(e.x) - abs(e.y)); if (n.z < 0.0) { let t = (1.0 - abs(n.yx)) * select(vec2f(-1.0), vec2f(1.0), n.xy >= vec2f(0.0)); n = vec3f(t, n.z); } return normalize(n); }
@@ -709,26 +713,55 @@ const WG_REFL = WG_COMMON + `
 const WG_COMP = WG_COMMON + `
 @group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var gC: texture_2d<f32>; @group(1) @binding(3) var gD: texture_2d<f32>; @group(1) @binding(4) var tV: texture_2d<f32>; @group(1) @binding(5) var tG: texture_2d<f32>; @group(1) @binding(6) var tR: texture_2d<f32>; @group(1) @binding(7) var oCur: texture_storage_2d<rgba16float, write>; @group(1) @binding(8) var tVol: texture_2d<f32>;
 @group(1) @binding(9) var tRA: texture_2d<f32>; @group(1) @binding(10) var tRB: texture_2d<f32>; @group(1) @binding(11) var oRA: texture_storage_2d<rgba32float, write>; @group(1) @binding(12) var oRB: texture_storage_2d<rgba32float, write>;
-// ReSTIR for the small lights: every pixel keeps one chosen light sample and a weight; candidates from all lights, then last frame's choice (reprojected) and a few neighbours' choices are folded in, and one shadow ray checks the winner
+// ReSTCV-inspired irradiance control: C + W*(visible shading - diffuse*g).
+// The control g has no material or view dependence. Retain the previous light state so
+// pairwise MIS differences compare the actual old integrand, including flicker and motion.
+// Source: Hercier/ReSTCV, Resampling.slang. This lite version controls diffuse light only.
+// Signed RGB with a shared exponent uses 30 bits; the stored f32 is always finite.
+fn packColour(c: vec3f) -> f32 { let m = max(max(abs(c.x), abs(c.y)), abs(c.z)); if (m < 1e-9) { return 0.0; }
+  let e = clamp(i32(ceil(log2(m))), -30, 31); let q = vec3u(clamp(round(c * (127.0 / exp2(f32(e)))) + 127.0, vec3f(0.0), vec3f(254.0)));
+  return bitcast<f32>(q.x | (q.y << 8u) | (q.z << 16u) | (u32(e + 31) << 24u)); }
+fn unpackColour(v: f32) -> vec3f { let u = bitcast<u32>(v); if (u == 0u) { return vec3f(0.0); }
+  return (vec3f(f32(u & 255u), f32((u >> 8u) & 255u), f32((u >> 16u) & 255u)) - 127.0) * (exp2(f32(i32(u >> 24u) - 31)) / 127.0); }
+fn lightControl(i: i32, seed: f32, p: vec3f, n: vec3f, old: bool) -> vec3f {
+  if (i < 0 || i >= 40) { return vec3f(0.0); } var s = P.sphA[i]; let lm = i32(P.sphB[i].x); var e = P.matA[lm].rgb * P.matB[lm].y;
+  if (P.sphB[i].y < 0.5) { e = vec3f(0.0); } if (old) { s = P.prevLightA[i]; e = P.prevLightE[i].rgb; }
+  let dp = p - s.xyz; let dc = length(dp); if (dc < 1e-4 || dc > 24.0 || dot(e, e) <= 0.0) { return vec3f(0.0); }
+  let sn = lightPoint(dp / dc, seed); let dq = s.xyz + s.w * sn - p; let d2 = max(dot(dq, dq), 1e-6); let l = dq * inverseSqrt(d2);
+  return e * max(dot(n, l), 0.0) * max(dot(sn, -l), 0.0) / d2 * (2.0 * PI * s.w * s.w); }
 struct Rsv { idx: i32, seed: f32, wsum: f32, M: f32, phat: f32 };
-fn rsvAdd(r: ptr<function, Rsv>, idx: i32, seed: f32, w: f32, phat: f32, m: f32, u: f32) { (*r).wsum += w; (*r).M += m; if (u * (*r).wsum <= w) { (*r).idx = idx; (*r).seed = seed; (*r).phat = phat; } }
+fn rsvAdd(r: ptr<function, Rsv>, idx: i32, seed: f32, w: f32, phat: f32, m: f32, u: f32) { (*r).wsum += w; (*r).M += m; if (w > 0.0 && u * (*r).wsum <= w) { (*r).idx = idx; (*r).seed = seed; (*r).phat = phat; } }
 fn restirLights(px: vec2i, p: vec3f, n: vec3f, v: vec3f, diffuse: vec3f, F0: vec3f, rough: f32, dist: f32) -> vec3f {
   if (P.ocean.w < 0.5) { textureStore(oRA, px, vec4f(-1.0, 0.0, 0.0, 0.0)); textureStore(oRB, px, vec4f(p, 0.0)); return sphereLights(p, n, v, diffuse, F0, rough, ign0(vec2f(px)), 1, 20.0); }
-  var r: Rsv; r.idx = -1; r.seed = 0.0; r.wsum = 0.0; r.M = 0.0; r.phat = 0.0; let base = fract(ign0(vec2f(px)) + f32(P.frame) * 0.618034); var u = base; var nc = 0.0; var lo: vec3f; var dd: f32;
-  for (var i = 0; i < 40; i++) { if (i >= P.nsph) { break; } if (P.sphB[i].y < 0.5 || distance(P.sphA[i].xyz, p) > 24.0 || P.matB[i32(P.sphB[i].x)].y <= 0.0) { continue; } nc += 1.0; }
-  for (var i = 0; i < 40; i++) { if (i >= P.nsph) { break; } if (P.sphB[i].y < 0.5) { continue; } let sph = P.sphA[i]; if (distance(sph.xyz, p) > 24.0) { continue; } let lm = i32(P.sphB[i].x); if (P.matB[lm].y <= 0.0) { continue; }
-    u = fract(u * 7.13 + 0.37); let seed = fract(base * 3.71 + f32(i) * 0.173); let ph = lum(lightEval(i, seed, p, n, v, diffuse, F0, rough, &lo, &dd)); u = fract(u * 5.7 + 0.11); rsvAdd(&r, i, seed, ph * nc, ph, 1.0, u); }
-  if (nc == 0.0) { textureStore(oRA, px, vec4f(-1.0, 0.0, 0.0, 0.0)); textureStore(oRB, px, vec4f(p, 0.0)); return vec3f(0.0); }
-  // the reservoir so far, as a weight the neighbours can use
-  var Wcur = select(0.0, r.wsum / (r.M * r.phat), r.phat > 0.0); var cur = r; var rt: Rsv; rt = r; rt.wsum = select(0.0, rt.phat * Wcur * rt.M, rt.phat > 0.0);
-  if (P.ocean.w > 0.5) { let c4 = P.prevPV * vec4f(p, 1.0);
-    if (c4.w > 0.0) { let uv = vec2f(c4.x / c4.w * 0.5 + 0.5, 0.5 - c4.y / c4.w * 0.5); if (all(uv > vec2f(0.0)) && all(uv < vec2f(1.0))) { let hp = vec2i(uv * P.res); let lim = vec2i(P.res) - 1;
-      for (var j = 0; j < 4; j++) { u = fract(u * 6.31 + 0.29); let u2 = fract(u * 4.91 + 0.53); let off = select(vec2i(0), vec2i((vec2f(u, u2) - 0.5) * 14.0), j > 0); let q = clamp(hp + off, vec2i(0), lim); let RA = textureLoad(tRA, q, 0); let RB = textureLoad(tRB, q, 0); if (RA.x < 0.0) { continue; }
-        let np = octDec(unpack2x16snorm(bitcast<u32>(RB.w))); if (distance(RB.xyz, p) > 0.06 * dist + 0.05 || dot(np, n) < 0.85) { continue; }
-        let idx = i32(RA.x); let seed = fract(RA.x); let Wn = RA.y; let Mn = min(RA.z, nc * 20.0); if (idx >= P.nsph || P.sphB[idx].y < 0.5) { continue; } let ph = lum(lightEval(idx, seed, p, n, v, diffuse, F0, rough, &lo, &dd)); u = fract(u * 3.3 + 0.71); rsvAdd(&rt, idx, seed, ph * Wn * Mn, ph, Mn, u); } } } }
-  var Wt = select(0.0, rt.wsum / (rt.M * rt.phat), rt.phat > 0.0 && rt.M > 0.0);
-  textureStore(oRA, px, vec4f(f32(rt.idx) + rt.seed * 0.999, Wt, rt.M, 0.0)); textureStore(oRB, px, vec4f(p, bitcast<f32>(pack2x16snorm(octEnc(n)))));
-  if (rt.idx < 0 || Wt <= 0.0) { return vec3f(0.0); } let f = lightEval(rt.idx, rt.seed, p, n, v, diffuse, F0, rough, &lo, &dd); if (lum(f) <= 0.0) { return vec3f(0.0); } if (occluded(p, lo, dd - 1e-3)) { return vec3f(0.0); } return f * Wt; }
+  var r: Rsv; r.idx = -1; let base = fract(ign0(vec2f(px)) + f32(P.frame) * 0.618034); var u = base; var nc = 0.0;
+  for (var i = 0; i < P.nsph; i++) { if (P.sphB[i].y > 0.5 && distance(P.sphA[i].xyz, p) <= 24.0 && P.matB[i32(P.sphB[i].x)].y > 0.0) { nc += 1.0; } }
+  var C0 = vec3f(0.0);
+  for (var i = 0; i < P.nsph; i++) { if (P.sphB[i].y < 0.5 || distance(P.sphA[i].xyz, p) > 24.0 || P.matB[i32(P.sphB[i].x)].y <= 0.0) { continue; }
+    let seed = (floor(fract(base * 3.71 + f32(i) * 0.173) * 131072.0) + 0.5) / 131072.0; let g = lightControl(i, seed, p, n, false); C0 += g; let ph = lum(g); u = fract(u * 7.13 + 0.37); rsvAdd(&r, i, seed, ph * nc, ph, 1.0, u); }
+  if (r.idx < 0 || nc == 0.0) { textureStore(oRA, px, vec4f(-1.0, 0.0, 0.0, 0.0)); textureStore(oRB, px, vec4f(p, 0.0)); return vec3f(0.0); }
+  let W0 = r.wsum / max(r.M * r.phat, 1e-20); var rt = r; rt.wsum = W0 * r.phat; var partners = 0.0; var control = C0 * (nc * 1.7); var cm = nc * 1.7;
+  let c4 = P.prevPV * vec4f(p, 1.0);
+  if (P.frame > 1 && c4.w > 0.0) { let uv = vec2f(c4.x / c4.w * 0.5 + 0.5, 0.5 - c4.y / c4.w * 0.5); if (all(uv > vec2f(0.0)) && all(uv < vec2f(1.0))) { let hp = vec2i(uv * P.res); let lim = vec2i(P.res) - 1;
+    for (var j = 0; j < 4; j++) { u = fract(u * 6.31 + 0.29); let u2 = fract(u * 4.91 + 0.53); let off = select(vec2i(0), vec2i((vec2f(u, u2) - 0.5) * 14.0), j > 0); let q = clamp(hp + off, vec2i(0), lim); let RA = textureLoad(tRA, q, 0); let RB = textureLoad(tRB, q, 0);
+      if (RA.x < 0.0 || RA.z <= 0.0) { continue; } let np = octDec(unpack2x16snorm(bitcast<u32>(RB.w))); if (distance(RB.xyz, p) > 0.06 * dist + 0.05 || dot(np, n) < 0.85) { continue; }
+      let idx = i32(RA.x); let seed = fract(RA.x); let Wn = RA.y; let Mn = min(RA.z, nc * 20.0); if (idx >= 40) { continue; }
+      let gn0 = lightControl(idx, seed, p, n, false); let ph = lum(gn0);
+      let gnn = lightControl(idx, seed, RB.xyz, np, true); let g00 = lightControl(r.idx, r.seed, p, n, false); let g0n = lightControl(r.idx, r.seed, RB.xyz, np, true);
+        let an = 4.0 * Mn * lum(gnn); let ac = nc * lum(g00);
+        let a = an / max(an + nc * ph, 1e-20); let b = ac / max(ac + 4.0 * Mn * lum(g0n), 1e-20);
+      if (P.sampling.x > 0.5) { let delta = a * Wn * (gn0 - gnn) + b * W0 * (g00 - g0n); control += (unpackColour(RA.w) + delta) * Mn; cm += Mn; }
+      // Pairwise MIS also supplies the final contribution weight. Confidence alone
+      // cannot normalize reuse when an old surface or light has zero support.
+      u = fract(u * 3.3 + 0.71); rsvAdd(&rt, idx, seed, ph * Wn * a, ph, Mn, u);
+      u = fract(u * 7.7 + 0.13); rsvAdd(&rt, r.idx, r.seed, r.phat * W0 * b, r.phat, 0.0, u); partners += 1.0;
+    } } }
+  control /= cm; let Wt = rt.wsum / max((partners + 1.0) * rt.phat, 1e-20);
+  textureStore(oRA, px, vec4f(f32(rt.idx) + rt.seed, Wt, rt.M, packColour(control))); textureStore(oRB, px, vec4f(p, bitcast<f32>(pack2x16snorm(octEnc(n)))));
+  var lo: vec3f; var dd: f32; let f = lightEval(rt.idx, rt.seed, p, n, v, diffuse, F0, rough, &lo, &dd); var vis = 0.0; if (lum(f) > 0.0 && !occluded(p, lo, dd - 1e-3)) { vis = 1.0; }
+  let estimate = f * Wt * vis;
+  if (P.sampling.x < 0.5) { return estimate; }
+  // Signed residuals are deliberate. The display clamps after temporal reconstruction.
+  return estimate + 0.8 * diffuse * (control - Wt * lightControl(rt.idx, rt.seed, p, n, false)); }
 fn upsampleV(px: vec2i, A: vec4f, n: vec3f) -> vec4f { let st = P.shadowStride; let lc = (vec2f(px) + 0.5) / f32(st) - 0.5; let f = fract(lc); let base = vec2i(floor(lc)); var sum = vec4f(0.0); var ws = 0.0; let full = vec2i(P.res) - 1; let lo = vec2i(P.loRes) - 1;
   for (var j = 0; j < 4; j++) { let q = clamp(base + vec2i(j & 1, j >> 1), vec2i(0), lo); let Al = textureLoad(gA, min(q * st, full), 0); if (Al.w < 0.0) { continue; } let nl = textureLoad(gB, min(q * st, full), 0).xyz; let bw = select(select(select(f.x * f.y, (1.0 - f.x) * f.y, j == 2), f.x * (1.0 - f.y), j == 1), (1.0 - f.x) * (1.0 - f.y), j == 0); let w = bw * exp(-abs(Al.w - A.w) / (0.03 * A.w + 0.05)) * pow(max(dot(nl, n), 0.0), 8.0) + 1e-4; sum += textureLoad(tV, q, 0) * w; ws += w; }
   return select(vec4f(1.0, 1.0, 0.0, 0.0), sum / ws, ws > 0.0); }
@@ -847,7 +880,7 @@ fn srgb(c0: vec3f) -> vec3f { let c = clamp(c0, vec3f(0.0), vec3f(1.0)); return 
 @fragment fn fs(i: VO) -> @location(0) vec4f { var c = textureSampleLevel(tSrc, samp, i.uv, 0.0).rgb; let bl = textureSampleLevel(tBloom, samp, i.uv, 0.0).rgb; c += bl * D.bloom;
   if (D.shafts > 0.0 && D.sunUp > 0.0) { var sh = vec3f(0.0); let dv = (D.sunUv - i.uv) / 24.0; var uv = i.uv; var wsum = 0.0; for (var k = 0; k < 24; k++) { uv += dv; let w = 1.0 - f32(k) / 24.0; sh += textureSampleLevel(tBloom, samp, uv, 0.0).rgb * w; wsum += w; } let dist = length((D.sunUv - i.uv) * vec2f(1.0, 0.75)); c += sh / wsum * D.shafts * D.sunUp * (1.0 - smoothstep(0.35, 0.9, dist)); }
   c *= D.exposure; if (D.curve == 1.0) { c = aces(c); } else if (D.curve == 2.0) { c = c / (1.0 + c); } let lum = dot(c, vec3f(0.3, 0.59, 0.11)); c = mix(vec3f(lum), c, 1.1); let vd = length((i.uv - 0.5) * vec2f(1.0, 0.85)); c *= 1.0 - 0.28 * smoothstep(0.35, 0.95, vd); return vec4f(srgb(c), 1.0); }`;
-let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { vrr: true, nrcOn: true, restirOn: true, cacheOn: true, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true };
+let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { cvOn: true, vrr: true, nrcOn: true, restirOn: true, cacheOn: true, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true };
 // the simulation grids: a wave grid over the lake (with the shore as a wall), and two boxes of air over the fire and the chimney
 const SIM = (() => { const n = 256, size = 44, x0 = LAKE.x - size / 2, z0 = LAKE.z - size / 2; const land = new Uint8Array(n * n * 2); for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = x0 + (i + 0.5) / n * size, z = z0 + (j + 0.5) / n * size; const th = terrainH(x, z); land[(j * n + i) * 2] = th > -0.55 ? 255 : 0; const dp = Math.min(Math.max((-0.55 - th) / 0.9, 0), 1); land[(j * n + i) * 2 + 1] = Math.round(255 * dp * dp * (3 - 2 * dp)); }
   const fy = terrainH(FIRE.x, FIRE.z); const ca = Math.cos(-0.55), sa = Math.sin(-0.55); const cx = CABIN.x + (3.2 - 1.2) * ca + (-2.3 + 0.9) * sa, cz = CABIN.z - (3.2 - 1.2) * sa + (-2.3 + 0.9) * ca; const cy = terrainH(CABIN.x, CABIN.z) - 0.1 + 5.5;
@@ -956,12 +989,16 @@ fn pAt(c: vec3i) -> f32 { let q = clamp(c, vec3i(0), vec3i(F.dims) - 1); return 
 async function startWebGPU() {
   if (!navigator.gpu) return null; const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null); if (!adapter) return null;
   const need = Math.max(nodeData.byteLength, triData.byteLength, attrData.byteLength, instData.byteLength); if (adapter.limits.maxStorageBufferBindingSize < need) return null;
-  const texLim = adapter.limits.maxSampledTexturesPerShaderStage; if (texLim < 18) return null; const device = await adapter.requestDevice({ requiredLimits: { maxStorageBufferBindingSize: Math.max(need, 134217728), maxBufferSize: Math.max(need, 268435456), maxSampledTexturesPerShaderStage: Math.min(texLim, 24) } }).catch(() => null); if (!device) return null;
+  const texLim = adapter.limits.maxSampledTexturesPerShaderStage; if (texLim < 18) return null; const device = await adapter.requestDevice({ requiredFeatures: adapter.features.has('timestamp-query') ? ['timestamp-query'] : [], requiredLimits: { maxStorageBufferBindingSize: Math.max(need, 134217728), maxBufferSize: Math.max(need, 268435456), maxSampledTexturesPerShaderStage: Math.min(texLim, 24) } }).catch(() => null); if (!device) return null;
+  const gpuStats = window.__gpuStats = { ms: 0, samples: [], supported: device.features.has('timestamp-query') }; let timingPending = false;
+  const timing = gpuStats.supported ? { query: device.createQuerySet({ type: 'timestamp', count: 2 }), resolve: device.createBuffer({ size: 256, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC }), read: device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ }) } : null;
+  const timed = (start) => timing ? { timestampWrites: { querySet: timing.query, ...(start ? { beginningOfPassWriteIndex: 0 } : { endOfPassWriteIndex: 1 }) } } : {};
+  async function readTiming() { if (!timing || timingPending) return; timingPending = true; try { await timing.read.mapAsync(GPUMapMode.READ); const t = new BigUint64Array(timing.read.getMappedRange()); gpuStats.ms = Number(t[1] - t[0]) / 1e6; gpuStats.samples.push(gpuStats.ms); if (gpuStats.samples.length > 240) gpuStats.samples.shift(); timing.read.unmap(); } catch (e) { gpuStats.error = String(e); } timingPending = false; }
   const canvas = document.createElement('canvas'); canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;'; sb.stage.insertBefore(canvas, sb.stage.firstChild); renderer.domElement.style.opacity = '0';
   const ctx = canvas.getContext('webgpu'); const format = navigator.gpu.getPreferredCanvasFormat(); ctx.configure({ device, format, alphaMode: 'opaque' });
   const mkBuf = (arr, usage) => { const b = device.createBuffer({ size: Math.ceil(arr.byteLength / 16) * 16, usage, mappedAtCreation: true }); new Float32Array(b.getMappedRange()).set(arr); b.unmap(); return b; };
   const bNodes = mkBuf(nodeData, GPUBufferUsage.STORAGE), bTris = mkBuf(triData, GPUBufferUsage.STORAGE), bTris0 = mkBuf(triData, GPUBufferUsage.STORAGE), bAttr = mkBuf(attrData, GPUBufferUsage.STORAGE), bInst = mkBuf(instData, GPUBufferUsage.STORAGE);
-  const PARAMS_F = 84 + MATN * 12 + 320 + 20 + 24 + 12; const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const PARAMS_F = 84 + MATN * 12 + 320 + 20 + 24 + 12 + 4 + 320; const prevLightA = new Float32Array(160), prevLightE = new Float32Array(160); const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const layers = [barkTex, birchTex, leafO, leafP, leafB, rockTex, woodTex, stoneTex, groundTex, grassTex]; const texArr = device.createTexture({ size: [256, 256, layers.length], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   layers.forEach((t, i) => device.queue.copyExternalImageToTexture({ source: t.image }, { texture: texArr, origin: [0, 0, i] }, [256, 256]));
   const samp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat', addressModeW: 'repeat' });
@@ -986,7 +1023,7 @@ async function startWebGPU() {
   function buildLuts() { writeAtm(); const enc = device.createCommandEncoder(); let c = enc.beginComputePass(); c.setPipeline(lutP.t); c.setBindGroup(0, lutG.t); c.dispatchWorkgroups(32, 8); c.end(); c = enc.beginComputePass(); c.setPipeline(lutP.ms); c.setBindGroup(0, lutG.ms); c.dispatchWorkgroups(4, 4); c.end(); device.queue.submit([enc.finish()]); } buildLuts();
   let statsPending = false; const skyStats = { zen: [0.2, 0.3, 0.5], hor: [0.4, 0.5, 0.6], sun: [10, 9, 8], n: 0, err: '' }; window.__skyStats = skyStats;
   function skyPass(enc) { const a = new Float32Array(24); a.set([sunDir.x, sunDir.y, sunDir.z, Math.max(camera.position.y, 0) * 0.001 + 0.05]); a.set(U.uInvPV.value.elements, 4); a.set([camera.position.x, camera.position.y, camera.position.z, 0], 20); device.queue.writeBuffer(skyBuf, 0, a);
-    let c = enc.beginComputePass(); c.setPipeline(lutP.sky); c.setBindGroup(0, lutG.sky); c.dispatchWorkgroups(24, 14); c.end(); c = enc.beginComputePass(); c.setPipeline(lutP.stats); c.setBindGroup(0, lutG.stats); c.dispatchWorkgroups(1); c.end(); if (!statsPending) { enc.copyBufferToBuffer(statsBuf, 0, statsRead, 0, 64); } enc.clearBuffer(statsBuf, 48, 16); }
+    let c = enc.beginComputePass(timed(true)); c.setPipeline(lutP.sky); c.setBindGroup(0, lutG.sky); c.dispatchWorkgroups(24, 14); c.end(); c = enc.beginComputePass(); c.setPipeline(lutP.stats); c.setBindGroup(0, lutG.stats); c.dispatchWorkgroups(1); c.end(); if (!statsPending) { enc.copyBufferToBuffer(statsBuf, 0, statsRead, 0, 64); } enc.clearBuffer(statsBuf, 48, 16); }
   async function readStats() { if (statsPending) return; statsPending = true; try { await statsRead.mapAsync(GPUMapMode.READ); const f = new Float32Array(statsRead.getMappedRange().slice(0)); statsRead.unmap(); skyStats.zen = [f[0], f[1], f[2]]; skyStats.hor = [f[4], f[5], f[6]]; skyStats.sun = [f[8], f[9], f[10]]; const u = new Uint32Array(f.buffer); skyStats.cells = u[12]; skyStats.cellsUpd = u[13]; skyStats.nrcLoss = u[14] / 1000 / Math.max(NRC_WG * 64, 1); skyStats.n++; } catch (e) { skyStats.err = String(e); } statsPending = false; }
   // ---- the fluids: a wave grid over the lake, and two small smoke-and-fire grids
   const WN = SIM.water.n; const mk2 = (fmt) => device.createTexture({ size: [WN, WN], format: fmt, usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC });
@@ -1082,7 +1119,8 @@ async function startWebGPU() {
     f[56] = w; f[57] = h; f[58] = st.lw; f[59] = st.lh; f[60] = st.qw; f[61] = st.qh; f[62] = jitter.x; f[63] = jitter.y;
     f[64] = U.uSunE.value; f[65] = U.uSunfade.value; f[66] = U.uMieG.value; f[67] = U.uSunCos.value; f[68] = U.uNight.value; f[69] = U.uSkyOn.value; f[70] = U.uBounceOn.value; f[71] = U.uFogD.value; f[72] = U.uSunSize.value; f[73] = U.uMoonSize.value; f[74] = U.uNoiseShift.value; f[75] = blend;
     paramsI[76] = tlasRoot; paramsI[77] = spheres.length; paramsI[78] = U.uShadowK.value; paramsI[79] = U.uGiK.value; paramsI[80] = view; paramsI[81] = U.uFrame.value; paramsI[82] = st.ss; paramsI[83] = st.gs;
-    f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 160); const o2 = 84 + MATN * 12 + 320; f.set(prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; f.set([...SIM.fire.min, 0, ...SIM.fire.max, 0, ...SIM.chim.min, 0, ...SIM.chim.max, 0, SIM.water.x0, SIM.water.z0, SIM.water.size, SIM.water.n, fx.waterOn ? 1 : 0, fx.fireOn ? 1 : 0, fx.chimOn ? 1 : 0, fx.hideFlame ? 1 : 0], o2 + 20); f.set([fx.oceanOn ? 1 : 0, OCEAN_L, fx.cacheOn ? 1 : 0, fx.restirOn ? 1 : 0, fx.nrcOn && fx.cacheOn ? 1 : 0, 0, 0, fx.vrr ? 1 : 0, atm.rayScale, atm.mieScale, atm.g, 0], o2 + 44); device.queue.writeBuffer(bParams, 0, paramsArr); }
+    f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 160); const o2 = 84 + MATN * 12 + 320; f.set(prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; f.set([...SIM.fire.min, 0, ...SIM.fire.max, 0, ...SIM.chim.min, 0, ...SIM.chim.max, 0, SIM.water.x0, SIM.water.z0, SIM.water.size, SIM.water.n, fx.waterOn ? 1 : 0, fx.fireOn ? 1 : 0, fx.chimOn ? 1 : 0, fx.hideFlame ? 1 : 0], o2 + 20); f.set([fx.oceanOn ? 1 : 0, OCEAN_L, fx.cacheOn ? 1 : 0, fx.restirOn ? 1 : 0, fx.nrcOn && fx.cacheOn ? 1 : 0, 0, 0, fx.vrr ? 1 : 0, atm.rayScale, atm.mieScale, atm.g, 0], o2 + 44); f.set([fx.cvOn ? 1 : 0, 0, 0, 0], o2 + 56); f.set(prevLightA, o2 + 60); f.set(prevLightE, o2 + 220);
+    prevLightA.set(sphA); for (let i = 0; i < 40; i++) { const m = sphB[i * 4] | 0, on = i < spheres.length && sphB[i * 4 + 1] > 0.5; for (let j = 0; j < 3; j++) prevLightE[i * 4 + j] = on ? matA[m * 4 + j] * matB[m * 4 + 1] : 0; } device.queue.writeBuffer(bParams, 0, paramsArr); }
   function render(w, h, blend, view, jitter, doBlur, ss, gs) {
     ensure(w, h, ss, gs); fillParams(w, h, blend, view, jitter); const sc = sunDir.clone().multiplyScalar(1000).add(camera.position).project(camera); device.queue.writeBuffer(bDisp, 0, new Float32Array([dispU.uExposure.value, dispU.uCurve.value, fx.bloom, fx.shafts, sc.x * 0.5 + 0.5, 0.5 - sc.y * 0.5, sc.z < 1 && sunDir.y > 0.02 ? 1 : 0, 0]));
     const cw = Math.max(1, Math.round(sb.stage.clientWidth * Math.min(devicePixelRatio || 1, 2))), ch = Math.max(1, Math.round(sb.stage.clientHeight * Math.min(devicePixelRatio || 1, 2))); if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
@@ -1091,8 +1129,8 @@ async function startWebGPU() {
     run(pipes.blur, G.blurS1[cur], st.lw, st.lh); run(pipes.blur, G.blurS2, st.lw, st.lh); run(pipes.blur, G.blurG1[cur], st.qw, st.qh); run(pipes.blur, G.blurG2, st.qw, st.qh);
     run(pipes.vol, G.vol, st.qw, st.qh); run(pipes.acc, G.accV[cur], st.qw, st.qh); run(pipes.blur, G.blurV1[cur], st.qw, st.qh); run(pipes.blur, G.blurV2, st.qw, st.qh);
     run(pipes.refl, G.refl, w, h); run(pipes.comp, G.comp[cur], w, h); run(pipes.taa, G.taa[cur], w, h); run(pipes.bright, G.bright[cur], st.bw, st.bh); run(pipes.gauss, G.gauss1, st.bw, st.bh); run(pipes.gauss, G.gauss2, st.bw, st.bh);
-    const rp = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] }); rp.setPipeline(dispPipe); rp.setBindGroup(0, G.disp[cur]); rp.draw(3); rp.end();
-    device.queue.submit([enc.finish()]); readStats(); prevPV.copy(camera.projectionMatrix).multiply(camera.matrixWorldInverse); cur = 1 - cur; }
+    const rp = enc.beginRenderPass({ ...timed(false), colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] }); rp.setPipeline(dispPipe); rp.setBindGroup(0, G.disp[cur]); rp.draw(3); rp.end();
+    if (timing && !timingPending) { enc.resolveQuerySet(timing.query, 0, 2, timing.resolve, 0); enc.copyBufferToBuffer(timing.resolve, 0, timing.read, 0, 16); } device.queue.submit([enc.finish()]); readStats(); readTiming(); prevPV.copy(camera.projectionMatrix).multiply(camera.matrixWorldInverse); cur = 1 - cur; }
   return { device, render, adapter, buildLuts };
 }
 gpu = await startWebGPU();
@@ -1118,7 +1156,7 @@ function placeSun() {
 // ---- panel
 const gpuOnly = (c) => { if (!gpu) { c.el.querySelectorAll('input, button').forEach(e => { e.disabled = true; }); c.el.style.opacity = '0.45'; c.el.title = 'needs WebGPU'; } return c; };
 const s1 = sb.panel.section('01 · The sky', 'Sunlight comes in white. Air scatters the blue end of it in every direction, which is why the sky is blue and a low sun, seen through far more air, is orange. Haze scatters every colour and puts the glow around the sun. Every ray that reaches the sky reads this.');
-const hourS = s1.slider('Time of day', { min: 4.5, max: 21, step: 0.05, value: hour, fmt: v => { const h = Math.floor(v), m = Math.round((v - h) * 60); return h + ':' + String(m).padStart(2, '0'); } }, v => { hour = v; placeSun(); });
+const hourS = s1.slider('Time of day', { min: 0, max: 24, step: 0.05, value: hour, fmt: v => { const h = Math.floor(v), m = Math.round((v - h) * 60); return h + ':' + String(m).padStart(2, '0'); } }, v => { hour = v; placeSun(); });
 s1.toggle('let the day run (a step every two seconds)', false, v => { running = v; runT = 0; });
 const atmChanged = () => { atm.rayleigh = 3.2 * atm.rayScale; atm.turbidity = 2.2 * atm.mieScale; atm.mie = 0.005 * atm.mieScale; if (gpu) gpu.buildLuts(); placeSun(); };
 s1.slider('Air (how much blue it scatters)', { min: 0.2, max: 3, step: 0.05, value: 1, fmt: v => '× ' + (+v).toFixed(2) }, v => { atm.rayScale = v; atmChanged(); });
@@ -1179,12 +1217,15 @@ s6.segment('Show', [{ value: 0, label: 'the picture' }, { value: 1, label: 'the 
 s6.segment('Quality', [{ value: 'balanced', label: 'balanced' }, { value: 'high', label: 'high' }, { value: 'ultra', label: 'ultra' }], 'balanced', v => { quality = v; if (v === 'ultra') { U.uShadowK.value = 4; U.uGiK.value = 6; } dirty(); });
 gpuOnly(s6.toggle('variable rate: extra shadow rays where the history is young, fewer once it has settled', true, v => { fx.vrr = v; dirty(); }));
 gpuOnly(s6.toggle('reuse light picks from last frame and the neighbours (ReSTIR), one shadow ray per pixel for the lamps, fire and fireflies', true, v => { fx.restirOn = v; }));
+gpuOnly(s6.toggle('steady colours around the fire and lamps [colour control variates]', true, v => { fx.cvOn = v; dirty(); }));
+s6.note('Colour reuse controls diffuse light with a stored estimate and a corrected shadow sample. Sharp highlights still use the chosen light.');
 s6.segment('Shadow rays per pixel, toward the sun', [{ value: 1, label: '1' }, { value: 2, label: '2' }, { value: 4, label: '4' }, { value: 8, label: '8' }], 2, v => { U.uShadowK.value = +v; dirty(); });
 s6.segment('Rays per pixel for sky and bounce light', [{ value: 2, label: '2' }, { value: 4, label: '4' }, { value: 6, label: '6' }, { value: 8, label: '8' }], 4, v => { U.uGiK.value = +v; dirty(); });
 s6.toggle('smooth the shadow and bounce answers (denoise)', true, v => { denoise = v; dirty(); });
 s6.segment('Picture size while still', [{ value: 1, label: 'full' }, { value: 0.75, label: 'three quarters' }, { value: 0.5, label: 'half' }], 1, v => { stillScale = +v; });
 s6.segment('Picture size while moving', [{ value: 1, label: 'full' }, { value: 0.5, label: 'half' }, { value: 0.35, label: 'a third' }], 1, v => { moveScale = +v; });
 s6.toggle('anti-alias by blending frames while still', true, v => { accumulate = v; dirty(); });
+const gpuTimeRead = s6.readout('GPU work per frame');
 const triRead = s6.readout('triangles in the scene'), instRead = s6.readout('placed copies'), boxRead = s6.readout('boxes in the trees'), buildRead = s6.readout('building the trees took'), accRead = s6.readout('frames blended for anti-aliasing'), msRead = s6.readout('milliseconds per frame');
 triRead(totalTris.toLocaleString() + (gpu ? ' · WebGPU' : ' · WebGL')); instRead(NI.toLocaleString() + ' (' + treeCount + ' trees, 32,000 blades of grass)'); boxRead(nodeTotal.toLocaleString()); buildRead((genMs + buildMs).toFixed(0) + ' ms');
 
@@ -1206,7 +1247,7 @@ sb.onFrame((dt) => {
   if (running) { runT += dt; if (runT > 2) { runT = 0; hour += 0.35; if (hour > 21) hour = 4.5; hourS.set(hour, false); placeSun(); } }
   fx.time += dt; fx.dt = Math.min(dt, 0.05); { const night = 1 - THREE.MathUtils.smoothstep(sunDir.y, -0.02, 0.06); fireflies.forEach((f, i) => { const sp = spheres[spheres.length - 14 + i]; const t = fx.time * 0.35 + f.s; sp.c.set(f.x + Math.sin(t * 1.3) * 2.2 + Math.sin(t * 0.7 + 2) * 1.1, night > 0.2 ? terrainH(f.x, f.z) + f.h + Math.sin(t * 2.1) * 0.35 : -500, f.z + Math.cos(t * 1.1) * 2.2 + Math.cos(t * 0.5 + 1) * 1.0); }); matB[FIREFLY * 4 + 1] = 12 * (0.5 + 0.5 * Math.sin(fx.time * 3)) * night; writeSpheres(); }
   if (fireOn) { const fl = 0.95 + 0.07 * vnoise(fx.time * 5, 3) + 0.03 * vnoise(fx.time * 13, 8); matB[M.FLAME * 4 + 1] = 45 * fl; matB[M.EMBER * 4 + 1] = 6 * (0.85 + 0.3 * vnoise(fx.time * 4, 1)); const fs = spheres[8]; fs.c.set(FIRE.x + (vnoise(fx.time * 4, 2) - 0.5) * 0.03, terrainH(FIRE.x, FIRE.z) + 0.55 + (vnoise(fx.time * 5, 4) - 0.5) * 0.05, FIRE.z + (vnoise(fx.time * 4, 9) - 0.5) * 0.03); fs.r = 0.29 + 0.02 * vnoise(fx.time * 7, 6); writeSpheres(); }
-  const now = performance.now(); if (lastNow) msAvg += ((now - lastNow) - msAvg) * 0.08; lastNow = now; msRead(msAvg.toFixed(1) + ' ms');
+  const now = performance.now(); if (lastNow) msAvg += ((now - lastNow) - msAvg) * 0.08; lastNow = now; msRead(msAvg.toFixed(1) + ' ms'); gpuTimeRead(window.__gpuStats?.supported ? window.__gpuStats.ms.toFixed(1) + ' ms [GPU timestamps]' : 'not available');
   expRead(exposure.toFixed(2) + (autoExp ? ', automatic' : ', by hand')); nrcRead(!gpu ? 'needs WebGPU' : !(fx.nrcOn && fx.cacheOn) ? 'off' : (window.__skyStats.nrcLoss || 0).toFixed(4) + ' per cell (log light)'); cellsRead(!gpu ? 'needs WebGPU' : !fx.cacheOn ? 'off' : (window.__skyStats.cells || 0).toLocaleString() + ' cells, ' + (window.__skyStats.cellsUpd || 0).toLocaleString() + ' refreshed this frame'); accRead(!accumulate ? 'off' : gpu ? 'temporal, reprojected' : Math.min(accN, 32) + (accN === 1 ? ' frame' : ' frames') + (rtScale < 1 ? ', small picture' : ''));
   sb.hud('mode', (hour < 5 || hour > 20 ? 'night: dark except where the fire and the lanterns reach, and a little moon' : hour < 8 || hour > 17.5 ? 'a low sun through a lot of air: orange light, long soft shadows' : 'high sun: white light, blue sky, hills fading into blue haze') + ' · one ray per pixel finds the surface, a few more light it');
 });
