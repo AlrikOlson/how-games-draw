@@ -446,7 +446,7 @@ struct Params { invPV: mat4x4f, camPos: vec4f, sunDir: vec4f, sunCol: vec4f, moo
   sunE: f32, sunfade: f32, mieG: f32, sunCos: f32, night: f32, skyOn: f32, bounceOn: f32, fogD: f32, sunSize: f32, moonSize: f32, noiseShift: f32, blend: f32,
   tlasRoot: i32, nsph: i32, shadowK: i32, giK: i32, view: i32, frame: i32, shadowStride: i32, giStride: i32,
   matA: array<vec4f, ${MATN}>, matB: array<vec4f, ${MATN}>, matC: array<vec4f, ${MATN}>, sphA: array<vec4f, 40>, sphB: array<vec4f, 40>,
-  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f, atm: vec4f, sampling: vec4f, prevLightA: array<vec4f, 40>, prevLightE: array<vec4f, 40> , shadowReuse: vec4f, cacheReuse: vec4f , nrcHashMode: vec4f, instant: vec4f };
+  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f, atm: vec4f, sampling: vec4f, prevLightA: array<vec4f, 40>, prevLightE: array<vec4f, 40> , shadowReuse: vec4f, cacheReuse: vec4f , nrcHashMode: vec4f, instant: vec4f , ntc: vec4f, ntcWeights: array<vec4f, 101> };
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> nodes: array<vec4f>;
 @group(0) @binding(2) var<storage, read> tris: array<vec4f>;
@@ -488,7 +488,33 @@ fn h21(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.
 fn vn(p: vec2f) -> f32 { let i = floor(p); var f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h21(i), h21(i + vec2f(1.0, 0.0)), f.x), mix(h21(i + vec2f(0.0, 1.0)), h21(i + vec2f(1.0, 1.0)), f.x), f.y); }
 fn fb3(p: vec2f) -> f32 { return (0.5 * vn(p) + 0.25 * vn(p * 2.03 + 7.0) + 0.125 * vn(p * 4.1 + 3.0)) / 0.875; }
 fn safeDir(d: vec3f) -> vec3f { return vec3f(select(d.x, 1e-6, abs(d.x) < 1e-6), select(d.y, 1e-6, abs(d.y) < 1e-6), select(d.z, 1e-6, abs(d.z) < 1e-6)); }
-fn sampleTex(id: i32, uv: vec2f, lod: f32) -> vec4f { var c = textureSampleLevel(texArr, samp, uv, id - 1, lod); if (id != 9) { c = vec4f(pow(c.rgb, vec3f(2.2)), c.a); } return c; }
+// Shared 4 -> 16 -> 16 -> 3 decoder. The 8-bit latent features live in
+// ten 32x32 tiles in array layer 10, leaving the original alpha planes untouched.
+// Source idea: NVIDIA, Random-Access Neural Compression of Material Textures.
+fn ntcWeight(i: u32) -> f32 { return P.ntcWeights[i / 4u][i % 4u]; }
+fn ntcFeature(tex: i32, q: vec2i) -> vec4f {
+  let tile = vec2i(tex % 8, tex / 8) * 32;
+  let xy = ((q % vec2i(32)) + vec2i(32)) % vec2i(32);
+  return textureLoad(texArr, tile + xy, 10, 0) * 3.0 - 1.0;
+}
+fn ntcDecode(id: i32, uv: vec2f) -> vec3f {
+  let q = fract(uv) * 32.0 - 0.5; let b = vec2i(floor(q)); let f = fract(q);
+  let x = mix(mix(ntcFeature(id - 1, b), ntcFeature(id - 1, b + vec2i(1, 0)), f.x), mix(ntcFeature(id - 1, b + vec2i(0, 1)), ntcFeature(id - 1, b + vec2i(1, 1)), f.x), f.y);
+  var h1: array<f32, 16>; var h2: array<f32, 16>;
+  for (var j = 0u; j < 16u; j++) { var a = ntcWeight(64u + j); for (var i = 0u; i < 4u; i++) { a += ntcWeight(j * 4u + i) * x[i]; } h1[j] = max(a, 0.0); }
+  for (var j = 0u; j < 16u; j++) { var a = ntcWeight(336u + j); for (var i = 0u; i < 16u; i++) { a += ntcWeight(80u + j * 16u + i) * h1[i]; } h2[j] = max(a, 0.0); }
+  var rgb = vec3f(0.0);
+  for (var c = 0u; c < 3u; c++) { var a = ntcWeight(400u + c); for (var i = 0u; i < 16u; i++) { a += ntcWeight(352u + c * 16u + i) * h2[i]; } rgb[c] = a; }
+  return clamp(rgb, vec3f(0.0), vec3f(1.0));
+}
+fn sampleTex(id: i32, uv: vec2f, lod: f32) -> vec4f {
+  var c: vec4f;
+  if (P.ntc.x > 0.5 && id >= 1 && id <= 10) {
+    var alpha = 1.0; if (id >= 3 && id <= 5) { alpha = textureSampleLevel(texArr, samp, uv, id - 1, lod).a; }
+    c = vec4f(ntcDecode(id, uv), alpha);
+  } else { c = textureSampleLevel(texArr, samp, uv, id - 1, lod); }
+  if (id != 9) { c = vec4f(pow(c.rgb, vec3f(2.2)), c.a); } return c;
+}
 fn leafAlpha(id: i32, uv: vec2f) -> f32 { return textureSampleLevel(texArr, samp, uv, id - 1, 0.0).a; }
 fn rayleighPhase(c: f32) -> f32 { return 0.05968310365946075 * (1.0 + c * c); }
 fn hgPhase(c: f32, g: f32) -> f32 { let g2 = g * g; return 0.07957747154594767 * ((1.0 - g2) / pow(1.0 - 2.0 * g * c + g2, 1.5)); }
@@ -592,8 +618,8 @@ fn terrainColor(p: vec3f, n: vec3f) -> vec3f { let slope = 1.0 - n.y; let macroN
   let snowLine = 150.0 + (macroN - 0.5) * 60.0; c = mix(c, ${v3s(0xf2f5f8).replace('vec3(', 'vec3f(')}, smoothstep(snowLine, snowLine + 35.0, p.y) * (1.0 - smoothstep(0.5, 0.75, slope)));
   let dl = distance(p.xz, LAKE); let shore = (1.0 - smoothstep(-0.2, 0.5, p.y)) * (1.0 - smoothstep(LAKE_R + 2.0, LAKE_R + 7.0, dl)); c = mix(c, ${v3s(0x8c7d5c).replace('vec3(', 'vec3f(')}, shore * 0.9);
   let df = distance(p.xz, FIRE); c = mix(c, ${v3s(0x6b5a3c).replace('vec3(', 'vec3f(')}, (1.0 - smoothstep(2.5, 5.0, df + (micro - 0.5) * 2.0)) * 0.8);
-  let gt = pow(textureSampleLevel(texArr, samp, p.xz * 0.35, 9, 0.0).rgb, vec3f(2.2)); let det = textureSampleLevel(texArr, samp, p.xz * 0.14, 8, 0.0).r; c = c * (0.55 + 0.9 * det) * mix(vec3f(1.0), gt * 3.2, 0.55);
-  let an = pow(abs(n), vec3f(4.0)); let aw = an / (an.x + an.y + an.z); let rk = pow(textureSampleLevel(texArr, samp, p.zy * 0.12, 5, 0.0).rgb, vec3f(2.2)) * aw.x + pow(textureSampleLevel(texArr, samp, p.xz * 0.12, 5, 0.0).rgb, vec3f(2.2)) * aw.y + pow(textureSampleLevel(texArr, samp, p.xy * 0.12, 5, 0.0).rgb, vec3f(2.2)) * aw.z;
+  let gt = sampleTex(10, p.xz * 0.35, 0.0).rgb; let det = sampleTex(9, p.xz * 0.14, 0.0).r; c = c * (0.55 + 0.9 * det) * mix(vec3f(1.0), gt * 3.2, 0.55);
+  let an = pow(abs(n), vec3f(4.0)); let aw = an / (an.x + an.y + an.z); let rk = sampleTex(6, p.zy * 0.12, 0.0).rgb * aw.x + sampleTex(6, p.xz * 0.12, 0.0).rgb * aw.y + sampleTex(6, p.xy * 0.12, 0.0).rgb * aw.z;
   let rockAmt = smoothstep(0.3, 0.55, slope + (micro - 0.5) * 0.2); c = mix(c, rk * 1.5 * mix(vec3f(0.9, 0.88, 0.85), vec3f(1.0), 0.5), rockAmt * (1.0 - smoothstep(snowLine + 10.0, snowLine + 45.0, p.y)));
   let far = smoothstep(150.0, 260.0, length(p.xz)); let forest = smoothstep(0.42, 0.5, fb3(p.xz / 110.0 + vec2f(8.0, 2.0))) * (1.0 - smoothstep(110.0, 130.0, p.y)) * (1.0 - smoothstep(0.35, 0.5, slope)); let canopy = fb3(p.xz * 0.35); c = mix(c, vec3f(0.06, 0.13, 0.05) * (0.7 + 0.6 * canopy), forest * far * 0.85);
   let pd = pathDist(p.xz); c = mix(c, vec3f(0.30, 0.22, 0.13) * (0.8 + 0.4 * det), 1.0 - smoothstep(0.55, 1.05, pd + (micro - 0.5) * 0.4));
@@ -1414,7 +1440,7 @@ fn srgb(c0: vec3f) -> vec3f { let c = clamp(c0, vec3f(0.0), vec3f(1.0)); return 
 @fragment fn fs(i: VO) -> @location(0) vec4f { var c = textureSampleLevel(tSrc, samp, i.uv, 0.0).rgb; let bl = textureSampleLevel(tBloom, samp, i.uv, 0.0).rgb; c += bl * D.bloom;
   if (D.shafts > 0.0 && D.sunUp > 0.0) { var sh = vec3f(0.0); let dv = (D.sunUv - i.uv) / 24.0; var uv = i.uv; var wsum = 0.0; for (var k = 0; k < 24; k++) { uv += dv; let w = 1.0 - f32(k) / 24.0; sh += textureSampleLevel(tBloom, samp, uv, 0.0).rgb * w; wsum += w; } let dist = length((D.sunUv - i.uv) * vec2f(1.0, 0.75)); c += sh / wsum * D.shafts * D.sunUp * (1.0 - smoothstep(0.35, 0.9, dist)); }
   c *= D.exposure; if (D.curve == 1.0) { c = aces(c); } else if (D.curve == 2.0) { c = c / (1.0 + c); } let lum = dot(c, vec3f(0.3, 0.59, 0.11)); c = mix(vec3f(lum), c, 1.1); let vd = length((i.uv - 0.5) * vec2f(1.0, 0.85)); c *= 1.0 - 0.28 * smoothstep(0.35, 0.95, vd); return vec4f(srgb(c), 1.0); }`;
-let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { instantOn: false, hashNrc: false, splatOn: true, discReuse: true, cvOn: true, vrr: false, nrcOn: true, restirOn: true, cacheOn: true, cacheReuseOn: true, cacheReuseEpoch: 0, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true };
+let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { ntcOn: false, instantOn: false, hashNrc: false, splatOn: true, discReuse: true, cvOn: true, vrr: false, nrcOn: true, restirOn: true, cacheOn: true, cacheReuseOn: true, cacheReuseEpoch: 0, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true };
 // the simulation grids: a wave grid over the lake (with the shore as a wall), and two boxes of air over the fire and the chimney
 const SIM = (() => { const n = 256, size = 44, x0 = LAKE.x - size / 2, z0 = LAKE.z - size / 2; const land = new Uint8Array(n * n * 2); for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = x0 + (i + 0.5) / n * size, z = z0 + (j + 0.5) / n * size; const th = terrainH(x, z); land[(j * n + i) * 2] = th > -0.55 ? 255 : 0; const dp = Math.min(Math.max((-0.55 - th) / 0.9, 0), 1); land[(j * n + i) * 2 + 1] = Math.round(255 * dp * dp * (3 - 2 * dp)); }
   const fy = terrainH(FIRE.x, FIRE.z); const ca = Math.cos(-0.55), sa = Math.sin(-0.55); const cx = CABIN.x + (3.2 - 1.2) * ca + (-2.3 + 0.9) * sa, cz = CABIN.z - (3.2 - 1.2) * sa + (-2.3 + 0.9) * ca; const cy = terrainH(CABIN.x, CABIN.z) - 0.1 + 5.5;
@@ -1520,6 +1546,111 @@ const WG_PROJ = WG_SIMH + `
 fn pAt(c: vec3i) -> f32 { let q = clamp(c, vec3i(0), vec3i(F.dims) - 1); return textureLoad(pIn, q, 0).x; }
 @compute @workgroup_size(4, 4, 4) fn main(@builtin(global_invocation_id) gid: vec3u) { let c = vec3i(gid); if (!inside(c)) { return; }
   let g = 0.5 * vec3f(pAt(c + vec3i(1, 0, 0)) - pAt(c - vec3i(1, 0, 0)), pAt(c + vec3i(0, 1, 0)) - pAt(c - vec3i(0, 1, 0)), pAt(c + vec3i(0, 0, 1)) - pAt(c - vec3i(0, 0, 1))); textureStore(vOut, c, vec4f(textureLoad(vIn, c, 0).xyz - g, 0.0)); }`;
+// SKY_R2_STAGE8: compact learned RGB, exact original leaf masks.
+function neuralTextureWorker() {
+  self.onmessage = ({ data }) => {
+    const start = performance.now(), count = 10, size = 256, grid = 32, pixels = size * size, cells = grid * grid;
+    const rgba = new Uint8Array(data.rgba), stepsMax = data.steps || 180000, milliseconds = data.milliseconds || 6000;
+    const latent = new Float32Array(count * cells * 4), weights = new Float32Array(403), grad = new Float32Array(403), velocity = new Float32Array(403);
+    const input = new Float32Array(4), h1 = new Float32Array(16), h2 = new Float32Array(16), output = new Float32Array(3), d1 = new Float32Array(16), d2 = new Float32Array(16), di = new Float32Array(4), dy = new Float32Array(3);
+    const corners = new Uint32Array(4), blend = new Float32Array(4);
+    let randomState = 72943;
+    const rand = () => { randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0; return randomState / 4294967296; };
+    const opaque = (t, pixel) => t < 2 || t > 4 || rgba[(t * pixels + pixel) * 4 + 3] >= 128;
+    const heldOut = (t, x, y) => (x + 13 * y + 7 * t) % 17 === 0;
+
+    // Average colours initialize the latent channels, but BOTH these grids and
+    // the nonlinear decoder are then optimized from the full-resolution samples.
+    for (let t = 0; t < count; t++) for (let gy = 0; gy < grid; gy++) for (let gx = 0; gx < grid; gx++) {
+      let r = 0, g = 0, b = 0, n = 0, sq = 0;
+      for (let y = gy * 8; y < gy * 8 + 8; y++) for (let x = gx * 8; x < gx * 8 + 8; x++) {
+        if (!opaque(t, y * size + x) || heldOut(t, x, y)) continue;
+        const o = (t * pixels + y * size + x) * 4, rr = rgba[o] / 255, gg = rgba[o + 1] / 255, bb = rgba[o + 2] / 255;
+        r += rr; g += gg; b += bb; sq += (rr * rr + gg * gg + bb * bb) / 3; n++;
+      }
+      const o = (t * cells + gy * grid + gx) * 4; n = Math.max(n, 1);
+      latent[o] = r / n; latent[o + 1] = g / n; latent[o + 2] = b / n;
+      latent[o + 3] = Math.sqrt(Math.max(0, sq / n - ((r / n) ** 2 + (g / n) ** 2 + (b / n) ** 2) / 3));
+    }
+    for (let j = 0; j < 16; j++) {
+      for (let i = 0; i < 4; i++) weights[j * 4 + i] = j < 4 ? (j === i ? 1 : 0) : (rand() - 0.5) * 0.35;
+      weights[64 + j] = j < 4 ? 0 : 0.15;
+      for (let i = 0; i < 16; i++) weights[80 + j * 16 + i] = j === i ? 1 : 0;
+      weights[336 + j] = 0;
+    }
+    for (let c = 0; c < 3; c++) weights[352 + c * 16 + c] = 1;
+
+    function infer(t, x, y, quantized) {
+      const qx = (x + 0.5) / 8 - 0.5, qy = (y + 0.5) / 8 - 0.5, ix = Math.floor(qx), iy = Math.floor(qy), fx = qx - ix, fy = qy - iy;
+      corners[0] = (t * cells + ((iy + grid) % grid) * grid + (ix + grid) % grid) * 4;
+      corners[1] = (t * cells + ((iy + grid) % grid) * grid + (ix + 1 + grid) % grid) * 4;
+      corners[2] = (t * cells + ((iy + 1 + grid) % grid) * grid + (ix + grid) % grid) * 4;
+      corners[3] = (t * cells + ((iy + 1 + grid) % grid) * grid + (ix + 1 + grid) % grid) * 4;
+      blend[0] = (1 - fx) * (1 - fy); blend[1] = fx * (1 - fy); blend[2] = (1 - fx) * fy; blend[3] = fx * fy;
+      for (let i = 0; i < 4; i++) {
+        let v = 0;
+        for (let k = 0; k < 4; k++) {
+          let a = latent[corners[k] + i];
+          if (quantized) a = Math.round(Math.max(0, Math.min(255, (a + 1) * 85))) / 85 - 1;
+          v += a * blend[k];
+        }
+        input[i] = v;
+      }
+      for (let j = 0; j < 16; j++) { let v = weights[64 + j]; for (let i = 0; i < 4; i++) v += weights[j * 4 + i] * input[i]; h1[j] = Math.max(0, v); }
+      for (let j = 0; j < 16; j++) { let v = weights[336 + j]; for (let i = 0; i < 16; i++) v += weights[80 + j * 16 + i] * h1[i]; h2[j] = Math.max(0, v); }
+      for (let c = 0; c < 3; c++) { let v = weights[400 + c]; for (let i = 0; i < 16; i++) v += weights[352 + c * 16 + i] * h2[i]; output[c] = v; }
+    }
+    function evaluate(quantized) {
+      const loss = new Float64Array(count), n = new Uint32Array(count);
+      // Fixed held-out pixels, including borders. They never enter initialization
+      // or training, so this checks generalization rather than training error.
+      for (let t = 0; t < count; t++) for (let y = 0; y < size; y += 4) for (let x = 0; x < size; x++) {
+        if (!heldOut(t, x, y) || !opaque(t, y * size + x)) continue;
+        infer(t, x, y, quantized); const o = (t * pixels + y * size + x) * 4;
+        for (let c = 0; c < 3; c++) loss[t] += (Math.max(0, Math.min(1, output[c])) - rgba[o + c] / 255) ** 2;
+        n[t] += 3;
+      }
+      for (let t = 0; t < count; t++) loss[t] /= Math.max(1, n[t]);
+      return { perTexture: Array.from(loss), mse: loss.reduce((a, b) => a + b, 0) / count };
+    }
+    const initial = evaluate(true); let best = initial.mse, bestW = weights.slice(), bestLatent = latent.slice();
+    let samples = 0, batch = 0, attempts = 0, nextProgress = performance.now() + 450;
+    while (samples < stepsMax) {
+      if ((attempts++ & 1023) === 0 && performance.now() - start >= milliseconds) break;
+      const t = Math.min(9, Math.floor(rand() * count)), x = Math.floor(rand() * size), y = Math.floor(rand() * size);
+      if (heldOut(t, x, y) || !opaque(t, y * size + x)) continue;
+      infer(t, x, y, false); const o = (t * pixels + y * size + x) * 4;
+      for (let c = 0; c < 3; c++) dy[c] = (output[c] - rgba[o + c] / 255) * (2 / 3);
+      for (let i = 0; i < 16; i++) { let v = 0; for (let c = 0; c < 3; c++) v += weights[352 + c * 16 + i] * dy[c]; d2[i] = h2[i] > 0 ? v : 0; }
+      for (let i = 0; i < 16; i++) { let v = 0; for (let j = 0; j < 16; j++) v += weights[80 + j * 16 + i] * d2[j]; d1[i] = h1[i] > 0 ? v : 0; }
+      for (let i = 0; i < 4; i++) { let v = 0; for (let j = 0; j < 16; j++) v += weights[j * 4 + i] * d1[j]; di[i] = v; }
+      for (let c = 0; c < 3; c++) { grad[400 + c] += dy[c]; for (let i = 0; i < 16; i++) grad[352 + c * 16 + i] += dy[c] * h2[i]; }
+      for (let j = 0; j < 16; j++) {
+        grad[336 + j] += d2[j]; for (let i = 0; i < 16; i++) grad[80 + j * 16 + i] += d2[j] * h1[i];
+        grad[64 + j] += d1[j]; for (let i = 0; i < 4; i++) grad[j * 4 + i] += d1[j] * input[i];
+      }
+      for (let k = 0; k < 4; k++) for (let i = 0; i < 4; i++) { const q = corners[k] + i; latent[q] = Math.max(-1, Math.min(2, latent[q] - 0.12 * di[i] * blend[k])); }
+      samples++; batch++;
+      if (batch === 64) {
+        for (let i = 0; i < weights.length; i++) { velocity[i] = 0.8 * velocity[i] + 0.2 * grad[i] / batch; weights[i] -= 0.15 * velocity[i]; grad[i] = 0; }
+        batch = 0;
+      }
+      if ((samples & 4095) === 0 && performance.now() >= nextProgress) {
+        const validation = evaluate(true);
+        if (validation.mse < best) { best = validation.mse; bestW.set(weights); bestLatent.set(latent); }
+        self.postMessage({ type: 'progress', samples, milliseconds: performance.now() - start, mse: validation.mse });
+        nextProgress = performance.now() + 450;
+      }
+    }
+    const last = evaluate(true);
+    if (last.mse < best) { bestW.set(weights); bestLatent.set(latent); }
+    weights.set(bestW); latent.set(bestLatent); const final = evaluate(true), encoded = new Uint8Array(latent.length);
+    for (let i = 0; i < latent.length; i++) encoded[i] = Math.round(Math.max(0, Math.min(255, (latent[i] + 1) * 85)));
+    self.postMessage({ type: 'ready', weights: weights.buffer, latent: encoded.buffer, initial: initial.mse, mse: final.mse, perTexture: final.perTexture, samples, milliseconds: performance.now() - start }, [weights.buffer, encoded.buffer]);
+    self.close();
+  };
+}
+
 async function startWebGPU() {
   if (!navigator.gpu) return null; const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null); if (!adapter) return null;
   const need = Math.max(nodeData.byteLength, triData.byteLength, attrData.byteLength, instData.byteLength); if (adapter.limits.maxStorageBufferBindingSize < need) return null;
@@ -1535,9 +1666,41 @@ async function startWebGPU() {
   const ctx = canvas.getContext('webgpu'); const format = navigator.gpu.getPreferredCanvasFormat(); ctx.configure({ device, format, alphaMode: 'opaque' });
   const mkBuf = (arr, usage) => { const b = device.createBuffer({ size: Math.ceil(arr.byteLength / 16) * 16, usage, mappedAtCreation: true }); new Float32Array(b.getMappedRange()).set(arr); b.unmap(); return b; };
   const bNodes = mkBuf(nodeData, GPUBufferUsage.STORAGE), bTris = mkBuf(triData, GPUBufferUsage.STORAGE), bTris0 = mkBuf(triData, GPUBufferUsage.STORAGE), bAttr = mkBuf(attrData, GPUBufferUsage.STORAGE), bInst = mkBuf(instData, GPUBufferUsage.STORAGE);
-  const DISC_PARAM_F = 84 + MATN * 12 + 320 + 20 + 24 + 12 + 4 + 320; const CACHE_REUSE_OFFSET = DISC_PARAM_F + 4; const HASH_PARAM_F = CACHE_REUSE_OFFSET + 4; const INSTANT_PARAM_F = HASH_PARAM_F + 4; const PARAMS_F = INSTANT_PARAM_F + 4; const prevLightA = new Float32Array(160), prevLightE = new Float32Array(160); const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-  const layers = [barkTex, birchTex, leafO, leafP, leafB, rockTex, woodTex, stoneTex, groundTex, grassTex]; const texArr = device.createTexture({ size: [256, 256, layers.length], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+  const DISC_PARAM_F = 84 + MATN * 12 + 320 + 20 + 24 + 12 + 4 + 320; const CACHE_REUSE_OFFSET = DISC_PARAM_F + 4; const HASH_PARAM_F = CACHE_REUSE_OFFSET + 4; const INSTANT_PARAM_F = HASH_PARAM_F + 4; const NTC_PARAM_O = INSTANT_PARAM_F + 4; const PARAMS_F = NTC_PARAM_O + 408; const prevLightA = new Float32Array(160), prevLightE = new Float32Array(160); const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const layers = [barkTex, birchTex, leafO, leafP, leafB, rockTex, woodTex, stoneTex, groundTex, grassTex]; const texArr = device.createTexture({ size: [256, 256, layers.length + 1], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   layers.forEach((t, i) => device.queue.copyExternalImageToTexture({ source: t.image }, { texture: texArr, origin: [0, 0, i] }, [256, 256]));
+  const ntcWeights = new Float32Array(404); let ntcReady = false;
+  const ntcStats = window.__ntcStats = { state: 'queued', ready: false, samples: 0, ms: 0, mse: 0, initialMSE: 0, perTexture: [], referenceBytes: 10 * 256 * 256 * 4, latentBytes: 10 * 32 * 32 * 4, decoderBytes: 403 * 4, alphaBytes: 3 * 256 * 256, atlasBytes: 256 * 256 * 4, uniformBytes: 408 * 4, error: '' };
+  ntcStats.modelBytes = ntcStats.latentBytes + ntcStats.decoderBytes + ntcStats.alphaBytes;
+  // Training is bounded and off the UI thread. Originals stay resident for the
+  // toggle and exact cutout masks, so this experiment does NOT reduce GPU memory.
+  setTimeout(() => {
+    let worker = null, url = '';
+    try {
+      const source = '(' + neuralTextureWorker.toString() + ')();'; url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+      worker = new Worker(url); const rgba = new Uint8Array(10 * 256 * 256 * 4);
+      layers.forEach((t, i) => rgba.set(t.image.getContext('2d').getImageData(0, 0, 256, 256).data, i * 256 * 256 * 4));
+      ntcStats.state = 'training';
+      const stop = () => { if (worker) worker.terminate(); worker = null; if (url) URL.revokeObjectURL(url); url = ''; };
+      const timeout = setTimeout(() => { if (!ntcReady) { ntcStats.state = 'error'; ntcStats.error = 'training took too long'; stop(); } }, 15000);
+      worker.onerror = e => { ntcStats.state = 'error'; ntcStats.error = e.message; clearTimeout(timeout); stop(); };
+      worker.onmessage = ({ data }) => {
+        if (data.type === 'progress') { ntcStats.samples = data.samples; ntcStats.ms = data.milliseconds; ntcStats.mse = data.mse; return; }
+        if (data.type !== 'ready') return;
+        const learned = new Uint8Array(data.latent), decodedWeights = new Float32Array(data.weights);
+        if (learned.length !== 40960 || decodedWeights.length !== 403 || !decodedWeights.every(Number.isFinite) || !Number.isFinite(data.mse)) { ntcStats.state = 'error'; ntcStats.error = 'invalid learned texture data'; clearTimeout(timeout); stop(); return; }
+        const atlas = new Uint8Array(256 * 256 * 4);
+        for (let t = 0; t < 10; t++) for (let y = 0; y < 32; y++) { const row = (t * 32 + y) * 32 * 4; atlas.set(learned.subarray(row, row + 128), (((t / 8) | 0) * 32 + y) * 1024 + (t % 8) * 128); }
+        device.queue.writeTexture({ texture: texArr, origin: [0, 0, 10] }, atlas, { bytesPerRow: 1024, rowsPerImage: 256 }, [256, 256, 1]);
+        ntcWeights.set(decodedWeights); ntcReady = true; ntcStats.ready = true; ntcStats.state = 'ready'; ntcStats.samples = data.samples; ntcStats.ms = data.milliseconds; ntcStats.mse = data.mse; ntcStats.initialMSE = data.initial; ntcStats.perTexture = data.perTexture;
+        if (fx.ntcOn) { window.__clearCache?.(); window.__resetNrc?.(); dirty(); }
+        clearTimeout(timeout); stop();
+      };
+      window.addEventListener('pagehide', stop, { once: true });
+      worker.postMessage({ rgba: rgba.buffer, steps: 450000, milliseconds: 6000 }, [rgba.buffer]);
+    } catch (e) { ntcStats.state = 'error'; ntcStats.error = String(e); if (worker) worker.terminate(); if (url) URL.revokeObjectURL(url); }
+  }, 0);
+
   const samp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat', addressModeW: 'repeat' });
   const g0Layout = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }, ...[1, 2, 3, 4].map(b => ({ binding: b, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } })), { binding: 5, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '2d-array' } }, { binding: 6, visibility: GPUShaderStage.COMPUTE, sampler: {} }, { binding: 7, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'unfilterable-float' } }, { binding: 8, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d' } }, { binding: 9, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d' } }, { binding: 10, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 11, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 12, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d' } }, { binding: 13, visibility: GPUShaderStage.COMPUTE, sampler: {} }, { binding: 14, visibility: GPUShaderStage.COMPUTE, texture: { viewDimension: '3d' } }, { binding: 15, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 16, visibility: GPUShaderStage.COMPUTE, texture: {} }, { binding: 17, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 18, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }] });
   const noiseTex = device.createTexture({ size: [64, 64, 64], format: 'rgba8unorm', dimension: '3d', usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
@@ -1701,7 +1864,7 @@ async function startWebGPU() {
     paramsI[76] = tlasRoot; paramsI[77] = spheres.length; paramsI[78] = U.uShadowK.value; paramsI[79] = U.uGiK.value; paramsI[80] = view; paramsI[81] = U.uFrame.value; paramsI[82] = st.ss; paramsI[83] = st.gs;
     f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 160); const o2 = 84 + MATN * 12 + 320; f.set(prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; f.set([...SIM.fire.min, 0, ...SIM.fire.max, 0, ...SIM.chim.min, 0, ...SIM.chim.max, 0, SIM.water.x0, SIM.water.z0, SIM.water.size, SIM.water.n, fx.waterOn ? 1 : 0, fx.fireOn ? 1 : 0, fx.chimOn ? 1 : 0, fx.hideFlame ? 1 : 0], o2 + 20); f.set([fx.oceanOn ? 1 : 0, OCEAN_L, fx.cacheOn ? 1 : 0, fx.restirOn ? 1 : 0, fx.nrcOn && fx.cacheOn ? 1 : 0, 0, 0, fx.vrr ? 1 : 0, atm.rayScale, atm.mieScale, atm.g, 0], o2 + 44); f.set([fx.cvOn ? 1 : 0, 0, 0, 0], o2 + 56); f.set(prevLightA, o2 + 60); f.set(prevLightE, o2 + 220);
     prevLightA.set(sphA); for (let i = 0; i < 40; i++) { const m = sphB[i * 4] | 0, on = i < spheres.length && sphB[i * 4 + 1] > 0.5; for (let j = 0; j < 3; j++) prevLightE[i * 4 + j] = on ? matA[m * 4 + j] * matB[m * 4 + 1] : 0; } f.set([fx.discReuse ? 1 : 0, 0, 0, 0], DISC_PARAM_F); f.set([fx.cacheReuseOn ? 1 : 0, fx.cacheReuseEpoch, 0, 0], CACHE_REUSE_OFFSET); const useHash=halfNrc&&fx.hashNrc;const trainHash=useHash&&(U.uFrame.value%8!==0);f.set([useHash?1:0,trainHash?1:0,halfNrc?1:0,0],HASH_PARAM_F);
-    const model=trainHash?1:0;if(fx.nrcOn&&fx.cacheOn)nrcSteps[model]++;device.queue.writeBuffer(nrcMode,0,new Uint32Array([model,nrcSteps[model],0,0]));f.set([fx.instantOn ? 1 : 0, 6, 0, 0], INSTANT_PARAM_F); device.queue.writeBuffer(bParams, 0, paramsArr); }
+    const model=trainHash?1:0;if(fx.nrcOn&&fx.cacheOn)nrcSteps[model]++;device.queue.writeBuffer(nrcMode,0,new Uint32Array([model,nrcSteps[model],0,0]));f.set([fx.instantOn ? 1 : 0, 6, 0, 0], INSTANT_PARAM_F); f.set([fx.ntcOn && ntcReady ? 1 : 0, 0, 0, 0], NTC_PARAM_O); f.set(ntcWeights, NTC_PARAM_O + 4); device.queue.writeBuffer(bParams, 0, paramsArr); }
   function render(w, h, blend, view, jitter, doBlur, ss, gs) {
     ensure(w, h, ss, gs); fillParams(w, h, blend, view, jitter);
     splatPV.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); splatParamF.set(splatPV.elements, 0); splatParamU[16] = w; splatParamU[17] = h; splatParamU[18] = fx.splatOn && fx.restirOn ? 1 : 0; device.queue.writeBuffer(splatParam, 0, splatParamData); const sc = sunDir.clone().multiplyScalar(1000).add(camera.position).project(camera); device.queue.writeBuffer(bDisp, 0, new Float32Array([dispU.uExposure.value, dispU.uCurve.value, fx.bloom, fx.shafts, sc.x * 0.5 + 0.5, 0.5 - sc.y * 0.5, sc.z < 1 && sunDir.y > 0.02 ? 1 : 0, 0]));
@@ -1780,6 +1943,12 @@ s3.slider('Your ball: metal', { min: 0, max: 1, step: 0.02, value: 0, fmt: v => 
 s3.segment('Your ball: colour', [{ value: 0x2f6fd8, label: 'blue' }, { value: 0xd8402f, label: 'red' }, { value: 0xe8e2d6, label: 'white' }, { value: 0x1b1b1f, label: 'black' }], 0x2f6fd8, v => { const c = lin(+v); matA.set([c.r, c.g, c.b], YOUR * 4); dirty(); });
 s3.toggle('show the rows on the plinth', true, v => { rowsOn = v; ballSpots.forEach((c, i) => { spheres[9 + i].c.y = v ? plinthY + 0.67 : -500; }); writeSpheres(); dirty(); });
 
+gpuOnly(s3.toggle('textures from a tiny network [neural compression]', false, v => { fx.ntcOn = v; window.__clearCache?.(); window.__resetNrc?.(); dirty(); }));
+const ntcSizeRead = s3.readout('picture data, original and compressed');
+const ntcMemoryRead = s3.readout('picture data kept on the GPU');
+const ntcQualityRead = s3.readout('network training and picture error');
+s3.note('This starts off because it softens fine grass and bark detail and adds about 4 milliseconds here. Training runs once in the background. The comparison keeps the original pictures in memory; leaf outlines use their original masks.');
+
 const s4 = sb.panel.section('04 · Exposure and tone mapping', 'The sun disc is thousands of times brighter than the grass. No screen can show that, so the camera picks an exposure and a curve squashes the rest. The eye does the same at night, but only so far: a moonlit field is still dark.');
 s4.segment('Curve', [{ value: 1, label: 'ACES (film)' }, { value: 2, label: 'Reinhard' }, { value: 0, label: 'none, just clip' }], 1, v => { dispU.uCurve.value = +v; });
 const autoT = s4.toggle('auto exposure: adapt to the time of day', true, v => { autoExp = v; if (!v) expS.set(exposure, false); placeSun(); });
@@ -1848,6 +2017,13 @@ sb.onFrame((dt) => {
   if (fireOn) { const fl = 0.95 + 0.07 * vnoise(fx.time * 5, 3) + 0.03 * vnoise(fx.time * 13, 8); matB[M.FLAME * 4 + 1] = 45 * fl * fx.fireStrength; matB[M.EMBER * 4 + 1] = 6 * fx.fireStrength * (0.85 + 0.3 * vnoise(fx.time * 4, 1)); const fs = spheres[8]; fs.c.set(FIRE.x + (vnoise(fx.time * 4, 2) - 0.5) * 0.03, terrainH(FIRE.x, FIRE.z) + 0.55 + (vnoise(fx.time * 5, 4) - 0.5) * 0.05, FIRE.z + (vnoise(fx.time * 4, 9) - 0.5) * 0.03); fs.r = 0.29 + 0.02 * vnoise(fx.time * 7, 6); writeSpheres(); }
   const now = performance.now(); if (lastNow) msAvg += ((now - lastNow) - msAvg) * 0.08; lastNow = now; msRead(msAvg.toFixed(1) + ' ms'); const rs=window.__rayStats; rayBudgetRead(!gpu?'needs WebGPU':!fx.vrr?'off':rs.rays.toLocaleString()+' rays, '+(100*rs.unstable/Math.max(rs.rays,1)).toFixed(0)+'% at changing surfaces'); gpuTimeRead(window.__gpuStats?.supported ? window.__gpuStats.ms.toFixed(1) + ' ms [GPU timestamps]' : 'not available');
   splatReadout(!gpu ? 'needs WebGPU' : !(fx.splatOn && fx.restirOn) ? 'off' : window.__splatStats.recovered.toLocaleString() + ' pixels, ' + Math.round(100 * window.__splatStats.recovered / Math.max(1, window.__splatStats.missing)) + ' % of missing history');
+  if (!gpu) { ntcSizeRead('needs WebGPU'); ntcMemoryRead('needs WebGPU'); ntcQualityRead('needs WebGPU'); }
+  else {
+    const n = window.__ntcStats, kib = v => (v / 1024).toFixed(1) + ' KiB';
+    ntcSizeRead(kib(n.referenceBytes) + ' original, ' + kib(n.modelBytes) + ' packed, including leaf masks');
+    ntcMemoryRead(kib(n.referenceBytes) + ' originals + ' + kib(n.atlasBytes + n.uniformBytes) + ' experiment');
+    ntcQualityRead(n.state === 'ready' ? (fx.ntcOn ? 'on, ' : 'off, ') + (10 * Math.log10(1 / Math.max(n.mse, 1e-12))).toFixed(1) + ' dB [held-out PSNR], ' + (n.ms / 1000).toFixed(1) + ' s training' : n.state === 'error' ? n.error : n.state + ', ' + n.samples.toLocaleString() + ' samples');
+  }
   expRead(exposure.toFixed(2) + (autoExp ? ', automatic' : ', by hand')); cacheVarianceRead(!gpu ? 'needs WebGPU' : !(fx.cacheOn && fx.cacheReuseOn) ? 'off' : (window.__cacheReuseStats.before || 0).toFixed(3) + ' before, ' + (window.__cacheReuseStats.after || 0).toFixed(3) + ' after'); hashNrcRead(!gpu?'needs WebGPU':fx.hashNrc&&window.__nrcFeatures?.half?'8 grids, 2 learned values per cell, 512 KiB [f16 dots, f32 training]':'sine and cosine positions [f32 fallback]'); nrcRead(!gpu ? 'needs WebGPU' : !(fx.nrcOn && fx.cacheOn) ? 'off' : (window.__skyStats.nrcLoss || 0).toFixed(4) + ' per cell (log light)'); cellsRead(!gpu ? 'needs WebGPU' : !fx.cacheOn ? 'off' : (window.__skyStats.cells || 0).toLocaleString() + ' cells, ' + (window.__skyStats.cellsUpd || 0).toLocaleString() + ' refreshed this frame'); accRead(!accumulate ? 'off' : gpu ? 'temporal, reprojected' : Math.min(accN, 32) + (accN === 1 ? ' frame' : ' frames') + (rtScale < 1 ? ', small picture' : ''));
   sb.hud('mode', (hour < 5 || hour > 20 ? 'night: dark except where the fire and the lanterns reach, and a little moon' : hour < 8 || hour > 17.5 ? 'a low sun through a lot of air: orange light, long soft shadows' : 'high sun: white light, blue sky, hills fading into blue haze') + ' · one ray per pixel finds the surface, a few more light it');
 });
