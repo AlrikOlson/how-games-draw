@@ -673,7 +673,7 @@ struct Params { invPV: mat4x4f, camPos: vec4f, sunDir: vec4f, sunCol: vec4f, moo
   sunE: f32, sunfade: f32, mieG: f32, sunCos: f32, night: f32, skyOn: f32, bounceOn: f32, fogD: f32, sunSize: f32, moonSize: f32, noiseShift: f32, blend: f32,
   tlasRoot: i32, nsph: i32, shadowK: i32, giK: i32, view: i32, frame: i32, shadowStride: i32, giStride: i32,
   matA: array<vec4f, ${MATN}>, matB: array<vec4f, ${MATN}>, matC: array<vec4f, ${MATN}>, sphA: array<vec4f, 40>, sphB: array<vec4f, 40>,
-  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f, atm: vec4f, sampling: vec4f, prevLightA: array<vec4f, 40>, prevLightE: array<vec4f, 40> , shadowReuse: vec4f, cacheReuse: vec4f , nrcHashMode: vec4f, instant: vec4f , ntc: vec4f, ntcWeights: array<vec4f, 101>, wideTree: vec4f, leafVox: vec4f , cloudEnv: vec4f };
+  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f, atm: vec4f, sampling: vec4f, prevLightA: array<vec4f, 40>, prevLightE: array<vec4f, 40> , shadowReuse: vec4f, cacheReuse: vec4f , nrcHashMode: vec4f, instant: vec4f , ntc: vec4f, ntcWeights: array<vec4f, 101>, wideTree: vec4f, leafVox: vec4f , cloudEnv: vec4f , cloudNN: vec4f, cloudNNWeights: array<vec4f,61> };
 @group(0) @binding(0) var<uniform> P: Params;
 // BVH words are unsigned: NaN-looking packed bytes never enter float values.
 @group(0) @binding(1) var<storage, read> nodeWords: array<vec4u>;
@@ -783,13 +783,41 @@ fn cloudDensityW(q: vec3f, fine: bool, w: vec2f) -> f32 { let h = (q.y - CB) / (
   var base = remap(n.r, 1.0 - cov, 1.0, 0.0, 1.0) * prof; if (!fine || base <= 0.0) { return base; }
   let d = textureSampleLevel(tNoise, samp, uvw * 5.0 + vec3f(0.0, P.time * 0.01, 0.0), 0.0); let det = d.g * 0.625 + d.b * 0.25 + d.a * 0.125; let detMod = mix(det, 1.0 - det, clamp(h * 5.0, 0.0, 1.0)); return remap(base, detMod * 0.35, 1.0, 0.0, 1.0) * (0.6 + 0.4 * w.x); }
 fn cloudLightOD(q: vec3f, sun: vec3f, w: vec2f) -> f32 { var od = 0.0; var t = 35.0; for (var k = 0; k < 4; k++) { od += cloudDensityW(q + sun * t, false, w) * t * 0.8 * CSIG; t *= 1.9; } return od; }
+// SKY_R2_STAGE16: predict normalized scattered RGB from two light samples.
+// Density, extinction, phase lobes and integration remain the reference model.
+// This online MLP is a lite experiment, not the offline EVNS cloud architecture.
+const CLOUD_NN_COUNT:u32=243u;
+fn cloudPhaseSum(cosT:f32,od:f32)->f32 {
+  var lit=0.0;var a=1.0;var b=1.0;var c=1.0;
+  for(var o=0;o<3;o++){let ph=mix(hg2(cosT,-0.3*c),hg2(cosT,0.85*c),0.6);lit+=b*exp(-od*a)*ph;a*=0.5;b*=0.55;c*=0.7;}
+  return lit;
+}
+fn cloudReferenceRGB(dens:f32,dt:f32,cosT:f32,od:f32,sunL:vec3f,ambient:vec3f)->vec3f {
+  let powder=1.0-exp(-dens*dt*CSIG*4.0-od*0.3);
+  return sunL*cloudPhaseSum(cosT,od)*(0.5+0.5*powder)+ambient*(0.5+0.5*(1.0-exp(-od*0.5)));
+}
+fn cloudNNInput(q:vec3f,dens:f32,dt:f32,cosT:f32,sun:vec3f,w:vec2f,direct:vec3f,ambient:vec3f)->array<f32,11> {
+  // First and last quadrature taps. Training sees all four for its reference.
+  let near=cloudDensityW(q+sun*35.0,false,w)*35.0*0.8*CSIG;
+  let farT=35.0*1.9*1.9*1.9;let far=cloudDensityW(q+sun*farT,false,w)*farT*0.8*CSIG;
+  let share=direct/max(direct+ambient,vec3f(1e-5));
+  return array<f32,11>(clamp(dens,0.0,1.0),clamp((q.y-CB)/(CT-CB),0.0,1.0),cosT,sun.y,log(1.0+near)/3.0,log(1.0+far)/3.0,log(1.0+dt*CSIG)/5.0,P.cover,share.x,share.y,share.z);
+}
+fn cloudNNWeight(i:u32)->f32 {return P.cloudNNWeights[i/4u][i%4u];}
+fn cloudNNPredict(x:array<f32,11>)->vec3f {
+  var h:array<f32,16>;for(var j=0u;j<16u;j++){var y=cloudNNWeight(176u+j);for(var i=0u;i<11u;i++){y+=cloudNNWeight(j*11u+i)*x[i];}h[j]=max(y,0.0);}
+  var y=vec3f(0.0);for(var j=0u;j<3u;j++){var v=cloudNNWeight(240u+j);for(var i=0u;i<16u;i++){v+=cloudNNWeight(192u+j*16u+i)*h[i];}y[j]=1.0/(1.0+exp(-clamp(v,-12.0,12.0)));}return y;
+}
+fn cloudScattered(q:vec3f,dens:f32,dt:f32,cosT:f32,sun:vec3f,w:vec2f,sunL:vec3f,ambient:vec3f)->vec3f {
+  if(P.cloudNN.x<0.5){return cloudReferenceRGB(dens,dt,cosT,cloudLightOD(q,sun,w),sunL,ambient);}
+  let direct=sunL*cloudPhaseSum(cosT,0.0);let x=cloudNNInput(q,dens,dt,cosT,sun,w,direct,ambient);let normalizer=direct+ambient;
+  return cloudNNPredict(x)*normalizer;
+}
 fn clouds(d: vec3f, base: vec3f, jit: f32, n: i32) -> vec4f { if (d.y < 0.02 || P.cover <= 0.01) { return vec4f(base, 1.0); } let t0 = (CB - P.camPos.y) / d.y; let t1 = (CT - P.camPos.y) / d.y; let dt = (t1 - t0) / f32(n); var T = 1.0; var acc = vec3f(0.0);
   let cosT = dot(d, P.sunDir.xyz); let sun = P.sunDir.xyz; let sunUp = smoothstep(-0.08, 0.12, sun.y); let sunL = P.sunCol.xyz * (0.45 + 0.55 * sunUp) + P.moonCol.xyz * 2.0;
   let ambTop = P.skyZen.xyz * 1.0 + P.skyHor.xyz * 0.35; let ambBot = P.skyHor.xyz * 0.45; let haze = 1.0 - exp(-t0 * 0.00009); var empty = 0;
   for (var i = 0; i < n; i++) { let t = t0 + (f32(i) + jit) * dt; let q = P.camPos.xyz + d * t; let w = cloudWeather(q.xz); var dens = cloudDensityW(q, empty < 2, w); if (dens <= 0.001) { empty += 1; continue; } empty = 0;
-    let h = (q.y - CB) / (CT - CB); let od = cloudLightOD(q, sun, w); var lit = 0.0; var a = 1.0; var b = 1.0; var c = 1.0;
-    for (var o = 0; o < 3; o++) { let ph = mix(hg2(cosT, -0.3 * c), hg2(cosT, 0.85 * c), 0.6); lit += b * exp(-od * a) * ph; a *= 0.5; b *= 0.55; c *= 0.7; }
-    let powder = 1.0 - exp(-dens * dt * CSIG * 4.0 - od * 0.3); let col = sunL * lit * (0.5 + 0.5 * powder) + mix(ambBot, ambTop, h) * (0.5 + 0.5 * (1.0 - exp(-od * 0.5)));
+    let h = (q.y - CB) / (CT - CB); let col=cloudScattered(q,dens,dt,cosT,sun,w,sunL,mix(ambBot,ambTop,h));
     let al = 1.0 - exp(-dens * dt * CSIG); acc += T * al * col; T *= 1.0 - al; if (T < 0.03) { break; } }
   let far = 1.0 - smoothstep(0.02, 0.09, d.y); let cl = base * T + acc * (1.0 - far * 0.6); return vec4f(mix(cl, base, haze), T); }
 fn hg2(c: f32, g: f32) -> f32 { let g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159265 * pow(1.0 + g2 - 2.0 * g * c, 1.5)); }
@@ -1177,6 +1205,74 @@ const WG_CLOUD_ENV = WG_COMMON + `
     zen += tr * y; wz += y; hor += tr * (1.0 - y); wh += 1.0 - y;
   }
   cloudOut[0] = vec4f(zen / max(wz, 1e-5), hor / max(wh, 1e-5), cloudTransmission(P.camPos.xyz, P.sunDir.xyz), P.cover);
+}`;
+// Online training has independent validation lanes. One workgroup accumulates
+// fixed-point gradients before any thread writes weights, avoiding read/write races.
+const WG_CLOUD_NN_TRAIN = WG_COMMON + `
+@group(1) @binding(0) var<storage,read_write> CN:array<f32>;
+var<workgroup> cng:array<atomic<i32>,243>;
+var<workgroup> cnMetric:array<atomic<u32>,4>;
+fn cnRand(seed:u32)->f32 {var h=seed;h^=(h>>16u);h*=2146121005u;h^=(h>>15u);h*=2221713035u;h^=(h>>16u);return(f32(h&0x00ffffffu)+0.5)/16777216.0;}
+fn cnAdd(i:u32,x:f32){atomicAdd(&cng[i],i32(clamp(x,-4.0,4.0)*1048576.0));}
+@compute @workgroup_size(64) fn main(@builtin(local_invocation_index) lane:u32){
+  let step=CN[729]+1.0;
+  for(var i=lane;i<CLOUD_NN_COUNT;i+=64u){atomicStore(&cng[i],0);}if(lane<4u){atomicStore(&cnMetric[lane],0u);}workgroupBarrier();
+  let seed=lane*1597334677u+u32(P.frame)*747796405u;var q=vec3f(0.0);var w=vec2f(0.0);var dens=0.0;var rd=vec3f(0.0,1.0,0.0);var dt=25.0;
+  for(var attempt=0u;attempt<8u;attempt++){
+    let salt=seed^(attempt*277803737u);let y=0.04+0.96*cnRand(salt^1299827u);let az=6.2831853*cnRand(salt^42589u);rd=vec3f(cos(az)*sqrt(1.0-y*y),y,sin(az)*sqrt(1.0-y*y));
+    // Half the samples follow actual screen rays. The others cover remaining
+    // sky directions and coarser reflection marches. Empty points are retried.
+    if((lane&1u)==0u){let uv=vec2f(cnRand(salt^419u),cnRand(salt^6542989u));let cp=P.invPV*vec4f(uv.x*2.0-1.0,1.0-uv.y*2.0,1.0,1.0);let ray=normalize(cp.xyz/cp.w-P.camPos.xyz);if(ray.y>0.02){rd=ray;}}
+    // SKY_R2_CLOUD_FULL_HEIGHT: overcast towers can fill the entire layer.
+    let h=cnRand(salt^49037u);q=P.camPos.xyz+rd*((CB+h*(CT-CB)-P.camPos.y)/rd.y);w=cloudWeather(q.xz);dens=cloudDensityW(q,true,w);
+    let n=select(40.0,16.0,(lane%5u)==0u);dt=(CT-CB)/(rd.y*n);if(dens>0.001){break;}
+  }
+  if(dens>0.001){
+    let sun=P.sunDir.xyz;let cosT=dot(rd,sun);let h=clamp((q.y-CB)/(CT-CB),0.0,1.0);let sunUp=smoothstep(-0.08,0.12,sun.y);
+    let sunL=P.sunCol.xyz*(0.45+0.55*sunUp)+P.moonCol.xyz*2.0;let ambient=mix(P.skyHor.xyz*0.45,P.skyZen.xyz+P.skyHor.xyz*0.35,h);
+    let direct=sunL*cloudPhaseSum(cosT,0.0);let normalizer=max(direct+ambient,vec3f(1e-5));
+    let x=cloudNNInput(q,dens,dt,cosT,sun,w,direct,ambient);let reference=clamp(cloudReferenceRGB(dens,dt,cosT,cloudLightOD(q,sun,w),sunL,ambient)/normalizer,vec3f(0.0),vec3f(1.0));
+    var hidden:array<f32,16>;for(var j=0u;j<16u;j++){var v=CN[176u+j];for(var i=0u;i<11u;i++){v+=CN[j*11u+i]*x[i];}hidden[j]=max(v,0.0);}
+    var y=vec3f(0.0);for(var j=0u;j<3u;j++){var v=CN[240u+j];for(var i=0u;i<16u;i++){v+=CN[192u+j*16u+i]*hidden[i];}y[j]=1.0/(1.0+exp(-clamp(v,-12.0,12.0)));}
+    if((lane&3u)==0u){let error=(cloudNNPredict(x)-reference)*normalizer;let value=reference*normalizer;let scale=max(dot(normalizer,normalizer),1e-8);atomicAdd(&cnMetric[0],u32(clamp(dot(error,error)/scale,0.0,4.0)*1048576.0));atomicAdd(&cnMetric[1],u32(clamp(dot(value,value)/scale,0.0,4.0)*1048576.0));atomicAdd(&cnMetric[2],1u);}
+    else{let dy=(y-reference)*y*(vec3f(1.0)-y)*(2.0/3.0);for(var j=0u;j<3u;j++){cnAdd(240u+j,dy[j]);for(var i=0u;i<16u;i++){cnAdd(192u+j*16u+i,dy[j]*hidden[i]);}}
+      for(var j=0u;j<16u;j++){var dh=0.0;for(var k=0u;k<3u;k++){dh+=dy[k]*CN[192u+k*16u+j];}dh=select(0.0,dh,hidden[j]>0.0);cnAdd(176u+j,dh);for(var i=0u;i<11u;i++){cnAdd(j*11u+i,dh*x[i]);}}
+      atomicAdd(&cnMetric[3],1u);
+    }
+  }
+  workgroupBarrier();storageBarrier();let count=atomicLoad(&cnMetric[3]);
+  for(var i=lane;i<CLOUD_NN_COUNT;i+=64u){if(count>0u){let g=f32(atomicLoad(&cng[i]))/(1048576.0*f32(count));let m=0.9*CN[243u+i]+0.1*g;let v=0.999*CN[486u+i]+0.001*g*g;CN[243u+i]=m;CN[486u+i]=v;CN[i]-=0.002*(m/(1.0-pow(0.9,step)))/(sqrt(v/(1.0-pow(0.999,step)))+1e-8);}}
+  if(lane==0u){if(count>0u){CN[729]=step;CN[733]+=f32(count);}let held=atomicLoad(&cnMetric[2]);if(held>0u){let mse=f32(atomicLoad(&cnMetric[0]))/(1048576.0*f32(held));let energy=f32(atomicLoad(&cnMetric[1]))/(1048576.0*f32(held));let alpha=select(0.05,1.0,CN[732]==0.0);CN[730]=mix(CN[730],mse,alpha);CN[731]=mix(CN[731],energy,alpha);CN[732]+=f32(held);}}
+}`;
+// SKY_R2_STAGE16_GATE: eight complete paired marches every 16 frames.
+// Six screen rays use 40 steps; two hemisphere probes use the 16-step reflection
+// configuration. Both estimates share every density, jitter and extinction tap.
+// Only cloud scattered radiance is compared, excluding identical clear sky.
+const WG_CLOUD_NN_VALIDATE = WG_COMMON + `
+@group(1) @binding(0) var<storage,read_write> CN:array<f32>;
+fn cnRayRand(seed:u32)->f32{var h=seed;h^=(h>>16u);h*=2146121005u;h^=(h>>15u);h*=2221713035u;h^=(h>>16u);return(f32(h&0x00ffffffu)+0.5)/16777216.0;}
+@compute @workgroup_size(8) fn main(@builtin(local_invocation_index) lane:u32){
+ let o=736u+lane*4u;CN[o]=0.0;CN[o+1u]=0.0;CN[o+2u]=0.0;CN[o+3u]=0.0;
+ if(P.cover<=0.01){return;}
+ let seed=(u32(P.frame)*747796405u)^(lane*1597334677u)^2246822519u;
+ let y=0.04+0.96*cnRayRand(seed^1299827u);let az=6.2831853*cnRayRand(seed^42589u);
+ var rd=vec3f(cos(az)*sqrt(1.0-y*y),y,sin(az)*sqrt(1.0-y*y));var n=16;
+ if(lane<6u){let uv=vec2f(cnRayRand(seed^419u),cnRayRand(seed^6542989u));let cp=P.invPV*vec4f(uv.x*2.0-1.0,1.0-uv.y*2.0,1.0,1.0);rd=normalize(cp.xyz/cp.w-P.camPos.xyz);n=40;}
+ if(rd.y<0.02){return;}
+ let t0=(CB-P.camPos.y)/rd.y;let t1=(CT-P.camPos.y)/rd.y;let dt=(t1-t0)/f32(n);let jit=cnRayRand(seed^49037u);
+ let sun=P.sunDir.xyz;let cosT=dot(rd,sun);let sunUp=smoothstep(-0.08,0.12,sun.y);let sunL=P.sunCol.xyz*(0.45+0.55*sunUp)+P.moonCol.xyz*2.0;
+ let ambTop=P.skyZen.xyz+P.skyHor.xyz*0.35;let ambBot=P.skyHor.xyz*0.45;let direct=sunL*cloudPhaseSum(cosT,0.0);
+ var T=1.0;var reference=vec3f(0.0);var model=vec3f(0.0);var empty=0;var points=0u;
+ for(var i=0;i<n;i++){
+  let q=P.camPos.xyz+rd*(t0+(f32(i)+jit)*dt);let w=cloudWeather(q.xz);let dens=cloudDensityW(q,empty<2,w);
+  if(dens<=0.001){empty+=1;continue;}empty=0;
+  let h=(q.y-CB)/(CT-CB);let ambient=mix(ambBot,ambTop,h);let x=cloudNNInput(q,dens,dt,cosT,sun,w,direct,ambient);
+  let refColor=cloudReferenceRGB(dens,dt,cosT,cloudLightOD(q,sun,w),sunL,ambient);let pred=cloudNNPredict(x)*(direct+ambient);
+  let al=1.0-exp(-dens*dt*CSIG);reference+=T*al*refColor;model+=T*al*pred;T*=1.0-al;points+=1u;if(T<0.03){break;}
+ }
+ let far=1.0-smoothstep(0.02,0.09,rd.y);let attenuation=(1.0-far*0.6)*exp(-t0*0.00009);reference*=attenuation;model*=attenuation;
+ let e=model-reference;let energy=dot(reference,reference);
+ if(points>0u && (1.0-T)>0.005 && energy>1e-10){CN[o]=dot(e,e);CN[o+1u]=energy;CN[o+2u]=1.0;CN[o+3u]=f32(points);}
 }`;
 const WG_GBUF = WG_COMMON + `
 @group(1) @binding(0) var oA: texture_storage_2d<rgba32float, write>; @group(1) @binding(1) var oB: texture_storage_2d<rgba32float, write>; @group(1) @binding(2) var oC: texture_storage_2d<rgba32float, write>; @group(1) @binding(3) var oD: texture_storage_2d<rgba32float, write>;
@@ -2117,7 +2213,7 @@ fn srgb(c0: vec3f) -> vec3f { let c = clamp(c0, vec3f(0.0), vec3f(1.0)); return 
 // Camera movement retains history. A zero homogeneous matrix is rejected by the
 // existing shadow, GI, air, reservoir and TAA reprojection validity checks.
 let gpuHistoryReset = true; const invalidHistoryPV = new Float32Array(16);
-let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { cloudLightingOn: true, cloudDirty: true, froxelOn: false, volReuse: false, subgroupsOn: false, ntcOn: false, instantOn: false, hashNrc: false, splatOn: true, discReuse: true, cvOn: true, vrr: false, nrcOn: true, restirOn: true, cacheOn: true, voxelOn: false, voxelDistance: 80, wideOn: false, cacheReuseOn: true, cacheReuseEpoch: 0, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true, refitOn: true };
+let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { cloudNeuralOn: false, cloudLightingOn: true, cloudDirty: true, froxelOn: false, volReuse: false, subgroupsOn: false, ntcOn: false, instantOn: false, hashNrc: false, splatOn: true, discReuse: true, cvOn: true, vrr: false, nrcOn: true, restirOn: true, cacheOn: true, voxelOn: false, voxelDistance: 80, wideOn: false, cacheReuseOn: true, cacheReuseEpoch: 0, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true, refitOn: true };
 // the simulation grids: a wave grid over the lake (with the shore as a wall), and two boxes of air over the fire and the chimney
 const SIM = (() => { const n = 256, size = 44, x0 = LAKE.x - size / 2, z0 = LAKE.z - size / 2; const land = new Uint8Array(n * n * 2); for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = x0 + (i + 0.5) / n * size, z = z0 + (j + 0.5) / n * size; const th = terrainH(x, z); land[(j * n + i) * 2] = th > -0.55 ? 255 : 0; const dp = Math.min(Math.max((-0.55 - th) / 0.9, 0), 1); land[(j * n + i) * 2 + 1] = Math.round(255 * dp * dp * (3 - 2 * dp)); }
   const fy = terrainH(FIRE.x, FIRE.z); const ca = Math.cos(-0.55), sa = Math.sin(-0.55); const cx = CABIN.x + (3.2 - 1.2) * ca + (-2.3 + 0.9) * sa, cz = CABIN.z - (3.2 - 1.2) * sa + (-2.3 + 0.9) * ca; const cy = terrainH(CABIN.x, CABIN.z) - 0.1 + 5.5;
@@ -2425,7 +2521,7 @@ async function startWebGPU() {
   const ctx = canvas.getContext('webgpu'); const format = navigator.gpu.getPreferredCanvasFormat(); ctx.configure({ device, format, alphaMode: 'opaque' });
   const mkBuf = (arr, usage) => { const b = device.createBuffer({ size: Math.ceil(arr.byteLength / 16) * 16, usage, mappedAtCreation: true }); new Uint8Array(b.getMappedRange()).set(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength)); b.unmap(); return b; };
   const bNodes = mkBuf(wideNodeData, GPUBufferUsage.STORAGE), bTris = mkBuf(triData, GPUBufferUsage.STORAGE), bTris0 = mkBuf(triData, GPUBufferUsage.STORAGE), bAttr = mkBuf(attrData, GPUBufferUsage.STORAGE), bInst = mkBuf(instData, GPUBufferUsage.STORAGE);
-  const DISC_PARAM_F = 84 + MATN * 12 + 320 + 20 + 24 + 12 + 4 + 320; const CACHE_REUSE_OFFSET = DISC_PARAM_F + 4; const HASH_PARAM_F = CACHE_REUSE_OFFSET + 4; const INSTANT_PARAM_F = HASH_PARAM_F + 4; const NTC_PARAM_O = INSTANT_PARAM_F + 4; const WIDE_BVH_OFFSET = NTC_PARAM_O + 408; const LEAF_VOX_OFFSET = WIDE_BVH_OFFSET + 4; const CLOUD_ENV_O = LEAF_VOX_OFFSET + 4; const PARAMS_F = CLOUD_ENV_O + 4; const prevLightA = new Float32Array(160), prevLightE = new Float32Array(160); const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const DISC_PARAM_F = 84 + MATN * 12 + 320 + 20 + 24 + 12 + 4 + 320; const CACHE_REUSE_OFFSET = DISC_PARAM_F + 4; const HASH_PARAM_F = CACHE_REUSE_OFFSET + 4; const INSTANT_PARAM_F = HASH_PARAM_F + 4; const NTC_PARAM_O = INSTANT_PARAM_F + 4; const WIDE_BVH_OFFSET = NTC_PARAM_O + 408; const LEAF_VOX_OFFSET = WIDE_BVH_OFFSET + 4; const CLOUD_ENV_O = LEAF_VOX_OFFSET + 4; const CLOUD_NN_O = CLOUD_ENV_O + 4; const PARAMS_F = CLOUD_NN_O + 248; const prevLightA = new Float32Array(160), prevLightE = new Float32Array(160); const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const layers = [barkTex, birchTex, leafO, leafP, leafB, rockTex, woodTex, stoneTex, groundTex, grassTex]; const texArr = device.createTexture({ size: [256, 256, layers.length + 1], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   layers.forEach((t, i) => device.queue.copyExternalImageToTexture({ source: t.image }, { texture: texArr, origin: [0, 0, i] }, [256, 256]));
   const ntcWeights = new Float32Array(404); let ntcReady = false;
@@ -2610,6 +2706,78 @@ async function startWebGPU() {
   const splatPipe = entryPoint => device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [g0Layout, splatLayout] }), compute: { module: splatModule, entryPoint } });
   const splatPipes = { depth: splatPipe('depthMain'), owner: splatPipe('ownerMain') };
   const subgroupPipes=device.features.has('subgroups')?{blur:pipe(WG_BLUR_SUB,layouts.blur),acc:pipe(WG_ACC_SUB,layouts.acc),nrcTrain:pipe(WG_NRC_TRAIN_SUB,layouts.nrcTrain)}:null;
+  const CLOUD_NN_SIZE=768, CLOUD_NN_WEIGHTS=243;
+  const cloudNNState=new Float32Array(CLOUD_NN_SIZE),cloudNNWeights=new Float32Array(244);let nnSeed=41857;
+  const nnRandom=()=>{nnSeed=(Math.imul(nnSeed,1664525)+1013904223)>>>0;return nnSeed/4294967296;};
+  for(let i=0;i<243;i++)cloudNNState[i]=(nnRandom()*2-1)*0.18;for(let i=176;i<192;i++)cloudNNState[i]=0.05;cloudNNState.fill(0,240,243);cloudNNWeights.set(cloudNNState.subarray(0,243));
+  const cloudNNBuffer=device.createBuffer({size:CLOUD_NN_SIZE*4,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC|GPUBufferUsage.COPY_DST});device.queue.writeBuffer(cloudNNBuffer,0,cloudNNState);
+  const cloudNNRead=device.createBuffer({size:CLOUD_NN_SIZE*4,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});
+  const cloudNNLayout=device.createBindGroupLayout({entries:[{binding:0,visibility:GPUShaderStage.COMPUTE,buffer:{type:'storage'}}]});
+  const cloudNNPipe=pipe(WG_CLOUD_NN_TRAIN,cloudNNLayout),cloudNNValidatePipe=pipe(WG_CLOUD_NN_VALIDATE,cloudNNLayout);const cloudNNGroup=device.createBindGroup({layout:cloudNNLayout,entries:[{binding:0,resource:{buffer:cloudNNBuffer}}]});
+  const cloudNNStats=window.__cloudNNStats={samples:0,validation:0,relativeRMSE:Infinity,rayValidation:0,rayRelativeRMSE:Infinity,rayWorstRelative:Infinity,ready:false,active:false,epoch:0,snapshotId:0,validationReason:'initial scene',error:'',bytes:CLOUD_NN_SIZE*4+244*4,referenceLightSamples:4,modelLightSamples:2};
+  let cloudNNPending=false,cloudNNQueued=false,cloudNNEpoch=0,cloudNNQueuedEpoch=0,cloudNNGood=0,cloudNNClimate=null,cloudNNCandidate=false,cloudNNBatches=0;
+  const cloudNNRays=[];
+  function resetCloudNNValidation(reason){
+    cloudNNEpoch++;cloudNNGood=0;cloudNNBatches=0;cloudNNRays.length=0;
+    cloudNNStats.ready=false;cloudNNStats.epoch=cloudNNEpoch;cloudNNStats.validationReason=reason;cloudNNStats.validation=0;cloudNNStats.relativeRMSE=Infinity;cloudNNStats.rayValidation=0;cloudNNStats.rayRelativeRMSE=Infinity;cloudNNStats.rayWorstRelative=Infinity;
+    // Preserve weights, Adam moments, optimizer step and training count.
+    device.queue.writeBuffer(cloudNNBuffer,730*4,new Float32Array(3));
+  }
+  function writeCloudNNParams(f){
+    const m=camera.matrixWorld.elements;
+    const climate={enabled:fx.cloudNeuralOn,cover:fx.cover,wind:fx.wind,time:fx.time,mode:lightFrom,moon:moonOn,sky:f[69],sunStrength,atmosphere:[atm.rayScale,atm.mieScale,atm.g],camera:[f[16],f[17],f[18]],forward:[-m[8],-m[9],-m[10]],projection:[camera.fov,camera.aspect],sun:[f[20],f[21],f[22]],colors:[...f.slice(24,27),...f.slice(32,35),...f.slice(40,43),...f.slice(44,47)]};
+    const old=cloudNNClimate;let reason='';const distance=(a,b)=>Math.hypot(...a.map((x,i)=>x-b[i]));
+    if(!old)reason='initial scene';
+    else if(climate.enabled!==old.enabled)reason=climate.enabled?'learning enabled':'learning disabled';
+    else if(climate.mode!==old.mode||climate.moon!==old.moon||climate.sky!==old.sky)reason='light sources changed';
+    else if(Math.abs(climate.sunStrength-old.sunStrength)>0.025)reason='sun strength changed';
+    else if(distance(climate.atmosphere,old.atmosphere)>0.02)reason='atmosphere changed';
+    else if(Math.abs(climate.cover-old.cover)>0.025||(climate.cover<=0.01)!==(old.cover<=0.01))reason='cloud cover changed';
+    else if(Math.abs(climate.wind-old.wind)>0.1)reason='cloud wind changed';
+    else if(distance(climate.camera,old.camera)>1.5||distance(climate.forward,old.forward)>0.05||distance(climate.projection,old.projection)>0.02)reason='camera changed';
+    else if(distance(climate.sun,old.sun)>0.025)reason='sun direction changed';
+    else if(climate.colors.some((x,i)=>Math.abs(x-old.colors[i])>Math.max(0.002,0.06*Math.max(Math.abs(x),Math.abs(old.colors[i])))))reason='sky light changed';
+    else if(Math.abs(climate.time-old.time)>15)reason='cloud motion refresh';
+    if(reason){cloudNNClimate=climate;resetCloudNNValidation(reason);}
+    const nextActive=!!(fx.cloudNeuralOn&&cloudNNStats.ready&&fx.cover>0.01);
+    // The gate can change without a panel event. Drop old sky/reflection colour
+    // immediately on either transition, after fillParams has written the blend.
+    if(nextActive!==cloudNNStats.active){f[75]=1;stillN=0;}
+    cloudNNStats.active=nextActive;
+    f.set([cloudNNStats.active?1:0,cloudNNStats.samples,cloudNNStats.snapshotId,0],CLOUD_NN_O);f.set(cloudNNWeights,CLOUD_NN_O+4);
+  }
+  function cloudNeuralStep(enc){
+    if(!fx.cloudNeuralOn||fx.cover<=0.01)return;
+    const c=enc.beginComputePass();c.setPipeline(cloudNNPipe);c.setBindGroup(0,g0);c.setBindGroup(1,cloudNNGroup);c.dispatchWorkgroups(1);c.end();
+    if(!cloudNNPending&&!cloudNNQueued&&U.uFrame.value%16===0){
+      const v=enc.beginComputePass();v.setPipeline(cloudNNValidatePipe);v.setBindGroup(0,g0);v.setBindGroup(1,cloudNNGroup);v.dispatchWorkgroups(1);v.end();
+      enc.copyBufferToBuffer(cloudNNBuffer,0,cloudNNRead,0,CLOUD_NN_SIZE*4);cloudNNQueued=true;cloudNNQueuedEpoch=cloudNNEpoch;
+    }
+  }
+  function cloudNNCandidateFrom(a){
+    cloudNNWeights.set(a.subarray(0,CLOUD_NN_WEIGHTS));cloudNNCandidate=true;cloudNNStats.snapshotId++;resetCloudNNValidation('new weight snapshot');
+  }
+  async function readCloudNeural(){
+    if(!cloudNNQueued||cloudNNPending)return;cloudNNQueued=false;cloudNNPending=true;const epoch=cloudNNQueuedEpoch;
+    try{await cloudNNRead.mapAsync(GPUMapMode.READ);const a=new Float32Array(cloudNNRead.getMappedRange().slice(0));cloudNNRead.unmap();
+      if(epoch===cloudNNEpoch&&a.every(Number.isFinite)){
+        cloudNNStats.error='';cloudNNStats.samples=a[733];
+        if(!cloudNNCandidate&&a[733]>=4096){cloudNNCandidateFrom(a);}
+        else if(cloudNNCandidate){
+          cloudNNBatches++;cloudNNStats.validation=a[732];cloudNNStats.relativeRMSE=Math.sqrt(Math.max(a[730],0)/Math.max(a[731],1e-5));
+          for(let i=0;i<8;i++){const o=736+i*4;if(a[o+2]>0.5)cloudNNRays.push([Math.max(a[o],0),Math.max(a[o+1],1e-10)]);}
+          if(cloudNNRays.length>96)cloudNNRays.splice(0,cloudNNRays.length-96);
+          let e=0,r=0,worst=0;for(const pair of cloudNNRays){e+=pair[0];r+=pair[1];worst=Math.max(worst,Math.sqrt(pair[0]/pair[1]));}
+          cloudNNStats.rayValidation=cloudNNRays.length;cloudNNStats.rayRelativeRMSE=cloudNNRays.length?Math.sqrt(e/Math.max(r,1e-10)):Infinity;cloudNNStats.rayWorstRelative=cloudNNRays.length?worst:Infinity;
+          const enough=cloudNNStats.validation>=1024&&cloudNNStats.rayValidation>=24;
+          const passing=enough&&cloudNNStats.relativeRMSE<0.06&&cloudNNStats.rayRelativeRMSE<0.06&&cloudNNStats.rayWorstRelative<0.15;cloudNNGood=passing?cloudNNGood+1:0;
+          if(cloudNNGood>=3){cloudNNStats.ready=true;cloudNNStats.validationReason='point and ray checks passed';}
+          const failed=enough&&(cloudNNStats.relativeRMSE>0.08||cloudNNStats.rayRelativeRMSE>0.08||cloudNNStats.rayWorstRelative>0.20);
+          if(failed||(cloudNNBatches>=12&&!cloudNNStats.ready)){cloudNNCandidateFrom(a);}
+        }
+      }else if(epoch===cloudNNEpoch){cloudNNStats.error='non-finite learner state';cloudNNStats.ready=false;}
+    }catch(e){cloudNNStats.error=String(e);cloudNNStats.ready=false;}cloudNNPending=false;
+  }
   const cloudStats = window.__cloudStats = { zen: 1, hor: 1, sun: 1, cover: -1, n: 0, error: '' };
   const cloudEnvBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   const cloudEnvRead = device.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
@@ -2697,7 +2865,7 @@ async function startWebGPU() {
     paramsI[76] = tlasRoot; paramsI[77] = spheres.length; paramsI[78] = U.uShadowK.value; paramsI[79] = U.uGiK.value; paramsI[80] = view; paramsI[81] = U.uFrame.value; paramsI[82] = st.ss; paramsI[83] = st.gs;
     f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 160); const o2 = 84 + MATN * 12 + 320; f.set(gpuHistoryReset ? invalidHistoryPV : prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; f.set([...SIM.fire.min, 0, ...SIM.fire.max, 0, ...SIM.chim.min, 0, ...SIM.chim.max, 0, SIM.water.x0, SIM.water.z0, SIM.water.size, SIM.water.n, fx.waterOn ? 1 : 0, fx.fireOn && fireOn ? 1 : 0, fx.chimOn ? 1 : 0, fx.hideFlame || !fireOn ? 1 : 0], o2 + 20); f.set([fx.oceanOn ? 1 : 0, OCEAN_L, fx.cacheOn ? 1 : 0, fx.restirOn ? 1 : 0, fx.nrcOn && fx.cacheOn ? 1 : 0, 0, 0, fx.vrr ? 1 : 0, atm.rayScale, atm.mieScale, atm.g, 0], o2 + 44); f.set([fx.cvOn ? 1 : 0, 0, 0, 0], o2 + 56); f.set(prevLightA, o2 + 60); f.set(prevLightE, o2 + 220);
     prevLightA.set(sphA); for (let i = 0; i < 40; i++) { const m = sphB[i * 4] | 0, on = i < spheres.length && sphB[i * 4 + 1] > 0.5; for (let j = 0; j < 3; j++) prevLightE[i * 4 + j] = on ? matA[m * 4 + j] * matB[m * 4 + 1] : 0; } f.set([fx.discReuse ? 1 : 0, 0, 0, 0], DISC_PARAM_F); f.set([fx.cacheReuseOn ? 1 : 0, fx.cacheReuseEpoch, 0, 0], CACHE_REUSE_OFFSET); const useHash=halfNrc&&fx.hashNrc;const trainHash=useHash&&(U.uFrame.value%8!==0);f.set([useHash?1:0,trainHash?1:0,halfNrc?1:0,0],HASH_PARAM_F);
-    const model=trainHash?1:0;if(fx.nrcOn&&fx.cacheOn)nrcSteps[model]++;device.queue.writeBuffer(nrcMode,0,new Uint32Array([model,nrcSteps[model],0,0]));f.set([fx.instantOn ? 1 : 0, 6, 0, 0], INSTANT_PARAM_F); f.set([fx.ntcOn && ntcReady ? 1 : 0, 0, 0, 0], NTC_PARAM_O); f.set(ntcWeights, NTC_PARAM_O + 4); f.set([fx.wideOn ? 1 : 0, wideTlasRoot, wideNodeBase, wideBVH.words.length / 16], WIDE_BVH_OFFSET); f.set([fx.voxelOn ? 1 : 0, fx.voxelDistance, 6, 0], LEAF_VOX_OFFSET); f.set([cloudStats.zen, cloudStats.hor, fx.cloudLightingOn ? 1 : 0, 0], CLOUD_ENV_O); device.queue.writeBuffer(bParams, 0, paramsArr); }
+    const model=trainHash?1:0;if(fx.nrcOn&&fx.cacheOn)nrcSteps[model]++;device.queue.writeBuffer(nrcMode,0,new Uint32Array([model,nrcSteps[model],0,0]));f.set([fx.instantOn ? 1 : 0, 6, 0, 0], INSTANT_PARAM_F); f.set([fx.ntcOn && ntcReady ? 1 : 0, 0, 0, 0], NTC_PARAM_O); f.set(ntcWeights, NTC_PARAM_O + 4); f.set([fx.wideOn ? 1 : 0, wideTlasRoot, wideNodeBase, wideBVH.words.length / 16], WIDE_BVH_OFFSET); f.set([fx.voxelOn ? 1 : 0, fx.voxelDistance, 6, 0], LEAF_VOX_OFFSET); writeCloudNNParams(f); f.set([cloudStats.zen, cloudStats.hor, fx.cloudLightingOn ? 1 : 0, 0], CLOUD_ENV_O); device.queue.writeBuffer(bParams, 0, paramsArr); }
   function render(w, h, blend, view, jitter, doBlur, ss, gs) {
     const safeSize = fitRasterSize(w, h, device.limits.maxTextureDimension2D, viewportPixelLimit);
     resourceSize.primaryScaled = safeSize[0] !== w || safeSize[1] !== h; [w, h] = safeSize;
@@ -2705,7 +2873,7 @@ async function startWebGPU() {
     splatPV.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); splatParamF.set(splatPV.elements, 0); splatParamU[16] = w; splatParamU[17] = h; splatParamU[18] = fx.splatOn && fx.restirOn && !gpuHistoryReset ? 1 : 0; device.queue.writeBuffer(splatParam, 0, splatParamData); const sc = sunDir.clone().multiplyScalar(1000).add(camera.position).project(camera); device.queue.writeBuffer(bDisp, 0, new Float32Array([dispU.uExposure.value, dispU.uCurve.value, fx.bloom, fx.shafts, sc.x * 0.5 + 0.5, 0.5 - sc.y * 0.5, sc.z < 1 && sunDir.y > 0.02 ? 1 : 0, 0]));
     const requestedCw = Math.max(2, Math.round(sb.stage.clientWidth * Math.min(devicePixelRatio || 1, 2))), requestedCh = Math.max(2, Math.round(sb.stage.clientHeight * Math.min(devicePixelRatio || 1, 2)));
     const [cw, ch] = fitRasterSize(requestedCw, requestedCh, device.limits.maxTextureDimension2D, Infinity); resourceSize.displayScaled = cw !== requestedCw || ch !== requestedCh; if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
-    const enc = device.createCommandEncoder(); const G = st.groups; skyPass(enc); simStep(enc, fx.dt, cur); oceanStep(enc); g0 = g0s[1 - cur]; cloudEnvironmentStep(enc); const run = (p, g, x, y) => { const c = enc.beginComputePass(); c.setPipeline(p); c.setBindGroup(0, g0); c.setBindGroup(1, g); c.dispatchWorkgroups(Math.ceil(x / 8), Math.ceil(y / 8)); c.end(); };
+    const enc = device.createCommandEncoder(); const G = st.groups; skyPass(enc); simStep(enc, fx.dt, cur); oceanStep(enc); g0 = g0s[1 - cur]; cloudEnvironmentStep(enc); cloudNeuralStep(enc); const run = (p, g, x, y) => { const c = enc.beginComputePass(); c.setPipeline(p); c.setBindGroup(0, g0); c.setBindGroup(1, g); c.dispatchWorkgroups(Math.ceil(x / 8), Math.ceil(y / 8)); c.end(); };
     if (fx.instantOn) enc.clearBuffer(bCache, 65536 * 64, INSTANT_BYTES); run(pipes.gbuf, G.gbuf, w, h);
     if (fx.splatOn && fx.restirOn && !gpuHistoryReset) { enc.clearBuffer(st.splatDepth); enc.clearBuffer(st.splatOwner); run(splatPipes.depth, st.splatGroups[cur], w, h); run(splatPipes.owner, st.splatGroups[cur], w, h); } if (fx.cacheOn) { if (fx.cacheReuseOn) { enc.clearBuffer(bCacheReuse, CACHE_REUSE_BYTES, 16); run(pipes.cache, G.cache, 65536 / 8, 8); run(pipes.cacheResolve, G.cache, 65536 / 8, 8); run(pipes.cacheTouch, G.cache, 65536 / 8, 8); if (!cacheReusePending) { enc.copyBufferToBuffer(bCacheReuse, CACHE_REUSE_BYTES, cacheReuseRead, 0, 16); cacheReuseCopied = true; } } else { run(pipes.cacheSimple, G.cache, 65536 / 8, 8); } if (fx.nrcOn) { enc.clearBuffer(nrcBufs.part,NRC_GRAD*4,(NRC_VALID+4-NRC_GRAD)*4); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.nrcTrain:pipes.nrcTrain, G.nrcTrain, NRC_WG * 64 / 8, 8); const c = enc.beginComputePass(); c.setPipeline(nrcApply.pipe); c.setBindGroup(0, nrcApply.group); c.dispatchWorkgroups(Math.ceil((halfNrc&&fx.hashNrc&&(U.uFrame.value%8!==0)?NRC_HASH_ENTRIES:NRC_NP)/64)); c.end(); } } if (fx.vrr) { enc.clearBuffer(rayStatsBuf); run(pipes.budget, G.budgetS[cur], st.lw, st.lh); run(pipes.budget, G.budgetG[cur], st.qw, st.qh); } run(pipes.shadow, G.shadow[cur], st.lw, st.lh); if (fx.discReuse) run(pipes.discDup, G.discDup[cur], st.lw, st.lh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.acc:pipes.acc, G.accS[cur], st.lw, st.lh); run(pipes.gi, G.gi[cur], st.qw, st.qh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.acc:pipes.acc, G.accG[cur], st.qw, st.qh);
     run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.blur:pipes.blur, G.blurS1[cur], st.lw, st.lh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.blur:pipes.blur, G.blurS2, st.lw, st.lh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.blur:pipes.blur, G.blurG1[cur], st.qw, st.qh); run(fx.subgroupsOn&&subgroupPipes?subgroupPipes.blur:pipes.blur, G.blurG2, st.qw, st.qh);
@@ -2714,7 +2882,7 @@ async function startWebGPU() {
     run(pipes.refl, G.refl, w, h); run(pipes.comp, G.comp[cur], w, h);
     if (fx.splatOn && fx.restirOn && !splatPending && U.uFrame.value % 16 === 0) { enc.copyBufferToBuffer(st.splatOwner, w * h * 4, splatRead, 0, 16); splatQueued = true; } run(pipes.taa, G.taa[cur], w, h); run(pipes.bright, G.bright[cur], st.bw, st.bh); run(pipes.gauss, G.gauss1, st.bw, st.bh); run(pipes.gauss, G.gauss2, st.bw, st.bh);
     const rp = enc.beginRenderPass({ ...timed(false), colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] }); rp.setPipeline(dispPipe); rp.setBindGroup(0, G.disp[cur]); rp.draw(3); rp.end();
-    if (timing && !timingPending) { enc.resolveQuerySet(timing.query, 0, 2, timing.resolve, 0); enc.copyBufferToBuffer(timing.resolve, 0, timing.read, 0, 16); } if (fx.vrr && !rayStatsPending) enc.copyBufferToBuffer(rayStatsBuf, 0, rayStatsRead, 0, 16); device.queue.submit([enc.finish()]); readRayStats(); readStats(); readCloudEnvironment(); readCacheReuse(); readSplatStats(); readTiming(); prevPV.copy(camera.projectionMatrix).multiply(camera.matrixWorldInverse); cur = 1 - cur; }
+    if (timing && !timingPending) { enc.resolveQuerySet(timing.query, 0, 2, timing.resolve, 0); enc.copyBufferToBuffer(timing.resolve, 0, timing.read, 0, 16); } if (fx.vrr && !rayStatsPending) enc.copyBufferToBuffer(rayStatsBuf, 0, rayStatsRead, 0, 16); device.queue.submit([enc.finish()]); readRayStats(); readStats(); readCloudEnvironment(); readCloudNeural(); readCacheReuse(); readSplatStats(); readTiming(); prevPV.copy(camera.projectionMatrix).multiply(camera.matrixWorldInverse); cur = 1 - cur; }
   return { device, render, adapter, buildLuts };
 }
 gpu = await startWebGPU();
@@ -2757,6 +2925,9 @@ gpuOnly(s1.toggle('clouds dim the light [cloud lighting]', true, v => {
   fx.cloudLightingOn = v; fx.cloudDirty = true; window.__clearCache?.(); window.__resetNrc?.(); dirty();
 }));
 const cloudLightRead = s1.readout('sky and sun through the clouds');
+gpuOnly(s1.toggle('learn cloud light from a few samples [neural clouds]',false,v=>{fx.cloudNeuralOn=v;dirty();}));
+const cloudNNReadout=s1.readout('cloud learner');
+s1.note('Starts off: the noon test was slower on M5 Max, and sunset did not match the reference. A fixed set of weights must pass 6 % checks on held-out points and complete cloud rays. Scene changes require fresh checks. Density and cloud edges still use the full march.');
 
 gpuOnly(s1.slider('Wind (grass, trees, clouds and water)', { min: 0, max: 5, step: 0.1, value: 1 }, v => { fx.wind = v; }));
 s1.toggle('a moon at night', true, v => { moonOn = v; placeSun(); });
@@ -2900,6 +3071,7 @@ sb.onFrame((dt) => {
   froxelRead(!gpu?'needs WebGPU':fx.froxelOn?'160 × 90 × 64 cells, current light and smoke':'off, separate volume marches');
   shaftReuseRead(!gpu ? 'needs WebGPU' : fx.froxelOn ? 'supplied by the shared air grid' : fx.volReuse ? ((lightFrom !== 'sky' && sunStrength > 0 && (window.__skyStats?.sun || []).some(v => v > 0)) ? 'one ray, with one frame of reused picks' : 'no direct sun, no sun rays') : ((lightFrom !== 'sky' && sunStrength > 0 && (window.__skyStats?.sun || []).some(v => v > 0)) ? '12 rays, one at each step' : 'no direct sun, no sun rays'));
   cloudLightRead(!gpu ? 'needs WebGPU' : !fx.cloudLightingOn ? 'off' : !window.__cloudStats.n ? 'measuring' : Math.round(100 * (window.__cloudStats.zen + window.__cloudStats.hor) * 0.5) + ' % sky light through clouds, ' + Math.round(100 * window.__cloudStats.sun) + ' % direct sun');
+  {const n=window.__cloudNNStats;cloudNNReadout(!gpu?'needs WebGPU':!fx.cloudNeuralOn?'off, reference light':fx.cover<=0.01?'waiting for clouds, reference light':n.error?'reference light, learner unavailable':!n.validation?'learning from the reference':(n.ready?'two light samples, ':'reference light, learning, ')+(100*n.relativeRMSE).toFixed(1)+' % point error, '+(n.rayValidation?(100*n.rayRelativeRMSE).toFixed(1)+' % ray error':'checking cloud rays'));}
   expRead(exposure.toFixed(2) + (autoExp ? ', automatic' : ', by hand')); cacheVarianceRead(!gpu ? 'needs WebGPU' : !(fx.cacheOn && fx.cacheReuseOn) ? 'off' : (window.__cacheReuseStats.before || 0).toFixed(3) + ' before, ' + (window.__cacheReuseStats.after || 0).toFixed(3) + ' after'); hashNrcRead(!gpu?'needs WebGPU':fx.hashNrc&&window.__nrcFeatures?.half?'8 grids, 2 learned values per cell, 512 KiB of packed grid features [f16 dots, f32 training]':'sine and cosine positions [f32 fallback]'); nrcRead(!gpu ? 'needs WebGPU' : !(fx.nrcOn && fx.cacheOn) ? 'off' : (window.__skyStats.nrcLoss || 0).toFixed(4) + ' per cell (log light)'); cellsRead(!gpu ? 'needs WebGPU' : !fx.cacheOn ? 'off' : (window.__skyStats.cells || 0).toLocaleString() + ' cells, ' + (window.__skyStats.cellsUpd || 0).toLocaleString() + ' refreshed this frame'); accRead(!accumulate ? 'off' : gpu ? 'temporal, reprojected' : Math.min(accN, 32) + (accN === 1 ? ' frame' : ' frames') + (rtScale < 1 ? ', small picture' : ''));
   sb.hud('mode', (hour < 5 || hour > 20 ? 'night: dark except where the fire and the lanterns reach, and a little moon' : gpu && fx.cloudLightingOn && fx.cover > 0.9 ? 'overcast: soft grey light, with little direct sun' : hour < 8 || hour > 17.5 ? 'a low sun through a lot of air: orange light, long soft shadows' : 'high sun: white light, blue sky, hills fading into blue haze') + ' · one ray per pixel finds the surface, a few more light it');
 });
