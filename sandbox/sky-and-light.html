@@ -217,7 +217,78 @@ const tlas = buildBVH(NI, ibmin, ibmax, icen, 2); const tlasRoot = nodeTotal;
 for (let i = 0; i < tlas.count; i++) { const o = i * 8; if (tlas.nodes[o + 7] <= 0) tlas.nodes[o + 3] += nodeTotal; }
 nodeChunks.push(tlas.nodes.subarray(0, tlas.count * 8)); nodeTotal += tlas.count;
 const nodeRows = Math.ceil(nodeTotal * 2 / TW), nodeData = new Float32Array(TW * nodeRows * 4); { let off = 0; for (const ch of nodeChunks) { nodeData.set(ch, off); off += ch.length; } }
-const instData = new Float32Array(Math.ceil(NI * 4 / TW) * TW * 4); { const inv = new THREE.Matrix4(); for (let s = 0; s < NI; s++) { const it = inst[tlas.order[s]]; inv.copy(it.m).invert(); const e = inv.elements, o = s * 16; instData.set([e[0], e[4], e[8], e[12], e[1], e[5], e[9], e[13], e[2], e[6], e[10], e[14], blas[it.blas].root, 0, 0, 0], o); } }
+// Greedy SAH-tree collapse into four children. The renderer still retains the
+// binary tree for its WebGL path and the measured WebGPU comparison toggle.
+// A packed node is 64 bytes: origin/step (six f32), six four-byte bound vectors,
+// four references. Child boxes are conservatively quantised to eight bits.
+function buildWideBVH(binary, roots) {
+  const words = [], sourceNodes = [], sourceRoots = [], mapped = new Map(), fp = new Float32Array(1), up = new Uint32Array(fp.buffer);
+  let maxDepth = 0, leafCount = 0, checkedBounds = 0;
+  const bits = x => { fp[0] = x; return up[0]; };
+  const nextFloat = (x, direction) => {
+    fp[0] = x;
+    if (x === 0) up[0] = direction < 0 ? 0x80000001 : 1;
+    else if ((x > 0) === (direction > 0)) up[0]++; else up[0]--;
+    return fp[0];
+  };
+  const area = node => { const o = node * 8; const x = binary[o + 4] - binary[o], y = binary[o + 5] - binary[o + 1], z = binary[o + 6] - binary[o + 2]; return x * y + x * z + y * z; };
+  const emit = (root, depth) => {
+    if (mapped.has(root)) return mapped.get(root);
+    maxDepth = Math.max(maxDepth, depth);
+    const at = words.length / 16; mapped.set(root, at); for (let k = 0; k < 16; k++) words.push(0);
+    sourceRoots[at] = root; for (let k = 0; k < 4; k++) sourceNodes[at * 4 + k] = 0xffffffff;
+    for (let k = 0; k < 4; k++) words[at * 16 + 12 + k] = 0xffffffff;
+    const o = root * 8;
+    const children = binary[o + 7] > 0 ? [root] : [binary[o + 3], binary[o + 3] + 1];
+    while (children.length < 4) {
+      let split = -1, largest = -1;
+      for (let k = 0; k < children.length; k++) if (binary[children[k] * 8 + 7] <= 0) {
+        const a = area(children[k]); if (a > largest) { largest = a; split = k; }
+      }
+      if (split < 0) break;
+      const left = binary[children[split] * 8 + 3]; children.splice(split, 1, left, left + 1);
+    }
+    const origin = [], step = [];
+    for (let axis = 0; axis < 3; axis++) {
+      const lo = nextFloat(nextFloat(binary[o + axis], -1), -1);
+      const hi = nextFloat(nextFloat(binary[o + 4 + axis], 1), 1);
+      const unit = nextFloat(nextFloat(Math.fround(Math.max((hi - lo) / 255, 1e-30)), 1), 1);
+      origin[axis] = lo; step[axis] = unit; words[at * 16 + axis] = bits(lo); words[at * 16 + 3 + axis] = bits(unit);
+    }
+    for (let k = 0; k < children.length; k++) {
+      const child = children[k], co = child * 8, count = binary[co + 7];
+      sourceNodes[at * 4 + k] = child;
+      for (let axis = 0; axis < 3; axis++) {
+        // An extra quantisation unit protects against fused/unfused arithmetic
+        // and gives refitted child bounds a strictly outward initial encoding.
+        const qlo = Math.max(0, Math.min(255, Math.floor((binary[co + axis] - origin[axis]) / step[axis]) - 1));
+        const qhi = Math.max(0, Math.min(255, Math.ceil((binary[co + 4 + axis] - origin[axis]) / step[axis]) + 1));
+        words[at * 16 + 6 + axis * 2] = (words[at * 16 + 6 + axis * 2] | (qlo << (k * 8))) >>> 0;
+        words[at * 16 + 7 + axis * 2] = (words[at * 16 + 7 + axis * 2] | (qhi << (k * 8))) >>> 0;
+        const decodedLo = Math.fround(origin[axis] + Math.fround(qlo * step[axis]));
+        const decodedHi = Math.fround(origin[axis] + Math.fround(qhi * step[axis]));
+        if (decodedLo > binary[co + axis] || decodedHi < binary[co + 4 + axis]) throw new Error('BVH4 quantisation shrank a child box');
+        checkedBounds++;
+      }
+      if (count > 0) {
+        const first = binary[co + 3]; if (first >= 0x1000000 || count > 127) throw new Error('BVH4 leaf reference overflow');
+        words[at * 16 + 12 + k] = (0x80000000 | (count << 24) | first) >>> 0; leafCount++;
+      } else words[at * 16 + 12 + k] = emit(child, depth + 1);
+    }
+    return at;
+  };
+  const packedRoots = roots.map(root => emit(root, 1));
+  // Source mappings are retained on the CPU for the following wind-refit stage.
+  return { words: new Uint32Array(words), sourceNodes: new Uint32Array(sourceNodes), sourceRoots: new Uint32Array(sourceRoots), rootOf: mapped, roots: packedRoots, maxDepth, leafCount, checkedBounds };
+}
+const wideBVH = buildWideBVH(nodeData, [...blas.map(b => b.root), tlasRoot]);
+const wideNodeBase = nodeData.length / 4;
+const wideNodeData = new Float32Array(nodeData.length + wideBVH.words.length);
+wideNodeData.set(nodeData); new Uint32Array(wideNodeData.buffer, nodeData.byteLength).set(wideBVH.words);
+const wideTlasRoot = wideBVH.rootOf.get(tlasRoot);
+window.__wideBVH = { nodes: wideBVH.words.length / 16, binaryNodes: nodeTotal, packedBytes: wideBVH.words.byteLength, binaryBytes: nodeTotal * 32, maxDepth: wideBVH.maxDepth, checkedBounds: wideBVH.checkedBounds };
+
+const instData = new Float32Array(Math.ceil(NI * 4 / TW) * TW * 4); { const inv = new THREE.Matrix4(); for (let s = 0; s < NI; s++) { const it = inst[tlas.order[s]]; inv.copy(it.m).invert(); const e = inv.elements, o = s * 16; instData.set([e[0], e[4], e[8], e[12], e[1], e[5], e[9], e[13], e[2], e[6], e[10], e[14], blas[it.blas].root, wideBVH.rootOf.get(blas[it.blas].root), 0, 0], o); } }
 const buildMs = performance.now() - tb0;
 const dataTex = (arr, w, h) => { const t = new THREE.DataTexture(arr, w, h, THREE.RGBAFormat, THREE.FloatType); t.minFilter = t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; t.needsUpdate = true; return t; };
 const nodeTex = dataTex(nodeData, TW, nodeRows), triTex = dataTex(triData, TW, triRows), attrTex = dataTex(attrData, TW, attrRows), instTex = dataTex(instData, TW, Math.ceil(NI * 4 / TW));
@@ -446,9 +517,11 @@ struct Params { invPV: mat4x4f, camPos: vec4f, sunDir: vec4f, sunCol: vec4f, moo
   sunE: f32, sunfade: f32, mieG: f32, sunCos: f32, night: f32, skyOn: f32, bounceOn: f32, fogD: f32, sunSize: f32, moonSize: f32, noiseShift: f32, blend: f32,
   tlasRoot: i32, nsph: i32, shadowK: i32, giK: i32, view: i32, frame: i32, shadowStride: i32, giStride: i32,
   matA: array<vec4f, ${MATN}>, matB: array<vec4f, ${MATN}>, matC: array<vec4f, ${MATN}>, sphA: array<vec4f, 40>, sphB: array<vec4f, 40>,
-  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f, atm: vec4f, sampling: vec4f, prevLightA: array<vec4f, 40>, prevLightE: array<vec4f, 40> , shadowReuse: vec4f, cacheReuse: vec4f , nrcHashMode: vec4f, instant: vec4f , ntc: vec4f, ntcWeights: array<vec4f, 101> };
+  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f, atm: vec4f, sampling: vec4f, prevLightA: array<vec4f, 40>, prevLightE: array<vec4f, 40> , shadowReuse: vec4f, cacheReuse: vec4f , nrcHashMode: vec4f, instant: vec4f , ntc: vec4f, ntcWeights: array<vec4f, 101>, wideTree: vec4f };
 @group(0) @binding(0) var<uniform> P: Params;
-@group(0) @binding(1) var<storage, read> nodes: array<vec4f>;
+// BVH words are unsigned: NaN-looking packed bytes never enter float values.
+@group(0) @binding(1) var<storage, read> nodeWords: array<vec4u>;
+fn nodeF(index: u32) -> vec4f { return bitcast<vec4f>(nodeWords[index]); }
 @group(0) @binding(2) var<storage, read> tris: array<vec4f>;
 @group(0) @binding(3) var<storage, read> attrs: array<vec4f>;
 @group(0) @binding(4) var<storage, read> insts: array<vec4f>;
@@ -560,23 +633,102 @@ fn alphaOK(ti: i32, u: f32, w: f32) -> bool { let mid = i32(tris[ti * 3].w); let
   return leafAlpha(i32(mb.z), uv * P.matC[mid].xy) >= 0.5; }
 fn triT(ti: i32, o: vec3f, d: vec3f, uo: ptr<function, f32>, wo: ptr<function, f32>) -> f32 { let v0 = tris[ti * 3].xyz; let v1 = tris[ti * 3 + 1].xyz; let v2 = tris[ti * 3 + 2].xyz; let e1 = v1 - v0; let e2 = v2 - v0; let pv = cross(d, e2); let det = dot(e1, pv); if (abs(det) < 1e-9) { return -1.0; }
   let inv = 1.0 / det; let tv = o - v0; let u = dot(tv, pv) * inv; if (u < 0.0 || u > 1.0) { return -1.0; } let q = cross(tv, e1); let w = dot(d, q) * inv; if (w < 0.0 || u + w > 1.0) { return -1.0; } *uo = u; *wo = w; return dot(e2, q) * inv; }
-fn walkTree(root: i32, o: vec3f, d: vec3f, tMax: ptr<function, f32>, hitTri: ptr<function, i32>, bary: ptr<function, vec2f>, anyHit: bool) -> bool {
+fn walkTreeBinary(root: i32, o: vec3f, d: vec3f, tMax: ptr<function, f32>, hitTri: ptr<function, i32>, bary: ptr<function, vec2f>, anyHit: bool) -> bool {
   var stack: array<i32, 40>; var sp = 0; stack[0] = root; sp = 1; let invD = 1.0 / safeDir(d); var found = false;
-  for (var guard = 0; guard < 8192 && sp > 0; guard++) { sp -= 1; let ni = stack[sp]; let a = nodes[ni * 2]; let b = nodes[ni * 2 + 1]; if (!slab(a.xyz, b.xyz, o, invD, *tMax)) { continue; } let cnt = i32(b.w);
+  for (var guard = 0; guard < 8192 && sp > 0; guard++) { sp -= 1; let ni = stack[sp]; let a = nodeF(u32(ni * 2)); let b = nodeF(u32(ni * 2 + 1)); if (!slab(a.xyz, b.xyz, o, invD, *tMax)) { continue; } let cnt = i32(b.w);
     if (cnt > 0) { let first = i32(a.w); for (var k = 0; k < cnt; k++) { var u: f32; var w: f32; let t = triT(first + k, o, d, &u, &w); if (t > 1e-4 && t < *tMax && alphaOK(first + k, u, w)) { *tMax = t; *hitTri = first + k; *bary = vec2f(u, w); found = true; if (anyHit) { return true; } } } }
     else { let axis = -cnt - 1; let left = i32(a.w); let dc = select(select(d.z, d.y, axis == 1), d.x, axis == 0); let lf = dc >= 0.0; if (sp < 38) { stack[sp] = select(left, left + 1, lf); sp += 1; stack[sp] = select(left + 1, left, lf); sp += 1; } } }
   return found; }
 fn instRay(s: i32, o: vec3f, d: vec3f, ol: ptr<function, vec3f>, dl: ptr<function, vec3f>) { let r0 = insts[s * 4]; let r1 = insts[s * 4 + 1]; let r2 = insts[s * 4 + 2]; let oh = vec4f(o, 1.0); *ol = vec3f(dot(r0, oh), dot(r1, oh), dot(r2, oh)); *dl = vec3f(dot(r0.xyz, d), dot(r1.xyz, d), dot(r2.xyz, d)); }
 struct Hit { hit: bool, t: f32, tri: i32, inst: i32, sph: i32, bary: vec2f };
-fn trace(o: vec3f, d: vec3f, tMaxIn: f32, anyHit: bool) -> Hit {
+fn traceBinary(o: vec3f, d: vec3f, tMaxIn: f32, anyHit: bool) -> Hit {
   var H: Hit; H.hit = false; H.t = tMaxIn; H.tri = -1; H.inst = -1; H.sph = -1; H.bary = vec2f(0.0);
   for (var i = 0; i < 40; i++) { if (i >= P.nsph) { break; } if (P.sphB[i].z > 0.5 && P.simOn.w > 0.5) { continue; } let s = P.sphA[i]; let oc = o - s.xyz; let b = dot(oc, d); let c = dot(oc, oc) - s.w * s.w; let disc = b * b - c; if (disc < 0.0) { continue; } let t = -b - sqrt(disc); if (t > 1e-4 && t < H.t) { H.t = t; H.sph = i; H.hit = true; if (anyHit) { return H; } } }
   var stack: array<i32, 40>; var sp = 1; stack[0] = P.tlasRoot; let invD = 1.0 / safeDir(d);
-  for (var guard = 0; guard < 4096 && sp > 0; guard++) { sp -= 1; let ni = stack[sp]; let a = nodes[ni * 2]; let b = nodes[ni * 2 + 1]; if (!slab(a.xyz, b.xyz, o, invD, H.t)) { continue; } let cnt = i32(b.w);
+  for (var guard = 0; guard < 4096 && sp > 0; guard++) { sp -= 1; let ni = stack[sp]; let a = nodeF(u32(ni * 2)); let b = nodeF(u32(ni * 2 + 1)); if (!slab(a.xyz, b.xyz, o, invD, H.t)) { continue; } let cnt = i32(b.w);
     if (cnt > 0) { let first = i32(a.w); for (var k = 0; k < cnt; k++) { let s = first + k; var ol: vec3f; var dl: vec3f; instRay(s, o, d, &ol, &dl); var ht = -1; var bb = vec2f(0.0); var tm = H.t;
-        if (walkTree(i32(insts[s * 4 + 3].x), ol, dl, &tm, &ht, &bb, anyHit)) { H.t = tm; H.tri = ht; H.inst = s; H.bary = bb; H.sph = -1; H.hit = true; if (anyHit) { return H; } } } }
+        if (walkTreeBinary(i32(insts[s * 4 + 3].x), ol, dl, &tm, &ht, &bb, anyHit)) { H.t = tm; H.tri = ht; H.inst = s; H.bary = bb; H.sph = -1; H.hit = true; if (anyHit) { return H; } } } }
     else { let axis = -cnt - 1; let left = i32(a.w); let dc = select(select(d.z, d.y, axis == 1), d.x, axis == 0); let lf = dc >= 0.0; if (sp < 38) { stack[sp] = select(left, left + 1, lf); sp += 1; stack[sp] = select(left + 1, left, lf); sp += 1; } } }
   return H; }
+// Four-wide traversal reads a packed tail of the same node buffer. The
+// binary prefix stays available for comparisons and stack/guard recovery.
+struct WideTest { near: vec4f, children: vec4u };
+fn wideBytes(v: u32) -> vec4f { return vec4f(vec4u(v & 255u, (v >> 8u) & 255u, (v >> 16u) & 255u, v >> 24u)); }
+fn wideTest(node: u32, o: vec3f, inv: vec3f, tMax: f32) -> WideTest {
+  let base = u32(P.wideTree.z) + node * 4u;
+  let aw = nodeWords[base]; let bw = nodeWords[base + 1u]; let c = nodeWords[base + 2u];
+  let a = bitcast<vec4f>(aw); let b = bitcast<vec2f>(bw.xy);
+  let tx0 = (vec4f(a.x - o.x) + wideBytes(bw.z) * a.w) * inv.x;
+  let tx1 = (vec4f(a.x - o.x) + wideBytes(bw.w) * a.w) * inv.x;
+  let ty0 = (vec4f(a.y - o.y) + wideBytes(c.x) * b.x) * inv.y;
+  let ty1 = (vec4f(a.y - o.y) + wideBytes(c.y) * b.x) * inv.y;
+  let tz0 = (vec4f(a.z - o.z) + wideBytes(c.z) * b.y) * inv.z;
+  let tz1 = (vec4f(a.z - o.z) + wideBytes(c.w) * b.y) * inv.z;
+  let tn = max(max(min(tx0, tx1), min(ty0, ty1)), max(min(tz0, tz1), vec4f(0.0)));
+  let tf = min(min(max(tx0, tx1), max(ty0, ty1)), min(max(tz0, tz1), vec4f(tMax)));
+  var result: WideTest; result.near = select(vec4f(1e30), tn, tn <= tf); result.children = nodeWords[base + 3u];
+  // Four-element insertion sort. Push in reverse order so near children pop first.
+  for (var i = 1; i < 4; i++) { for (var j = i; j > 0; j--) {
+    if (result.near[j] >= result.near[j - 1]) { break; }
+    let z = result.near[j]; result.near[j] = result.near[j - 1]; result.near[j - 1] = z;
+    let r = result.children[j]; result.children[j] = result.children[j - 1]; result.children[j - 1] = r;
+  } }
+  return result;
+}
+fn walkTreeWide(root: u32, binaryRoot: i32, o: vec3f, d: vec3f, tMax: ptr<function, f32>, hitTri: ptr<function, i32>, bary: ptr<function, vec2f>, anyHit: bool) -> bool {
+  var stack: array<u32, 64>; var sp = 1; stack[0] = root; let inv = 1.0 / safeDir(d); var found = false; var guard = 0u;
+  loop {
+    if (sp == 0) { break; }
+    // Never silently drop a child. The existing binary path is a cold recovery.
+    if (guard >= 16384u) { let recovered = walkTreeBinary(binaryRoot, o, d, tMax, hitTri, bary, anyHit); return recovered || found; }
+    guard++; sp--; let reference = stack[sp];
+    if ((reference & 0x80000000u) != 0u) {
+      let first = i32(reference & 0x00ffffffu); let count = i32((reference >> 24u) & 127u);
+      for (var k = 0; k < count; k++) {
+        var u: f32; var w: f32; let t = triT(first + k, o, d, &u, &w);
+        if (t > 1e-4 && t < *tMax && alphaOK(first + k, u, w)) { *tMax = t; *hitTri = first + k; *bary = vec2f(u, w); found = true; if (anyHit) { return true; } }
+      }
+    } else {
+      let test = wideTest(reference, o, inv, *tMax);
+      if (sp > 60) { let recovered = walkTreeBinary(binaryRoot, o, d, tMax, hitTri, bary, anyHit); return recovered || found; }
+      for (var k = 3; k >= 0; k--) { if (test.children[k] != 0xffffffffu && test.near[k] <= *tMax) { stack[sp] = test.children[k]; sp++; } }
+    }
+  }
+  return found;
+}
+fn traceWide(o: vec3f, d: vec3f, tMaxIn: f32, anyHit: bool) -> Hit {
+  var H: Hit; H.hit = false; H.t = tMaxIn; H.tri = -1; H.inst = -1; H.sph = -1; H.bary = vec2f(0.0);
+  for (var i = 0; i < 40; i++) {
+    if (i >= P.nsph) { break; } if (P.sphB[i].z > 0.5 && P.simOn.w > 0.5) { continue; }
+    let s = P.sphA[i]; let oc = o - s.xyz; let b = dot(oc, d); let c = dot(oc, oc) - s.w * s.w; let disc = b * b - c;
+    if (disc < 0.0) { continue; } let t = -b - sqrt(disc);
+    if (t > 1e-4 && t < H.t) { H.t = t; H.sph = i; H.hit = true; if (anyHit) { return H; } }
+  }
+  var stack: array<u32, 64>; var sp = 1; stack[0] = u32(P.wideTree.y); let inv = 1.0 / safeDir(d); var guard = 0u;
+  loop {
+    if (sp == 0) { break; }
+    if (guard >= 16384u) { let recovered = traceBinary(o, d, H.t, anyHit); if (recovered.hit) { return recovered; } return H; }
+    guard++; sp--; let reference = stack[sp];
+    if ((reference & 0x80000000u) != 0u) {
+      let first = i32(reference & 0x00ffffffu); let count = i32((reference >> 24u) & 127u);
+      for (var k = 0; k < count; k++) {
+        let s = first + k; var ol: vec3f; var dl: vec3f; instRay(s, o, d, &ol, &dl); var ht = -1; var bb = vec2f(0.0); var tm = H.t;
+        if (walkTreeWide(u32(insts[s * 4 + 3].y), i32(insts[s * 4 + 3].x), ol, dl, &tm, &ht, &bb, anyHit)) {
+          H.t = tm; H.tri = ht; H.inst = s; H.bary = bb; H.sph = -1; H.hit = true; if (anyHit) { return H; }
+        }
+      }
+    } else {
+      let test = wideTest(reference, o, inv, H.t);
+      if (sp > 60) { let recovered = traceBinary(o, d, H.t, anyHit); if (recovered.hit) { return recovered; } return H; }
+      for (var k = 3; k >= 0; k--) { if (test.children[k] != 0xffffffffu && test.near[k] <= H.t) { stack[sp] = test.children[k]; sp++; } }
+    }
+  }
+  return H;
+}
+fn trace(o: vec3f, d: vec3f, tMaxIn: f32, anyHit: bool) -> Hit {
+  if (P.wideTree.x > 0.5) { return traceWide(o, d, tMaxIn, anyHit); }
+  return traceBinary(o, d, tMaxIn, anyHit);
+}
 fn occluded(o: vec3f, d: vec3f, tMax: f32) -> bool { return trace(o, d, tMax, true).hit; }
 struct Surf { p: vec3f, n: vec3f, mid: i32, uv: vec2f };
 fn hitInfo(ro: vec3f, d: vec3f, H: Hit) -> Surf { var S: Surf; S.p = ro + d * H.t;
@@ -1440,7 +1592,7 @@ fn srgb(c0: vec3f) -> vec3f { let c = clamp(c0, vec3f(0.0), vec3f(1.0)); return 
 @fragment fn fs(i: VO) -> @location(0) vec4f { var c = textureSampleLevel(tSrc, samp, i.uv, 0.0).rgb; let bl = textureSampleLevel(tBloom, samp, i.uv, 0.0).rgb; c += bl * D.bloom;
   if (D.shafts > 0.0 && D.sunUp > 0.0) { var sh = vec3f(0.0); let dv = (D.sunUv - i.uv) / 24.0; var uv = i.uv; var wsum = 0.0; for (var k = 0; k < 24; k++) { uv += dv; let w = 1.0 - f32(k) / 24.0; sh += textureSampleLevel(tBloom, samp, uv, 0.0).rgb * w; wsum += w; } let dist = length((D.sunUv - i.uv) * vec2f(1.0, 0.75)); c += sh / wsum * D.shafts * D.sunUp * (1.0 - smoothstep(0.35, 0.9, dist)); }
   c *= D.exposure; if (D.curve == 1.0) { c = aces(c); } else if (D.curve == 2.0) { c = c / (1.0 + c); } let lum = dot(c, vec3f(0.3, 0.59, 0.11)); c = mix(vec3f(lum), c, 1.1); let vd = length((i.uv - 0.5) * vec2f(1.0, 0.85)); c *= 1.0 - 0.28 * smoothstep(0.35, 0.95, vd); return vec4f(srgb(c), 1.0); }`;
-let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { ntcOn: false, instantOn: false, hashNrc: false, splatOn: true, discReuse: true, cvOn: true, vrr: false, nrcOn: true, restirOn: true, cacheOn: true, cacheReuseOn: true, cacheReuseEpoch: 0, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true };
+let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { ntcOn: false, instantOn: false, hashNrc: false, splatOn: true, discReuse: true, cvOn: true, vrr: false, nrcOn: true, restirOn: true, cacheOn: true, wideOn: false, cacheReuseOn: true, cacheReuseEpoch: 0, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true };
 // the simulation grids: a wave grid over the lake (with the shore as a wall), and two boxes of air over the fire and the chimney
 const SIM = (() => { const n = 256, size = 44, x0 = LAKE.x - size / 2, z0 = LAKE.z - size / 2; const land = new Uint8Array(n * n * 2); for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = x0 + (i + 0.5) / n * size, z = z0 + (j + 0.5) / n * size; const th = terrainH(x, z); land[(j * n + i) * 2] = th > -0.55 ? 255 : 0; const dp = Math.min(Math.max((-0.55 - th) / 0.9, 0), 1); land[(j * n + i) * 2 + 1] = Math.round(255 * dp * dp * (3 - 2 * dp)); }
   const fy = terrainH(FIRE.x, FIRE.z); const ca = Math.cos(-0.55), sa = Math.sin(-0.55); const cx = CABIN.x + (3.2 - 1.2) * ca + (-2.3 + 0.9) * sa, cz = CABIN.z - (3.2 - 1.2) * sa + (-2.3 + 0.9) * ca; const cy = terrainH(CABIN.x, CABIN.z) - 0.1 + 5.5;
@@ -1653,7 +1805,7 @@ function neuralTextureWorker() {
 
 async function startWebGPU() {
   if (!navigator.gpu) return null; const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null); if (!adapter) return null;
-  const need = Math.max(nodeData.byteLength, triData.byteLength, attrData.byteLength, instData.byteLength); if (adapter.limits.maxStorageBufferBindingSize < need) return null;
+  const need = Math.max(wideNodeData.byteLength, triData.byteLength, attrData.byteLength, instData.byteLength); if (adapter.limits.maxStorageBufferBindingSize < need) return null;
   const texLim = adapter.limits.maxSampledTexturesPerShaderStage; if (texLim < 20) return null; const device = await adapter.requestDevice({ requiredFeatures: ['timestamp-query', 'shader-f16', 'subgroups'].filter(f => adapter.features.has(f)), requiredLimits: { maxStorageBufferBindingSize: Math.max(need, 134217728), maxBufferSize: Math.max(need, 268435456), maxSampledTexturesPerShaderStage: Math.min(texLim, 24) } }).catch(() => null); if (!device) return null;
   const halfNrc=device.features.has('shader-f16');
   const nrcShader=code=>halfNrc&&code.includes('// NRC_HALF_REPLACE_BEGIN')?'enable f16;\n'+code.replace(/\/\/ NRC_HALF_REPLACE_BEGIN[\s\S]*?\/\/ NRC_HALF_REPLACE_END/,WG_NRC_HALF):code;
@@ -1664,9 +1816,9 @@ async function startWebGPU() {
   async function readTiming() { if (!timing || timingPending) return; timingPending = true; try { await timing.read.mapAsync(GPUMapMode.READ); const t = new BigUint64Array(timing.read.getMappedRange()); gpuStats.ms = Number(t[1] - t[0]) / 1e6; gpuStats.samples.push(gpuStats.ms); if (gpuStats.samples.length > 240) gpuStats.samples.shift(); timing.read.unmap(); } catch (e) { gpuStats.error = String(e); } timingPending = false; }
   const canvas = document.createElement('canvas'); canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;'; sb.stage.insertBefore(canvas, sb.stage.firstChild); renderer.domElement.style.opacity = '0';
   const ctx = canvas.getContext('webgpu'); const format = navigator.gpu.getPreferredCanvasFormat(); ctx.configure({ device, format, alphaMode: 'opaque' });
-  const mkBuf = (arr, usage) => { const b = device.createBuffer({ size: Math.ceil(arr.byteLength / 16) * 16, usage, mappedAtCreation: true }); new Float32Array(b.getMappedRange()).set(arr); b.unmap(); return b; };
-  const bNodes = mkBuf(nodeData, GPUBufferUsage.STORAGE), bTris = mkBuf(triData, GPUBufferUsage.STORAGE), bTris0 = mkBuf(triData, GPUBufferUsage.STORAGE), bAttr = mkBuf(attrData, GPUBufferUsage.STORAGE), bInst = mkBuf(instData, GPUBufferUsage.STORAGE);
-  const DISC_PARAM_F = 84 + MATN * 12 + 320 + 20 + 24 + 12 + 4 + 320; const CACHE_REUSE_OFFSET = DISC_PARAM_F + 4; const HASH_PARAM_F = CACHE_REUSE_OFFSET + 4; const INSTANT_PARAM_F = HASH_PARAM_F + 4; const NTC_PARAM_O = INSTANT_PARAM_F + 4; const PARAMS_F = NTC_PARAM_O + 408; const prevLightA = new Float32Array(160), prevLightE = new Float32Array(160); const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const mkBuf = (arr, usage) => { const b = device.createBuffer({ size: Math.ceil(arr.byteLength / 16) * 16, usage, mappedAtCreation: true }); new Uint8Array(b.getMappedRange()).set(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength)); b.unmap(); return b; };
+  const bNodes = mkBuf(wideNodeData, GPUBufferUsage.STORAGE), bTris = mkBuf(triData, GPUBufferUsage.STORAGE), bTris0 = mkBuf(triData, GPUBufferUsage.STORAGE), bAttr = mkBuf(attrData, GPUBufferUsage.STORAGE), bInst = mkBuf(instData, GPUBufferUsage.STORAGE);
+  const DISC_PARAM_F = 84 + MATN * 12 + 320 + 20 + 24 + 12 + 4 + 320; const CACHE_REUSE_OFFSET = DISC_PARAM_F + 4; const HASH_PARAM_F = CACHE_REUSE_OFFSET + 4; const INSTANT_PARAM_F = HASH_PARAM_F + 4; const NTC_PARAM_O = INSTANT_PARAM_F + 4; const WIDE_BVH_OFFSET = NTC_PARAM_O + 408; const PARAMS_F = WIDE_BVH_OFFSET + 4; const prevLightA = new Float32Array(160), prevLightE = new Float32Array(160); const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const layers = [barkTex, birchTex, leafO, leafP, leafB, rockTex, woodTex, stoneTex, groundTex, grassTex]; const texArr = device.createTexture({ size: [256, 256, layers.length + 1], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   layers.forEach((t, i) => device.queue.copyExternalImageToTexture({ source: t.image }, { texture: texArr, origin: [0, 0, i] }, [256, 256]));
   const ntcWeights = new Float32Array(404); let ntcReady = false;
@@ -1864,7 +2016,7 @@ async function startWebGPU() {
     paramsI[76] = tlasRoot; paramsI[77] = spheres.length; paramsI[78] = U.uShadowK.value; paramsI[79] = U.uGiK.value; paramsI[80] = view; paramsI[81] = U.uFrame.value; paramsI[82] = st.ss; paramsI[83] = st.gs;
     f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 160); const o2 = 84 + MATN * 12 + 320; f.set(prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; f.set([...SIM.fire.min, 0, ...SIM.fire.max, 0, ...SIM.chim.min, 0, ...SIM.chim.max, 0, SIM.water.x0, SIM.water.z0, SIM.water.size, SIM.water.n, fx.waterOn ? 1 : 0, fx.fireOn ? 1 : 0, fx.chimOn ? 1 : 0, fx.hideFlame ? 1 : 0], o2 + 20); f.set([fx.oceanOn ? 1 : 0, OCEAN_L, fx.cacheOn ? 1 : 0, fx.restirOn ? 1 : 0, fx.nrcOn && fx.cacheOn ? 1 : 0, 0, 0, fx.vrr ? 1 : 0, atm.rayScale, atm.mieScale, atm.g, 0], o2 + 44); f.set([fx.cvOn ? 1 : 0, 0, 0, 0], o2 + 56); f.set(prevLightA, o2 + 60); f.set(prevLightE, o2 + 220);
     prevLightA.set(sphA); for (let i = 0; i < 40; i++) { const m = sphB[i * 4] | 0, on = i < spheres.length && sphB[i * 4 + 1] > 0.5; for (let j = 0; j < 3; j++) prevLightE[i * 4 + j] = on ? matA[m * 4 + j] * matB[m * 4 + 1] : 0; } f.set([fx.discReuse ? 1 : 0, 0, 0, 0], DISC_PARAM_F); f.set([fx.cacheReuseOn ? 1 : 0, fx.cacheReuseEpoch, 0, 0], CACHE_REUSE_OFFSET); const useHash=halfNrc&&fx.hashNrc;const trainHash=useHash&&(U.uFrame.value%8!==0);f.set([useHash?1:0,trainHash?1:0,halfNrc?1:0,0],HASH_PARAM_F);
-    const model=trainHash?1:0;if(fx.nrcOn&&fx.cacheOn)nrcSteps[model]++;device.queue.writeBuffer(nrcMode,0,new Uint32Array([model,nrcSteps[model],0,0]));f.set([fx.instantOn ? 1 : 0, 6, 0, 0], INSTANT_PARAM_F); f.set([fx.ntcOn && ntcReady ? 1 : 0, 0, 0, 0], NTC_PARAM_O); f.set(ntcWeights, NTC_PARAM_O + 4); device.queue.writeBuffer(bParams, 0, paramsArr); }
+    const model=trainHash?1:0;if(fx.nrcOn&&fx.cacheOn)nrcSteps[model]++;device.queue.writeBuffer(nrcMode,0,new Uint32Array([model,nrcSteps[model],0,0]));f.set([fx.instantOn ? 1 : 0, 6, 0, 0], INSTANT_PARAM_F); f.set([fx.ntcOn && ntcReady ? 1 : 0, 0, 0, 0], NTC_PARAM_O); f.set(ntcWeights, NTC_PARAM_O + 4); f.set([fx.wideOn ? 1 : 0, wideTlasRoot, wideNodeBase, wideBVH.words.length / 16], WIDE_BVH_OFFSET); device.queue.writeBuffer(bParams, 0, paramsArr); }
   function render(w, h, blend, view, jitter, doBlur, ss, gs) {
     ensure(w, h, ss, gs); fillParams(w, h, blend, view, jitter);
     splatPV.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); splatParamF.set(splatPV.elements, 0); splatParamU[16] = w; splatParamU[17] = h; splatParamU[18] = fx.splatOn && fx.restirOn ? 1 : 0; device.queue.writeBuffer(splatParam, 0, splatParamData); const sc = sunDir.clone().multiplyScalar(1000).add(camera.position).project(camera); device.queue.writeBuffer(bDisp, 0, new Float32Array([dispU.uExposure.value, dispU.uCurve.value, fx.bloom, fx.shafts, sc.x * 0.5 + 0.5, 0.5 - sc.y * 0.5, sc.z < 1 && sunDir.y > 0.02 ? 1 : 0, 0]));
@@ -1994,6 +2146,10 @@ s6.toggle('anti-alias by blending frames while still', true, v => { accumulate =
 const gpuTimeRead = s6.readout('GPU work per frame');
 const rayBudgetRead=s6.readout('scheduled shadow and sky rays');
 s6.note('This experiment is off at first because scheduling costs about 5 ms on the test machine. Surface pixels share a fixed ray budget within each 8 by 8 tile. It covers sun and moon visibility and the first sky or bounce ray. Cache, volume and later bounce rays are outside this readout.');
+gpuOnly(s6.toggle('four boxes per step [compressed BVH]', false, v => { fx.wideOn = v; dirty(); }));
+s6.note('This starts off because the four-box traversal took about 3 milliseconds longer here. Both trees stay available for comparison.');
+const wideRead = s6.readout('packed boxes [BVH4]');
+wideRead((wideBVH.words.byteLength / 1048576).toFixed(2) + ' MB, binary ' + (nodeTotal * 32 / 1048576).toFixed(2) + ' MB');
 const triRead = s6.readout('triangles in the scene'), instRead = s6.readout('placed copies'), boxRead = s6.readout('boxes in the trees'), buildRead = s6.readout('building the trees took'), accRead = s6.readout('frames blended for anti-aliasing'), msRead = s6.readout('milliseconds per frame');
 triRead(totalTris.toLocaleString() + (gpu ? ' · WebGPU' : ' · WebGL')); instRead(NI.toLocaleString() + ' (' + treeCount + ' trees, 32,000 blades of grass)'); boxRead(nodeTotal.toLocaleString()); buildRead((genMs + buildMs).toFixed(0) + ' ms');
 
