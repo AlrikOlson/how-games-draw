@@ -30,7 +30,7 @@ function ridged(x, y, o = 5) { let s = 0, a = 0.5, f = 1, n = 0; for (let i = 0;
 let rs = 11; const rnd = () => { rs = (rs * 16807) % 2147483647; return rs / 2147483647; };
 const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const UPV = new THREE.Vector3(0, 1, 0);
-function canvasTex(size, draw, opts) { const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d'); draw(g, size); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = (opts && opts.linear) ? THREE.NoColorSpace : THREE.SRGBColorSpace; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; return t; }
+function canvasTex(size, draw, opts) { const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d', { willReadFrequently: true }); draw(g, size); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = (opts && opts.linear) ? THREE.NoColorSpace : THREE.SRGBColorSpace; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; return t; }
 function noiseImage(g, size, fn) { const img = g.createImageData(size, size), d = img.data; for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) { const u = x / size, v = y / size; const A = fn(u, v), B = fn(u - 1, v), C = fn(u, v - 1), D = fn(u - 1, v - 1), wa = (1 - u) * (1 - v), wb = u * (1 - v), wc = (1 - u) * v, wd = u * v; const o = (y * size + x) * 4; d[o] = A[0] * wa + B[0] * wb + C[0] * wc + D[0] * wd; d[o + 1] = A[1] * wa + B[1] * wb + C[1] * wc + D[1] * wd; d[o + 2] = A[2] * wa + B[2] * wb + C[2] * wc + D[2] * wd; d[o + 3] = 255; } g.putImageData(img, 0, 0); }
 const S = 9, mix2 = (a, b, t) => a + (b - a) * t;
 const groundTex = canvasTex(256, (g, n) => noiseImage(g, n, (u, v) => { const a = fbm(u * S, v * S, 5), b = fbm(u * S * 4 + 3, v * S * 4 + 7, 3); const l = 0.62 + 0.5 * (a - 0.5) + 0.28 * (b - 0.5); const k = Math.round(255 * Math.min(1, Math.max(0, l))); return [k, k, k]; }), { linear: true });
@@ -111,6 +111,7 @@ function clearOf(x, z) { if (pathDist(x, z) < 0.75 + fbm(x * 0.5, z * 0.5, 2) * 
 // trees: a trunk with branches and a cloud of leaf cards whose normals point out from the crown, three kinds, two of each
 function limb(rB, rT, len, bend) { const g = new THREE.CylinderGeometry(rT, rB, len, 9, 5, false); g.translate(0, len / 2, 0); const pos = g.attributes.position; for (let i = 0; i < pos.count; i++) { const t = pos.getY(i) / len; pos.setX(i, pos.getX(i) + bend * t * t * len); } g.computeVertexNormals(); return g; }
 function buildTree(bi, kind) {
+  blas[bi].treeKind = kind;
   const crown = new THREE.Vector3(); const cards = [];
   const card = (c, size, tilt) => { const g = new THREE.PlaneGeometry(size, size); const rot = tilt ? new THREE.Euler(-0.6 - rnd() * 0.5, rnd() * Math.PI * 2, 0) : new THREE.Euler(rnd() * Math.PI * 2, rnd() * Math.PI * 2, rnd() * Math.PI * 2); g.applyMatrix4(new THREE.Matrix4().compose(c, new THREE.Quaternion().setFromEuler(rot), new THREE.Vector3(1, 1, 1))); cards.push(g); };
   const barkM = kind === 'birch' ? M.BIRCH : M.BARK;
@@ -171,6 +172,95 @@ const plinthY = terrainH(13, 6) + 0.2; const ballSpots = [];
 for (let i = 0; i < 6; i++) for (let row = 0; row < 2; row++) { const c = new THREE.Vector3(13 - 2.75 + i * 1.1, plinthY + 0.25 + 0.42, 6 + (row ? -0.6 : 0.6)); ballSpots.push(c); spheres.push({ c, r: 0.42, mat: BALL0 + i * 2 + row, light: 0 }); }
 const yourC = new THREE.Vector3(9.5, terrainH(9.5, 9) + 0.9, 9); spheres.push({ c: yourC, r: 0.9, mat: YOUR, light: 0 });
 const fireflies = []; for (let i = 0; i < 14; i++) { const a = rnd() * 6.28, r = 6 + rnd() * 20; const f = { x: Math.cos(a) * r, z: Math.sin(a) * r, h: 0.6 + rnd() * 1.4, s: rnd() * 100 }; fireflies.push(f); spheres.push({ c: new THREE.Vector3(f.x, -500, f.z), r: 0.035, mat: FIREFLY, light: 0 }); }
+// Far foliage is a surface-area density, not filled solid voxels. Three
+// unsigned normal lobes preserve the main directional extinction. Alpha-tested
+// area and its colour are deposited from the actual painted leaf cards.
+const LEAF_VOX_N = 20;
+function bakeLeafVolume(b, image, size = LEAF_VOX_N) {
+  const pixels = image.getContext('2d').getImageData(0, 0, image.width, image.height).data;
+  const width = image.width, height = image.height, lo = [1e30, 1e30, 1e30], hi = [-1e30, -1e30, -1e30];
+  const leaf = [], bark = { tris: [], nrms: [], uvs: [], mats: [], windAnimated: false };
+  let material = -1;
+  for (let t = 0; t < b.mats.length; t++) {
+    if (matB[b.mats[t] * 4 + 3] === 4) {
+      leaf.push(t); material = b.mats[t];
+      for (let v = 0; v < 3; v++) for (let a = 0; a < 3; a++) {
+        const x = b.tris[t * 9 + v * 3 + a]; lo[a] = Math.min(lo[a], x); hi[a] = Math.max(hi[a], x);
+      }
+    } else {
+      bark.mats.push(b.mats[t]);
+      for (let k = 0; k < 9; k++) { bark.tris.push(b.tris[t * 9 + k]); bark.nrms.push(b.nrms[t * 9 + k]); }
+      for (let k = 0; k < 6; k++) bark.uvs.push(b.uvs[t * 6 + k]);
+    }
+  }
+  if (!leaf.length || !bark.mats.length) throw new Error('Leaf volume requires leaves and bark');
+  const cell = hi.map((x, a) => Math.max((x - lo[a]) / size, 1e-4));
+  const cellVolume = cell[0] * cell[1] * cell[2], minCell = Math.min(...cell);
+  // Three geometric lobes, colour, then three separate shading-normal lobes.
+  // The cards use crown-shaped shading normals rather than their plane normals.
+  const stride = 28, data = new Float32Array(size * size * size * stride);
+  const tap = (u, v) => {
+    const x = ((u % 1) + 1) % 1 * width - 0.5, y = ((v % 1) + 1) % 1 * height - 0.5;
+    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, out = [0, 0, 0, 0];
+    for (let a = 0; a < 2; a++) for (let c = 0; c < 2; c++) {
+      const px = (ix + a + width) % width, py = (iy + c + height) % height;
+      const weight = (a ? fx : 1 - fx) * (c ? fy : 1 - fy), p = (py * width + px) * 4;
+      for (let k = 0; k < 4; k++) out[k] += pixels[p + k] / 255 * weight;
+    }
+    return out;
+  };
+  let acceptedArea = 0, samples = 0;
+  for (const t of leaf) {
+    const p = b.tris.slice(t * 9, t * 9 + 9), uv = b.uvs.slice(t * 6, t * 6 + 6), sn = b.nrms.slice(t * 9, t * 9 + 9);
+    const e = [p[3] - p[0], p[4] - p[1], p[5] - p[2]], f = [p[6] - p[0], p[7] - p[1], p[8] - p[2]];
+    const cross = [e[1] * f[2] - e[2] * f[1], e[2] * f[0] - e[0] * f[2], e[0] * f[1] - e[1] * f[0]];
+    const twiceArea = Math.hypot(...cross); if (twiceArea < 1e-10) continue;
+    let normal = cross.map(x => x / twiceArea), axis = 0;
+    if (Math.abs(normal[1]) > Math.abs(normal[axis])) axis = 1;
+    if (Math.abs(normal[2]) > Math.abs(normal[axis])) axis = 2;
+    if (normal[axis] < 0) normal = normal.map(x => -x);
+    const edge = Math.max(Math.hypot(...e), Math.hypot(...f), Math.hypot(e[0] - f[0], e[1] - f[1], e[2] - f[2]));
+    // Equal-area triangle quadrature. Each microtriangle contributes one sample.
+    const n = Math.max(8, Math.min(40, Math.ceil(edge / minCell * 3)));
+    const area = twiceArea * 0.5 / (n * n);
+    const deposit = (u, v) => {
+      samples++; const w = 1 - u - v;
+      const rgba = tap(uv[0] * w + uv[2] * u + uv[4] * v, uv[1] * w + uv[3] * u + uv[5] * v);
+      if (rgba[3] < 0.5) return;
+      const q = [0, 1, 2].map(a => Math.min(size - 1, Math.max(0, Math.floor((p[a] + e[a] * u + f[a] * v - lo[a]) / cell[a]))));
+      const base = (q[0] + size * (q[1] + size * q[2])) * stride, lobe = base + axis * 4, shade = base + 16 + axis * 4;
+      const shadeNormal = [0, 1, 2].map(a => sn[a] * w + sn[a + 3] * u + sn[a + 6] * v);
+      const shadeLength = Math.max(Math.hypot(...shadeNormal), 1e-20);
+      for (let a = 0; a < 3; a++) { data[lobe + a] += normal[a] * area; data[shade + a] += shadeNormal[a] / shadeLength * area; data[base + 12 + a] += Math.pow(rgba[a], 2.2) * area; }
+      data[lobe + 3] += area; data[base + 15] += area; acceptedArea += area;
+    };
+    for (let i = 0; i < n; i++) for (let j = 0; j < n - i; j++) {
+      deposit((i + 1 / 3) / n, (j + 1 / 3) / n);
+      if (i + j + 1 < n) deposit((i + 2 / 3) / n, (j + 2 / 3) / n);
+    }
+  }
+  let occupied = 0;
+  for (let base = 0; base < data.length; base += stride) {
+    const area = data[base + 15]; if (area <= 0) continue; occupied++;
+    for (let a = 0; a < 3; a++) data[base + 12 + a] /= area;
+    for (let l = 0; l < 3; l++) {
+      const o = base + l * 4, weight = data[o + 3]; if (weight <= 0) continue;
+      const length = Math.hypot(data[o], data[o + 1], data[o + 2]);
+      for (let a = 0; a < 3; a++) data[o + a] /= Math.max(length, 1e-20);
+      data[o + 3] = weight / cellVolume;
+      const shade = base + 16 + l * 4, shadeLength = Math.hypot(data[shade], data[shade + 1], data[shade + 2]);
+      for (let a = 0; a < 3; a++) data[shade + a] = shadeLength > 1e-8 * weight ? data[shade + a] / shadeLength : data[o + a];
+    }
+  }
+  return { lo, cell, size, material, data, bark, occupied, acceptedArea, samples };
+}
+const leafVolumes = [];
+for (const b of blas.filter(b => b.treeKind)) {
+  const image = ({ oak: leafO, pine: leafP, birch: leafB })[b.treeKind].image;
+  const volume = bakeLeafVolume(b, image); volume.barkIndex = blas.length; blas.push(volume.bark);
+  b.leafVolume = volume; leafVolumes.push(volume);
+}
+
 const genMs = performance.now() - t0;
 
 // ---- the trees of boxes: one over every shape's triangles, one over all the placed copies, all packed into float textures
@@ -211,6 +301,7 @@ const tb0 = performance.now();
 // the top tree over the placed copies
 const NI = inst.length, ibmin = new Float32Array(NI * 3), ibmax = new Float32Array(NI * 3), icen = new Float32Array(NI * 3); const cv = new THREE.Vector3();
 for (let i = 0; i < NI; i++) { const b = blas[inst[i].blas], o = b.root * 8; let ch; let mn = [1e30, 1e30, 1e30], mx = [-1e30, -1e30, -1e30]; ch = nodeChunks[inst[i].blas];
+  if (b.leafVolume) { ch = ch.slice(0, 8); const v = b.leafVolume; for (let a = 0; a < 3; a++) { ch[a] = Math.min(ch[a], v.lo[a] - 1e-5); ch[a + 4] = Math.max(ch[a + 4], v.lo[a] + v.cell[a] * v.size + 1e-5); } }
   for (let c = 0; c < 8; c++) { cv.set(c & 1 ? ch[4] : ch[0], c & 2 ? ch[5] : ch[1], c & 4 ? ch[6] : ch[2]).applyMatrix4(inst[i].m); for (let a = 0; a < 3; a++) { const val = a === 0 ? cv.x : a === 1 ? cv.y : cv.z; if (val < mn[a]) mn[a] = val; if (val > mx[a]) mx[a] = val; } }
   for (let a = 0; a < 3; a++) { ibmin[i * 3 + a] = mn[a]; ibmax[i * 3 + a] = mx[a]; icen[i * 3 + a] = (mn[a] + mx[a]) / 2; } }
 const tlas = buildBVH(NI, ibmin, ibmax, icen, 2); const tlasRoot = nodeTotal;
@@ -283,12 +374,25 @@ function buildWideBVH(binary, roots) {
 }
 const wideBVH = buildWideBVH(nodeData, [...blas.map(b => b.root), tlasRoot]);
 const wideNodeBase = nodeData.length / 4;
-const wideNodeData = new Float32Array(nodeData.length + wideBVH.words.length);
+const leafVoxelBase = nodeData.length / 4 + wideBVH.words.length / 4;
+let leafVoxelVecs = 0;
+for (const volume of leafVolumes) { volume.descriptor = leafVoxelBase + leafVoxelVecs; leafVoxelVecs += 3 + volume.data.length / 4; }
+if (leafVoxelBase + leafVoxelVecs >= 0x00fffffe) throw new Error('Leaf voxel hit addresses must fit exactly in f32');
+const wideNodeData = new Float32Array(nodeData.length + wideBVH.words.length + leafVoxelVecs * 4);
+for (const volume of leafVolumes) {
+  const offset = volume.descriptor * 4;
+  wideNodeData.set([...volume.lo, volume.size, ...volume.cell, volume.material,
+    wideBVH.rootOf.get(blas[volume.barkIndex].root), volume.descriptor + 3, volume.data.length / 28, 7], offset);
+  wideNodeData.set(volume.data, offset + 12);
+}
+window.__leafVoxels = { types: leafVolumes.length, bytes: leafVoxelVecs * 16,
+  occupied: leafVolumes.reduce((n, v) => n + v.occupied, 0), size: LEAF_VOX_N,
+  samples: leafVolumes.reduce((n, v) => n + v.samples, 0), maxDdaSteps: LEAF_VOX_N * 3 + 3 };
 wideNodeData.set(nodeData); new Uint32Array(wideNodeData.buffer, nodeData.byteLength).set(wideBVH.words);
 const wideTlasRoot = wideBVH.rootOf.get(tlasRoot);
 window.__wideBVH = { nodes: wideBVH.words.length / 16, binaryNodes: nodeTotal, packedBytes: wideBVH.words.byteLength, binaryBytes: nodeTotal * 32, maxDepth: wideBVH.maxDepth, checkedBounds: wideBVH.checkedBounds };
 
-const instData = new Float32Array(Math.ceil(NI * 4 / TW) * TW * 4); { const inv = new THREE.Matrix4(); for (let s = 0; s < NI; s++) { const it = inst[tlas.order[s]]; inv.copy(it.m).invert(); const e = inv.elements, o = s * 16; instData.set([e[0], e[4], e[8], e[12], e[1], e[5], e[9], e[13], e[2], e[6], e[10], e[14], blas[it.blas].root, wideBVH.rootOf.get(blas[it.blas].root), 0, 0], o); } }
+const instData = new Float32Array(Math.ceil(NI * 4 / TW) * TW * 4); { const inv = new THREE.Matrix4(); for (let s = 0; s < NI; s++) { const it = inst[tlas.order[s]]; inv.copy(it.m).invert(); const e = inv.elements, o = s * 16; instData.set([e[0], e[4], e[8], e[12], e[1], e[5], e[9], e[13], e[2], e[6], e[10], e[14], blas[it.blas].root, wideBVH.rootOf.get(blas[it.blas].root), blas[it.blas].leafVolume?.descriptor || 0, blas[it.blas].leafVolume ? blas[blas[it.blas].leafVolume.barkIndex].root : 0], o); } }
 // Static work lists for wind refitting. Every phase reads only bounds written
 // by earlier phases. The source mappings retained by BVH4 let its quantisation
 // be recomputed from the exact, current binary child bounds in one final pass.
@@ -569,7 +673,7 @@ struct Params { invPV: mat4x4f, camPos: vec4f, sunDir: vec4f, sunCol: vec4f, moo
   sunE: f32, sunfade: f32, mieG: f32, sunCos: f32, night: f32, skyOn: f32, bounceOn: f32, fogD: f32, sunSize: f32, moonSize: f32, noiseShift: f32, blend: f32,
   tlasRoot: i32, nsph: i32, shadowK: i32, giK: i32, view: i32, frame: i32, shadowStride: i32, giStride: i32,
   matA: array<vec4f, ${MATN}>, matB: array<vec4f, ${MATN}>, matC: array<vec4f, ${MATN}>, sphA: array<vec4f, 40>, sphB: array<vec4f, 40>,
-  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f, atm: vec4f, sampling: vec4f, prevLightA: array<vec4f, 40>, prevLightE: array<vec4f, 40> , shadowReuse: vec4f, cacheReuse: vec4f , nrcHashMode: vec4f, instant: vec4f , ntc: vec4f, ntcWeights: array<vec4f, 101>, wideTree: vec4f };
+  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f, atm: vec4f, sampling: vec4f, prevLightA: array<vec4f, 40>, prevLightE: array<vec4f, 40> , shadowReuse: vec4f, cacheReuse: vec4f , nrcHashMode: vec4f, instant: vec4f , ntc: vec4f, ntcWeights: array<vec4f, 101>, wideTree: vec4f, leafVox: vec4f };
 @group(0) @binding(0) var<uniform> P: Params;
 // BVH words are unsigned: NaN-looking packed bytes never enter float values.
 @group(0) @binding(1) var<storage, read> nodeWords: array<vec4u>;
@@ -699,7 +803,7 @@ fn traceBinary(o: vec3f, d: vec3f, tMaxIn: f32, anyHit: bool) -> Hit {
   var stack: array<i32, 40>; var sp = 1; stack[0] = P.tlasRoot; let invD = 1.0 / safeDir(d);
   for (var guard = 0; guard < 4096 && sp > 0; guard++) { sp -= 1; let ni = stack[sp]; let a = nodeF(u32(ni * 2)); let b = nodeF(u32(ni * 2 + 1)); if (!slab(a.xyz, b.xyz, o, invD, H.t)) { continue; } let cnt = i32(b.w);
     if (cnt > 0) { let first = i32(a.w); for (var k = 0; k < cnt; k++) { let s = first + k; var ol: vec3f; var dl: vec3f; instRay(s, o, d, &ol, &dl); var ht = -1; var bb = vec2f(0.0); var tm = H.t;
-        if (walkTreeBinary(i32(insts[s * 4 + 3].x), ol, dl, &tm, &ht, &bb, anyHit)) { H.t = tm; H.tri = ht; H.inst = s; H.bary = bb; H.sph = -1; H.hit = true; if (anyHit) { return H; } } } }
+        if (walkInstance(s, ol, dl, &tm, &ht, &bb, anyHit, false)) { H.t = tm; H.tri = ht; H.inst = s; H.bary = bb; H.sph = -1; H.hit = true; if (anyHit) { return H; } } } }
     else { let axis = -cnt - 1; let left = i32(a.w); let dc = select(select(d.z, d.y, axis == 1), d.x, axis == 0); let lf = dc >= 0.0; if (sp < 38) { stack[sp] = select(left, left + 1, lf); sp += 1; stack[sp] = select(left + 1, left, lf); sp += 1; } } }
   return H; }
 // Four-wide traversal reads a packed tail of the same node buffer. The
@@ -765,7 +869,7 @@ fn traceWide(o: vec3f, d: vec3f, tMaxIn: f32, anyHit: bool) -> Hit {
       let first = i32(reference & 0x00ffffffu); let count = i32((reference >> 24u) & 127u);
       for (var k = 0; k < count; k++) {
         let s = first + k; var ol: vec3f; var dl: vec3f; instRay(s, o, d, &ol, &dl); var ht = -1; var bb = vec2f(0.0); var tm = H.t;
-        if (walkTreeWide(u32(insts[s * 4 + 3].y), i32(insts[s * 4 + 3].x), ol, dl, &tm, &ht, &bb, anyHit)) {
+        if (walkInstance(s, ol, dl, &tm, &ht, &bb, anyHit, true)) {
           H.t = tm; H.tri = ht; H.inst = s; H.bary = bb; H.sph = -1; H.hit = true; if (anyHit) { return H; }
         }
       }
@@ -777,6 +881,85 @@ fn traceWide(o: vec3f, d: vec3f, tMaxIn: f32, anyHit: bool) -> Hit {
   }
   return H;
 }
+// Static far-leaf density in instance coordinates. Local ray direction is
+// deliberately not normalised: t remains the same parameter as the world ray.
+fn voxelHash(x: u32) -> u32 { var h = x; h ^= (h >> 16u); h *= 2146121005u; h ^= (h >> 15u); h *= 2221713035u; return h ^ (h >> 16u); }
+fn voxelRandom(seed: u32) -> f32 { return (f32(voxelHash(seed) & 0x00ffffffu) + 0.5) / 16777216.0; }
+fn voxelSeed(s: i32, o: vec3f, d: vec3f) -> u32 {
+  let q = vec3i(floor(o * 128.0)); let v = vec3i(floor(normalize(d) * 4096.0));
+  return voxelHash(u32(s) ^ (u32(q.x) * 73856093u) ^ (u32(q.y) * 19349663u) ^ (u32(q.z) * 83492791u) ^ (u32(v.x) * 2654435761u) ^ (u32(v.y) * 2246822519u) ^ (u32(v.z) * 3266489917u));
+}
+fn useLeafVolume(s: i32) -> bool {
+  let descriptor = i32(insts[s * 4 + 3].z); if (P.leafVox.x < 0.5 || descriptor == 0) { return false; }
+  let a = nodeF(u32(descriptor)); let b = nodeF(u32(descriptor + 1));
+  let centre = a.xyz + b.xyz * a.w * 0.5; let r0 = insts[s * 4]; let r1 = insts[s * 4 + 1]; let r2 = insts[s * 4 + 2];
+  let cam = vec4f(P.camPos.xyz, 1.0); let local = vec3f(dot(r0, cam), dot(r1, cam), dot(r2, cam));
+  // Tree transforms are yaw and diagonal scale. This recovers world distance.
+  let scale = vec3f(length(r0.xyz), length(r1.xyz), length(r2.xyz));
+  let distance = length((local - centre) / max(scale, vec3f(1e-6)));
+  let blend = smoothstep(P.leafVox.y - P.leafVox.z, P.leafVox.y + P.leafVox.z, distance);
+  // All ray types choose the same representation for a tree in this frame.
+  // Free-path samples still vary by ray, but never switch LOD between a visible
+  // hit and its shadow ray. The fixed per-instance threshold spreads transitions.
+  return voxelRandom(u32(s) ^ 0x49f38a2du) < blend;
+}
+fn walkLeafVolume(s: i32, o: vec3f, d: vec3f, seed: u32, tMax: ptr<function, f32>, hitTri: ptr<function, i32>, bary: ptr<function, vec2f>) -> bool {
+  let descriptor = i32(insts[s * 4 + 3].z); let a = nodeF(u32(descriptor)); let b = nodeF(u32(descriptor + 1)); let c = nodeF(u32(descriptor + 2));
+  let size = i32(a.w); let upper = a.xyz + b.xyz * a.w;
+  // Explicit parallel-axis handling avoids 0*infinity and enormous DDA steps.
+  var near = 1e-4; var far = *tMax;
+  for (var axis = 0; axis < 3; axis++) {
+    if (abs(d[axis]) < 1e-12) { if (o[axis] < a[axis] || o[axis] > upper[axis]) { return false; } }
+    else { let x = (a[axis] - o[axis]) / d[axis]; let y = (upper[axis] - o[axis]) / d[axis]; near = max(near, min(x, y)); far = min(far, max(x, y)); }
+  }
+  if (near >= far) { return false; }
+  let entry = clamp((o + d * near - a.xyz) / b.xyz, vec3f(0.0), vec3f(a.w - 1e-4));
+  var cell = vec3i(floor(entry)); var next = vec3f(1e30); var delta = vec3f(1e30); var step = vec3i(0);
+  for (var axis = 0; axis < 3; axis++) {
+    if (abs(d[axis]) < 1e-12) { continue; }
+    step[axis] = select(-1, 1, d[axis] > 0.0);
+    let edge = a[axis] + (f32(cell[axis]) + select(0.0, 1.0, step[axis] > 0)) * b[axis];
+    next[axis] = max(near, (edge - o[axis]) / d[axis]); delta[axis] = b[axis] / abs(d[axis]);
+  }
+  var tau = -log(max(1.0 - voxelRandom(seed ^ 0xb5297a4du), 1e-7)); var t = near;
+  // A line crosses at most 3*N cells. Extra three iterations cover entry ties.
+  for (var iter = 0; iter < 63; iter++) {
+    if (any(cell < vec3i(0)) || any(cell >= vec3i(size)) || t >= far) { break; }
+    let end = min(far, min(next.x, min(next.y, next.z)));
+    let index = cell.x + size * (cell.y + size * cell.z); let address = i32(c.y) + index * i32(c.w);
+    let l0 = nodeF(u32(address)); let l1 = nodeF(u32(address + 1)); let l2 = nodeF(u32(address + 2));
+    let rates = vec3f(l0.w * abs(dot(l0.xyz, d)), l1.w * abs(dot(l1.xyz, d)), l2.w * abs(dot(l2.xyz, d)));
+    let sigma = rates.x + rates.y + rates.z; let optical = sigma * max(end - t, 0.0);
+    if (sigma > 0.0 && tau < optical) {
+      let choose = voxelRandom(seed ^ (u32(index) * 0x68e31da4u) ^ 0x1b56c4e9u) * sigma;
+      var lobe = 2; if (choose < rates.x) { lobe = 0; } else if (choose < rates.x + rates.y) { lobe = 1; }
+      let normal = nodeF(u32(address + 4 + lobe)).xyz;
+      *tMax = t + tau / sigma; *hitTri = -2 - address; *bary = octEnc(normal); return true;
+    }
+    tau -= optical; t = end;
+    // Step every tied axis, so rays through edges cannot repeatedly visit a cell.
+    let threshold = end + max(1e-6, abs(end) * 1e-7);
+    for (var axis = 0; axis < 3; axis++) { if (next[axis] <= threshold) { cell[axis] += step[axis]; next[axis] += delta[axis]; } }
+  }
+  return false;
+}
+fn walkInstance(s: i32, o: vec3f, d: vec3f, tMax: ptr<function, f32>, hitTri: ptr<function, i32>, bary: ptr<function, vec2f>, anyHit: bool, wide: bool) -> bool {
+  let info = insts[s * 4 + 3]; var binaryRoot = i32(info.x); var wideRoot = u32(info.y);
+  var volume = false; var seed = 0u;
+  if (P.leafVox.x > 0.5 && info.z > 0.0) { seed = voxelSeed(s, o, d); volume = useLeafVolume(s); }
+  if (volume) { binaryRoot = i32(info.w); wideRoot = u32(nodeF(u32(i32(info.z) + 2)).x); }
+  var found = false;
+  if (wide) { found = walkTreeWide(wideRoot, binaryRoot, o, d, tMax, hitTri, bary, anyHit); }
+  else { found = walkTreeBinary(binaryRoot, o, d, tMax, hitTri, bary, anyHit); }
+  if (found && anyHit) { return true; }
+  if (volume) { let leaf = walkLeafVolume(s, o, d, seed, tMax, hitTri, bary); return leaf || found; }
+  return found;
+}
+fn voxelWorldNormal(H: Hit) -> vec3f {
+  let n = octDec(H.bary); let r0 = insts[H.inst * 4]; let r1 = insts[H.inst * 4 + 1]; let r2 = insts[H.inst * 4 + 2];
+  return normalize(r0.xyz * n.x + r1.xyz * n.y + r2.xyz * n.z);
+}
+
 fn trace(o: vec3f, d: vec3f, tMaxIn: f32, anyHit: bool) -> Hit {
   if (P.wideTree.x > 0.5) { return traceWide(o, d, tMaxIn, anyHit); }
   return traceBinary(o, d, tMaxIn, anyHit);
@@ -785,6 +968,7 @@ fn occluded(o: vec3f, d: vec3f, tMax: f32) -> bool { return trace(o, d, tMax, tr
 struct Surf { p: vec3f, n: vec3f, mid: i32, uv: vec2f };
 fn hitInfo(ro: vec3f, d: vec3f, H: Hit) -> Surf { var S: Surf; S.p = ro + d * H.t;
   if (H.sph >= 0) { S.n = normalize(S.p - P.sphA[H.sph].xyz); S.mid = i32(P.sphB[H.sph].x); S.uv = vec2f(atan2(S.n.z, S.n.x) / 6.2831853 + 0.5, S.n.y * 0.5 + 0.5); }
+  else if (H.tri < -1) { S.n = voxelWorldNormal(H); S.mid = i32(nodeF(u32(i32(insts[H.inst * 4 + 3].z) + 1)).w); S.uv = vec2f(f32(H.tri), 0.0); }
   else { let a0 = attrs[H.tri * 4]; let a1 = attrs[H.tri * 4 + 1]; let a2 = attrs[H.tri * 4 + 2]; let a3 = attrs[H.tri * 4 + 3]; let b0 = 1.0 - H.bary.x - H.bary.y; let nl = normalize(a0.xyz * b0 + a1.xyz * H.bary.x + a2.xyz * H.bary.y);
     let r0 = insts[H.inst * 4]; let r1 = insts[H.inst * 4 + 1]; let r2 = insts[H.inst * 4 + 2]; S.n = normalize(r0.xyz * nl.x + r1.xyz * nl.y + r2.xyz * nl.z); S.mid = i32(tris[H.tri * 3].w); S.uv = vec2f(a0.w * b0 + a1.w * H.bary.x + a2.w * H.bary.y, a3.x * b0 + a3.y * H.bary.x + a3.z * H.bary.y); }
   if (dot(S.n, d) > 0.0) { S.n = -S.n; }
@@ -833,7 +1017,7 @@ fn pathDist(q: vec2f) -> f32 { var pts = array<vec2f, ${PATH.length}>(${PATH.map
 fn grassColor(p: vec3f, uv: vec2f) -> vec3f { let h = vn(p.xz * 0.15 + 3.0); let g = mix(${v3s(0x3f7a22).replace('vec3(', 'vec3f(')}, ${v3s(0x86a83a).replace('vec3(', 'vec3f(')}, h); return g * mix(0.35, 1.05, uv.y); }
 struct Mat { alb: vec3f, rough: f32, metal: f32, emis: vec3f };
 fn matEval(mid: i32, p: vec3f, n: vec3f, uv: vec2f, dist: f32) -> Mat { var M: Mat; let a = P.matA[mid]; let b = P.matB[mid]; let c = P.matC[mid]; M.alb = a.rgb; M.rough = a.w; M.metal = b.x; M.emis = a.rgb * b.y;
-  let tex = i32(b.z); if (tex > 0) { M.alb *= sampleTex(tex, uv * c.xy, clamp(log2(max(dist, 1.0)) - 2.5, 0.0, 5.0)).rgb; }
+  let tex = i32(b.z); if (b.w == 4.0 && uv.x < -1.0) { M.alb *= nodeF(u32(i32(-uv.x) - 2 + 3)).rgb; } else if (tex > 0) { M.alb *= sampleTex(tex, uv * c.xy, clamp(log2(max(dist, 1.0)) - 2.5, 0.0, 5.0)).rgb; }
   if (b.w == 1.0) { M.alb = terrainColor(p, n); } else if (b.w == 2.0) { M.alb = grassColor(p, uv); } return M; }
 fn cacheLevel(p: vec3f) -> u32 { let d = distance(p, P.camPos.xyz); return u32(clamp(floor(log2(max(d, 1.0) / 4.0)), 0.0, 5.0)); }
 fn cacheKey(p: vec3f, n: vec3f, lvl: u32) -> u32 { let cs = f32(1u << lvl); let c = vec3i(floor(p / cs)); let an = abs(n); var ax = 0u; if (an.y > an.x && an.y > an.z) { ax = 1u; } else if (an.z > an.x) { ax = 2u; } let comp = select(select(n.x, n.z, ax == 2u), n.y, ax == 1u); let oct = ax * 2u + select(0u, 1u, comp < 0.0);
@@ -1149,6 +1333,7 @@ fn crOrigin(sl: u32) -> vec3f { return cr.cells[sl].pos.xyz + cr.cells[sl].nrm.x
 // Source shading must not insert/touch cells while the frozen cache is read.
 const WG_CACHE = WG_COMMON.replace('cacheLookup(S.p, cn, true)', 'cacheLookup(S.p, cn, false)') + WG_CACHE_REUSE_DATA + `
 fn crHitNormal(H: Hit, p: vec3f) -> vec3f {
+  if (H.tri < -1) { return voxelWorldNormal(H); }
   if (H.sph >= 0) { return normalize(p - P.sphA[H.sph].xyz); }
   let v0 = tris[H.tri * 3].xyz; let v1 = tris[H.tri * 3 + 1].xyz; let v2 = tris[H.tri * 3 + 2].xyz;
   let nl = normalize(cross(v1 - v0, v2 - v0));
@@ -1180,7 +1365,7 @@ fn crHitNormal(H: Hit, p: vec3f) -> vec3f {
       h.end = vec4f(dd, 0.0); h.normalPdf = vec4f(0.0, 0.0, 0.0, pdf);
       h.radiance = vec4f(skyRad(dd, false) * P.skyOn, 1.0);
     } else {
-      let S = hitInfo(po, dd, H); let gn = crHitNormal(H, S.p); h.end = vec4f(S.p, 1.0);
+      let S = hitInfo(po, dd, H); let gn = crHitNormal(H, S.p); h.end = vec4f(S.p, select(1.0, 2.0, H.tri < -1));
       // First-hit area PDF: cosine sampling PDF times solid-angle/area Jacobian.
       // Use the geometric normal, never the painted/foliage shading normal.
       h.normalPdf = vec4f(gn, pdf * abs(dot(gn, -dd)) / max(H.t * H.t, 1e-8));
@@ -1224,6 +1409,7 @@ fn crVisibility(sl: u32, h: CRHit) -> f32 {
   return clamp((cheb - 0.08) / 0.92, 0.0, 1.0);
 }
 fn crPdf(sl: u32, h: CRHit) -> f32 {
+  if (h.end.w > 1.5) { return 0.0; }
   let n = cr.cells[sl].nrm.xyz;
   if (h.end.w < 0.5) { return max(dot(n, h.end.xyz), 0.0) / PI * crVisibility(sl, h); }
   let delta = h.end.xyz - crOrigin(sl); let r2 = dot(delta, delta);
@@ -1231,6 +1417,7 @@ fn crPdf(sl: u32, h: CRHit) -> f32 {
   return max(dot(n, d), 0.0) / PI * abs(dot(h.normalPdf.xyz, -d)) / r2 * crVisibility(sl, h);
 }
 fn crSample(dst: u32, source: u32, h: CRHit, ids: ptr<function, array<i32, 7>>, mass: ptr<function, array<f32, 7>>, count: u32) -> vec3f {
+  if (h.end.w > 1.5) { return select(vec3f(0.0), h.radiance.rgb * (PI / 8.0), source == 0u); }
   let n = cr.cells[dst].nrm.xyz; var geometry = max(dot(n, h.end.xyz), 0.0);
   if (h.end.w > 0.5) {
     let delta = h.end.xyz - crOrigin(dst); let r2 = dot(delta, delta);
@@ -1644,7 +1831,7 @@ fn srgb(c0: vec3f) -> vec3f { let c = clamp(c0, vec3f(0.0), vec3f(1.0)); return 
 @fragment fn fs(i: VO) -> @location(0) vec4f { var c = textureSampleLevel(tSrc, samp, i.uv, 0.0).rgb; let bl = textureSampleLevel(tBloom, samp, i.uv, 0.0).rgb; c += bl * D.bloom;
   if (D.shafts > 0.0 && D.sunUp > 0.0) { var sh = vec3f(0.0); let dv = (D.sunUv - i.uv) / 24.0; var uv = i.uv; var wsum = 0.0; for (var k = 0; k < 24; k++) { uv += dv; let w = 1.0 - f32(k) / 24.0; sh += textureSampleLevel(tBloom, samp, uv, 0.0).rgb * w; wsum += w; } let dist = length((D.sunUv - i.uv) * vec2f(1.0, 0.75)); c += sh / wsum * D.shafts * D.sunUp * (1.0 - smoothstep(0.35, 0.9, dist)); }
   c *= D.exposure; if (D.curve == 1.0) { c = aces(c); } else if (D.curve == 2.0) { c = c / (1.0 + c); } let lum = dot(c, vec3f(0.3, 0.59, 0.11)); c = mix(vec3f(lum), c, 1.1); let vd = length((i.uv - 0.5) * vec2f(1.0, 0.85)); c *= 1.0 - 0.28 * smoothstep(0.35, 0.95, vd); return vec4f(srgb(c), 1.0); }`;
-let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { ntcOn: false, instantOn: false, hashNrc: false, splatOn: true, discReuse: true, cvOn: true, vrr: false, nrcOn: true, restirOn: true, cacheOn: true, wideOn: false, cacheReuseOn: true, cacheReuseEpoch: 0, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true, refitOn: true };
+let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { ntcOn: false, instantOn: false, hashNrc: false, splatOn: true, discReuse: true, cvOn: true, vrr: false, nrcOn: true, restirOn: true, cacheOn: true, voxelOn: false, voxelDistance: 80, wideOn: false, cacheReuseOn: true, cacheReuseEpoch: 0, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true, refitOn: true };
 // the simulation grids: a wave grid over the lake (with the shore as a wall), and two boxes of air over the fire and the chimney
 const SIM = (() => { const n = 256, size = 44, x0 = LAKE.x - size / 2, z0 = LAKE.z - size / 2; const land = new Uint8Array(n * n * 2); for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = x0 + (i + 0.5) / n * size, z = z0 + (j + 0.5) / n * size; const th = terrainH(x, z); land[(j * n + i) * 2] = th > -0.55 ? 255 : 0; const dp = Math.min(Math.max((-0.55 - th) / 0.9, 0), 1); land[(j * n + i) * 2 + 1] = Math.round(255 * dp * dp * (3 - 2 * dp)); }
   const fy = terrainH(FIRE.x, FIRE.z); const ca = Math.cos(-0.55), sa = Math.sin(-0.55); const cx = CABIN.x + (3.2 - 1.2) * ca + (-2.3 + 0.9) * sa, cz = CABIN.z - (3.2 - 1.2) * sa + (-2.3 + 0.9) * ca; const cy = terrainH(CABIN.x, CABIN.z) - 0.1 + 5.5;
@@ -1784,7 +1971,9 @@ fn refitHi(x: f32) -> f32 { return refitNext(refitNext(x, 1), 1); }
     let first = u32(a.w); let count = u32(b.w);
     for (var k = 0u; k < count; k++) {
       let instance = first + k; let root = u32(ri[instance * 4u + 3u].x);
-      let mn = refitNode(u32(root * 2u)).xyz; let mx = refitNode(u32(root * 2u + 1u)).xyz;
+      var mn = refitNode(u32(root * 2u)).xyz; var mx = refitNode(u32(root * 2u + 1u)).xyz;
+      let voxel = u32(ri[instance * 4u + 3u].z);
+      if (voxel != 0u) { let a = refitNode(voxel); let b = refitNode(voxel + 1u); mn = min(mn, a.xyz); mx = max(mx, a.xyz + b.xyz * a.w); }
       let centre = (mn + mx) * 0.5; let extent = (mx - mn) * 0.5;
       let base = R.worldBase + instance * 12u;
       let r0 = refitRow(base); let r1 = refitRow(base + 4u); let r2 = refitRow(base + 8u);
@@ -1950,7 +2139,7 @@ async function startWebGPU() {
   const ctx = canvas.getContext('webgpu'); const format = navigator.gpu.getPreferredCanvasFormat(); ctx.configure({ device, format, alphaMode: 'opaque' });
   const mkBuf = (arr, usage) => { const b = device.createBuffer({ size: Math.ceil(arr.byteLength / 16) * 16, usage, mappedAtCreation: true }); new Uint8Array(b.getMappedRange()).set(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength)); b.unmap(); return b; };
   const bNodes = mkBuf(wideNodeData, GPUBufferUsage.STORAGE), bTris = mkBuf(triData, GPUBufferUsage.STORAGE), bTris0 = mkBuf(triData, GPUBufferUsage.STORAGE), bAttr = mkBuf(attrData, GPUBufferUsage.STORAGE), bInst = mkBuf(instData, GPUBufferUsage.STORAGE);
-  const DISC_PARAM_F = 84 + MATN * 12 + 320 + 20 + 24 + 12 + 4 + 320; const CACHE_REUSE_OFFSET = DISC_PARAM_F + 4; const HASH_PARAM_F = CACHE_REUSE_OFFSET + 4; const INSTANT_PARAM_F = HASH_PARAM_F + 4; const NTC_PARAM_O = INSTANT_PARAM_F + 4; const WIDE_BVH_OFFSET = NTC_PARAM_O + 408; const PARAMS_F = WIDE_BVH_OFFSET + 4; const prevLightA = new Float32Array(160), prevLightE = new Float32Array(160); const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const DISC_PARAM_F = 84 + MATN * 12 + 320 + 20 + 24 + 12 + 4 + 320; const CACHE_REUSE_OFFSET = DISC_PARAM_F + 4; const HASH_PARAM_F = CACHE_REUSE_OFFSET + 4; const INSTANT_PARAM_F = HASH_PARAM_F + 4; const NTC_PARAM_O = INSTANT_PARAM_F + 4; const WIDE_BVH_OFFSET = NTC_PARAM_O + 408; const LEAF_VOX_OFFSET = WIDE_BVH_OFFSET + 4; const PARAMS_F = LEAF_VOX_OFFSET + 4; const prevLightA = new Float32Array(160), prevLightE = new Float32Array(160); const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const layers = [barkTex, birchTex, leafO, leafP, leafB, rockTex, woodTex, stoneTex, groundTex, grassTex]; const texArr = device.createTexture({ size: [256, 256, layers.length + 1], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   layers.forEach((t, i) => device.queue.copyExternalImageToTexture({ source: t.image }, { texture: texArr, origin: [0, 0, i] }, [256, 256]));
   const ntcWeights = new Float32Array(404); let ntcReady = false;
@@ -2173,7 +2362,7 @@ async function startWebGPU() {
     paramsI[76] = tlasRoot; paramsI[77] = spheres.length; paramsI[78] = U.uShadowK.value; paramsI[79] = U.uGiK.value; paramsI[80] = view; paramsI[81] = U.uFrame.value; paramsI[82] = st.ss; paramsI[83] = st.gs;
     f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 160); const o2 = 84 + MATN * 12 + 320; f.set(prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; f.set([...SIM.fire.min, 0, ...SIM.fire.max, 0, ...SIM.chim.min, 0, ...SIM.chim.max, 0, SIM.water.x0, SIM.water.z0, SIM.water.size, SIM.water.n, fx.waterOn ? 1 : 0, fx.fireOn ? 1 : 0, fx.chimOn ? 1 : 0, fx.hideFlame ? 1 : 0], o2 + 20); f.set([fx.oceanOn ? 1 : 0, OCEAN_L, fx.cacheOn ? 1 : 0, fx.restirOn ? 1 : 0, fx.nrcOn && fx.cacheOn ? 1 : 0, 0, 0, fx.vrr ? 1 : 0, atm.rayScale, atm.mieScale, atm.g, 0], o2 + 44); f.set([fx.cvOn ? 1 : 0, 0, 0, 0], o2 + 56); f.set(prevLightA, o2 + 60); f.set(prevLightE, o2 + 220);
     prevLightA.set(sphA); for (let i = 0; i < 40; i++) { const m = sphB[i * 4] | 0, on = i < spheres.length && sphB[i * 4 + 1] > 0.5; for (let j = 0; j < 3; j++) prevLightE[i * 4 + j] = on ? matA[m * 4 + j] * matB[m * 4 + 1] : 0; } f.set([fx.discReuse ? 1 : 0, 0, 0, 0], DISC_PARAM_F); f.set([fx.cacheReuseOn ? 1 : 0, fx.cacheReuseEpoch, 0, 0], CACHE_REUSE_OFFSET); const useHash=halfNrc&&fx.hashNrc;const trainHash=useHash&&(U.uFrame.value%8!==0);f.set([useHash?1:0,trainHash?1:0,halfNrc?1:0,0],HASH_PARAM_F);
-    const model=trainHash?1:0;if(fx.nrcOn&&fx.cacheOn)nrcSteps[model]++;device.queue.writeBuffer(nrcMode,0,new Uint32Array([model,nrcSteps[model],0,0]));f.set([fx.instantOn ? 1 : 0, 6, 0, 0], INSTANT_PARAM_F); f.set([fx.ntcOn && ntcReady ? 1 : 0, 0, 0, 0], NTC_PARAM_O); f.set(ntcWeights, NTC_PARAM_O + 4); f.set([fx.wideOn ? 1 : 0, wideTlasRoot, wideNodeBase, wideBVH.words.length / 16], WIDE_BVH_OFFSET); device.queue.writeBuffer(bParams, 0, paramsArr); }
+    const model=trainHash?1:0;if(fx.nrcOn&&fx.cacheOn)nrcSteps[model]++;device.queue.writeBuffer(nrcMode,0,new Uint32Array([model,nrcSteps[model],0,0]));f.set([fx.instantOn ? 1 : 0, 6, 0, 0], INSTANT_PARAM_F); f.set([fx.ntcOn && ntcReady ? 1 : 0, 0, 0, 0], NTC_PARAM_O); f.set(ntcWeights, NTC_PARAM_O + 4); f.set([fx.wideOn ? 1 : 0, wideTlasRoot, wideNodeBase, wideBVH.words.length / 16], WIDE_BVH_OFFSET); f.set([fx.voxelOn ? 1 : 0, fx.voxelDistance, 6, 0], LEAF_VOX_OFFSET); device.queue.writeBuffer(bParams, 0, paramsArr); }
   function render(w, h, blend, view, jitter, doBlur, ss, gs) {
     ensure(w, h, ss, gs); fillParams(w, h, blend, view, jitter);
     splatPV.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); splatParamF.set(splatPV.elements, 0); splatParamU[16] = w; splatParamU[17] = h; splatParamU[18] = fx.splatOn && fx.restirOn ? 1 : 0; device.queue.writeBuffer(splatParam, 0, splatParamData); const sc = sunDir.clone().multiplyScalar(1000).add(camera.position).project(camera); device.queue.writeBuffer(bDisp, 0, new Float32Array([dispU.uExposure.value, dispU.uCurve.value, fx.bloom, fx.shafts, sc.x * 0.5 + 0.5, 0.5 - sc.y * 0.5, sc.z < 1 && sunDir.y > 0.02 ? 1 : 0, 0]));
@@ -2311,6 +2500,11 @@ gpuOnly(s6.toggle('tight boxes around moving leaves [BVH refit]', true, v => { f
 const refitRead = s6.readout('moving boxes [refit]');
 refitRead(refitPlan.stats.passes + ' passes, ' + (refitPlan.stats.blasLeaves + refitPlan.stats.blasInterior + refitPlan.stats.tlasLeaves + refitPlan.stats.tlasInterior).toLocaleString() + ' binary boxes, ' + refitPlan.stats.packedNodes.toLocaleString() + ' packed boxes');
 s6.note('Moving leaves get tight boxes every frame. Turning this off holds the leaves still with their last boxes.');
+gpuOnly(s6.toggle('far leaves become small clouds [voxel LOD]', false, v => { fx.voxelOn = v; dirty(); }));
+gpuOnly(s6.slider('far leaf distance [voxel LOD]', { min: 40, max: 180, step: 5, value: 80, fmt: v => v + ' m' }, v => { fx.voxelDistance = v; dirty(); }));
+const voxelRead = s6.readout('far leaf shapes [voxels]');
+voxelRead(leafVolumes.length + ' tree shapes, ' + (window.__leafVoxels.bytes / 1048576).toFixed(2) + ' MiB, ' + LEAF_VOX_N + ' cells across');
+s6.note('This starts off because distant crowns look grainier, with only a small speed gain here. Far leaves use their painted coverage and direction. Trunks and branches keep their triangles. The distant leaves hold still.');
 const triRead = s6.readout('triangles in the scene'), instRead = s6.readout('placed copies'), boxRead = s6.readout('boxes in the trees'), buildRead = s6.readout('building the trees took'), accRead = s6.readout('frames blended for anti-aliasing'), msRead = s6.readout('milliseconds per frame');
 triRead(totalTris.toLocaleString() + (gpu ? ' · WebGPU' : ' · WebGL')); instRead(NI.toLocaleString() + ' (' + treeCount + ' trees, 32,000 blades of grass)'); boxRead(nodeTotal.toLocaleString()); buildRead((genMs + buildMs).toFixed(0) + ' ms');
 
