@@ -440,7 +440,7 @@ struct Params { invPV: mat4x4f, camPos: vec4f, sunDir: vec4f, sunCol: vec4f, moo
   sunE: f32, sunfade: f32, mieG: f32, sunCos: f32, night: f32, skyOn: f32, bounceOn: f32, fogD: f32, sunSize: f32, moonSize: f32, noiseShift: f32, blend: f32,
   tlasRoot: i32, nsph: i32, shadowK: i32, giK: i32, view: i32, frame: i32, shadowStride: i32, giStride: i32,
   matA: array<vec4f, ${MATN}>, matB: array<vec4f, ${MATN}>, matC: array<vec4f, ${MATN}>, sphA: array<vec4f, 40>, sphB: array<vec4f, 40>,
-  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f, atm: vec4f, sampling: vec4f, prevLightA: array<vec4f, 40>, prevLightE: array<vec4f, 40> };
+  prevPV: mat4x4f, time: f32, mist: f32, cover: f32, wind: f32, fireBox0: vec4f, fireBox1: vec4f, chimBox0: vec4f, chimBox1: vec4f, waterOrg: vec4f, simOn: vec4f, ocean: vec4f, nrc: vec4f, atm: vec4f, sampling: vec4f, prevLightA: array<vec4f, 40>, prevLightE: array<vec4f, 40> , shadowReuse: vec4f };
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> nodes: array<vec4f>;
 @group(0) @binding(2) var<storage, read> tris: array<vec4f>;
@@ -620,14 +620,106 @@ const WG_GBUF = WG_COMMON + `
   if (!H.hit) { textureStore(oA, px, vec4f(d, -1.0)); textureStore(oB, px, vec4f(0.0)); textureStore(oC, px, vec4f(0.0)); textureStore(oD, px, vec4f(0.0)); return; }
   let S = hitInfo(P.camPos.xyz, d, H); let M = matEval(S.mid, S.p, S.n, S.uv, H.t);
   textureStore(oA, px, vec4f(S.p, H.t)); textureStore(oB, px, vec4f(S.n, M.rough)); textureStore(oC, px, vec4f(M.alb, M.metal)); textureStore(oD, px, vec4f(M.emis, f32(S.mid))); }`;
+// SKY_R2_STAGE2: direct-disc reuse with reciprocal ownership and a small duplication map.
+// Inspired by Lin, Kettunen and Wyman, ReSTIR PT Enhanced (I3D 2026), sections 3 and 5.
+// IDs parameterize a uniform solid-angle disc. A positive target floor preserves support;
+// the final visibility is V * W, not V or a clamped probability, so target weighting cancels.
 const WG_SHADOW = WG_COMMON + `
-@group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var oV: texture_storage_2d<rgba16float, write>; @group(1) @binding(3) var tAge: texture_2d<f32>;
-@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.loRes.x || f32(px.y) >= P.loRes.y) { return; } let fp = min(px * P.shadowStride, vec2i(P.res) - 1);
-  let A = textureLoad(gA, fp, 0); if (A.w < 0.0) { textureStore(oV, px, vec4f(1.0, 1.0, 0.0, 0.0)); return; } let p = A.xyz; let n = textureLoad(gB, fp, 0).xyz; let po = p + n * 3e-3; let rot = ign(vec2f(px));
-  let age = textureLoad(tAge, px, 0).z; let K = select(P.shadowK, select(select(P.shadowK, max(P.shadowK * 2, 4), age < 12.0), max(P.shadowK, 1), age > 60.0), P.nrc.w > 0.5);
-  var sv = 1.0; if (dot(P.sunCol.xyz, P.sunCol.xyz) > 0.0) { sv = 0.0; if (dot(n, P.sunDir.xyz) > -0.1) { for (var k = 0; k < 8; k++) { if (k >= K) { break; } let l = coneK(P.sunDir.xyz, P.sunSize, k, K, rot); if (!occluded(po, l, 1e9)) { sv += 1.0; } } sv /= f32(K); } sv *= cloudShadow(p); }
-  var mv = 1.0; if (dot(P.moonCol.xyz, P.moonCol.xyz) > 0.0) { mv = 0.0; let l = coneK(P.moonDir.xyz, P.moonSize, 0, 1, rot); if (dot(n, l) > 0.0 && !occluded(po, l, 1e9)) { mv = 1.0; } }
-  textureStore(oV, px, vec4f(sv, mv, 0.0, A.w)); }`;
+@group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>;
+@group(1) @binding(2) var oV: texture_storage_2d<rgba16float, write>; @group(1) @binding(3) var tAge: texture_2d<f32>;
+@group(1) @binding(4) var tSunR: texture_2d<f32>; @group(1) @binding(5) var tMoonR: texture_2d<f32>;
+@group(1) @binding(6) var tDiscSurf: texture_2d<f32>; @group(1) @binding(7) var tDiscDup: texture_2d<f32>;
+@group(1) @binding(8) var oSunR: texture_storage_2d<rgba32float, write>;
+@group(1) @binding(9) var oMoonR: texture_storage_2d<rgba32float, write>;
+@group(1) @binding(10) var oDiscSurf: texture_storage_2d<rgba32float, write>;
+fn discHash(a: u32) -> u32 { var h = a; h ^= h >> 16u; h *= 2146121005u; h ^= h >> 15u; h *= 2221713035u; return h ^ (h >> 16u); }
+fn discRandom(a: u32) -> f32 { return (f32(discHash(a) & 0x00ffffffu) + 0.5) / 16777216.0; }
+fn discDir(id: f32, moon: bool) -> vec3f {
+  let axis = select(P.sunDir.xyz, P.moonDir.xyz, moon); let angle = select(P.sunSize, P.moonSize, moon);
+  let z = 1.0 - discRandom(u32(id) + 198491317u) * (1.0 - cos(angle)); let phi = 2.0 * PI * discRandom(u32(id) + 6542989u);
+  let r = sqrt(max(0.0, 1.0 - z * z)); let f = frameOf(axis); return normalize(axis * z + r * (f[0] * cos(phi) + f[1] * sin(phi))); }
+fn discTarget(id: f32, n: vec3f, moon: bool) -> f32 { return max(dot(n, discDir(id, moon)), 0.01); }
+// A finalized reservoir is (numeric sample ID, contribution weight W, confidence M, unused).
+fn discCombine(a: vec4f, b: vec4f, pa: f32, pb: f32, u: f32) -> vec4f {
+  if (b.z <= 0.0) { return a; } if (a.z <= 0.0) { return b; }
+  let wa = pa * a.y * a.z; let wb = pb * b.y * b.z; let ws = wa + wb; let m = a.z + b.z;
+  if (ws <= 0.0) { return vec4f(0.0); } let pickB = u * ws < wb;
+  return vec4f(select(a.x, b.x, pickB), ws / (m * select(pa, pb, pickB)), m, 0.0); }
+fn discTemporal(px: vec2i, A: vec4f, n: vec3f, moon: bool) -> vec4f {
+  let salt = select(1234567u, 8901234u, moon); let pid = u32(px.x) + u32(px.y) * u32(P.loRes.x);
+  let id = f32(discHash(pid ^ (u32(P.frame) * 747796405u) ^ salt) & 0x00ffffffu);
+  var r = vec4f(id, 1.0, 1.0, 0.0);
+  let c = P.prevPV * vec4f(A.xyz, 1.0); if (c.w <= 0.0) { return r; }
+  let uv = vec2f(c.x / c.w * 0.5 + 0.5, 0.5 - c.y / c.w * 0.5); if (any(uv <= vec2f(0.0)) || any(uv >= vec2f(1.0))) { return r; }
+  let q = min(vec2i(uv * P.loRes), vec2i(P.loRes) - 1); let oldS = textureLoad(tDiscSurf, q, 0);
+  var old = select(textureLoad(tSunR, q, 0), textureLoad(tMoonR, q, 0), moon);
+  if (old.z <= 0.0 || distance(A.xyz, oldS.xyz) > 0.03 * A.w + 0.05 || dot(n, octDec(unpack2x16snorm(bitcast<u32>(oldS.w)))) < 0.9) { return r; }
+  let d = textureLoad(tDiscDup, q, 0); let dup = select(d.x, d.y, moon);
+  // The 3x3 map is a cheap version of the paper's 17x17 map. Sample-conditioned
+  // confidence reduction has the same small bias tradeoff described in that paper.
+  old.z = min(old.z, mix(20.0, 1.0, pow(clamp(dup, 0.0, 1.0), 0.25)));
+  r = discCombine(r, old, discTarget(r.x, n, moon), discTarget(old.x, n, moon), discRandom(pid ^ (u32(P.frame) * 3266489917u) ^ salt));
+  return r; }
+fn discPair(a: vec4f, b: vec4f, na: vec3f, nb: vec3f, moon: bool, seed: u32) -> mat2x4f {
+  // Reusing a duplicate adds confidence without adding a different disc point.
+  if (a.x == b.x) { return mat2x4f(a, b); }
+  let aa = discTarget(a.x, na, moon); let ab = discTarget(a.x, nb, moon);
+  let ba = discTarget(b.x, na, moon); let bb = discTarget(b.x, nb, moon);
+  return mat2x4f(discCombine(a, b, aa, ba, discRandom(seed)), discCombine(b, a, bb, ab, discRandom(seed ^ 1597334677u))); }
+fn discVisible(r: vec4f, p: vec3f, n: vec3f, moon: bool) -> f32 {
+  if (r.z <= 0.0) { return 1.0; } let l = discDir(r.x, moon);
+  if (occluded(p + n * 3e-3, l, 1e9)) { return 0.0; } return r.y; }
+fn discWrite(px: vec2i, A: vec4f, n: vec3f, sun: vec4f, moon: vec4f) {
+  textureStore(oSunR, px, sun); textureStore(oMoonR, px, moon);
+  textureStore(oDiscSurf, px, vec4f(A.xyz, bitcast<f32>(pack2x16snorm(octEnc(n)))));
+  if (A.w < 0.0) { textureStore(oV, px, vec4f(1.0, 1.0, 0.0, -1.0)); return; }
+  var sv = 1.0; var mv = 1.0;
+  if (sun.z > 0.0) { sv = discVisible(sun, A.xyz, n, false) * cloudShadow(A.xyz); }
+  if (moon.z > 0.0) { mv = discVisible(moon, A.xyz, n, true); }
+  textureStore(oV, px, vec4f(sv, mv, 0.0, A.w)); }
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let px = vec2i(gid.xy); if (any(px >= vec2i(P.loRes))) { return; }
+  let fp = min(px * P.shadowStride, vec2i(P.res) - 1); let A = textureLoad(gA, fp, 0); let n = textureLoad(gB, fp, 0).xyz;
+  if (P.shadowReuse.x < 0.5) {
+    textureStore(oSunR, px, vec4f(0.0)); textureStore(oMoonR, px, vec4f(0.0)); textureStore(oDiscSurf, px, vec4f(0.0));
+    if (A.w < 0.0) { textureStore(oV, px, vec4f(1.0, 1.0, 0.0, -1.0)); return; }
+    let po = A.xyz + n * 3e-3; let rot = ign(vec2f(px)); let age = textureLoad(tAge, px, 0).z;
+    let K = select(P.shadowK, select(select(P.shadowK, max(P.shadowK * 2, 4), age < 12.0), max(P.shadowK, 1), age > 60.0), P.nrc.w > 0.5);
+    var sv = 1.0; if (dot(P.sunCol.xyz, P.sunCol.xyz) > 0.0) { sv = 0.0; if (dot(n, P.sunDir.xyz) > -0.1) { for (var k = 0; k < 8; k++) { if (k >= K) { break; } let l = coneK(P.sunDir.xyz, P.sunSize, k, K, rot); if (!occluded(po, l, 1e9)) { sv += 1.0; } } sv /= f32(K); } sv *= cloudShadow(A.xyz); }
+    var mv = 1.0; if (dot(P.moonCol.xyz, P.moonCol.xyz) > 0.0) { mv = 0.0; let l = coneK(P.moonDir.xyz, P.moonSize, 0, 1, rot); if (dot(n, l) > 0.0 && !occluded(po, l, 1e9)) { mv = 1.0; } }
+    textureStore(oV, px, vec4f(sv, mv, 0.0, A.w)); return;
+  }
+  // A frame-varying involution in each 4x4 tile gives every pixel exactly one
+  // partner. Only the lower linear index runs, evaluating and writing both ends.
+  let tile = px / 4; let mask = 1u + discHash((u32(tile.x) * 1597334677u) ^ (u32(tile.y) * 3812015801u) ^ u32(P.frame)) % 15u;
+  let local = vec2u(px % 4); let q = tile * 4 + vec2i(local ^ vec2u(mask & 3u, mask >> 2u));
+  let hasPair = all(q < vec2i(P.loRes)); if (hasPair && (q.y * i32(P.loRes.x) + q.x) < (px.y * i32(P.loRes.x) + px.x)) { return; }
+  let qf = min(q * P.shadowStride, vec2i(P.res) - 1); var B = A; var nb = n;
+  if (hasPair) { B = textureLoad(gA, qf, 0); nb = textureLoad(gB, qf, 0).xyz; }
+  let sunOn = dot(P.sunCol.xyz, P.sunCol.xyz) > 0.0; let moonOn = dot(P.moonCol.xyz, P.moonCol.xyz) > 0.0;
+  var sa = vec4f(0.0); var ma = vec4f(0.0); var sb = vec4f(0.0); var mb = vec4f(0.0);
+  if (A.w >= 0.0) { if (sunOn) { sa = discTemporal(px, A, n, false); } if (moonOn) { ma = discTemporal(px, A, n, true); } }
+  if (hasPair && B.w >= 0.0) { if (sunOn) { sb = discTemporal(q, B, nb, false); } if (moonOn) { mb = discTemporal(q, B, nb, true); } }
+  if (hasPair && A.w >= 0.0 && B.w >= 0.0 && dot(n, nb) > 0.9 && distance(A.xyz, B.xyz) < 0.03 * min(A.w, B.w) + 0.05) {
+    let seed = u32(px.x) ^ (u32(px.y) * 3812015801u) ^ (u32(P.frame) * 1597334677u);
+    if (sunOn) { let pair = discPair(sa, sb, n, nb, false, seed); sa = pair[0]; sb = pair[1]; }
+    if (moonOn) { let pair = discPair(ma, mb, n, nb, true, seed ^ 198491317u); ma = pair[0]; mb = pair[1]; }
+  }
+  discWrite(px, A, n, sa, ma); if (hasPair) { discWrite(q, B, nb, sb, mb); }
+}`;
+const WG_DISC_DUP = WG_COMMON + `
+@group(1) @binding(0) var sun: texture_2d<f32>; @group(1) @binding(1) var moon: texture_2d<f32>;
+@group(1) @binding(2) var outDup: texture_storage_2d<rgba16float, write>;
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let p = vec2i(gid.xy); if (any(p >= vec2i(P.loRes))) { return; }
+  let a = textureLoad(sun, p, 0); let b = textureLoad(moon, p, 0); var d = vec2f(0.0); var count = 0.0;
+  for (var y = -1; y <= 1; y++) { for (var x = -1; x <= 1; x++) {
+    if (x == 0 && y == 0) { continue; } let q = p + vec2i(x, y); if (any(q < vec2i(0)) || any(q >= vec2i(P.loRes))) { continue; }
+    let sa = textureLoad(sun, q, 0); let mb = textureLoad(moon, q, 0); count += 1.0;
+    d.x += select(0.0, 1.0, a.z > 0.0 && sa.z > 0.0 && a.x == sa.x); d.y += select(0.0, 1.0, b.z > 0.0 && mb.z > 0.0 && b.x == mb.x);
+  } }
+  textureStore(outDup, p, vec4f(d / max(count, 1.0), 0.0, 0.0));
+}`;
 const WG_GI = WG_COMMON + `
 @group(1) @binding(0) var gA: texture_2d<f32>; @group(1) @binding(1) var gB: texture_2d<f32>; @group(1) @binding(2) var oG: texture_storage_2d<rgba16float, write>;
 @compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) gid: vec3u) { let px = vec2i(gid.xy); if (f32(px.x) >= P.giRes.x || f32(px.y) >= P.giRes.y) { return; } let fp = min(px * P.giStride, vec2i(P.res) - 1);
@@ -880,7 +972,7 @@ fn srgb(c0: vec3f) -> vec3f { let c = clamp(c0, vec3f(0.0), vec3f(1.0)); return 
 @fragment fn fs(i: VO) -> @location(0) vec4f { var c = textureSampleLevel(tSrc, samp, i.uv, 0.0).rgb; let bl = textureSampleLevel(tBloom, samp, i.uv, 0.0).rgb; c += bl * D.bloom;
   if (D.shafts > 0.0 && D.sunUp > 0.0) { var sh = vec3f(0.0); let dv = (D.sunUv - i.uv) / 24.0; var uv = i.uv; var wsum = 0.0; for (var k = 0; k < 24; k++) { uv += dv; let w = 1.0 - f32(k) / 24.0; sh += textureSampleLevel(tBloom, samp, uv, 0.0).rgb * w; wsum += w; } let dist = length((D.sunUv - i.uv) * vec2f(1.0, 0.75)); c += sh / wsum * D.shafts * D.sunUp * (1.0 - smoothstep(0.35, 0.9, dist)); }
   c *= D.exposure; if (D.curve == 1.0) { c = aces(c); } else if (D.curve == 2.0) { c = c / (1.0 + c); } let lum = dot(c, vec3f(0.3, 0.59, 0.11)); c = mix(vec3f(lum), c, 1.1); let vd = length((i.uv - 0.5) * vec2f(1.0, 0.85)); c *= 1.0 - 0.28 * smoothstep(0.35, 0.95, vd); return vec4f(srgb(c), 1.0); }`;
-let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { cvOn: true, vrr: true, nrcOn: true, restirOn: true, cacheOn: true, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true };
+let gpu = null; const prevPV = new THREE.Matrix4(); const fx = window.__fx = { discReuse: true, cvOn: true, vrr: true, nrcOn: true, restirOn: true, cacheOn: true, oceanOn: true, waveAmp: 1, time: 0, dt: 0.016, mist: 0.006, cover: 0.35, wind: 1, bloom: 0.12, shafts: 0, waterOn: true, fireOn: true, chimOn: true, hideFlame: true, rain: 0, fireStrength: 1, smokeAmt: 1, windOn: true };
 // the simulation grids: a wave grid over the lake (with the shore as a wall), and two boxes of air over the fire and the chimney
 const SIM = (() => { const n = 256, size = 44, x0 = LAKE.x - size / 2, z0 = LAKE.z - size / 2; const land = new Uint8Array(n * n * 2); for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = x0 + (i + 0.5) / n * size, z = z0 + (j + 0.5) / n * size; const th = terrainH(x, z); land[(j * n + i) * 2] = th > -0.55 ? 255 : 0; const dp = Math.min(Math.max((-0.55 - th) / 0.9, 0), 1); land[(j * n + i) * 2 + 1] = Math.round(255 * dp * dp * (3 - 2 * dp)); }
   const fy = terrainH(FIRE.x, FIRE.z); const ca = Math.cos(-0.55), sa = Math.sin(-0.55); const cx = CABIN.x + (3.2 - 1.2) * ca + (-2.3 + 0.9) * sa, cz = CABIN.z - (3.2 - 1.2) * sa + (-2.3 + 0.9) * ca; const cy = terrainH(CABIN.x, CABIN.z) - 0.1 + 5.5;
@@ -989,7 +1081,7 @@ fn pAt(c: vec3i) -> f32 { let q = clamp(c, vec3i(0), vec3i(F.dims) - 1); return 
 async function startWebGPU() {
   if (!navigator.gpu) return null; const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null); if (!adapter) return null;
   const need = Math.max(nodeData.byteLength, triData.byteLength, attrData.byteLength, instData.byteLength); if (adapter.limits.maxStorageBufferBindingSize < need) return null;
-  const texLim = adapter.limits.maxSampledTexturesPerShaderStage; if (texLim < 18) return null; const device = await adapter.requestDevice({ requiredFeatures: adapter.features.has('timestamp-query') ? ['timestamp-query'] : [], requiredLimits: { maxStorageBufferBindingSize: Math.max(need, 134217728), maxBufferSize: Math.max(need, 268435456), maxSampledTexturesPerShaderStage: Math.min(texLim, 24) } }).catch(() => null); if (!device) return null;
+  const texLim = adapter.limits.maxSampledTexturesPerShaderStage; if (texLim < 20) return null; const device = await adapter.requestDevice({ requiredFeatures: adapter.features.has('timestamp-query') ? ['timestamp-query'] : [], requiredLimits: { maxStorageBufferBindingSize: Math.max(need, 134217728), maxBufferSize: Math.max(need, 268435456), maxSampledTexturesPerShaderStage: Math.min(texLim, 24) } }).catch(() => null); if (!device) return null;
   const gpuStats = window.__gpuStats = { ms: 0, samples: [], supported: device.features.has('timestamp-query') }; let timingPending = false;
   const timing = gpuStats.supported ? { query: device.createQuerySet({ type: 'timestamp', count: 2 }), resolve: device.createBuffer({ size: 256, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC }), read: device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ }) } : null;
   const timed = (start) => timing ? { timestampWrites: { querySet: timing.query, ...(start ? { beginningOfPassWriteIndex: 0 } : { endOfPassWriteIndex: 1 }) } } : {};
@@ -998,7 +1090,7 @@ async function startWebGPU() {
   const ctx = canvas.getContext('webgpu'); const format = navigator.gpu.getPreferredCanvasFormat(); ctx.configure({ device, format, alphaMode: 'opaque' });
   const mkBuf = (arr, usage) => { const b = device.createBuffer({ size: Math.ceil(arr.byteLength / 16) * 16, usage, mappedAtCreation: true }); new Float32Array(b.getMappedRange()).set(arr); b.unmap(); return b; };
   const bNodes = mkBuf(nodeData, GPUBufferUsage.STORAGE), bTris = mkBuf(triData, GPUBufferUsage.STORAGE), bTris0 = mkBuf(triData, GPUBufferUsage.STORAGE), bAttr = mkBuf(attrData, GPUBufferUsage.STORAGE), bInst = mkBuf(instData, GPUBufferUsage.STORAGE);
-  const PARAMS_F = 84 + MATN * 12 + 320 + 20 + 24 + 12 + 4 + 320; const prevLightA = new Float32Array(160), prevLightE = new Float32Array(160); const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const DISC_PARAM_F = 84 + MATN * 12 + 320 + 20 + 24 + 12 + 4 + 320; const PARAMS_F = DISC_PARAM_F + 4; const prevLightA = new Float32Array(160), prevLightE = new Float32Array(160); const paramsArr = new Float32Array(PARAMS_F), paramsI = new Int32Array(paramsArr.buffer); const bParams = device.createBuffer({ size: PARAMS_F * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const layers = [barkTex, birchTex, leafO, leafP, leafB, rockTex, woodTex, stoneTex, groundTex, grassTex]; const texArr = device.createTexture({ size: [256, 256, layers.length], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
   layers.forEach((t, i) => device.queue.copyExternalImageToTexture({ source: t.image }, { texture: texArr, origin: [0, 0, i] }, [256, 256]));
   const samp = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat', addressModeW: 'repeat' });
@@ -1083,11 +1175,11 @@ async function startWebGPU() {
       const wg = [Math.ceil(d[0] / 4), Math.ceil(d[1] / 4), Math.ceil(d[2] / 4)]; const run = (pipe, grp) => { const c = enc.beginComputePass(); c.setPipeline(pipe); c.setBindGroup(0, grp); c.dispatchWorkgroups(...wg); c.end(); };
       run(simP.adv, G.adv[cur]); run(simP.div, G.div[cur]); for (let it = 0; it < 10; it++) run(simP.jac, G.jac[it & 1]); run(simP.proj, G.proj[cur]); } }
   const T = (b) => ({ binding: b, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'unfilterable-float' } }), W = (b, fmt) => ({ binding: b, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: fmt } });
-  const layouts = { gbuf: device.createBindGroupLayout({ entries: [W(0, 'rgba32float'), W(1, 'rgba32float'), W(2, 'rgba32float'), W(3, 'rgba32float')] }), shadow: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float'), T(3)] }), gi: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }),
+  const layouts = { gbuf: device.createBindGroupLayout({ entries: [W(0, 'rgba32float'), W(1, 'rgba32float'), W(2, 'rgba32float'), W(3, 'rgba32float')] }), shadow: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float'), T(3), T(4), T(5), T(6), T(7), W(8, 'rgba32float'), W(9, 'rgba32float'), W(10, 'rgba32float')] }), discDup: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }), gi: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }),
     blur: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), W(3, 'rgba16float'), { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }), refl: device.createBindGroupLayout({ entries: [T(0), T(1), W(2, 'rgba16float')] }), cache: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }] }), nrcTrain: device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }] }), comp: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), T(3), T(4), T(5), T(6), W(7, 'rgba16float'), T(8), T(9), T(10), W(11, 'rgba32float'), W(12, 'rgba32float')] }),
     taa: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), W(3, 'rgba16float')] }), acc: device.createBindGroupLayout({ entries: [T(0), T(1), T(2), W(3, 'rgba16float'), { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }), bright: device.createBindGroupLayout({ entries: [T(0), W(1, 'rgba16float')] }), gauss: device.createBindGroupLayout({ entries: [T(0), W(1, 'rgba16float'), { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }] }) };
   const pipe = (code, l1) => device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [g0Layout, l1] }), compute: { module: device.createShaderModule({ code }), entryPoint: 'main' } });
-  const pipes = { gbuf: pipe(WG_GBUF, layouts.gbuf), shadow: pipe(WG_SHADOW, layouts.shadow), gi: pipe(WG_GI, layouts.gi), blur: pipe(WG_BLUR, layouts.blur), refl: pipe(WG_REFL, layouts.refl), cache: pipe(WG_CACHE, layouts.cache), nrcTrain: pipe(WG_NRC_TRAIN, layouts.nrcTrain), comp: pipe(WG_COMP, layouts.comp), taa: pipe(WG_TAA, layouts.taa), acc: pipe(WG_ACC, layouts.acc), vol: pipe(WG_VOL, layouts.gi), bright: pipe(WG_BRIGHT, layouts.bright), gauss: pipe(WG_GAUSS, layouts.gauss) };
+  const pipes = { gbuf: pipe(WG_GBUF, layouts.gbuf), shadow: pipe(WG_SHADOW, layouts.shadow), discDup: pipe(WG_DISC_DUP, layouts.discDup), gi: pipe(WG_GI, layouts.gi), blur: pipe(WG_BLUR, layouts.blur), refl: pipe(WG_REFL, layouts.refl), cache: pipe(WG_CACHE, layouts.cache), nrcTrain: pipe(WG_NRC_TRAIN, layouts.nrcTrain), comp: pipe(WG_COMP, layouts.comp), taa: pipe(WG_TAA, layouts.taa), acc: pipe(WG_ACC, layouts.acc), vol: pipe(WG_VOL, layouts.gi), bright: pipe(WG_BRIGHT, layouts.bright), gauss: pipe(WG_GAUSS, layouts.gauss) };
   const dispLayout = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: {} }, { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: {} }, { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }, { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: {} }] });
   const dispMod = device.createShaderModule({ code: WG_DISP }); const dispPipe = device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [dispLayout] }), vertex: { module: dispMod, entryPoint: 'vs' }, fragment: { module: dispMod, entryPoint: 'fs', targets: [{ format }] }, primitive: { topology: 'triangle-list' } });
   const bDisp = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); const dispSamp = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
@@ -1095,12 +1187,12 @@ async function startWebGPU() {
   const st = { w: 0, h: 0, tex: null, groups: null, ss: 2, gs: 4 };
   const mkTex = (w, h, fmt) => device.createTexture({ size: [w, h], format: fmt, usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
   function ensure(w, h, ss, gs) { if (st.w === w && st.h === h && st.ss === ss && st.gs === gs && st.dn === denoise) return; st.dn = denoise; if (st.tex) for (const k in st.tex) st.tex[k].destroy(); st.ss = ss; st.gs = gs; const lw = Math.max(2, Math.ceil(w / ss)), lh = Math.max(2, Math.ceil(h / ss)), qw = Math.max(2, Math.ceil(w / gs)), qh = Math.max(2, Math.ceil(h / gs)), bw = Math.max(2, Math.ceil(w / 4)), bh = Math.max(2, Math.ceil(h / 4));
-    const t = st.tex = { gA: mkTex(w, h, 'rgba32float'), gB: mkTex(w, h, 'rgba32float'), rA0: mkTex(w, h, 'rgba32float'), rA1: mkTex(w, h, 'rgba32float'), rB0: mkTex(w, h, 'rgba32float'), rB1: mkTex(w, h, 'rgba32float'), gC: mkTex(w, h, 'rgba32float'), gD: mkTex(w, h, 'rgba32float'), sV: mkTex(lw, lh, 'rgba16float'), sV2: mkTex(lw, lh, 'rgba16float'), sRaw: mkTex(lw, lh, 'rgba16float'), sH0: mkTex(lw, lh, 'rgba16float'), sH1: mkTex(lw, lh, 'rgba16float'), gi: mkTex(qw, qh, 'rgba16float'), gi2: mkTex(qw, qh, 'rgba16float'), gRaw: mkTex(qw, qh, 'rgba16float'), gH0: mkTex(qw, qh, 'rgba16float'), gH1: mkTex(qw, qh, 'rgba16float'), vRaw: mkTex(qw, qh, 'rgba16float'), vH0: mkTex(qw, qh, 'rgba16float'), vH1: mkTex(qw, qh, 'rgba16float'), vB: mkTex(qw, qh, 'rgba16float'), vB2: mkTex(qw, qh, 'rgba16float'), refl: mkTex(w, h, 'rgba16float'), cur: mkTex(w, h, 'rgba16float'), acc0: mkTex(w, h, 'rgba16float'), acc1: mkTex(w, h, 'rgba16float'), bl0: mkTex(bw, bh, 'rgba16float'), bl1: mkTex(bw, bh, 'rgba16float') };
+    const t = st.tex = { gA: mkTex(w, h, 'rgba32float'), gB: mkTex(w, h, 'rgba32float'), rA0: mkTex(w, h, 'rgba32float'), rA1: mkTex(w, h, 'rgba32float'), rB0: mkTex(w, h, 'rgba32float'), rB1: mkTex(w, h, 'rgba32float'), gC: mkTex(w, h, 'rgba32float'), gD: mkTex(w, h, 'rgba32float'), sSun0: mkTex(lw, lh, 'rgba32float'), sSun1: mkTex(lw, lh, 'rgba32float'), sMoon0: mkTex(lw, lh, 'rgba32float'), sMoon1: mkTex(lw, lh, 'rgba32float'), sSurf0: mkTex(lw, lh, 'rgba32float'), sSurf1: mkTex(lw, lh, 'rgba32float'), sDup0: mkTex(lw, lh, 'rgba16float'), sDup1: mkTex(lw, lh, 'rgba16float'), sV: mkTex(lw, lh, 'rgba16float'), sV2: mkTex(lw, lh, 'rgba16float'), sRaw: mkTex(lw, lh, 'rgba16float'), sH0: mkTex(lw, lh, 'rgba16float'), sH1: mkTex(lw, lh, 'rgba16float'), gi: mkTex(qw, qh, 'rgba16float'), gi2: mkTex(qw, qh, 'rgba16float'), gRaw: mkTex(qw, qh, 'rgba16float'), gH0: mkTex(qw, qh, 'rgba16float'), gH1: mkTex(qw, qh, 'rgba16float'), vRaw: mkTex(qw, qh, 'rgba16float'), vH0: mkTex(qw, qh, 'rgba16float'), vH1: mkTex(qw, qh, 'rgba16float'), vB: mkTex(qw, qh, 'rgba16float'), vB2: mkTex(qw, qh, 'rgba16float'), refl: mkTex(w, h, 'rgba16float'), cur: mkTex(w, h, 'rgba16float'), acc0: mkTex(w, h, 'rgba16float'), acc1: mkTex(w, h, 'rgba16float'), bl0: mkTex(bw, bh, 'rgba16float'), bl1: mkTex(bw, bh, 'rgba16float') };
     const v = {}; for (const k in t) v[k] = t[k].createView(); const E = (b, r) => ({ binding: b, resource: r });
     const bg = (layout, list) => device.createBindGroup({ layout, entries: list.map((r, i) => E(i, r)) });
     const blurP = (i, dir, stride, rw, rh) => { device.queue.writeBuffer(blurBufs[i], 0, new Float32Array([dir[0], dir[1], stride, denoise ? 1 : 0, rw, rh, 0, 0])); return blurBufs[i]; };
     device.queue.writeBuffer(accBufs[0], 0, new Float32Array([ss, 0.05, lw, lh])); device.queue.writeBuffer(accBufs[1], 0, new Float32Array([gs + 10, 0.06, qw, qh])); device.queue.writeBuffer(accBufs[2], 0, new Float32Array([gs + 10, 0.08, qw, qh]));
-    st.groups = { gbuf: bg(layouts.gbuf, [v.gA, v.gB, v.gC, v.gD]), shadow: [bg(layouts.shadow, [v.gA, v.gB, v.sRaw, v.sH1]), bg(layouts.shadow, [v.gA, v.gB, v.sRaw, v.sH0])], gi: bg(layouts.gi, [v.gA, v.gB, v.gRaw]), cache: device.createBindGroup({ layout: layouts.cache, entries: [{ binding: 0, resource: { buffer: statsBuf } }] }), nrcTrain: device.createBindGroup({ layout: layouts.nrcTrain, entries: [{ binding: 0, resource: { buffer: nrcBufs.part } }, { binding: 1, resource: { buffer: statsBuf } }] }),
+    st.groups = { gbuf: bg(layouts.gbuf, [v.gA, v.gB, v.gC, v.gD]), shadow: [bg(layouts.shadow, [v.gA, v.gB, v.sRaw, v.sH1, v.sSun1, v.sMoon1, v.sSurf1, v.sDup1, v.sSun0, v.sMoon0, v.sSurf0]), bg(layouts.shadow, [v.gA, v.gB, v.sRaw, v.sH0, v.sSun0, v.sMoon0, v.sSurf0, v.sDup0, v.sSun1, v.sMoon1, v.sSurf1])], discDup: [bg(layouts.discDup, [v.sSun0, v.sMoon0, v.sDup0]), bg(layouts.discDup, [v.sSun1, v.sMoon1, v.sDup1])], gi: bg(layouts.gi, [v.gA, v.gB, v.gRaw]), cache: device.createBindGroup({ layout: layouts.cache, entries: [{ binding: 0, resource: { buffer: statsBuf } }] }), nrcTrain: device.createBindGroup({ layout: layouts.nrcTrain, entries: [{ binding: 0, resource: { buffer: nrcBufs.part } }, { binding: 1, resource: { buffer: statsBuf } }] }),
       accS: [device.createBindGroup({ layout: layouts.acc, entries: [E(0, v.gA), E(1, v.sRaw), E(2, v.sH1), E(3, v.sH0), E(4, { buffer: accBufs[0] })] }), device.createBindGroup({ layout: layouts.acc, entries: [E(0, v.gA), E(1, v.sRaw), E(2, v.sH0), E(3, v.sH1), E(4, { buffer: accBufs[0] })] })],
       accG: [device.createBindGroup({ layout: layouts.acc, entries: [E(0, v.gA), E(1, v.gRaw), E(2, v.gH1), E(3, v.gH0), E(4, { buffer: accBufs[1] })] }), device.createBindGroup({ layout: layouts.acc, entries: [E(0, v.gA), E(1, v.gRaw), E(2, v.gH0), E(3, v.gH1), E(4, { buffer: accBufs[1] })] })],
       vol: bg(layouts.gi, [v.gA, v.gB, v.vRaw]), accV: [device.createBindGroup({ layout: layouts.acc, entries: [E(0, v.gA), E(1, v.vRaw), E(2, v.vH1), E(3, v.vH0), E(4, { buffer: accBufs[2] })] }), device.createBindGroup({ layout: layouts.acc, entries: [E(0, v.gA), E(1, v.vRaw), E(2, v.vH0), E(3, v.vH1), E(4, { buffer: accBufs[2] })] })],
@@ -1120,12 +1212,12 @@ async function startWebGPU() {
     f[64] = U.uSunE.value; f[65] = U.uSunfade.value; f[66] = U.uMieG.value; f[67] = U.uSunCos.value; f[68] = U.uNight.value; f[69] = U.uSkyOn.value; f[70] = U.uBounceOn.value; f[71] = U.uFogD.value; f[72] = U.uSunSize.value; f[73] = U.uMoonSize.value; f[74] = U.uNoiseShift.value; f[75] = blend;
     paramsI[76] = tlasRoot; paramsI[77] = spheres.length; paramsI[78] = U.uShadowK.value; paramsI[79] = U.uGiK.value; paramsI[80] = view; paramsI[81] = U.uFrame.value; paramsI[82] = st.ss; paramsI[83] = st.gs;
     f.set(matA, 84); f.set(matB, 84 + MATN * 4); f.set(matC, 84 + MATN * 8); f.set(sphA, 84 + MATN * 12); f.set(sphB, 84 + MATN * 12 + 160); const o2 = 84 + MATN * 12 + 320; f.set(prevPV.elements, o2); f[o2 + 16] = fx.time; f[o2 + 17] = fx.mist; f[o2 + 18] = fx.cover; f[o2 + 19] = fx.wind; f.set([...SIM.fire.min, 0, ...SIM.fire.max, 0, ...SIM.chim.min, 0, ...SIM.chim.max, 0, SIM.water.x0, SIM.water.z0, SIM.water.size, SIM.water.n, fx.waterOn ? 1 : 0, fx.fireOn ? 1 : 0, fx.chimOn ? 1 : 0, fx.hideFlame ? 1 : 0], o2 + 20); f.set([fx.oceanOn ? 1 : 0, OCEAN_L, fx.cacheOn ? 1 : 0, fx.restirOn ? 1 : 0, fx.nrcOn && fx.cacheOn ? 1 : 0, 0, 0, fx.vrr ? 1 : 0, atm.rayScale, atm.mieScale, atm.g, 0], o2 + 44); f.set([fx.cvOn ? 1 : 0, 0, 0, 0], o2 + 56); f.set(prevLightA, o2 + 60); f.set(prevLightE, o2 + 220);
-    prevLightA.set(sphA); for (let i = 0; i < 40; i++) { const m = sphB[i * 4] | 0, on = i < spheres.length && sphB[i * 4 + 1] > 0.5; for (let j = 0; j < 3; j++) prevLightE[i * 4 + j] = on ? matA[m * 4 + j] * matB[m * 4 + 1] : 0; } device.queue.writeBuffer(bParams, 0, paramsArr); }
+    prevLightA.set(sphA); for (let i = 0; i < 40; i++) { const m = sphB[i * 4] | 0, on = i < spheres.length && sphB[i * 4 + 1] > 0.5; for (let j = 0; j < 3; j++) prevLightE[i * 4 + j] = on ? matA[m * 4 + j] * matB[m * 4 + 1] : 0; } f.set([fx.discReuse ? 1 : 0, 0, 0, 0], DISC_PARAM_F); device.queue.writeBuffer(bParams, 0, paramsArr); }
   function render(w, h, blend, view, jitter, doBlur, ss, gs) {
     ensure(w, h, ss, gs); fillParams(w, h, blend, view, jitter); const sc = sunDir.clone().multiplyScalar(1000).add(camera.position).project(camera); device.queue.writeBuffer(bDisp, 0, new Float32Array([dispU.uExposure.value, dispU.uCurve.value, fx.bloom, fx.shafts, sc.x * 0.5 + 0.5, 0.5 - sc.y * 0.5, sc.z < 1 && sunDir.y > 0.02 ? 1 : 0, 0]));
     const cw = Math.max(1, Math.round(sb.stage.clientWidth * Math.min(devicePixelRatio || 1, 2))), ch = Math.max(1, Math.round(sb.stage.clientHeight * Math.min(devicePixelRatio || 1, 2))); if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
     const enc = device.createCommandEncoder(); const G = st.groups; skyPass(enc); simStep(enc, fx.dt, cur); oceanStep(enc); g0 = g0s[1 - cur]; const run = (p, g, x, y) => { const c = enc.beginComputePass(); c.setPipeline(p); c.setBindGroup(0, g0); c.setBindGroup(1, g); c.dispatchWorkgroups(Math.ceil(x / 8), Math.ceil(y / 8)); c.end(); };
-    run(pipes.gbuf, G.gbuf, w, h); if (fx.cacheOn) { run(pipes.cache, G.cache, 65536 / 8, 8); if (fx.nrcOn) { run(pipes.nrcTrain, G.nrcTrain, NRC_WG * 64 / 8, 8); const c = enc.beginComputePass(); c.setPipeline(nrcApply.pipe); c.setBindGroup(0, nrcApply.group); c.dispatchWorkgroups(Math.ceil(NRC_NP / 64)); c.end(); } } run(pipes.shadow, G.shadow[cur], st.lw, st.lh); run(pipes.acc, G.accS[cur], st.lw, st.lh); run(pipes.gi, G.gi, st.qw, st.qh); run(pipes.acc, G.accG[cur], st.qw, st.qh);
+    run(pipes.gbuf, G.gbuf, w, h); if (fx.cacheOn) { run(pipes.cache, G.cache, 65536 / 8, 8); if (fx.nrcOn) { run(pipes.nrcTrain, G.nrcTrain, NRC_WG * 64 / 8, 8); const c = enc.beginComputePass(); c.setPipeline(nrcApply.pipe); c.setBindGroup(0, nrcApply.group); c.dispatchWorkgroups(Math.ceil(NRC_NP / 64)); c.end(); } } run(pipes.shadow, G.shadow[cur], st.lw, st.lh); if (fx.discReuse) run(pipes.discDup, G.discDup[cur], st.lw, st.lh); run(pipes.acc, G.accS[cur], st.lw, st.lh); run(pipes.gi, G.gi, st.qw, st.qh); run(pipes.acc, G.accG[cur], st.qw, st.qh);
     run(pipes.blur, G.blurS1[cur], st.lw, st.lh); run(pipes.blur, G.blurS2, st.lw, st.lh); run(pipes.blur, G.blurG1[cur], st.qw, st.qh); run(pipes.blur, G.blurG2, st.qw, st.qh);
     run(pipes.vol, G.vol, st.qw, st.qh); run(pipes.acc, G.accV[cur], st.qw, st.qh); run(pipes.blur, G.blurV1[cur], st.qw, st.qh); run(pipes.blur, G.blurV2, st.qw, st.qh);
     run(pipes.refl, G.refl, w, h); run(pipes.comp, G.comp[cur], w, h); run(pipes.taa, G.taa[cur], w, h); run(pipes.bright, G.bright[cur], st.bw, st.bh); run(pipes.gauss, G.gauss1, st.bw, st.bh); run(pipes.gauss, G.gauss2, st.bw, st.bh);
@@ -1219,6 +1311,7 @@ gpuOnly(s6.toggle('variable rate: extra shadow rays where the history is young, 
 gpuOnly(s6.toggle('reuse light picks from last frame and the neighbours (ReSTIR), one shadow ray per pixel for the lamps, fire and fireflies', true, v => { fx.restirOn = v; }));
 gpuOnly(s6.toggle('steady colours around the fire and lamps [colour control variates]', true, v => { fx.cvOn = v; dirty(); }));
 s6.note('Colour reuse controls diffuse light with a stored estimate and a corrected shadow sample. Sharp highlights still use the chosen light.');
+gpuOnly(s6.toggle('share sun and moon disc picks [ReSTIR], one shadow ray for each', true, v => { fx.discReuse = v; dirty(); }));
 s6.segment('Shadow rays per pixel, toward the sun', [{ value: 1, label: '1' }, { value: 2, label: '2' }, { value: 4, label: '4' }, { value: 8, label: '8' }], 2, v => { U.uShadowK.value = +v; dirty(); });
 s6.segment('Rays per pixel for sky and bounce light', [{ value: 2, label: '2' }, { value: 4, label: '4' }, { value: 6, label: '6' }, { value: 8, label: '8' }], 4, v => { U.uGiK.value = +v; dirty(); });
 s6.toggle('smooth the shadow and bounce answers (denoise)', true, v => { denoise = v; dirty(); });
